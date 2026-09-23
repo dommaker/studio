@@ -53,7 +53,8 @@ function flattenRoutes(router: any): FlatRoute[] {
  *  harness 1.2.0（ADR-0003）：删 guards.routes（/check-input、/check-output、
  *  /sandbox 随 InputGuardrail/OutputGuardrail/Sandbox 移除）→ 39 个；
  *  删 /diagnose、/check-spec、/verify、/verify/rules、/dashboard
- *  （孤儿子系统断链，前端零消费）→ 34 个。 */
+ *  （孤儿子系统断链，前端零消费）→ 34 个；
+ *  ADR-0033 子项 8：增 POST /constraints/propose-upgrade → 35 个。 */
 const EXPECTED: Array<[string, string]> = [
   // traces.routes
   ['GET', '/traces'], ['POST', '/traces'], ['GET', '/analysis'],
@@ -64,6 +65,7 @@ const EXPECTED: Array<[string, string]> = [
   // constraints.routes
   ['GET', '/constraints'], ['GET', '/constraints/stats'], ['GET', '/constraints/retired'],
   ['GET', '/constraints/:id'], ['POST', '/constraints/:id/rollback'],
+  ['POST', '/constraints/propose-upgrade'],
   ['POST', '/check-constraints'],
   // knowledge.routes
   ['POST', '/knowledge/query'], ['GET', '/knowledge'], ['GET', '/knowledge/:id'],
@@ -120,7 +122,7 @@ describe('harness routes facade', () => {
     expect(typeof harnessRoutes.handle).toBe('function');
   });
 
-  it('all 9 sub-routers fully registered: 34 routes (set comparison)', () => {
+  it('all 9 sub-routers fully registered: 35 routes (set comparison)', () => {
     const flat = flattenRoutes(harnessRoutes);
     const actualSet = new Set(flat.map(r => `${r.method} ${r.path}`));
     const expectedSet = new Set(EXPECTED.map(r => `${r[0]} ${r[1]}`));
@@ -130,7 +132,7 @@ describe('harness routes facade', () => {
 
     expect(missing).toEqual([]);
     expect(extra).toEqual([]);
-    expect(flat).toHaveLength(34);
+    expect(flat).toHaveLength(35);
   });
 
   it('GET /constraints/stats registered before GET /constraints/:id (no shadowing)', () => {
