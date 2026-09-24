@@ -213,14 +213,17 @@ function parseDirectionLine(lines: string[]): StepResult['directions'] {
   return undefined;
 }
 
-/** Dynamic sleep interval based on result */
+/** Dynamic sleep interval based on result.
+ *  2026-09 性能治理：步间 sleep 已可中断（#523 wakeIdle），唤醒只放行不裁决——
+ *  progress/delegate/complete 的空睡纯属白等，收紧到近零地板（500ms 防 spin）；
+ *  need_input（等人）与 failed（W-3 失败重试降速）保持原节奏。 */
 export function dynamicInterval(result: { action: string }): number {
   switch (result.action) {
-    case 'progress':   return 3_000;
-    case 'delegate':   return 3_000; // A2A: 委派后父按 progress 继续
-    case 'complete':   return 10_000;
+    case 'progress':   return 500;
+    case 'delegate':   return 500; // A2A: 委派后父按 progress 继续
+    case 'complete':   return 3_000;
     case 'need_input': return 30_000;
-    case 'failed':     return 15_000; // W-3: 失败重试降速（原误判 progress 时每 3s 重试）
+    case 'failed':     return 15_000; // W-3: 失败重试降速
     default:           return 15_000;
   }
 }
