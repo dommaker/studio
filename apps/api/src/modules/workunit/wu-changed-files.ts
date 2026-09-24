@@ -32,33 +32,62 @@ export async function listWorkUnitChangedFiles(
   workUnitId: string,
   deps: WuChangedFilesDeps = {},
 ): Promise<string[]> {
+  const map = await listWorkUnitsChangedFiles([workUnitId], deps);
+  return map[workUnitId] ?? [];
+}
+
+/** 事件集 → 各 WU 文件集（session:start.workUnitId → sessionId → file:change.path，去重保序） */
+function collectChangedFiles(
+  events: Array<Record<string, unknown>>,
+  ids: string[],
+): Record<string, string[]> {
+  const wanted = new Set(ids);
+  const result: Record<string, string[]> = {};
+  for (const id of ids) result[id] = [];
+  const sessionWu = new Map<string, string>();
+  for (const e of events) {
+    if (e.type !== 'session:start') continue;
+    const p = parseStudioEventPayload<{ workUnitId?: unknown; sessionId?: unknown }>(e);
+    if (p && typeof p.workUnitId === 'string' && wanted.has(p.workUnitId)
+      && typeof p.sessionId === 'string' && p.sessionId) {
+      sessionWu.set(p.sessionId, p.workUnitId);
+    }
+  }
+  if (sessionWu.size === 0) return result;
+  const seenByWu = new Map<string, Set<string>>();
+  for (const e of events) {
+    if (e.type !== 'file:change') continue;
+    const p = parseStudioEventPayload<{ sessionId?: unknown; path?: unknown }>(e);
+    if (!p || typeof p.sessionId !== 'string') continue;
+    const wuId = sessionWu.get(p.sessionId);
+    if (!wuId || typeof p.path !== 'string' || !p.path) continue;
+    let seen = seenByWu.get(wuId);
+    if (!seen) { seen = new Set<string>(); seenByWu.set(wuId, seen); }
+    if (seen.has(p.path)) continue;
+    seen.add(p.path);
+    result[wuId].push(p.path);
+  }
+  return result;
+}
+
+/**
+ * 批量版（2026-09-25 频道首屏合并）：一次窗口读派生全部 WU 的文件集，
+ * 替代逐 WU 单发各自全窗口读（N 个 WU = N 次 30d 窗口扫描）。
+ * 读取失败 → 全部空集降级，绝不抛出（与单发同口径）。
+ */
+export async function listWorkUnitsChangedFiles(
+  workUnitIds: string[],
+  deps: WuChangedFilesDeps = {},
+): Promise<Record<string, string[]>> {
+  const ids = [...new Set(workUnitIds.filter(id => typeof id === 'string' && id))];
   try {
     const events = await (deps.readEvents ?? (() => readStudioEventsSince({ sinceMs: Date.now() - EVENTS_WINDOW_MS })))();
-    const sessionIds = new Set<string>();
-    for (const e of events) {
-      if (e.type !== 'session:start') continue;
-      const p = parseStudioEventPayload<{ workUnitId?: unknown; sessionId?: unknown }>(e);
-      if (p?.workUnitId === workUnitId && typeof p.sessionId === 'string' && p.sessionId) {
-        sessionIds.add(p.sessionId);
-      }
-    }
-    if (sessionIds.size === 0) return [];
-    const files: string[] = [];
-    const seen = new Set<string>();
-    for (const e of events) {
-      if (e.type !== 'file:change') continue;
-      const p = parseStudioEventPayload<{ sessionId?: unknown; path?: unknown }>(e);
-      if (!p || typeof p.sessionId !== 'string' || !sessionIds.has(p.sessionId)) continue;
-      if (typeof p.path !== 'string' || !p.path || seen.has(p.path)) continue;
-      seen.add(p.path);
-      files.push(p.path);
-    }
-    return files;
+    return collectChangedFiles(events, ids);
   } catch (err) {
     // 派生绝不抛出（#249/#251）：事件文件读取失败 → 空集，chip 降级候选集词表
-    logger.warn('[WuChangedFiles] Read failed, degraded to empty set', {
-      workUnitId, error: String(err),
+    logger.warn('[WuChangedFiles] Batch read failed, degraded to empty sets', {
+      count: ids.length, error: String(err),
     });
-    return [];
+    return Object.fromEntries(ids.map(id => [id, [] as string[]]));
   }
 }

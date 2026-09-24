@@ -47,7 +47,7 @@ import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './wai
 import { applyPlanRuling, validateRulingItems } from '../pmo/plan-ruling.js';
 import { applyPlanDirection, validateDirectionPick } from '../pmo/plan-direction.js';
 import { claimWorkUnitAndAnnounce } from './claim-announce.js';
-import { listWorkUnitChangedFiles } from './wu-changed-files.js';
+import { listWorkUnitChangedFiles, listWorkUnitsChangedFiles } from './wu-changed-files.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 import { requireAuth, requireNotGuest, type AuthRequest } from '../../middleware/auth.js';
 import { HttpRouteError, WORKUNIT_ERROR_MAPS, route, requireHuman } from './http-helpers.js';
@@ -149,6 +149,21 @@ router.get('/last-done', route([], async (req, res) => {
   }
   const data = await service.lastDoneByAssignee(ids.slice(0, MAX_BATCH_IDS));
   res.json({ success: true, data });
+}));
+
+/**
+ * GET /changed-files?ids=a,b,c — #285 AC4 批量版（2026-09-25 频道首屏合并）：
+ * 一次 30d 窗口读派生全部 WU 的文件集，替代前端逐 WU 单发（每次各自全窗口扫描）。
+ * 空 ids → 空映射；单项无数据/整体读取失败 → 该 WU 空数组（chip 降级候选集词表）。
+ * 须注册在 /:id 之前（同 /last-done 先例）。只读，匿名公开（与 GET /:id/changed-files 同口径）。
+ */
+router.get('/changed-files', route([], async (req, res) => {
+  const raw = req.query.ids;
+  const ids = typeof raw === 'string'
+    ? raw.split(',').map(s => s.trim()).filter(s => s.length > 0)
+    : [];
+  const filesByWu = await listWorkUnitsChangedFiles(ids.slice(0, MAX_BATCH_IDS));
+  res.json({ success: true, data: { filesByWu } });
 }));
 
 /** GET /:id — get WorkUnit by id */
