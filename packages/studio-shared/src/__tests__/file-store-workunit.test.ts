@@ -297,6 +297,27 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       await expect(store.claimWorkUnit('wu1', 'agent1')).rejects.toThrow(indexPath());
     });
 
+    it('opts.timeoutAt 锁内写入：index / claimed 事件 / rebuild 三处一致（2026-09 claim 单锁单写）', async () => {
+      const lease = new Date(Date.now() + 300_000).toISOString();
+      await seedWu(makeWuSnapshot('wu1'));
+
+      const ok = await store.claimWorkUnit('wu1', 'agent1', { timeoutAt: lease });
+      expect(ok).toBe(true);
+
+      const [wu] = await store.getIndex();
+      expect(wu.timeoutAt).toBe(lease);
+
+      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const claimed = events.filter(e => e.type === 'claimed');
+      expect(claimed).toHaveLength(1);
+      expect(claimed[0].data).toMatchObject({ timeoutAt: lease });
+      // 单锁单写：claim 不产生第二条 updated 事件
+      expect(events.filter(e => e.type === 'updated')).toHaveLength(0);
+
+      const rebuilt = await store.rebuildIndex();
+      expect(rebuilt[0].timeoutAt).toBe(lease);
+    });
+
     it('claim 带 assigneeRoleId 快照：index / claimed 事件 / rebuild 三处都保留', async () => {
       await seedWu(makeWuSnapshot('wu1'));
 

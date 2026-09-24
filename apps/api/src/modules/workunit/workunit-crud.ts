@@ -533,7 +533,17 @@ export class WorkUnitCrudService {
     // 认领方是运行实例时取其 roleId 冗余快照到 WU（实例回收后展示层仍能解析角色名）；
     // 人工 REST 认领 agentId=用户 id，getState 落空 → null（回退短 UUID，与既有表现一致）
     const assigneeRoleId = (await this.fileStore.getState(agentId))?.roleId ?? null;
-    const claimed = await this.fileStore.claimWorkUnit(id, agentId, { assigneeRoleId });
+    // 决策 7: skill 匹配已从 claim 挪到 agent-loop step 时（消竞态、吃到 skill 库最新版），
+    // claim 不再做 skill 自动加载/落盘。
+    // #178（#63 决议 1）：租约制 —— 认领即写固定 5min 租约 timeoutAt（workunit-timeout
+    // 扫描的判定字段；已有列值/显式 metadata 值一律刷新，租约语义下认领即发新租约）。
+    // 持有期间由 loop 30s 心跳经 refreshWorkUnitLease 推前（agents/loop/lease-heartbeat）。
+    // 2026-09 性能治理：timeoutAt 随 claim 锁内一次写入，不再二次 flock + updated 事件。
+    const timeoutAt = new Date(Date.now() + WU_LEASE_TTL_MS);
+    const claimed = await this.fileStore.claimWorkUnit(id, agentId, {
+      assigneeRoleId,
+      timeoutAt: timeoutAt.toISOString(),
+    });
     if (!claimed) {
       throw new Error('Claim failed');
     }
@@ -542,14 +552,6 @@ export class WorkUnitCrudService {
     const wu = (await this.fileStore.getIndex({ id }))[0];
     if (!wu) throw new Error('WorkUnit not found');
 
-    // 决策 7: skill 匹配已从 claim 挪到 agent-loop step 时（消竞态、吃到 skill 库最新版），
-    // claim 不再做 skill 自动加载/落盘。
-    // #178（#63 决议 1）：租约制 —— 认领即写固定 5min 租约 timeoutAt（workunit-timeout
-    // 扫描的判定字段；已有列值/显式 metadata 值一律刷新，租约语义下认领即发新租约）。
-    // 持有期间由 loop 30s 心跳经 refreshWorkUnitLease 推前（agents/loop/lease-heartbeat）。
-    const timeoutAt = new Date(Date.now() + WU_LEASE_TTL_MS);
-    await this.update(id, { timeoutAt });
-    wu.timeoutAt = timeoutAt.toISOString();
     // 认领即状态变化（unassigned → active）：补发 status_changed（WU 列表实时刷新/接力订阅消费）
     await this.publishStatusChanged(wu);
     return snapshotToData(wu);

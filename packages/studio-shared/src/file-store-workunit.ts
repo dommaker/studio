@@ -296,7 +296,12 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
     return applyFilter(snapshots, filter);
   }
 
-  async claimWorkUnit(wuId: string, assigneeId: string, opts?: { assigneeRoleId?: string | null }): Promise<boolean> {
+  /**
+   * opts.timeoutAt：认领即发租约的场景（service 层 claim）把它锁内一并写入
+   * （claimEvent.data + index 行），消掉「claim 后再 update(timeoutAt)」的二次 flock
+   * 与第二条 updated 事件（2026-09 channel 链路性能治理分项 3）。不传 = 不动原值。
+   */
+  async claimWorkUnit(wuId: string, assigneeId: string, opts?: { assigneeRoleId?: string | null; timeoutAt?: string | null }): Promise<boolean> {
     return this.withLock(this.lockDir, async () => {
       // 读取当前 index（不存在 → 空；撕裂/损坏 → 抛错，不再幻影 "not found"）
       const snapshots = (await this.readIndexFile()) ?? [];
@@ -308,6 +313,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
 
       // 认领时冗余 assigneeRoleId 快照：实例回收后展示层仍能解析角色名
       const assigneeRoleId = opts?.assigneeRoleId ?? null;
+      const timeoutAt = opts?.timeoutAt !== undefined ? opts.timeoutAt : wu.timeoutAt;
 
       // append claim event
       const timestamp = new Date().toISOString();
@@ -321,13 +327,14 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
           status: 'active',
           claimedAt: timestamp,
           updatedAt: timestamp,
+          timeoutAt,
         },
       };
       await this.appendJsonl(this.eventsPath, claimEvent);
 
       // #524 P1-2：index append-only——追加一行更新后快照，不再全量重写
       await this.appendIndexRowsLocked([
-        { ...wu, assigneeId, assigneeRoleId, status: 'active' as const, claimedAt: timestamp, updatedAt: timestamp },
+        { ...wu, assigneeId, assigneeRoleId, status: 'active' as const, claimedAt: timestamp, updatedAt: timestamp, timeoutAt },
       ]);
 
       return true;
