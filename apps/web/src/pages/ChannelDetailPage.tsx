@@ -278,7 +278,8 @@ export function ChannelDetailPage() {
   }, [id]);
 
   // #285 AC4: 文件 chip 第一优先词表 = 各 agent 消息所属 WU 的产出/修改文件集
-  // （distinct workUnitId 逐个拉一次并缓存；拿不到/为空 → 该 WU 降级候选集词表，行为不变）
+  // （distinct workUnitId 合并一次批量拉取并缓存——2026-09-25 起走后端批量端点；
+  // 拿不到/为空 → 该 WU 降级候选集词表，行为不变）
   // #528：拉取纪律与缓存收编 channelWorkStore per-wuId slice（失败记 [] 不重试语义保留）
   const wuChangedFiles = useChannelWorkStore(s => s.wuChangedFiles);
   useEffect(() => {
