@@ -30,7 +30,7 @@
 node --require .../tsx/dist/preflight.cjs --import .../tsx/dist/loader.mjs src/index.ts
 ```
 
-（CGroup 实测，PID 3254851，工作目录 `/root/projects/studio-prod`。）因此「dist 构建时间」
+（CGroup 实测，PID 3254851，工作目录为本机生产部署 checkout。）因此「dist 构建时间」
 （前置报告引为版本证据）与运行版本无关；真实版本锚点是 **studio-prod 的 git reflog +
 服务进程启动时间**。studio-prod 是 studio 仓库的 detached worktree，deploy 脚本
 （`studio-config/bin/studio-deploy-quick`）= `git reset --hard <commit>` + stop/start 服务，

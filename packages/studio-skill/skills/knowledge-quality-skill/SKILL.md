@@ -167,10 +167,8 @@ P0=0 + 低价值占比<10% → 收敛。否则回到 ②。
 索引供 Agent grep 使用（80-96% 输出减少）。
 
 ```bash
-# harness 在 pnpm 全局目录，如不在 PATH 中用绝对路径
-/root/.local/share/pnpm/harness knowledge index
-# 或
-npx --prefix /root/projects/harness harness knowledge index
+# harness 正常在 PATH 中；不在时用 `pnpm bin -g` 取全局 bin 目录拼路径，不要写死本机绝对路径
+"$(pnpm bin -g)/harness" knowledge index
 ```
 
 验证：

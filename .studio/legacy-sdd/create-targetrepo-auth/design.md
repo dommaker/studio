@@ -27,4 +27,4 @@ updatedAt: "2026-06-10T16:14:35.835Z"
 ### create-smoke-test-file
 
 #### 实现指南
-直接写入纯文本文件。路径: /root/projects/studio/apps/api/src/modules/channels/smoke-test-targetrepo.txt。内容: 'targetRepo validation works\n'
+直接写入纯文本文件。路径: ~/projects/studio/apps/api/src/modules/channels/smoke-test-targetrepo.txt。内容: 'targetRepo validation works\n'

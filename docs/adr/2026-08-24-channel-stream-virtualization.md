@@ -84,4 +84,4 @@ scrollTop 逐像素相等、补偿精度 1px。实现约束：
 5. react 适配层（`useVirtualizer`）天然每 render 重传完整 options，无裸 core 的
    setOptions 合并坑。
 
-复现产物：`/root/projects/.wayfinder-tmp/virtual-repro/`（scratch，不入库）。
+复现产物：`~/projects/.wayfinder-tmp/virtual-repro/`（scratch，不入库）。

@@ -2,7 +2,7 @@
 
 - 票：#246（wayfinder 地图 #245 子票）
 - 日期：2026-08-19
-- 调研对象：`/root/projects/deepseek-harness`（下称 dsh）web 前端
+- 调研对象：`~/projects/deepseek-harness`（下称 dsh）web 前端
 - 对照对象：studio 频道前端 `apps/web/src/components/channel/` + `apps/web/src/pages/ChannelDetailPage.tsx` + `apps/web/src/hooks/useChannelEvents.ts`
 
 ## 0. dsh 前端架构速览

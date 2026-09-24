@@ -2,7 +2,7 @@
 
 - 票：#247（wayfinder 地图 #245 子票）
 - 日期：2026-08-19
-- 走查对象：studio dev 环境（仓库 `/root/projects/studio` master；dev 数据根 `~/.studio-dev/`，与生产 `~/.studio/` 隔离）
+- 走查对象：studio dev 环境（仓库 `~/projects/studio` master；dev 数据根 `~/.studio-dev/`，与生产 `~/.studio/` 隔离）
 - 走查方式：Playwright（Chromium）实操 UI + curl 直打 API 验证 + 关键路径代码确认（一手来源，标注实测/构造）
 - 环境实况：Web = vite dev `:13000`（VITE_BASE=`/dev/`）→ 代理 API `:13001`（dev，STUDIO_HOME=`~/.studio-dev`，但 `apps/api/.env` 带 `NODE_ENV=production`，故 Lurk Wall/权限中间件全部生效）；`:13101` 是**生产 API**（studio-prod），本走查未触碰
 - 上一个会话已留 15 张截图（shots/00–14），本会话全部重读提取发现，并补走缺口（shots/15–26）
@@ -34,10 +34,10 @@
 - 影响票：**喂给 #250**（人审交互统一的前提——卡片先要能渲染）
 
 **F2. NEED_INPUT 工程归属问题「不可回答」：子串匹配无精确优先，WU 永久循环挂起**
-- 现象：WU 70251b9a 挂起问「这个任务要修改哪个工程？」。三轮真实回复全部重新挂起：①「e2e-走查：确认继续…」→ 无匹配；②「studio」→ 命中 studio / studio-config / studio-prod 三个；③**完整绝对路径「/root/projects/studio」→ 仍命中三个**（`/root/projects/studio` 是 `/root/projects/studio-config`、`/root/projects/studio-prod` 的前缀，子串匹配全中）。对 studio 这个工程，该问题没有任何答案能解挂。
+- 现象：WU 70251b9a 挂起问「这个任务要修改哪个工程？」。三轮真实回复全部重新挂起：①「e2e-走查：确认继续…」→ 无匹配；②「studio」→ 命中 studio / studio-config / studio-prod 三个；③**完整绝对路径「~/projects/studio」→ 仍命中三个**（`~/projects/studio` 是 `~/projects/studio-config`、`~/projects/studio-prod` 的前缀，子串匹配全中）。对 studio 这个工程，该问题没有任何答案能解挂。
 - 根因：`apps/api/src/modules/projects/project-discovery.service.ts:70-76` `search()` 只做 `name.includes(q) || path.includes(q)`，无精确匹配/边界匹配优先；`waiting-input.ts:324` 只有 `candidates.length === 1` 才解挂，否则循环追问。
 - 证据：shots/19（三轮问答全在）；`GET /workunits/70251b9a` 实测 status=blocked、waitingForInput=true（三次回答后不变）；messages.jsonl 逐条核对。
-- 附带：候选列表把**生产仓 `studio-prod`（/root/projects/studio-prod）和归档 `harness.bak`** 列为可选工程（shots/19）——dev 环境的挂起问答里诱导人把任务绑到生产仓。
+- 附带：候选列表把**生产仓 `studio-prod` 和归档 `harness.bak`** 列为可选工程（shots/19）——dev 环境的挂起问答里诱导人把任务绑到生产仓。
 - 严重度：**阻塞**
 - 影响票：**新问题，需开票**（后端匹配逻辑 + 工程发现范围/生产隔离）；交互环路断裂事实同步**喂给 #250**
 
@@ -134,7 +134,7 @@
 ### 挑战已决项
 
 **F17. 频道消息 raw Markdown 不渲染 + 线程回复位置不稳定 —— 对照 #248 已决项**
-- 现象：agent 消息（DailyReflection 日报等大量 `##`/列表/代码内容）以纯文本直出（shots/05）；本会话观察到线程回复经轮询增量到达时以**主消息** appended 在流尾（shots/19、25 中 16:57「/root/projects/studio」），刷新后又归并进折叠线程——同一条消息两种位置。
+- 现象：agent 消息（DailyReflection 日报等大量 `##`/列表/代码内容）以纯文本直出（shots/05）；本会话观察到线程回复经轮询增量到达时以**主消息** appended 在流尾（shots/19、25 中 16:57「~/projects/studio」），刷新后又归并进折叠线程——同一条消息两种位置。
 - 证据：shots/05-channel-raw-markdown.png、19、25。
 - 严重度：粗糙
 - 影响票：**挑战 #248 已决项**（#248 已关闭；若其结论含「纯文本可接受」，此处提供反证素材；线程位置问题 #248 未覆盖，属新缺口）

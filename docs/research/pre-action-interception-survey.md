@@ -2,7 +2,7 @@
 
 > 研究票：issue #138（dommaker/studio）。调研日期 2026-08-15。
 > 本文只出调研结论与「是否立项」建议，不定案、不实现。步收尾 completion-gates 归 #82/#129，本票不越界。
-> 口径：studio 侧代码行号对 master HEAD（#143 蒸馏主链路最小闭环之后的当前工作树）；harness 侧对 `/root/projects/harness` 当前工作树。
+> 口径：studio 侧代码行号对 master HEAD（#143 蒸馏主链路最小闭环之后的当前工作树）；harness 侧对 `~/projects/harness` 当前工作树。
 
 ## 调研范围与方法
 
@@ -40,12 +40,12 @@ harness 的 `checkBeforeExecution()` 在 studio 确有接线：`runner-execution
 
 ### 1.4 真正的 per-tool 前置拦截：能力已存在，但只接在 dev 上下文，spawn 路径零接线
 
-harness 已有命令黑名单门禁 `CommandGate`（`harness/src/gates/command.ts`，SEC-006，`DEFAULT_COMMAND_BLACKLIST` L23-193：`rm -rf /`、`rm -rf *`、`rm -rf ~|/home`、`chmod 777`、`DROP DATABASE/TABLE`、`curl|bash`、`sudo rm/dd/fdisk`、`kill -9 -1` 等，block/warn/audit 三级），并有现成的 **PreToolUse hook 接线**——但只在仓库级 `/root/projects/studio/.claude/settings.json`：
+harness 已有命令黑名单门禁 `CommandGate`（`harness/src/gates/command.ts`，SEC-006，`DEFAULT_COMMAND_BLACKLIST` L23-193：`rm -rf /`、`rm -rf *`、`rm -rf ~|/home`、`chmod 777`、`DROP DATABASE/TABLE`、`curl|bash`、`sudo rm/dd/fdisk`、`kill -9 -1` 等，block/warn/audit 三级），并有现成的 **PreToolUse hook 接线**——但只在仓库级 `~/projects/studio/.claude/settings.json`：
 
 ```json
 "permissions": { "deny": ["Bash(rm -rf *)", "Bash(git push --force*)", "Bash(git reset --hard*)"] },
 "hooks": { "PreToolUse": [{ "matcher": "Bash",
-  "command": "node -e \"const {CommandGate} = require('/root/projects/harness/dist/gates/command'); ... process.exit(1);\"" }] }
+  "command": "node -e \"const {CommandGate} = require('~/projects/harness/dist/gates/command'); ... process.exit(1);\"" }] }
 ```
 
 （注意：该 hook 用 `process.exit(1)`，不是票面说的 exit 2，见 §3.1。）
@@ -182,8 +182,8 @@ verdict 两档：**有证据**（真实事故/险情记录或端到端实证）�
 - `packages/studio-shared/src/harness/hooks/agent.hooks.ts`、`config.ts`
 - `packages/studio-agent/src/services/runner-execution.ts`、`worktree-resolver.ts`
 - `packages/studio-shared/src/providers.ts`
-- `harness/src/gates/command.ts`（/root/projects/harness）
-- 本机 `~/.claude/settings.json`、`/root/projects/studio/.claude/settings.json`、`~/.codex/config.toml`
+- `harness/src/gates/command.ts`（~/projects/harness）
+- 本机 `~/.claude/settings.json`、`~/projects/studio/.claude/settings.json`、`~/.codex/config.toml`
 
 事故证据：
 

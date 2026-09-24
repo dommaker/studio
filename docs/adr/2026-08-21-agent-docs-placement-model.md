@@ -17,7 +17,7 @@
 
 - **ADR 家 = `docs/adr/`**（本目录，由 `docs/decisions/` 改名而来）：决策记录是工单无关的永久导航件——决策单关闭后依然约束未来决策者，过不了「工单绑定产物」判别（随工单生灭归档），故不落 `.studio/`。`.studio/` 收缩为纯工单绑定产物（`specs/`、`research/`）。
 - **已公开运维内容处置 = 只止血**：AGENTS.md `PRESERVE:release-flow` 段摘除；GitHub 历史不重写（内容分级 = 内部拓扑级，无凭证；重写公共仓历史代价与收益不匹配）。
-- 父目录 `/root/projects` 布局不动（非 git 仓、无公开面，AGENTS.md → CLAUDE.md 软链各对各的生效范围）。
+- 父目录 `~/projects` 布局不动（非 git 仓、无公开面，AGENTS.md → CLAUDE.md 软链各对各的生效范围）。
 
 ## 依据：工具读取矩阵（2026-08-21 本机实证）
 

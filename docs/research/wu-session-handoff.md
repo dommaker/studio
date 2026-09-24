@@ -3,7 +3,7 @@
 > 研究票：issue #71。调研日期 2026-08-09。
 > 代码侧以 `apps/api/src` 为准（行号对 master HEAD）；数据侧只读生产数据
 > （`~/.studio/logs/studio-events.jsonl`、`~/.studio/data/workunits/index.json`、
-> `/root/.claude/projects/` 的 claude 会话 transcript），transcript 只做结构化统计，未引用对话正文。
+> `~/.claude/projects/` 的 claude 会话 transcript），transcript 只做结构化统计，未引用对话正文。
 
 ## 数据源与方法
 
@@ -13,7 +13,7 @@
 | 会话管理/簿记 | `apps/api/src/modules/agents/loop/agent-loop.ts`、`workunit/waiting-input.ts`、`workunit.types.ts` | 全量精读 |
 | 业务事件流 | `~/.studio/logs/studio-events.jsonl` | 10,830 行（2026-08-02 ~ 08-09 窗口） |
 | WU 索引 | `~/.studio/data/workunits/index.json` | 150 WU（2026-07-13 ~ 08-09） |
-| claude 会话 transcript | `/root/.claude/projects/<cwd-slug>/<sessionId>.jsonl` | 指纹 `## 本次任务 Skills` 命中 105 个文件 |
+| claude 会话 transcript | `~/.claude/projects/<cwd-slug>/<sessionId>.jsonl` | 指纹 `## 本次任务 Skills` 命中 105 个文件 |
 | 知识引擎沉淀会话 | `~/.studio/data/sessions/*.jsonl.done` | 19 个文件（仅 1 个含 studio 指纹，且 0 步 prompt） |
 | 决策记录 | GitHub issue #57（复活决议）、#63（易主 fencing）、#68（测量方法与口径） | `gh issue view` |
 

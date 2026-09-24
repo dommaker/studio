@@ -215,8 +215,8 @@ cstnew (shell 函数 in ~/.zshrc)
 | `studio/apps/api/src/modules/knowledge/knowledge-skill-evolver.ts` | 知识→Skill 演化（Phase 4.4 废弃，被 skill-creator 替代） |
 | `~/.studio/skills/knowledge-synthesis-skill/SKILL.md` | 语义模式检测 + Skill 提议（Phase 4.3 修改点） |
 | `studio/bin/memory-knowledge-sync.js` | 死链路脚本（Q5 待确认是否废弃） |
-| `/root/.zshrc` | cstnew 函数定义（Phase 1.7 修改点） |
-| `/root/transport/events-daemon.js` | session:archive 路由（Phase 1.7 修改点） |
+| `~/.zshrc` | cstnew 函数定义（Phase 1.7 修改点） |
+| `~/transport/events-daemon.js` | session:archive 路由（Phase 1.7 修改点） |
 
 ## 已完成
 
