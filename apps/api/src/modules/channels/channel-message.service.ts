@@ -294,8 +294,11 @@ export class ChannelMessageService {
       // 每频道各取最新 pageLimit 条再归并截断：全局最新 N ⊆ 各频道最新 N 之并，不丢。
       matched = [];
       const allChannels = await this.fileStore.listChannels();
-      for (const ch of allChannels) {
-        const msgs = await this.fileStore.queryMessages(ch.id, { workUnitId, before, limit: pageLimit });
+      // 各频道并行点查（结果随后按 createdAt 归并排序，并发不序不影响语义）
+      const perChannel = await Promise.all(
+        allChannels.map(ch => this.fileStore.queryMessages(ch.id, { workUnitId, before, limit: pageLimit })),
+      );
+      for (const msgs of perChannel) {
         matched = matched.concat(msgs);
       }
       matched.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
