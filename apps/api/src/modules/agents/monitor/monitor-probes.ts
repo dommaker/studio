@@ -381,6 +381,61 @@ export async function autoAbandonStaleBlocked(fileStore: FileStore, snapshots: W
   }
 }
 
+// ── #610（2026-09-24 决策单裁定）：trigger 建的 pending 单超期未确认自动关闭 ──
+
+/**
+ * trigger CREATE 建单显式落 pending 人闸（#162），无人确认时永久滞留占列表。
+ * 裁定：保留人闸不豁免，但超期（默认 7 天，TRIGGER_PENDING_EXPIRY_DAYS 覆盖）
+ * 未确认的 trigger 单自动关闭——判据唯一 = metadata.triggerSource==='trigger-registry'
+ * （trigger 建单时落档），人工建的 pending 单永不受影响。
+ * 留痕仿 autoConfirmedBy/At 先例：先 updateMetadata 落 autoClosedBy/autoClosedAt，
+ * 再走 WorkUnitService.close 状态机单口（pending → closed 是既有合法迁移）。
+ * decision/spec/plan 豁免（裁剪状态机无 closed 边，与兄弟探针同源）。
+ */
+export async function expireTriggerPendingWorkUnits(fileStore: FileStore, snapshots: WorkUnitSnapshot[]): Promise<void> {
+  const envDays = Number(process.env.TRIGGER_PENDING_EXPIRY_DAYS);
+  const expiryDays = Number.isFinite(envDays) && envDays > 0 ? envDays : 7;
+  const cutoff = Date.now() - expiryDays * 24 * 60 * 60 * 1000;
+
+  const expired = snapshots.filter(s => s.status === 'pending')
+    .filter(s => parseWuMetadata(s.metadata).triggerSource === 'trigger-registry')
+    // 裁剪状态机类型豁免（decision/spec 无 closed 边、plan 同 #471 豁免）——trigger payload
+    // 类型任意，不豁免会被状态机拒绝、catch 吞掉后每轮重复 warn 永不关闭（#553 同形 bug）
+    .filter(s => !DECISION_SPEC_TYPES.has(s.type) && s.type !== 'plan')
+    .filter(s => {
+      const created = new Date(s.createdAt).getTime();
+      return Number.isFinite(created) && created < cutoff;
+    })
+    .slice(0, 20);
+
+  let closedCount = 0;
+  for (const wu of expired) {
+    logger.warn('[MonitorService] Auto-closing expired trigger pending workUnit', { workUnitId: wu.id });
+    try {
+      const current = (await fileStore.getIndex({ id: wu.id }))[0];
+      if (current && current.status === 'pending') {
+        const svc = new WorkUnitService(fileStore);
+        await svc.updateMetadata(wu.id, {
+          autoClosedBy: 'trigger-pending-expiry',
+          autoClosedAt: new Date().toISOString(),
+        });
+        await svc.close(wu.id, {
+          reason: `trigger 建单超 ${expiryDays} 天未确认，自动关闭`,
+          closedBy: 'trigger-pending-expiry',
+          message: `trigger 建单超 ${expiryDays} 天未确认，已自动关闭；如需执行请人工重建或重新触发。`,
+        });
+        closedCount += 1;
+      }
+    } catch (e) {
+      logger.error('[MonitorService] Failed to auto-close expired trigger pending', { workUnitId: wu.id, error: String(e) });
+    }
+  }
+
+  if (closedCount > 0) {
+    logger.info('[MonitorService] Auto-closed expired trigger pending workUnits', { count: closedCount });
+  }
+}
+
 /**
  * Check shared session file size and age (optional, env-configurable).
  * Warns at >50MB or >3 days old. Runs every 5 min as part of the GC cycle.

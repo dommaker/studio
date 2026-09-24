@@ -220,6 +220,9 @@ export interface WorkUnitMetadata {
   // #186（#167 决议 1）：trigger 巡检单（无频道 + 无 TASK）免确认直转 done 的留痕
   autoConfirmedBy?: string;       // 固定 'trigger-inspection-no-gate'
   autoConfirmedAt?: string;       // 自动确认时间 ISO 8601
+  // #610（2026-09-24 决策单裁定）：trigger 建单 pending 超期未确认自动关闭的留痕
+  autoClosedBy?: string;          // 固定 'trigger-pending-expiry'
+  autoClosedAt?: string;          // 自动关闭时间 ISO 8601
   // #177（#69 决议）：analysis 人工确认处可选「默认执行角色」（profile id）——
   // analysis-handoff spawnTasks 据此给全部派生 task 子 WU 落 assigneeId；缺省 = 涌现
   defaultTaskAssigneeId?: string;
@@ -299,8 +302,8 @@ export interface UnfitRoleEntry {
 /** #550（自 wu-closure.ts 归置）：结构化关闭事件类型（REST 回放：GET /api/v1/events?type=workunit:closed） */
 export const WORKUNIT_CLOSED_EVENT_TYPE = 'workunit:closed';
 
-/** #550（自 wu-closure.ts 归置）：关闭来源——24h 死信 / 2.5h 总时长强杀 / 人类「关闭」指令 */
-export type WorkUnitClosedBy = 'auto-abandon-stale-blocked' | 'total-time-kill' | 'human-command';
+/** #550（自 wu-closure.ts 归置）：关闭来源——24h 死信 / 2.5h 总时长强杀 / 人类「关闭」指令 / trigger pending 超期自动关闭（#610） */
+export type WorkUnitClosedBy = 'auto-abandon-stale-blocked' | 'total-time-kill' | 'human-command' | 'trigger-pending-expiry';
 
 /** #550：WorkUnitService.close 入参（事件 payload 与缺省频道文案共用 reason；message 覆盖频道说明全文） */
 export interface CloseWorkUnitOptions {

@@ -84,6 +84,7 @@ export class MonitorService {
     alerts.push(...await this.checkToolPatterns());
     await this.evaluateTrajectory();  // G4
     await this.autoAbandonStaleBlocked(snapshots);
+    await this.expireTriggerPendingWorkUnits(snapshots);
     await this.systemTriageCheck();
     await this.gcStaleWorktrees();
     await this.checkKnowledgeHealth();
@@ -135,6 +136,10 @@ export class MonitorService {
 
   private async autoAbandonStaleBlocked(snapshots: WorkUnitSnapshot[]): Promise<void> {
     return probes.autoAbandonStaleBlocked(this.fileStore, snapshots);
+  }
+
+  private async expireTriggerPendingWorkUnits(snapshots: WorkUnitSnapshot[]): Promise<void> {
+    return probes.expireTriggerPendingWorkUnits(this.fileStore, snapshots);
   }
 
   private async gcStaleWorktrees(): Promise<void> {
