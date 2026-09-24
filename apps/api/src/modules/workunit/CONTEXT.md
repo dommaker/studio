@@ -23,6 +23,7 @@ WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 N
 - `wu-metadata.ts` - metadata 访问器(零依赖叶子): parseWuMetadata(容错解析) / parseWuTitle(展示名 title??scope 唯一出口, #312 起 getAgentSummary 与 status_changed 负载共用) / clearSessionBookkeeping(16 字段会话簿记权威清单, review 子 WU 不继承) / mergedWuView(持久化 + metadataUpdates 合并视图)。
 - `wu-dependencies.ts` - 接单依赖判定(零依赖叶子): parseBlockedBy / buildStatusById / hasUnfinishedDeps / resolveClaimable。
 - `assignee-resolver.ts` - assigneeId 双语义批量解析器: buildAssigneeProfileResolver -> (assigneeId) => profileId | null。
+- `wu-changed-files.ts` - #285 AC4 per-WU 产出/修改文件集（session:start.workUnitId → sessionId → file:change.path，30d 窗口读口；读失败/无数据 → 空集绝不抛出）：`listWorkUnitChangedFiles` 单发（端点 GET /:id/changed-files）与 `listWorkUnitsChangedFiles` 批量（端点 GET /changed-files?ids=，注册在 /:id 之前，MAX_BATCH_IDS 上限）同一条 collect 路径——2026-09-25 起批量版一次窗口读派生全部 WU，替代频道首屏逐 WU 单发各自全窗口扫描。
 
 ### 依赖关系
 
