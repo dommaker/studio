@@ -9,12 +9,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
 
-const { mockExecSync } = vi.hoisted(() => ({
+const { mockExecSync, mockExecFile } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
+  mockExecFile: vi.fn(),
 }));
 
 vi.mock('child_process', () => ({
   execSync: mockExecSync,
+  execFile: mockExecFile,
+  exec: vi.fn(),
 }));
 
 const { mockExecSh } = vi.hoisted(() => ({
@@ -90,6 +93,10 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // 收口守卫的 git 探针已改 execFile 异步出口：默认干净（旧口径 = execSync 未设 impl 时
+    // 返回 undefined 触发 fail-open 视为干净；execFile 不回 callback 会挂起 promise，必须显式回）
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown,
+      cb: (err: Error | null, stdout: string, stderr: string) => void) => cb(null, '', ''));
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-b3b-'));
     fileStore = new FileStore(testDir);
     wuService = new WorkUnitService(fileStore);
@@ -315,16 +322,20 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
   });
 
   it('提交守卫在 worktree 路径下跑 git status', async () => {
-    mockExecSync.mockImplementation((cmd: string) =>
-      String(cmd).includes('rev-parse') ? 'h1\n' : ' M src/a.ts\n'
+    // 收口守卫已改 execFile 回调式异步出口（completion-gates 2026-09 性能治理）
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown,
+      cb: (err: Error | null, stdout: string, stderr: string) => void) =>
+      cb(null, args.includes('rev-parse') ? 'h1\n' : ' M src/a.ts\n', '')
     );
     const wu = await createWu('task', { workspaceRoot: repoRoot, worktreePath: WT() });
 
     await loop().recordResult({ workUnit: wu }, { action: 'complete', summary: '做完了' });
 
-    expect(mockExecSync).toHaveBeenCalledWith(
-      'git status --porcelain',
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'git',
+      ['status', '--porcelain'],
       expect.objectContaining({ cwd: WT() }),
+      expect.any(Function),
     );
     expect((await wuService.getById(wu.id))!.status).toBe('active'); // 打回 progress
   });

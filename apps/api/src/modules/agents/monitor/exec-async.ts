@@ -38,7 +38,7 @@ export const execAsync = (
 export const execFileAsync = (
   cmd: string,
   args: string[],
-  opts: { cwd?: string; timeout?: number } = {}
+  opts: { cwd?: string; timeout?: number; maxBuffer?: number } = {}
 ): Promise<string> =>
   runSegmentSpan('exec', execSpanName([cmd, ...args].join(' ')), () =>
     new Promise<string>((resolve, reject) => {

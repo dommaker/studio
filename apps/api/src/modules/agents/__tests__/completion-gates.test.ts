@@ -44,8 +44,8 @@ function makeDeps(overrides: Partial<CompletionGuardDeps> = {}): CompletionGuard
   return {
     resolveExecutionCwd: vi.fn().mockResolvedValue('/repo/wt'),
     listUnfinishedChildren: vi.fn().mockResolvedValue([]),
-    hasUncommittedChanges: vi.fn().mockReturnValue(false),
-    readHeadHash: vi.fn().mockReturnValue('h1'),
+    hasUncommittedChanges: vi.fn().mockResolvedValue(false),
+    readHeadHash: vi.fn().mockResolvedValue('h1'),
     runVerification: vi.fn().mockResolvedValue({ ran: [], source: 'convention' }),
     ...overrides,
   } as ReturnType<typeof makeDeps>;
@@ -57,7 +57,7 @@ function ctxOf(wu: WorkUnitData, metadata: WorkUnitMetadata, action: 'progress' 
 
 describe('completion-gates: §10.5 提交守卫', () => {
   it('COMPLETE + 未提交改动 → 降级 progress + commitGuardHint；后续守卫不再触发', async () => {
-    const deps = makeDeps({ hasUncommittedChanges: vi.fn().mockReturnValue(true) });
+    const deps = makeDeps({ hasUncommittedChanges: vi.fn().mockResolvedValue(true) });
     const out = await runCompletionGuards(ctxOf(makeWu(), {}), deps);
 
     expect(out.action).toBe('progress');
@@ -123,7 +123,7 @@ describe('completion-gates: PROGRESS 无提交监视', () => {
 
     const fresh = await runCompletionGuards(
       ctxOf(makeWu(), { lastCommitHash: 'h0', noCommitSteps: 2 }, 'progress'),
-      makeDeps({ readHeadHash: vi.fn().mockReturnValue('h9') }));
+      makeDeps({ readHeadHash: vi.fn().mockResolvedValue('h9') }));
     expect(fresh.guardUpdates.lastCommitHash).toBe('h9');
     expect(fresh.guardUpdates.noCommitSteps).toBe(0);
     expect(fresh.notices.noCommit).toBe(false);
@@ -139,7 +139,7 @@ describe('completion-gates: PROGRESS 无提交监视', () => {
   });
 
   it('HEAD 读取失败（null）→ 静默跳过（metadata 不变、无提醒）', async () => {
-    const deps = makeDeps({ readHeadHash: vi.fn().mockReturnValue(null) });
+    const deps = makeDeps({ readHeadHash: vi.fn().mockResolvedValue(null) });
     const out = await runCompletionGuards(
       ctxOf(makeWu(), { lastCommitHash: 'h1', noCommitSteps: 2 }, 'progress'), deps);
 
@@ -276,11 +276,27 @@ describe('completion-gates: B3b-i 自动验证守卫', () => {
 });
 
 describe('completion-gates: 默认 git 探针（真实实现，失败静默跳过）', () => {
-  it('非 git 目录 → hasUncommittedChanges=false、readHeadHash=null', () => {
+  it('非 git 目录 → hasUncommittedChanges=false、readHeadHash=null', async () => {
     const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-plain-'));
     try {
-      expect(hasUncommittedChanges(plain)).toBe(false);
-      expect(readHeadHash(plain)).toBeNull();
+      expect(await hasUncommittedChanges(plain)).toBe(false);
+      expect(await readHeadHash(plain)).toBeNull();
+    } finally {
+      fs.rmSync(plain, { recursive: true, force: true });
+    }
+  });
+
+  it('git/fs 探针全部返回 Promise（防回归同步 exec 冻结事件循环，#374 口径延伸）', async () => {
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-plain-'));
+    try {
+      const probes = [
+        hasUncommittedChanges(plain),
+        readHeadHash(plain),
+        countBranchCommits(plain, 'main'),
+        hasAnalysisReport(plain, false),
+      ];
+      for (const p of probes) expect(p).toBeInstanceOf(Promise);
+      await Promise.all(probes); // 排空，防悬空 promise
     } finally {
       fs.rmSync(plain, { recursive: true, force: true });
     }
@@ -313,7 +329,7 @@ describe('completion-gates: T7-E2 软观测段', () => {
     const events: SoftCheckEvent[] = [];
     const deps = makeDeps({
       loadCompletionCheckers: vi.fn().mockResolvedValue(fnsOverrides === null ? null : fns),
-      readWuCommits: vi.fn().mockReturnValue(opts.commits === undefined ? COMMITS : opts.commits),
+      readWuCommits: vi.fn().mockResolvedValue(opts.commits === undefined ? COMMITS : opts.commits),
       writeSoftCheckEvent: vi.fn((e: SoftCheckEvent) => { events.push(e); }),
     });
     return { deps, fns, events };
@@ -418,7 +434,7 @@ describe('completion-gates: T7-E2 软观测段', () => {
 
   it('action 已被前面守卫降级 → 软观测段不跑', async () => {
     const { deps } = makeSoftDeps({});
-    deps.hasUncommittedChanges.mockReturnValue(true);
+    deps.hasUncommittedChanges.mockResolvedValue(true);
     const out = await runCompletionGuards(ctxOf(makeWu(), SOFT_META), deps);
 
     expect(out.action).toBe('progress');
@@ -430,7 +446,7 @@ describe('completion-gates: 收口闸 1（代码类 diff 非空）', () => {
   const DIFF_META: WorkUnitMetadata = { worktreePath: '/repo/wt', worktreeBaseBranch: 'main' };
 
   it('空 diff（rev-list=0）→ 降级 progress + diffEmptyHint + diffEmptyCount++，verify 不再触发', async () => {
-    const deps = makeDeps({ countBranchCommits: vi.fn().mockReturnValue(0) });
+    const deps = makeDeps({ countBranchCommits: vi.fn().mockResolvedValue(0) });
     const out = await runCompletionGuards(ctxOf(makeWu(), { ...DIFF_META, diffEmptyCount: 1 }), deps);
 
     expect(out.action).toBe('progress');
@@ -443,7 +459,7 @@ describe('completion-gates: 收口闸 1（代码类 diff 非空）', () => {
   });
 
   it('有提交内容（rev-list>0）→ 放行不写 hint；既有计数归零', async () => {
-    const deps = makeDeps({ countBranchCommits: vi.fn().mockReturnValue(3) });
+    const deps = makeDeps({ countBranchCommits: vi.fn().mockResolvedValue(3) });
     const out = await runCompletionGuards(ctxOf(makeWu(), { ...DIFF_META, diffEmptyCount: 2 }), deps);
 
     expect(out.action).toBe('complete');
@@ -453,7 +469,7 @@ describe('completion-gates: 收口闸 1（代码类 diff 非空）', () => {
   });
 
   it('diffEmptyCount 到 3 → diffEmptyBlocked', async () => {
-    const deps = makeDeps({ countBranchCommits: vi.fn().mockReturnValue(0) });
+    const deps = makeDeps({ countBranchCommits: vi.fn().mockResolvedValue(0) });
     const out = await runCompletionGuards(ctxOf(makeWu(), { ...DIFF_META, diffEmptyCount: 2 }), deps);
 
     expect(out.guardUpdates.diffEmptyCount).toBe(3);
@@ -467,7 +483,7 @@ describe('completion-gates: 收口闸 1（代码类 diff 非空）', () => {
     expect(spy).not.toHaveBeenCalled();
     expect(out1.action).toBe('complete');
 
-    const gitFail = makeDeps({ countBranchCommits: vi.fn().mockReturnValue(null) });
+    const gitFail = makeDeps({ countBranchCommits: vi.fn().mockResolvedValue(null) });
     const out2 = await runCompletionGuards(ctxOf(makeWu(), DIFF_META), gitFail);
     expect(out2.action).toBe('complete');
     expect(out2.guardUpdates.diffEmptyHint).toBeUndefined();
@@ -529,19 +545,19 @@ describe('completion-gates: 收口闸 2（非代码类契约产物）', () => {
   });
 
   it('analysis 报告缺失 → 降级；落盘 → 放行；巡检变体按 inspection 检查', async () => {
-    const reportMissing = makeDeps({ analysisReportExists: vi.fn().mockReturnValue(false) });
+    const reportMissing = makeDeps({ analysisReportExists: vi.fn().mockResolvedValue(false) });
     const out1 = await runCompletionGuards(
       ctxOf(makeWu({ type: 'analysis' }), { workspaceRoot: '/repo' }), reportMissing);
     expect(out1.action).toBe('progress');
     expect(out1.guardUpdates.contractArtifactHint).toContain('调研报告（.studio/research/）');
     expect(reportMissing.analysisReportExists).toHaveBeenCalledWith('/repo', false);
 
-    const reportPresent = makeDeps({ analysisReportExists: vi.fn().mockReturnValue(true) });
+    const reportPresent = makeDeps({ analysisReportExists: vi.fn().mockResolvedValue(true) });
     const out2 = await runCompletionGuards(
       ctxOf(makeWu({ type: 'analysis' }), { workspaceRoot: '/repo' }), reportPresent);
     expect(out2.action).toBe('complete');
 
-    const inspection = makeDeps({ analysisReportExists: vi.fn().mockReturnValue(false) });
+    const inspection = makeDeps({ analysisReportExists: vi.fn().mockResolvedValue(false) });
     const out3 = await runCompletionGuards(
       ctxOf(makeWu({ type: 'analysis' }), { workspaceRoot: '/repo', inspection: true }), inspection);
     expect(out3.action).toBe('progress');
@@ -581,45 +597,45 @@ describe('completion-gates: 收口闸 2（非代码类契约产物）', () => {
 });
 
 describe('completion-gates: 默认产物探针（真实实现）', () => {
-  it('countBranchCommits：真实 git 仓库按 base..HEAD 计数；非 git 目录 → null', () => {
+  it('countBranchCommits：真实 git 仓库按 base..HEAD 计数；非 git 目录 → null', async () => {
     const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-plain-'));
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-repo-'));
     try {
-      expect(countBranchCommits(plain, 'main')).toBeNull();
+      expect(await countBranchCommits(plain, 'main')).toBeNull();
 
       execSync('git init -q -b main && git config user.email t@t && git config user.name t', { cwd: repo });
       fs.writeFileSync(path.join(repo, 'a.txt'), 'a');
       execSync('git add . && git commit -qm init', { cwd: repo });
-      expect(countBranchCommits(repo, 'main')).toBe(0); // HEAD 即 base，无领先提交
+      expect(await countBranchCommits(repo, 'main')).toBe(0); // HEAD 即 base，无领先提交
 
       execSync('git checkout -qb task/wu-1', { cwd: repo });
       fs.writeFileSync(path.join(repo, 'b.txt'), 'b');
       execSync('git add . && git commit -qm work', { cwd: repo });
-      expect(countBranchCommits(repo, 'main')).toBe(1);
+      expect(await countBranchCommits(repo, 'main')).toBe(1);
     } finally {
       fs.rmSync(plain, { recursive: true, force: true });
       fs.rmSync(repo, { recursive: true, force: true });
     }
   });
 
-  it('hasAnalysisReport：目录缺失/空目录/空文件 → false；非空报告 → true；inspection 只认 inspection-*.md', () => {
+  it('hasAnalysisReport：目录缺失/空目录/空文件 → false；非空报告 → true；inspection 只认 inspection-*.md', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-report-'));
     try {
-      expect(hasAnalysisReport(dir, false)).toBe(false); // 无 .studio/research 目录
+      expect(await hasAnalysisReport(dir, false)).toBe(false); // 无 .studio/research 目录
 
       fs.mkdirSync(path.join(dir, '.studio', 'research'), { recursive: true });
-      expect(hasAnalysisReport(dir, false)).toBe(false); // 空目录
+      expect(await hasAnalysisReport(dir, false)).toBe(false); // 空目录
 
       const report = path.join(dir, '.studio', 'research', 'report.md');
       fs.writeFileSync(report, '');
-      expect(hasAnalysisReport(dir, false)).toBe(false); // 空文件
+      expect(await hasAnalysisReport(dir, false)).toBe(false); // 空文件
 
       fs.writeFileSync(report, '调研结论');
-      expect(hasAnalysisReport(dir, false)).toBe(true);
-      expect(hasAnalysisReport(dir, true)).toBe(false); // 巡检变体不认普通报告
+      expect(await hasAnalysisReport(dir, false)).toBe(true);
+      expect(await hasAnalysisReport(dir, true)).toBe(false); // 巡检变体不认普通报告
 
       fs.writeFileSync(path.join(dir, '.studio', 'research', 'inspection-2026-09-15.md'), '巡检结论');
-      expect(hasAnalysisReport(dir, true)).toBe(true);
+      expect(await hasAnalysisReport(dir, true)).toBe(true);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
