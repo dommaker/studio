@@ -645,7 +645,21 @@ export class AgentLoop {
    */
   private async ensureClaimFit(wu: WorkUnitData): Promise<boolean> {
     if (wu.assigneeId) return true;
+    // 2026-09-25 判定台账：计时 + 结构化事件（agent:claim_fitness）落 studio-events.jsonl，
+    // 作为后续优化（生产侧路由/单候选豁免/轻模型）的数据源——判定频次、判 no 率、
+    // 时延分布、按角色/wu.type 切片均可离线对齐。fire-and-forget，不写失败不阻断认领。
+    const judgeStartedAt = Date.now();
     const verdict = await judgeClaimFitness(wu, this.role);
+    void writeStudioEvent('agent:claim_fitness', {
+      wuId: wu.id,
+      roleId: this.role.id,
+      instanceId: this.instance?.id ?? null,
+      channelId: wu.channelId ?? null,
+      wuType: wu.type,
+      fit: verdict.fit,
+      ...(verdict.reason ? { reason: verdict.reason } : {}),
+      durationMs: Date.now() - judgeStartedAt,
+    }, { source: 'claim-fitness' }).catch(() => {});
     if (verdict.fit) return true;
     try {
       await this.recordClaimUnfit(wu, verdict.reason);
