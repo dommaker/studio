@@ -9,7 +9,14 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - `signals.ts` — 路径解析 + 信号加载（traces/outcomes）
 - `generator.ts` — 提案生成器（信号 → 约束提案）。三条链路全部在线（#602）：
   (a) harness usage report 退役候选 → retire 提案（buildConstraintsUsageReport，
-  需 harness ≥1.10.1 公共导出；每轮上限 3）；(b) 注入知识仍高失败 → prompt-template；
+  需 harness ≥1.10.1 公共导出；每轮上限 3）。**自动提案只留 high_noise**（#624）：
+  zero_trigger/unevaluable/zero_intercept 三类 report-only（跳过计入
+  skipped['report-only-candidate']，诊断面 = `harness constraints report`），
+  人工退役走人工提案通道；proposedText/rationale 用稳定表述不带统计数字（数字在
+  evidence.eventCounts）。constraint 类提案抑重键 = `targetType:targetId:constraintChange`
+  （#624：原按 proposedText 全文比对，内嵌统计数字每日漂移导致 rejected 提案换数字
+  复现）；其余类型维持 `targetType:targetId:proposedText` 原口径。
+  (b) 注入知识仍高失败 → prompt-template；
   (c) 角色 caller 高频工具失败 → role-preset。TTL 清扫：pending/approved 超 14d 未审
   惰性转 stale（EVOLUTION_PROPOSAL_TTL_MS），不占 open-exists/duplicate 位（EP-0002 自锁修复）
 - `incident-ledger.ts` — 历史事故台账（#602 D5）：append-only incident-ledger.jsonl

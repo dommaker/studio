@@ -4,8 +4,11 @@
  * 信号 → 提案，三条链路（全范围，vision §6）：
  *   (a) iron-law/guideline：harness constraints usage report 的退役候选诊断
  *       （#602 D1，buildConstraintsUsageReport 公共导出，harness ≥1.10.1）——
- *       zero_trigger / unevaluable / high_noise / zero_intercept 四类候选映射为
- *       retire 提案（落点 = .harness/config.yml enabled:false，见 applier）。
+ *       自动提案只留 high_noise 一类映射为 retire 提案（落点 = .harness/config.yml
+ *       enabled:false，见 applier）；zero_trigger / unevaluable / zero_intercept
+ *       三类候选 report-only（#624：零触发=埋点缺口、不可评估=接线缺口、零拦截对
+ *       预防型检查恒歧义，均不构成自动退役判据，诊断面 = `harness constraints report`），
+ *       跳过并计入 skipped['report-only-candidate']。人工退役走人工提案通道。
  *       动作集已收敛（M3.2）：词表只剩 retire/disable（config.yml 装得下的唯二
  *       动作），message/exception/new-entry 无生效落点已从类型与生成路径删除。
  *       每轮最多 3 个（保守，候选按 report 排序取前）。
@@ -17,7 +20,8 @@
  *       persona 末尾追加针对高频失败工具的警示。每轮每角色最多 1 个。
  *
  * 保守原则（默认 ON 但安静）：信号不足时零提案；与 pending/approved 提案同目标
- * 或与既有提案（stale 除外）同目标同文案的，跳过（去重防刷屏）。
+ * 或与既有提案（stale 除外）同目标同文案的，跳过（去重防刷屏；constraint 类提案
+ * 抑重键改按 targetType:targetId:constraintChange，不受文案统计数字漂移影响，#624）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -48,7 +52,7 @@ const MIN_ROLE_FAIL_RATE = 0.3;
 
 export interface GenerationResult {
   created: EvolutionProposalData[];
-  /** 跳过原因 → 计数（unsupported-type / no-op / unknown-constraint / duplicate / open-exists） */
+  /** 跳过原因 → 计数（unsupported-type / no-op / unknown-constraint / duplicate / open-exists / report-only-candidate） */
   skipped: Record<string, number>;
   /** staled：本轮 TTL 清扫转 stale 的提案 id（#602 D2）；incidents：事故台账条目数（#602 D5） */
   staled: string[];
@@ -88,30 +92,35 @@ const MAX_CONSTRAINT_PROPOSALS_PER_RUN = 3;
 
 /**
  * (a) harness 约束链路（#602 D1）—— 吃 constraints usage report 的退役候选。
- * 四类候选（zero_trigger / unevaluable / high_noise / zero_intercept）全部映射为
- * retire 提案：harness 1.10.0 起 config.yml `constraints.<id>.enabled:false` 是
+ * 自动提案只留 high_noise（#624）：zero_trigger / unevaluable / zero_intercept
+ * 三类候选 report-only，跳过并计数返回（诊断面 = `harness constraints report`，
+ * CLI 已有，不动 harness 侧）。config.yml `constraints.<id>.enabled:false` 是
  * 唯一真实生效落点（M3.2 动作集收敛：disable 保留在词表供人工/API 提案，启发式
  * 不自动产出），message/exception/new-entry 无消费端、不生成。
  * report 为全周期统计（非窗口）；读不到 traces → 零提案（保守安静）。
  */
-async function constraintProposals(deps: GeneratorDeps): Promise<RawProposal[]> {
+async function constraintProposals(deps: GeneratorDeps): Promise<{ proposals: RawProposal[]; reportOnly: number }> {
   // 依赖钉版守卫：harness <1.10.1（导出未发布）时 named import 为 undefined——
   // 显式告警而非 TypeError 撞 catch（静默零提案正是本票要修的死法）
   if (typeof buildConstraintsUsageReport !== 'function') {
     logger.warn('[Evolution] harness usage report 未导出（需 harness ≥1.10.1，#602 ship 前 bump 依赖），(a) 链路跳过');
-    return [];
+    return { proposals: [], reportOnly: 0 };
   }
   let report: ConstraintsUsageReport;
   try {
     report = buildConstraintsUsageReport(deps.paths.repoRoot);
   } catch (err) {
     logger.warn('[Evolution] constraints usage report failed', { error: String(err) });
-    return [];
+    return { proposals: [], reportOnly: 0 };
   }
-  if (!report.traceFileExists || report.candidates.length === 0) return [];
+  if (!report.traceFileExists || report.candidates.length === 0) return { proposals: [], reportOnly: 0 };
+
+  // #624：只有 high_noise 构成自动退役判据；其余三类 report-only（防护栏误伤）
+  const actionable = report.candidates.filter(c => c.kind === 'high_noise');
+  const reportOnly = report.candidates.length - actionable.length;
 
   const out: RawProposal[] = [];
-  for (const c of report.candidates.slice(0, MAX_CONSTRAINT_PROPOSALS_PER_RUN)) {
+  for (const c of actionable.slice(0, MAX_CONSTRAINT_PROPOSALS_PER_RUN)) {
     const builtin = (CONSTRAINTS as Record<string, { message?: string; description?: string } | undefined>)[c.id];
     if (!builtin) continue; // 非内置 id（config.yml 未知项）不由 E1 动
     out.push({
@@ -120,9 +129,10 @@ async function constraintProposals(deps: GeneratorDeps): Promise<RawProposal[]> 
       action: 'amend',
       constraintChange: 'retire',
       currentText: builtin.message ?? builtin.description ?? c.id,
-      proposedText: `退役（${CANDIDATE_KIND_LABEL[c.kind]}）：${c.reason}`,
-      rationale: `harness constraints usage report 诊断候选（${CANDIDATE_KIND_LABEL[c.kind]}）：${c.reason}。` +
-        `落点 = .harness/config.yml（enabled:false + retired 墓碑），恢复 = 删该段。`,
+      // 稳定表述不带统计数字（数字在 evidence.eventCounts）：抑重键与卡面文案不随每日统计漂移（#624）
+      proposedText: `退役（${CANDIDATE_KIND_LABEL[c.kind]}）：fail 率持续超阈值，疑似误报源（统计见证据区）`,
+      rationale: `harness constraints usage report 诊断候选（${CANDIDATE_KIND_LABEL[c.kind]}）：fail 率持续超阈值，疑似误报源。` +
+        `落点 = .harness/config.yml（enabled:false + retired 墓碑），恢复 = 删该段。统计数字见 evidence.eventCounts。`,
       source: 'harness:usage-report',
       evidence: {
         // report 是全周期统计（非窗口口径），windowHours 字段沿用本轮扫描窗口仅作记录
@@ -137,7 +147,7 @@ async function constraintProposals(deps: GeneratorDeps): Promise<RawProposal[]> 
       },
     });
   }
-  return out;
+  return { proposals: out, reportOnly };
 }
 
 /** (b) prompt-template 启发式：注入了知识仍高失败 → 注入约束区段强调不足 */
@@ -233,11 +243,14 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
   const incidents = (await loadIncidentLedger(fileStore).catch(() => [])).length;
   const skipped: Record<string, number> = {};
 
+  const constraintResult = await constraintProposals(deps).catch(err => {
+    logger.warn('[Evolution] constraint proposal generation failed', { error: String(err) });
+    return { proposals: [] as RawProposal[], reportOnly: 0 };
+  });
+  if (constraintResult.reportOnly > 0) skipped['report-only-candidate'] = constraintResult.reportOnly;
+
   const raw: RawProposal[] = [
-    ...(await constraintProposals(deps).catch(err => {
-      logger.warn('[Evolution] constraint proposal generation failed', { error: String(err) });
-      return [] as RawProposal[];
-    })),
+    ...constraintResult.proposals,
     ...promptTemplateProposals(signals, deps),
     ...(await rolePresetProposals(signals, deps).catch(err => {
       logger.warn('[Evolution] role preset proposal generation failed', { error: String(err) });
@@ -245,7 +258,7 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
     })),
   ];
 
-  // 去重：同目标已有 pending/approved（未闭环）→ 跳过；同目标同文案（历史任意状态，stale 除外）→ 跳过
+  // 去重：同目标已有 pending/approved（未闭环）→ 跳过；同目标已提过（历史任意状态，stale 除外）→ 跳过
   const existing = await fileStore.listEvolutionProposals();
   // TTL 清扫（#602 D2）：超期未审的 pending/approved 惰性转 stale —— 不开定时器，
   // 随每轮生成顺手做；stale 不再占 open 位，也未被人审过，允许同文案重提（不占 duplicate 位）。
@@ -256,18 +269,25 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
     p.status = 'stale';
     staled.push(p.id);
   }
+  // 抑重键（#624）：constraint 类提案（带 constraintChange）按 `targetType:targetId:constraintChange`
+  // 判重——proposedText 内嵌统计数字每日漂移会让 rejected 提案换数字复现；其余类型维持
+  // `targetType:targetId:proposedText` 原口径。
+  const duplicateKeyOf = (p: Pick<EvolutionProposalData, 'targetType' | 'targetId' | 'proposedText'> & { constraintChange?: EvolutionProposalData['constraintChange'] }): string =>
+    p.constraintChange
+      ? `${p.targetType}:${p.targetId}:${p.constraintChange}`
+      : `${p.targetType}:${p.targetId}:${p.proposedText}`;
   const openTargets = new Set(
     existing.filter(p => p.status === 'pending' || p.status === 'approved').map(p => `${p.targetType}:${p.targetId}`),
   );
   const exactKeys = new Set(
-    existing.filter(p => p.status !== 'stale').map(p => `${p.targetType}:${p.targetId}:${p.proposedText}`),
+    existing.filter(p => p.status !== 'stale').map(duplicateKeyOf),
   );
 
   const created: EvolutionProposalData[] = [];
   for (const r of raw) {
     const targetKey = `${r.targetType}:${r.targetId}`;
     if (openTargets.has(targetKey)) { skipped['open-exists'] = (skipped['open-exists'] ?? 0) + 1; continue; }
-    if (exactKeys.has(`${targetKey}:${r.proposedText}`)) { skipped['duplicate'] = (skipped['duplicate'] ?? 0) + 1; continue; }
+    if (exactKeys.has(duplicateKeyOf(r))) { skipped['duplicate'] = (skipped['duplicate'] ?? 0) + 1; continue; }
 
     const seq = await fileStore.allocateEvolutionSeq();
     const proposal: EvolutionProposalData = {
