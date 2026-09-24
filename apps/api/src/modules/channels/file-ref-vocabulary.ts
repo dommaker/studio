@@ -241,11 +241,9 @@ export async function getChannelFileVocabulary(
   deps: FileRefVocabularyDeps = {},
 ): Promise<ChannelFileVocabulary> {
   const repos = await computeCandidateRepos(channelId, deps);
-  const out: { repo: string; files: string[] }[] = [];
-  for (const repo of repos) {
-    out.push({ repo, files: await getRepoFiles(repo, deps) });
-  }
-  return { repos: out };
+  // 多仓 git ls-files 并行（保序）：缓存未命中的冷启动不再逐仓串行阻塞
+  const filesPerRepo = await Promise.all(repos.map(repo => getRepoFiles(repo, deps)));
+  return { repos: repos.map((repo, i) => ({ repo, files: filesPerRepo[i] })) };
 }
 
 /**
