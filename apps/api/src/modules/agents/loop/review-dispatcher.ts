@@ -41,10 +41,17 @@ function autoReviewEnabled(): boolean {
   return process.env.STUDIO_AUTO_REVIEW !== 'false';
 }
 
+/** 2026-09 性能治理分项 5：路径 A 事件链失败后的进程内重试延迟（一次）。
+ *  在此之前断链只靠 5min 对账 cron + 10min 宽限（最坏 ~16min 补派评审）；
+ *  瞬时故障（FileStore 抖动/锁竞争）30s 后自愈，对账只兜真死亡（进程重启即弃）。 */
+export const REVIEW_DISPATCH_RETRY_DELAY_MS = 30_000;
+
 export class ReviewDispatcher {
   private subscribed = false;
   /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled */
   private readonly settled = createSettledTracker();
+  /** 同 WU 只挂一次重试（防事件风暴叠加定时器） */
+  private readonly pendingDispatchRetries = new Set<string>();
 
   constructor(
     private fileStore: FileStore,
@@ -68,9 +75,10 @@ export class ReviewDispatcher {
     //   规划单）：人工验收类工单，验收闸 = 人工确认（F6 l3），diff-only 契约
     //   对非代码产物恒 needs-info 转人工纯噪声；接力提示与派工见 pmo/analysis-handoff.ts）
     if (wu.status === 'in_review' && wu.type !== 'review' && !MANUAL_GATE_TYPES.has(wu.type)) {
-      await this.handleParentInReview(wu).catch(err =>
-        logger.warn('[ReviewDispatcher] handleParentInReview failed', { wuId: wu.id, error: String(err) }),
-      );
+      await this.handleParentInReview(wu).catch(err => {
+        logger.warn('[ReviewDispatcher] handleParentInReview failed', { wuId: wu.id, error: String(err) });
+        this.scheduleDispatchRetry(wu.id);
+      });
     }
     // 路径 B：子 WU（type='review'）完成 -> 处理父 WU review 结果
     if (wu.status === 'done' && wu.type === 'review' && wu.parentId) {
@@ -117,9 +125,31 @@ export class ReviewDispatcher {
     return state?.roleId ?? null;
   }
 
+  /**
+   * 路径 A 事件链失败 → 30s 后进程内重试一次（REVIEW_DISPATCH_RETRY_DELAY_MS）。
+   * 重试前复读父 WU：仍在 in_review 才重派（期间人工确认/补派/对账已建单则静默跳过——
+   * createGuarded 锁内同父唯一性兜底幂等）。再失败交 5min 对账 cron 兜底，不再重试。
+   */
+  private scheduleDispatchRetry(parentWuId: string): void {
+    if (this.pendingDispatchRetries.has(parentWuId)) return;
+    this.pendingDispatchRetries.add(parentWuId);
+    const timer = setTimeout(() => {
+      this.pendingDispatchRetries.delete(parentWuId);
+      this.settled.track((async () => {
+        const parent = await this.workUnitService.getById(parentWuId);
+        if (!parent || parent.status !== 'in_review') return;
+        await this.handleParentInReview(parent).catch(err =>
+          logger.warn('[ReviewDispatcher] dispatch retry failed — 交 5min 对账兜底', {
+            wuId: parentWuId, error: String(err),
+          }),
+        );
+      })());
+    }, REVIEW_DISPATCH_RETRY_DELAY_MS);
+    timer.unref?.(); // 不拖住进程退出（重启即弃，对账 cron 兜底）
+  }
+
   /** 父 WU 进入 in_review 时的处理 */
-  private async handleParentInReview(parent: WorkUnitData): Promise<void> {
-    if (!parent.channelId) return;
+  private async handleParentInReview(parent: WorkUnitData): Promise<void> {    if (!parent.channelId) return;
     if (!autoReviewEnabled()) return; // P7：自动评审关停（fake/无凭证环境）
 
     // #170（决策 #65-2）：同父唯一性检查收进建单的同一把 workunits flock
