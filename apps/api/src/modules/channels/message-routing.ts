@@ -95,8 +95,9 @@ export async function resolveMergeTarget(
     candidateIds.push(m.workUnitId);
   }
   const inFlight: Array<{ id: string; anchorMessageId?: string }> = [];
-  for (const id of candidateIds) {
-    const wu = await wuService.getById(id);
+  // 2026-09 性能治理：候选 WU 点查并行（Promise.all 保序，倒扫序新→旧不变）
+  const candidates = await Promise.all(candidateIds.map(id => wuService.getById(id)));
+  for (const wu of candidates) {
     if (!wu || wu.channelId !== channelId) continue;
     if (!MERGE_IN_FLIGHT_STATUSES.has(wu.status)) continue; // 终态/in_review 不构成歧义也不吸收
     // parseWuMetadata 容错口径：畸形 metadata 落 {}（anchorMessageId 缺省走首根回退），不抛错拖垮整道路由
