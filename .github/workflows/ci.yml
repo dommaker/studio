@@ -27,9 +27,10 @@ jobs:
         run: npx harness security
       # 全历史机密扫描门（ADR-0031 / wayfinder harness-repositioning 票08 P1-8）：
       # gitleaks 官方 action 对完整历史（fetch-depth: 0）扫描，命中即 fail，即时生效；
-      # npx harness security secrets 为统一入口——本仓当前 harness 1.12.0 尚无该子命令
-      # （实测多余参数被忽略、退化为依赖审计 exit 0），随下一版 harness 生效后接管
-      # （其内部包装 gitleaks，二进制不在 PATH 时 skip，故保留 action 这一步双保险）。
+      # npx harness security secrets 是统一入口。该子命令自 harness 1.13.0 起真实存在
+      # （1.12.0 时代多余参数被忽略、退化为依赖审计 exit 0——本注释此前据此判"门未生效"，
+      # 2026-09-24 采纳 1.14.0 时纠正）。它内部包装 gitleaks，二进制不在 PATH 时 skip 并
+      # exit 0，故上面 action 那一步是硬保险、本步是跨环境统一入口，两者并存不是冗余。
       - name: Security (secret scan, full history)
         uses: gitleaks/gitleaks-action@v2
       - name: Security (secrets via harness)
