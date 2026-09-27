@@ -697,3 +697,51 @@ describe('#585（ADR 2026-09-17-hooks-layer-shrink 衍生）: 需求/AC 守卫�
     expect(metaOf(after).requirementOverride).toBeUndefined();
   });
 });
+
+describe('B2：opts.traceId 折进锁内 metadata 写（消路由层独立 refresh 的一次全量 index R/W）', () => {
+  it('blocked 复活：traceId 与 pendingReplies 同一次 updateMetadata 落盘', async () => {
+    const { wu } = await createParkedWorkUnit();
+    const spy = vi.spyOn(fileStore, 'updateMetadata');
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '用 OAuth', fileStore, { traceId: 'trace-fold-blocked' });
+
+    expect(resumed).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1); // 复活字段 + pendingReplies + traceId 一次锁内写
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('active');
+    const meta = metaOf(after);
+    expect(meta.pendingReplies).toEqual(['用 OAuth']);
+    expect(meta.traceId).toBe('trace-fold-blocked');
+    spy.mockRestore();
+  });
+
+  it('active 缓冲：traceId 折进 pendingReplies 追加的同一次锁内写', async () => {
+    const wu = await wuService.create({ scope: 't', channelId, type: 'task', status: 'active', assigneeId: 'i-1' });
+    const spy = vi.spyOn(fileStore, 'updateMetadata');
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '补充一点', fileStore, { traceId: 'trace-fold-active' });
+
+    expect(resumed).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const meta = metaOf(await findWu(wu.id));
+    expect(meta.pendingReplies).toEqual(['补充一点']);
+    expect(meta.traceId).toBe('trace-fold-active');
+    spy.mockRestore();
+  });
+
+  it('不传 opts：行为同前（metadata 不写 traceId）', async () => {
+    const { wu } = await createParkedWorkUnit();
+
+    await resumeWaitingWorkUnit(wu.id, '用 OAuth', fileStore);
+
+    expect(metaOf(await findWu(wu.id)).traceId).toBeUndefined();
+  });
+
+  it('未消费分支（WU 不存在 / 非 blocked/active）不折叠，返回 false 由调用方补写', async () => {
+    const wu = await wuService.create({ scope: 't', channelId, type: 'task', status: 'in_review', assigneeId: 'i-1' });
+
+    expect(await resumeWaitingWorkUnit('wu-ghost', '回复', fileStore, { traceId: 'trace-x' })).toBe(false);
+    expect(await resumeWaitingWorkUnit(wu.id, '回复', fileStore, { traceId: 'trace-x' })).toBe(false);
+    expect(metaOf(await findWu(wu.id)).traceId).toBeUndefined();
+  });
+});

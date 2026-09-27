@@ -1,6 +1,6 @@
 // ActionCenterService 派生口径（#468）——服务层直测（HTTP 层见 routes.test.ts）
 // 覆盖：三种 kind 同池共存、waitingSince 缺失回退 updatedAt、通知面按 userId 隔离。
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 import { WorkUnitService } from '../../workunit/workunit.service.js';
@@ -107,6 +107,25 @@ describe('ActionCenterService（#468）', () => {
       expect(confirm?.kind).toBe('confirm');
       expect(review?.messageId).toBeUndefined();
       expect(confirm?.messageId).toBeUndefined();
+    });
+
+    it('B2：锚点改 readMessagesTail 谓词倒扫 limit 1，不再全热文件 queryMessages 串行扫', async () => {
+      const fileStore = new FileStore();
+      const wuService = new WorkUnitService(fileStore);
+      const wu = await wuService.create({
+        type: 'task', scope: '挂起单', channelId: 'ch-d2-tail', status: 'blocked',
+        metadata: { waitingForInput: true, waitingQuestion: '选哪个方案？' },
+      });
+      await fileStore.appendMessage('ch-d2-tail', msg('m-tail-q', 'ch-d2-tail', wu.id, 'agent', '2026-09-09T09:00:00Z'));
+      const tailSpy = vi.spyOn(fileStore, 'readMessagesTail');
+      const querySpy = vi.spyOn(fileStore, 'queryMessages');
+
+      const { stateItems } = await new ActionCenterService(fileStore).getActionCenter('local');
+
+      const item = stateItems.find(i => i.wuId === wu.id);
+      expect(item?.messageId).toBe('m-tail-q');
+      expect(tailSpy).toHaveBeenCalledWith('ch-d2-tail', expect.objectContaining({ limit: 1 }));
+      expect(querySpy).not.toHaveBeenCalled();
     });
   });
 });

@@ -7,13 +7,14 @@
  *   同样写入/刷新 metadata.traceId；口径统一为「本次消息 traceId」（spec user story 5
  *   二选一，取与 AC「与本次请求一致」对齐的一项）
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
 import { channelMessageService } from '../channel-message.service.js';
+import { WorkUnitService } from '../../workunit/workunit.service.js';
 
 let channelId: string;
 let tmpDir: string;
@@ -128,5 +129,82 @@ describe('message-routing traceId (P0 修复 6)', () => {
     expect(second.workUnitId).toBe(first.workUnitId);
     const meta = await findWuMeta(first.workUnitId!);
     expect(meta.traceId).toBe('trace-merge-second');
+  });
+
+  // B2：merge/reply 路径折叠 metadata 重复写——锁内写次数断言（spy 计 updateMetadata 调用数）
+  describe('B2：traceId 折叠锁内写（消独立 refreshWuTraceId 的全量 index R/W）', () => {
+    /** 造一张 blocked + waitingForInput 的在途 WU + 窗口内一条携带它的人类消息 */
+    async function seedBlockedWuWithMessage() {
+      const wuService = new WorkUnitService(fileStore);
+      const wu = await wuService.create({
+        scope: '挂起任务', channelId, type: 'task', status: 'active', assigneeId: 'i-1',
+      });
+      await wuService.transitionStatus(wu.id, 'blocked');
+      await wuService.update(wu.id, {
+        metadata: { waitingForInput: true, waitingQuestion: '继续吗？', waitingSince: new Date().toISOString() },
+      });
+      await fileStore.appendMessage(channelId, {
+        id: `m-${wu.id}`, channelId, authorType: 'human', agentName: null,
+        content: '关于挂起任务的消息', replyToId: null, meta: '{}', workUnitId: wu.id,
+        createdAt: new Date().toISOString(),
+      });
+      return wu;
+    }
+
+    it('线程回复 blocked WU：复活 + traceId 一次锁内写（原 resume 写 + 独立 refresh 两次）', async () => {
+      const wu = await seedBlockedWuWithMessage();
+      const spy = vi.spyOn(fileStore, 'updateMetadata');
+
+      const reply = await routeMessage(channelId, '继续，用方案 B', `m-${wu.id}`, { fs: fileStore,
+        traceId: 'trace-fold-reply',
+      });
+
+      expect(reply.workUnitId).toBe(wu.id);
+      expect(spy).toHaveBeenCalledTimes(1); // transitionStatus 不走 updateMetadata
+      const meta = await findWuMeta(wu.id);
+      expect(meta.traceId).toBe('trace-fold-reply');
+      expect(meta.pendingReplies).toEqual(['继续，用方案 B']);
+      spy.mockRestore();
+    });
+
+    it('合并窗口 blocked WU：复活 + traceId 一次锁内写', async () => {
+      const wu = await seedBlockedWuWithMessage();
+      const spy = vi.spyOn(fileStore, 'updateMetadata');
+
+      const merged = await routeMessage(channelId, '窗口内补充', undefined, { fs: fileStore,
+        traceId: 'trace-fold-merge',
+      });
+
+      expect(merged.workUnitId).toBe(wu.id);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const meta = await findWuMeta(wu.id);
+      expect(meta.traceId).toBe('trace-fold-merge');
+      expect(meta.pendingReplies).toEqual(['窗口内补充']);
+      spy.mockRestore();
+    });
+
+    it('合并窗口未消费分支（unassigned）：pendingReplies + traceId 并成一次 updateMetadata（原两次）', async () => {
+      const wuService = new WorkUnitService(fileStore);
+      const wu = await wuService.create({
+        scope: '在途任务', channelId, type: 'task', status: 'unassigned', assigneeId: null,
+      });
+      await fileStore.appendMessage(channelId, {
+        id: `m-${wu.id}`, channelId, authorType: 'human', agentName: null,
+        content: '关于在途任务的消息', replyToId: null, meta: '{}', workUnitId: wu.id,
+        createdAt: new Date().toISOString(),
+      });
+      const spy = vi.spyOn(fileStore, 'updateMetadata');
+
+      const merged = await routeMessage(channelId, '窗口内第二条', undefined, { fs: fileStore,
+        traceId: 'trace-fold-pending',
+      });
+
+      expect(merged.workUnitId).toBe(wu.id);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const meta = await findWuMeta(wu.id);
+      expect(meta.traceId).toBe('trace-fold-pending');
+      expect(meta.pendingReplies).toEqual(['窗口内第二条']);
+      spy.mockRestore();
+    });
   });
 });

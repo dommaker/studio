@@ -122,4 +122,21 @@ describe('deriveChannelPmoCandidates（#638）', () => {
     });
     expect(out).toEqual([{ id: 'proj-a', pmoNumber: 'PMO-1', title: '商城重构' }]);
   });
+
+  it('B2：current 与候选共享同一次 links 拉取（每项目只解析一次，原两趟各解析一遍）', async () => {
+    await createReq('REQ-0001', 1, 'proj-a');
+    await createReq('REQ-0002', 2, 'proj-b');
+    const calls: string[] = [];
+    const out = await deriveChannelPmoCandidates(channelId, {
+      fileStore,
+      getProject: async (id: string) => {
+        calls.push(id);
+        return project(id, `PMO-${id}`, `项目 ${id}`);
+      },
+      findChoreProject: noChore,
+    });
+    // seq 最大者即 current 置顶，同一趟 links 出两结果
+    expect(out.map(c => c.id)).toEqual(['proj-b', 'proj-a']);
+    expect([...calls].sort()).toEqual(['proj-a', 'proj-b']);
+  });
 });

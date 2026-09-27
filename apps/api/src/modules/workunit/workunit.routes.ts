@@ -491,7 +491,10 @@ router.patch('/:id/messages/:messageId', requireAuth(), requireNotGuest(), route
   }
 
   // Verify message belongs to this WorkUnit
-  const found = await fileStore.getMessageById(req.params.messageId);
+  // B2（#529 同款口径）：从 WU 解析频道归属直查，消全频道扇出；
+  // wu 不存在或无 channelId（legacy/手工单）→ undefined 走扇出 fallback
+  const wu = await service.getById(req.params.id);
+  const found = await fileStore.getMessageById(req.params.messageId, wu?.channelId ?? undefined);
   if (!found) {
     throw new HttpRouteError(404, 'NOT_FOUND', `Message ${req.params.messageId} not found`);
   }

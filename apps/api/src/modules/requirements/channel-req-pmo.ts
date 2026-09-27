@@ -64,6 +64,8 @@ export async function listChannelReqPmoProjects<P extends ProjectLike>(
 /**
  * #636：current-pmo 派生链第一级 —— 本频道最近挂接 REQ（seq 大→小）所属 PMO。
  * 无挂接 / 读取失败 → null（记日志，绝不抛出）。杂务回退级由调用方既有归集覆盖。
+ * B2：按 seq 降序惰性解析——首个命中即停，不再 Promise.all 解析全部挂接项目
+ * （单条解析失败/项目缺失顺延次近，口径与 listChannelReqPmoProjects 逐条容错一致）。
  */
 export async function deriveChannelReqPmo<P extends ProjectLike>(
   channelId: string,
@@ -73,12 +75,30 @@ export async function deriveChannelReqPmo<P extends ProjectLike>(
     getProject?: (projectId: string) => Promise<P | null>;
   } = {},
 ): Promise<P | null> {
+  const fileStore = deps.fileStore ?? new FileStore();
+  const getProject = deps.getProject
+    ?? (async (id: string) => (await projectService.get(id)) as unknown as P | null);
+  let requirements: Awaited<ReturnType<FileStore['listRequirements']>>;
   try {
-    const links = await listChannelReqPmoProjects(channelId, deps);
-    links.sort((a, b) => b.seq - a.seq);
-    return links[0]?.project ?? null;
+    requirements = await fileStore.listRequirements({ channelId });
   } catch (err) {
     logger.warn('[ChannelReqPmo] Derivation failed, returning null', { channelId, error: String(err) });
     return null;
   }
+  const linked = requirements
+    .filter(req => typeof (req as { projectId?: string | null }).projectId === 'string'
+      && (req as { projectId?: string | null }).projectId)
+    .sort((a, b) => b.seq - a.seq);
+  for (const req of linked) {
+    const projectId = (req as { projectId?: string | null }).projectId!;
+    try {
+      const project = await getProject(projectId);
+      if (project) return project; // 首个命中即停
+    } catch (err) {
+      logger.warn('[ChannelReqPmo] REQ project resolution failed, skipped', {
+        channelId, reqId: req.id, projectId, error: String(err),
+      });
+    }
+  }
+  return null;
 }

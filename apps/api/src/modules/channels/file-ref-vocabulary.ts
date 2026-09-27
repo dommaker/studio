@@ -200,11 +200,11 @@ async function computeCandidateReposFresh(
   // 最近使用优先：频道内 WU 的 metadata.workspaceRoot，按 updatedAt 新→旧；
   // 仅重排已在候选集内的工程（最近使用是排序信号，不扩张候选集）
   try {
-    const index = await fileStore.getIndex();
+    // B2：channelId 过滤下推 getIndex（同 suggestions 口径）
+    const index = await fileStore.getIndex({ channelId });
     const recentKeys: string[] = [];
     const recentSeen = new Set<string>();
     const channelWus = index
-      .filter(s => s.channelId === channelId)
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     for (const wu of channelWus) {
       if (!wu.metadata) continue;

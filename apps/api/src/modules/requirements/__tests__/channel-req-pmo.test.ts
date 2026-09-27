@@ -80,6 +80,31 @@ describe('deriveChannelReqPmo（#636 第一级派生）', () => {
     await deriveChannelReqPmo(channelId, { fileStore, getProject: async id => ({ id, title: id }) });
     expect((await fileStore.listRequirements()).length).toBe(1);
   });
+
+  it('B2：按 seq 降序惰性解析——首个命中即停，更早挂接不再解析', async () => {
+    await createReq('REQ-0001', 1, 'proj-a');
+    await createReq('REQ-0002', 2, 'proj-b');
+    await createReq('REQ-0003', 3, 'proj-c');
+    const calls: string[] = [];
+    const derived = await deriveChannelReqPmo(channelId, {
+      fileStore,
+      getProject: async (id: string) => { calls.push(id); return { id, title: id }; },
+    });
+    expect(derived?.id).toBe('proj-c');
+    expect(calls).toEqual(['proj-c']); // 原 Promise.all 全量解析 3 次
+  });
+
+  it('B2：最近挂接项目缺失 → 惰性顺延次近（仍只解析到首个命中）', async () => {
+    await createReq('REQ-0001', 1, 'proj-a');
+    await createReq('REQ-0002', 2, 'proj-gone');
+    const calls: string[] = [];
+    const derived = await deriveChannelReqPmo(channelId, {
+      fileStore,
+      getProject: async (id: string) => { calls.push(id); return id === 'proj-gone' ? null : { id, title: id }; },
+    });
+    expect(derived?.id).toBe('proj-a');
+    expect(calls).toEqual(['proj-gone', 'proj-a']);
+  });
 });
 
 describe('listChannelReqPmoProjects（下沉后原语义保持）', () => {

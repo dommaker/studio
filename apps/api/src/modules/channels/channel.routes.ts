@@ -97,7 +97,8 @@ router.get('/:id/pmo-candidates', requireAuth(), apiCache(CACHE_CONFIG.short), h
 // GET /api/v1/channels/:id/suggestions — #443（spec #441 情境引导 02）：频道建议派生端点。
 // 不落库、按当前事实现算；fail-closed（前置不满足/拿不准不出）。本票只交付 status
 // 只读状态说明形态（自动评审在途）；action/prompt 形态见 #444/#445/#446（见 suggestions.ts）。
-router.get('/:id/suggestions', requireAuth(), handle(async (req, res) => {
+// B2：前端每条 agent 消息都重拉、每次全量 WU 派生，挂短 TTL apiCache（5s 档，同 current-pmo 先例）。
+router.get('/:id/suggestions', requireAuth(), apiCache(CACHE_CONFIG.short), handle(async (req, res) => {
   await channelService.getOrThrow(req.params.id);
   const data = await deriveChannelSuggestions(req.params.id, { fileStore });
   res.json({ success: true, data });
@@ -352,12 +353,12 @@ router.post('/:id/messages/:messageId/convert-to-task/suggest', requireAuth(), r
     }
     const message = found.message;
 
-    // 2. Get available agents
-    const allProfiles = await fileStore.listProfiles({ status: 'active' });
+    // 2/3. Get available agents + projects（互不依赖，并行拉取——B2）
+    const [allProfiles, projects] = await Promise.all([
+      fileStore.listProfiles({ status: 'active' }),
+      projectDiscoveryService.discover(),
+    ]);
     const agents = allProfiles.map(p => ({ id: p.id, name: p.name, description: p.description }));
-
-    // 3. Get available projects
-    const projects = await projectDiscoveryService.discover();
 
     // 4. Get LLM suggestion
     const suggestion = await convertToTaskService.suggest(

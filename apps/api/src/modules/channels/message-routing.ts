@@ -272,16 +272,21 @@ export async function routeMessage(
       inheritedWorkUnitId,
       filesMeta,
     );
-    // F5: 回复对象是挂起中的 WorkUnit → 解除挂起并把回复注入下一轮 prompt（best-effort）
+    // F5: 回复对象是挂起中的 WorkUnit → 解除挂起并把回复注入下一轮 prompt（best-effort）。
+    // B2：traceId 传入折进 resume 的同一次锁内写（消费分支不再独立 refresh 一次全量
+    // index R/W）；未消费（非 blocked/active、等待中未识别回复等）→ 回退独立 refresh（口径同前）
     if (inheritedWorkUnitId) {
-      await resumeWaitingWorkUnit(inheritedWorkUnitId, content, resolvedFs).catch(err =>
+      const consumed = await resumeWaitingWorkUnit(inheritedWorkUnitId, content, resolvedFs, {
+        traceId: ctx?.traceId,
+      }).catch(err => {
         logger.warn('[MessageRouting] Resume waiting WorkUnit failed (non-blocking)', {
           workUnitId: inheritedWorkUnitId,
           error: String(err),
-        })
-      );
+        });
+        return false;
+      });
       // #519: 线程回复关联的 WU 同样携带本次 traceId（全链路统一关联键）
-      await refreshWuTraceId(inheritedWorkUnitId);
+      if (!consumed) await refreshWuTraceId(inheritedWorkUnitId);
     }
     // #492（方案 a）：父消息在冷层 → 降级放行的回复不会触达任何任务，
     // 频道发 Studio 系统提示（挂在该回复线程），用户不再静默失效；提示本身 best-effort。
@@ -304,8 +309,24 @@ export async function routeMessage(
   // Priority 2: @mention → create WorkUnit
   const mentionName = detectMention(content);
   if (mentionName) {
-    const allProfiles = await resolvedFs.listProfiles({ status: 'active' });
-    const channel = ctx?.channel !== undefined ? ctx.channel : await resolvedFs.getChannel(channelId);
+    // B2：profile 列表 / 频道记录 / REQ 绑定三者互不依赖（REQ 绑定不依赖 profile
+    // 匹配结果，也不读 channel 记录），并行发出；归属解析依赖 reqId + channel 仍在其后。
+    const [allProfiles, channel, reqId] = await Promise.all([
+      resolvedFs.listProfiles({ status: 'active' }),
+      ctx?.channel !== undefined ? Promise.resolve(ctx.channel) : resolvedFs.getChannel(channelId),
+      // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
+      // best-effort：绑定失败不阻断 WorkUnit 创建（log + 不带 reqId 继续）。
+      resolveReqIdForDispatch({
+        explicitReqId: ctx?.reqId,
+        content,
+        channelId,
+        createdBy: 'mention',
+        fileStore: resolvedFs,
+      }).catch(err => {
+        logger.warn('[MessageRouting] REQ binding failed (non-blocking)', { error: String(err) });
+        return null;
+      }),
+    ]);
     // §9.5: mention 匹配以 channel.members 为界 — 只能 @ 到本频道成员（修越界 bug）。
     // members 为空（历史频道未回填）时回退到全量 active profile 匹配，保持既有行为。
     const memberIds = parseChannels(channel?.members);
@@ -337,18 +358,6 @@ export async function routeMessage(
     const scope = prefixMatchName
       ? content.replace(new RegExp(`@${prefixMatchName}\\s*`, 'u'), '')
       : content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
-    // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
-    // best-effort：绑定失败不阻断 WorkUnit 创建（log + 不带 reqId 继续）。
-    const reqId = await resolveReqIdForDispatch({
-      explicitReqId: ctx?.reqId,
-      content,
-      channelId,
-      createdBy: 'mention',
-      fileStore: resolvedFs,
-    }).catch(err => {
-      logger.warn('[MessageRouting] REQ binding failed (non-blocking)', { error: String(err) });
-      return null;
-    });
     // B3a 工程归属链（决策 D2 + #285 决策 #249 §4）：Requirement→PMO gitRepo
     // > 文件引用（kept refs 全同仓）> 频道默认工程 > 无归属挂起。
     // #481：显式/频道默认的 workspaceId（机器指针）两级已退役，不再参与归属。
@@ -547,7 +556,11 @@ export async function routeMessage(
       // 回复注入：blocked → resumeWaitingWorkUnit 复活 + pendingReplies；
       // active 且已有 pendingReplies → 其锁内追加分支已覆盖；其余（unassigned/active 无
       // pendingReplies）此处锁内补齐，保证 loop 下一步经 prompt-composer 注入。
-      const consumed = await resumeWaitingWorkUnit(mergeTarget.id, content, resolvedFs).catch(err => {
+      // B2：traceId 传入折进 resume 的同一次锁内写（消费分支不再独立 refresh）；
+      // 未消费分支的 pendingReplies 追加 + traceId 刷新并成同一次 updateMetadata
+      const consumed = await resumeWaitingWorkUnit(mergeTarget.id, content, resolvedFs, {
+        traceId: ctx?.traceId,
+      }).catch(err => {
         logger.warn('[MessageRouting] Resume merge-target WorkUnit failed (non-blocking)', {
           workUnitId: mergeTarget.id, error: String(err),
         });
@@ -557,14 +570,15 @@ export async function routeMessage(
         await resolvedFs.updateMetadata(mergeTarget.id, latest => ({
           ...latest,
           pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), content],
+          // #519: 合并窗口并入的在途 WU 刷新为本次消息 traceId（与线程回复同口径）
+          ...(ctx?.traceId ? { traceId: ctx.traceId } : {}),
         })).catch(err =>
           logger.warn('[MessageRouting] Append pendingReplies for merge target failed (non-blocking)', {
             workUnitId: mergeTarget.id, error: String(err),
           })
         );
       }
-      // #519: 合并窗口并入的在途 WU 刷新为本次消息 traceId（与线程回复同口径）
-      await refreshWuTraceId(mergeTarget.id);
+      // 已消费时 traceId 已折进 resume 的锁内写，无需独立 refreshWuTraceId
       logger.info('[MessageRouting] Message merged into in-flight WorkUnit (merge window)', {
         channelId,
         workUnitId: mergeTarget.id,
