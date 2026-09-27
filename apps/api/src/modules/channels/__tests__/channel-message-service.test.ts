@@ -340,15 +340,6 @@ describe('ChannelMessageService', () => {
     }
   });
 
-  // ── deleteMessage ──
-
-  it('soft-deletes message via tombstone', async () => {
-    const msg = await service.createHumanMessage(channelId, 'To delete');
-    await service.deleteMessage(msg.id);
-    const found = await fileStore.getMessageById(msg.id);
-    expect(found).toBeNull();
-  });
-
   // ── createCardMessage ──
 
   it('creates card message with cardType and cardData in meta', async () => {

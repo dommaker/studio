@@ -47,7 +47,7 @@ import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './wai
 import { applyPlanRuling, validateRulingItems } from '../pmo/plan-ruling.js';
 import { applyPlanDirection, validateDirectionPick } from '../pmo/plan-direction.js';
 import { claimWorkUnitAndAnnounce } from './claim-announce.js';
-import { listWorkUnitChangedFiles, listWorkUnitsChangedFiles } from './wu-changed-files.js';
+import { listWorkUnitsChangedFiles } from './wu-changed-files.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 import { requireAuth, requireNotGuest, type AuthRequest } from '../../middleware/auth.js';
 import { HttpRouteError, WORKUNIT_ERROR_MAPS, route, requireHuman } from './http-helpers.js';
@@ -199,16 +199,6 @@ router.get('/:id/tree-tokens', route([], async (req, res) => {
   const rootId = meta.collab?.rootId ?? wu.id;
   const report = await aggregateTreeTokens(rootId, fileStore);
   res.json(report);
-}));
-
-/**
- * GET /:id/changed-files — #285 AC4（决策 #249 §5）：per-WU 产出/修改文件集
- * （session:start.workUnitId → file:change 绝对路径；无数据/读取失败 → 空数组，
- * 前端文件 chip 降级候选集词表）。只读，匿名公开（与 GET /:id 同口径）。
- */
-router.get('/:id/changed-files', route([], async (req, res) => {
-  const files = await listWorkUnitChangedFiles(req.params.id);
-  res.json({ success: true, data: { files } });
 }));
 
 /** DELETE /:id — delete WorkUnit */

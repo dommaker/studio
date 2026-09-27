@@ -1,6 +1,6 @@
 // #285（决策 #249 §5）：agent 消息 inline-code（反引号）路径 token ↔ 文件词表匹配纪律。
-// 两层词表，命中即停：① WU 产出/修改文件集优先（AC4：GET /workunits/:id/changed-files
-// 返回 session:start.workUnitId 关联的 file:change 绝对路径——通常是 per-execution
+// 两层词表，命中即停：① WU 产出/修改文件集优先（AC4：GET /workunits/changed-files?ids=
+// 批量返回 session:start.workUnitId 关联的 file:change 绝对路径——通常是 per-execution
 // worktree 内路径，FileRef 按命中边界从绝对路径切出，不强行映射回候选仓）；
 // ② 拿不到/WU 层无命中 → 降级候选集词表（#281 file-vocabulary）。
 // 两层守同一匹配纪律：恰好唯一命中才染 chip，多条命中（含 basename 不唯一）保持纯文本。

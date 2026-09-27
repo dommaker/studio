@@ -10,7 +10,6 @@ import { channelService, ChannelError, validateDefaultWorkspaceId } from './chan
 import { saveChannelImage, resolveChannelImage, ATTACHMENT_BODY_LIMIT } from './attachments.js';
 import { routeMessage, resolveMergeTarget } from './message-routing.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
-import { projectService } from '../pmo/project.service.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
@@ -70,7 +69,7 @@ router.post('/', requireAuth(), requireNotGuest(), handle(async (req, res) => {
 
 // GET /api/v1/channels/:id — get channel detail
 // B8（2026-09-16 channel 性能审计）：去掉 prisma 时代遗留的 `_count.ChannelMessage`
-// （全仓无消费方，每请求 O(热文件行数) 全量 countMessages 纯浪费）
+// （全仓无消费方，每请求 O(热文件行数) 全量计数纯浪费；计数方法已随 B4 清扫删除）
 router.get('/:id', requireAuth(), handle(async (req, res) => {
   const channel = await channelService.getOrThrow(req.params.id);
   res.json({ success: true, data: channel });
@@ -298,26 +297,10 @@ router.patch('/:id/members', requireAuth(), requireNotGuest(), handle(async (req
   res.json({ success: true, data: { members, ...(warning ? { warning } : {}) } });
 }));
 
-/**
- * POST /api/v1/channels/:id/chore-pmo — 决策 2：登记频道杂务 PMO（find-or-create，幂等）。
- * 登记后，本频道无 token 的派发消息自动归集到杂务 PMO 的 REQ 别名（req-binding 只查不建）。
- */
-router.post('/:id/chore-pmo', requireAuth(), requireNotGuest(), handle(async (req, res) => {
-  const channel = await channelService.getOrThrow(req.params.id, `Channel not found: ${req.params.id}`);
-  try {
-    const project = await projectService.ensureChoreProject(channel.id, channel.name);
-    res.status(201).json({ success: true, data: project });
-  } catch (e: unknown) {
-    const msg = getErrorMessage(e);
-    logger.warn('[Channel] ensure chore PMO failed', { channelId: req.params.id, error: msg });
-    res.status(500).json({ success: false, error: msg });
-  }
-}));
-
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task (AC-E1)
 router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNotGuest(), async (req, res) => {
   const { id: channelId, messageId } = req.params;
-  const { title, description, assigneeId, projectPath, workspaceId, reqId } = req.body;
+  const { title, description, assigneeId, projectPath, reqId } = req.body;
 
   try {
     const workUnit = await convertToTaskService.convert(channelId, messageId, {
@@ -325,7 +308,6 @@ router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNo
       description,
       assigneeId,
       projectPath,
-      workspaceId,
       reqId,
     });
     res.status(201).json({ success: true, data: workUnit });

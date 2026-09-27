@@ -19,7 +19,7 @@ vi.mock('../../api/websocketHooks', () => ({
 }));
 vi.mock('../useGatedPoll', () => ({ useGatedPoll: () => {} }));
 vi.mock('../../api/workunit', () => ({
-  workunitApi: { list: mockWuList, getChangedFiles: vi.fn() },
+  workunitApi: { list: mockWuList },
 }));
 vi.mock('../../api/requirements', () => ({
   requirementApi: { list: mockReqList },

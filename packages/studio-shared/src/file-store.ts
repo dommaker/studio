@@ -37,7 +37,6 @@ import type {
   MessagePage,
   MessageCompactionOptions,
   MessageArchiveOptions,
-  CountOpts,
   RequirementData,
   RequirementFilter,
   EvolutionProposalData,
@@ -59,7 +58,6 @@ export type {
   MessagePage,
   MessageCompactionOptions,
   MessageArchiveOptions,
-  CountOpts,
   WorkUnitEventType,
   WorkUnitEvent,
   WorkUnitSnapshot,
@@ -1275,20 +1273,6 @@ export class FileStore extends FileStoreWorkUnitBase {
     } finally {
       await handle?.close();
     }
-  }
-
-  async countMessages(channelId: string, opts?: CountOpts): Promise<number> {
-    const resolved = await this.resolveActiveMessages(channelId);
-    let filtered = resolved;
-
-    if (opts?.workUnitId) {
-      filtered = filtered.filter(m => m.workUnitId === opts.workUnitId);
-    }
-    if (opts?.authorType) {
-      filtered = filtered.filter(m => m.authorType === opts.authorType);
-    }
-
-    return filtered.length;
   }
 
   async softDeleteMessage(channelId: string, messageId: string): Promise<void> {

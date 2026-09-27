@@ -27,15 +27,6 @@ export interface WuChangedFilesDeps {
   readEvents?: () => Promise<Array<Record<string, unknown>>>;
 }
 
-/** WU 全部 session 的产出/修改文件绝对路径（去重，按事件序） */
-export async function listWorkUnitChangedFiles(
-  workUnitId: string,
-  deps: WuChangedFilesDeps = {},
-): Promise<string[]> {
-  const map = await listWorkUnitsChangedFiles([workUnitId], deps);
-  return map[workUnitId] ?? [];
-}
-
 /** 事件集 → 各 WU 文件集（session:start.workUnitId → sessionId → file:change.path，去重保序） */
 function collectChangedFiles(
   events: Array<Record<string, unknown>>,

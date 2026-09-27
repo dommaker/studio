@@ -17,7 +17,6 @@ export interface ConvertInput {
   description?: string;
   assigneeId?: string;
   projectPath?: string;
-  workspaceId?: string | null;  // F6: 显式绑定工程（缺省走频道默认）
   reqId?: string | null;        // REQ 需求编号（显式指定；缺省走 token/自动新建）
 }
 
@@ -56,8 +55,6 @@ export class ConvertToTaskService {
     }
 
     // 2. Create WorkUnit via WorkUnitService (FileStore)
-    // F6: 显式 workspaceId 优先，其次频道默认工程
-    const channel = await this.fileStore.getChannel(channelId);
     // REQ 需求编号（vision §5.3）：显式 > 原消息 #REQ-XXXX token > 自动新建（best-effort）
     const reqId = await resolveReqIdForDispatch({
       explicitReqId: input.reqId,
@@ -80,7 +77,6 @@ export class ConvertToTaskService {
       status: 'unassigned',
       assigneeId: input.assigneeId ?? null,
       projectPath: input.projectPath ?? null,
-      workspaceId: input.workspaceId ?? channel?.defaultWorkspaceId ?? null,
       reqId,
       metadata: {
         creationMode: 'convert',

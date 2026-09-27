@@ -552,7 +552,7 @@ describe('generatePmoNumber（决策 4：统一编号，PM/PMO/REQ 两序列 max
 });
 
 // ── PMO-a：别名层与杂务 PMO（决策 2/4）──
-describe('PMO-a：getByReqAlias / getByPmoNumber 归一 / ensureChoreProject', () => {
+describe('PMO-a：getByReqAlias / getByPmoNumber 归一 / findChoreProject', () => {
   it('getByReqAlias：命中 reqAlias 的统一编号对象；无别名存量返回 null', async () => {
     mockReadDir.mockResolvedValue([dirEnt('proj-1.json'), dirEnt('proj-2.json')]);
     mockReadJson
@@ -571,28 +571,6 @@ describe('PMO-a：getByReqAlias / getByPmoNumber 归一 / ensureChoreProject', (
     expect((await projectService.getByPmoNumber('PM-011'))!.id).toBe('proj-1');
     expect(await projectService.getByPmoNumber('PMO-12')).toBeNull();
     expect(await projectService.getByPmoNumber('garbage')).toBeNull();
-  });
-
-  it('ensureChoreProject：find-or-create 幂等；杂务 PMO 直接 active + branch-only', async () => {
-    // readJson 返回最近一次 writeJson 写入的对象（模拟 FileStore 读己之写）
-    mockReadJson.mockImplementation(async () => mockWriteJson.mock.calls.at(-1)?.[1] ?? null);
-    // 第一次：无杂务 → 创建（create 内部 readAllProjects 空 → PMO-1）
-    mockReadDir.mockResolvedValue([]);
-
-    const created = await projectService.ensureChoreProject('ch-1', '#测试频道');
-    expect(created.isChore).toBe(true);
-    expect(created.channelId).toBe('ch-1');
-    expect(created.status).toBe('active');
-    expect(created.deliveryPolicy).toBe('branch-only');
-    expect(created.title).toContain('杂务');
-    expect(created.reqAlias).toMatch(/^REQ-\d{4}$/);
-
-    // 第二次：已有杂务 → 直接返回不再创建（mockWriteJson 调用次数不增）
-    const callsBefore = mockWriteJson.mock.calls.length;
-    mockReadDir.mockResolvedValue([dirEnt(`${created.id}.json`)]);
-    const again = await projectService.ensureChoreProject('ch-1', '#测试频道');
-    expect(again.id).toBe(created.id);
-    expect(mockWriteJson.mock.calls.length).toBe(callsBefore);
   });
 
   it('findChoreProject：只查不建（未登记返回 null）', async () => {

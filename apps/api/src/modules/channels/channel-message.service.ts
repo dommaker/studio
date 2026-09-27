@@ -1,5 +1,5 @@
 // ChannelMessage Service — centralized message creation + event publishing
-import { eventBus, logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { eventBus, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface MessageMeta {
@@ -243,22 +243,6 @@ export class ChannelMessageService {
       channelId: found.channelId, messageId, workUnitId, message: shaped,
     });
     return shaped;
-  }
-
-  /**
-   * #524 P1-1：channelId 可选——带上按频道直查免全频道扇出；缺省保留扇出兼容（冷路径）。
-   */
-  async deleteMessage(messageId: string, channelId?: string): Promise<void> {
-    const found = await this.fileStore.getMessageById(messageId, channelId);
-    if (!found) {
-      logger.warn('[ChannelMessageService] Delete failed', { messageId, error: 'Message not found' });
-      return;
-    }
-    try {
-      await this.fileStore.softDeleteMessage(found.channelId, messageId);
-    } catch (e) {
-      logger.warn('[ChannelMessageService] Delete failed', { messageId, error: String(e) });
-    }
   }
 
   /**

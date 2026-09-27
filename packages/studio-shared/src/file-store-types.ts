@@ -11,7 +11,7 @@ export interface AgentProfileData {
   id: string;
   name: string;
   description: string | null;
-  channels: string;        // JSON: Channel ID[] — @deprecated §9.5: channel.members 为成员关系唯一事实源；过渡期保留可读，新代码勿写入
+  channels: string;        // JSON: Channel ID[] — @deprecated §9.5: channel.members 为成员关系唯一事实源；写侧已停（B4，2026-09-27），读兜底 + migrate-members 待存量消化后退役
   status: string;          // active | inactive
   provider: string | null; // bound CLI: claude | kimi | codex | opencode | openclaw | null
   createdAt: string;       // ISO 8601
@@ -120,11 +120,6 @@ export interface MessageCompactionOptions {
 export interface MessageArchiveOptions {
   maxAgeDays?: number;     // 超龄判据：计龄锚点距今 ≥ N 天即归档（默认 30）
   now?: () => Date;        // 计龄基准时刻（测试注入固定值）
-}
-
-export interface CountOpts {
-  workUnitId?: string;
-  authorType?: string;
 }
 
 export type WorkUnitEventType = 'created' | 'claimed' | 'updated' | 'completed' | 'closed' | 'blocked';
