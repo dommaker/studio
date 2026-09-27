@@ -224,9 +224,6 @@ const railReq = (id: string) => (railProps()?.reqs ?? []).find(r => r.id === id)
 let reconnectHandlers: Array<() => void> = [];
 const emitReconnect = () => { reconnectHandlers.forEach(h => h()); };
 
-/** #242 夹具：本频道 active WU 列表响应（deriveLiveExecutions 初始数据源） */
-const activeWuList = (wus: Array<{ id: string; metadata: string | null }>) => ({ data: { data: wus } });
-
 const pageJsx = (entry = '/channels/ch-1') => (
   <MemoryRouter initialEntries={[entry]}>
     <Routes>
@@ -258,12 +255,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     });
     installApiPost();
     installApiGet();
-    // 同一 list 接口服务两种查询：blocked（NEED_INPUT 挂起集合）/ active（#242 live 状态条，默认无执行中）
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active'
-        ? activeWuList([])
-        : { data: { data: [{ id: 'WU-1018', metadata: JSON.stringify({ waitingForInput: true }) }] } },
-    ));
+    // #528 起 list 唯一查询形态 = 频道全集（channelWorkStore 打底；live 集由其派生，不再有 status=active 查询）
+    mockListWorkunits.mockResolvedValue({ data: { data: [{ id: 'WU-1018', metadata: JSON.stringify({ waitingForInput: true }) }] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];
@@ -619,6 +612,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
 });
 
 // #242：频道 live 执行状态条——出现/更新/终态/点击开抽屉（事件驱动，复用 execution-rows 推导层）
+// B3（2026-09）：live 集从 channelWorkStore.wus 派生——REST 打底 = 频道全集（无 status 参数），
+// status_changed 经 sync 层快照直替进 store；本 describe 的夹具相应改为「全集列表 + status 字段」
 describe('ChannelDetailPage — #242 live 执行状态条', () => {
   // 与上层 describe 同套的干净基线（本 describe 独立于外层，beforeEach 不共享）
   beforeEach(() => {
@@ -626,21 +621,13 @@ describe('ChannelDetailPage — #242 live 执行状态条', () => {
     seedMessages(MESSAGES);
     sseHandlers = [];
     installApiGet();
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active'
-        ? activeWuList([])
-        : { data: { data: [{ id: 'WU-1018', metadata: JSON.stringify({ waitingForInput: true }) }] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [{ id: 'WU-1018', metadata: JSON.stringify({ waitingForInput: true }) }] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockListReqs.mockResolvedValue({ data: { data: REQS } });
   });
 
   it('本频道有执行中 WU → 状态条出现（WU 标识 + 步号来自 metadata.stepCount）', async () => {
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active'
-        ? activeWuList([{ id: 'WU-1018', metadata: JSON.stringify({ stepCount: 3 }) }])
-        : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [{ id: 'WU-1018', status: 'active', metadata: JSON.stringify({ stepCount: 3 }) }] } });
     renderPage();
     await waitFor(() => expect(screen.getByText(/WU-1018 正在执行 · 第 3 步/)).toBeTruthy());
   });
@@ -652,11 +639,7 @@ describe('ChannelDetailPage — #242 live 执行状态条', () => {
   });
 
   it('SSE 步事件驱动更新：第 3 步 → 第 4 步（带 action）', async () => {
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active'
-        ? activeWuList([{ id: 'WU-1018', metadata: JSON.stringify({ stepCount: 3 }) }])
-        : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [{ id: 'WU-1018', status: 'active', metadata: JSON.stringify({ stepCount: 3 }) }] } });
     renderPage();
     await waitFor(() => expect(screen.getByText(/第 3 步/)).toBeTruthy());
     act(() => emitSse({
@@ -668,7 +651,8 @@ describe('ChannelDetailPage — #242 live 执行状态条', () => {
 
   it('status_changed → active 事件让状态条出现（页面已打开时新开始的执行）', async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    // store 语义：未打底频道 applyWorkunitSnapshot no-op——先等 wus slice 落库再发事件
+    await waitFor(() => expect(useChannelWorkStore.getState().wus['ch-1']).toBeDefined());
     expect(screen.queryByText(/正在执行/)).toBeNull();
     act(() => emitSse({
       event_type: 'workunit.status_changed',
@@ -678,11 +662,7 @@ describe('ChannelDetailPage — #242 live 执行状态条', () => {
   });
 
   it('执行到达终态（status_changed → done）→ 状态条消失', async () => {
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active'
-        ? activeWuList([{ id: 'WU-1018', metadata: JSON.stringify({ stepCount: 3 }) }])
-        : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [{ id: 'WU-1018', status: 'active', metadata: JSON.stringify({ stepCount: 3 }) }] } });
     renderPage();
     await waitFor(() => expect(screen.getByText(/WU-1018 正在执行/)).toBeTruthy());
     act(() => emitSse({
@@ -694,7 +674,7 @@ describe('ChannelDetailPage — #242 live 执行状态条', () => {
 
   it('其他频道的 status_changed / 未知 WU 的步事件 → 不产生状态条', async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    await waitFor(() => expect(useChannelWorkStore.getState().wus['ch-1']).toBeDefined());
     act(() => emitSse({
       event_type: 'workunit.status_changed',
       data: { workunit: { id: 'WU-9999', status: 'active', channelId: 'ch-other', metadata: '{}' } },
@@ -707,11 +687,7 @@ describe('ChannelDetailPage — #242 live 执行状态条', () => {
   });
 
   it('点击状态条 → 打开对应 WU 右抽屉', async () => {
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active'
-        ? activeWuList([{ id: 'WU-1018', metadata: JSON.stringify({ stepCount: 3 }) }])
-        : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [{ id: 'WU-1018', status: 'active', metadata: JSON.stringify({ stepCount: 3 }) }] } });
     renderPage();
     await waitFor(() => expect(screen.getByText(/WU-1018 正在执行/)).toBeTruthy());
     fireEvent.click(screen.getByText(/WU-1018 正在执行/));
@@ -980,9 +956,7 @@ describe('ChannelDetailPage — SSE 负载深化批 2：REQ chips 事件化 / wa
     sseHandlers = [];
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     installApiGet();
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockListReqs.mockResolvedValue({ data: { data: REQS } });
   });
@@ -1114,9 +1088,7 @@ describe('ChannelDetailPage — #447 引导片唯一来源 = 建议端点', () =
         ? { data: { data: [], hasMore: false, total: 0 } }
         : String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
     ));
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];
@@ -1210,9 +1182,7 @@ describe('ChannelDetailPage — #489 建议端点重拉触发面（防抖合并�
         ? { data: { data: [], hasMore: false, total: 0 } }
         : String(url).endsWith('/suggestions') ? EMPTY : CHANNEL,
     ));
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];
@@ -1298,13 +1268,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
         ? { data: { data: [], hasMore: false, total: 0 } }
         : String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
     ));
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active'
-        ? activeWuList([])
-        : params?.status === 'blocked'
-          ? { data: { data: [] } }
-          : { data: { data: [WU_5001] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [WU_5001] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];
@@ -1328,7 +1292,10 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
   });
 
   // #488：工作条占位三态——端点返回 null → 空闲态；未返回/失败/skew → 保持加载态（不误显空闲）
+  // B3：live 集从 channelWus 派生——本组用例要观察占位条，频道 WU 须非 active（否则 live 列表接管工作条）
+  const WU_5001_PENDING = { ...WU_5001, status: 'pending' };
   it('#488：端点返回 currentWuId=null → 工作条显示空闲文案，不再「状态同步中」', async () => {
+    mockListWorkunits.mockResolvedValue({ data: { data: [WU_5001_PENDING] } });
     suggestionPayload = { data: { data: { currentWuId: null, suggestions: [] } } };
     renderPage();
     await waitFor(() => expect(suggestionsCalls()).toBe(1));
@@ -1337,6 +1304,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
   });
 
   it('#488：建议端点请求失败 → 不误显示空闲，保持「状态同步中…」', async () => {
+    mockListWorkunits.mockResolvedValue({ data: { data: [WU_5001_PENDING] } });
     mockApiGet.mockImplementation((url: string) =>
       String(url).endsWith('/messages')
         ? Promise.resolve({ data: { data: [], hasMore: false, total: 0 } })
@@ -1353,6 +1321,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
   // #490：推导失败被吞（degraded=true）——前端仅 console 记录，不落「已返回」台账，
   // 工作条占位保持加载态不误显空闲；不出任何 UI（不打扰用户）
   it('#490：degraded=true → console.warn 记录 + 不落空闲（保持「状态同步中…」）', async () => {
+    mockListWorkunits.mockResolvedValue({ data: { data: [WU_5001_PENDING] } });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     suggestionPayload = { data: { data: { currentWuId: null, suggestions: [], degraded: true } } };
     renderPage();
@@ -1368,6 +1337,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
   });
 
   it('#490：degraded=false 正常返回 → 不 warn，照常落账（currentWuId=null → 空闲态）', async () => {
+    mockListWorkunits.mockResolvedValue({ data: { data: [WU_5001_PENDING] } });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     suggestionPayload = { data: { data: { currentWuId: null, suggestions: [], degraded: false } } };
     renderPage();
@@ -1381,6 +1351,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
   });
 
   it('#488：currentWuId 未命中 channelWus（时序 skew）→ 保持加载态而非空闲', async () => {
+    mockListWorkunits.mockResolvedValue({ data: { data: [WU_5001_PENDING] } });
     suggestionPayload = { data: { data: { currentWuId: 'WU-9999', suggestions: [] } } };
     renderPage();
     await waitFor(() => expect(suggestionsCalls()).toBe(1));
@@ -1437,9 +1408,7 @@ describe('ChannelDetailPage — #443 端点驱动只读状态说明', () => {
         ? { data: { data: [], hasMore: false, total: 0 } }
         : String(url).endsWith('/suggestions') ? STATUS_SUGGESTION : CHANNEL,
     ));
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];
@@ -1520,9 +1489,7 @@ describe('ChannelDetailPage — #446 prompt 建议片（预填进输入框，不
         ? { data: { data: [], hasMore: false, total: 0 } }
         : String(url).endsWith('/suggestions') ? PROMPT_SUGGESTION : CHANNEL,
     ));
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];
@@ -1596,9 +1563,7 @@ describe('ChannelDetailPage — #444 确定性动作片：补派评审', () => {
           ? (++suggestionFetchCount === 1 ? ACTION_SUGGESTION : EMPTY_SUGGESTION)
           : CHANNEL,
     ));
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];
@@ -1683,9 +1648,7 @@ describe('ChannelDetailPage — #445 认领动作片', () => {
           ? (++suggestionFetchCount === 1 ? ACTION_SUGGESTION : EMPTY_SUGGESTION)
           : CHANNEL,
     ));
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];
@@ -1752,9 +1715,7 @@ describe('ChannelDetailPage — 空频道态示例提示 chip（视觉批次 2 �
         ? { data: { data: [], hasMore: false, total: 0 } }
         : String(url).endsWith('/suggestions') ? { data: { data: { currentWuId: null, suggestions: [] } } } : CHANNEL,
     ));
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];
@@ -1803,9 +1764,7 @@ describe('ChannelDetailPage — 消息加载失败错误态（#482）', () => {
             String(url).endsWith('/suggestions') ? { data: { data: { currentWuId: null, suggestions: [] } } } : CHANNEL,
           )
     ));
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];
@@ -1867,9 +1826,7 @@ describe('ChannelDetailPage — Phase 4（AC6）composer-stack 输入区归组',
         ? { data: { data: [], hasMore: false, total: 0 } }
         : String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
     ));
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
     reconnectHandlers = [];

@@ -28,6 +28,8 @@ export interface ChannelMessageEnv {
   onInlineReply?: (message: ChannelMessage, content: string) => void | Promise<void>;
   /** channel 上下游优化 Phase 1（AC1）：quote 引用块点击定位上游消息 */
   onQuoteClick?: (messageId: string) => void;
+  /** AC-E3：「转为任务」——B3 起弹窗为页面级单例，消息项只回调打开（缺省 fail-closed 不出按钮） */
+  onConvert?: (message: ChannelMessage) => void;
 }
 
 const ChannelMessageEnvContext = createContext<ChannelMessageEnv | null>(null);

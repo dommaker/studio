@@ -12,6 +12,7 @@ import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelMessageEnvProvider, type ChannelMessageEnv } from '../components/channel/ChannelMessageEnv';
+import { ConvertToTaskDialog } from '../components/channel/ConvertToTaskDialog';
 import { ChannelStreamBody, type StreamMessageExtra } from '../components/channel/ChannelStreamBody';
 import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
 import { navigableIdsOf } from '../utils/streamView';
@@ -33,15 +34,14 @@ import { SkeletonText } from '../components/ui';
 import axios from 'axios';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
-import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
+import { useChannelDataStore } from '../stores/channelDataStore';
 import { useChannelWorkStore, parseRequirementPayload, wuIdleOf } from '../stores/channelWorkStore';
 import { agentAnsweredOf } from '../stores/channelMessageStore';
 import { useFreshMessageIds } from '../hooks/useFreshMessageIds';
 import { useNeedInputView } from '../hooks/useNeedInputView';
 import { useChannelWorkStoreSync } from '../hooks/useChannelWorkStoreSync';
 import type { Requirement } from '../api/requirements';
-import type { Channel, ChannelMessage, ChannelSuggestion, FileRef, SendIntent } from '../api/channel';
-import { channelApi } from '../api/channel';
+import type { ChannelMessage, ChannelSuggestion, FileRef, SendIntent } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 import { markPageEntry, emitPageFirstRender, emitReceiptRendered } from '../utils/clientPerf';
 
@@ -77,8 +77,10 @@ export function ChannelDetailPage() {
 
   // #520 测量②：client.perf 埋点③起点——进页记时（埋点①在 ChannelInput，②起点在 useChannelMessages）
   useEffect(() => { if (id) markPageEntry(id); }, [id]);
-  const [channel, setChannel] = useState<Channel | null>(null);
   const { messages, loading, error, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
+  // B3：频道记录走 channelDataStore 门禁（ensureChannel：与成员面同响应一次拉取，TTL + single-flight）——
+  // 原裸 channelApi.get 与 ChannelInput 的 ensureMembers 挂载并发双拉同一端点
+  const channel = useChannelDataStore(s => (id ? s.channels[id] : undefined)) ?? null;
 
   // #520 测量②：渲染完成终点（effect 于提交后跑 = 渲染已完成）——
   // ③ page_load：首屏消息渲染完成（每进页至多一次，起点消费后不再发；空频道不发属正常）；
@@ -109,6 +111,10 @@ export function ChannelDetailPage() {
   const [inputPrefill, setInputPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  // B3：AC-E3 转任务弹窗页面级单例——页面持目标消息，消息项经 env.onConvert 只回调打开
+  // （原每条可见消息各挂一个实例：关闭态仍跑 2 个 store 订阅 + key 比较，roster/members 更新扇出 N 份）
+  const [convertTarget, setConvertTarget] = useState<ChannelMessage | null>(null);
+  const openConvert = useCallback((m: ChannelMessage) => setConvertTarget(m), []);
   // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
   // <1024 右栏卸载 → 顶栏「频道动态」入口 + 覆盖滑出抽屉（actRailOpen）。
   // matchMedia 缺失（jsdom）回落宽屏：内联三栏齐挂、覆盖层不开
@@ -120,11 +126,8 @@ export function ChannelDetailPage() {
 
   useEffect(() => {
     if (!id) return;
-    channelApi.get(id).then(r => {
-      setChannel(r.data.data);
-      // #403：成员面写穿（页面本就拉频道记录，白捡的成员数据源；store 缺拉取时自行兜底）
-      useChannelDataStore.getState().setMembers(id, parseChannelMembers(r.data.data.members));
-    }).catch(() => {});
+    // #403：成员面随频道记录同响应落库（store 内写穿）；重连强刷由下方 onReconnect 承担
+    void useChannelDataStore.getState().ensureChannel(id);
   }, [id]);
 
   // 打开频道即读：本频道未读通知（SSE @human 实时条目 + link 指向本频道的后端通知）标记已读
@@ -450,7 +453,8 @@ export function ChannelDetailPage() {
     onOpenRequirement: openReq,
     onInlineReply: handleInlineReply,
     onQuoteClick: locateMessage,
-  }), [handleAction, handleReply, findMessage, id, openWu, openWuConfirm, openWuRuling, openWuDirection, openReq, handleInlineReply, locateMessage]);
+    onConvert: openConvert,
+  }), [handleAction, handleReply, findMessage, id, openWu, openWuConfirm, openWuRuling, openWuDirection, openReq, handleInlineReply, locateMessage, openConvert]);
 
   // #322：提升为 useCallback——消除每次渲染新建的内联 render props（memo 稳定 props 契约）
   // #547：手喂面收窄到 message + 5 个 per-message 派生值（共 6 个）；横切值经 messageEnv 下发，
@@ -675,6 +679,17 @@ export function ChannelDetailPage() {
         onClose={() => setDrawer(null)}
         onOpenWu={openWu}
         onOpenReq={openReq}
+      />
+
+      {/* AC-E3 转任务弹窗（B3 页面级单例）：closed 态 convertTarget=null → open=false 返回 null；
+          converted 后走统一卡片 action 路由（'converted' → 消息刷新，同原消息项内行为） */}
+      <ConvertToTaskDialog
+        open={convertTarget !== null}
+        onClose={() => setConvertTarget(null)}
+        messageId={convertTarget?.id ?? ''}
+        channelId={id}
+        messageContent={convertTarget?.content ?? ''}
+        onConverted={() => { if (convertTarget) handleAction(convertTarget.id, 'converted'); }}
       />
     </div>
   );

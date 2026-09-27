@@ -114,3 +114,31 @@ describe('ChannelMessageItem — 复制按钮（Phase 3 / AC4）', () => {
     expect(screen.queryByLabelText('复制消息内容')).toBeNull();
   });
 });
+
+// B3：「转为任务」按钮回调化——弹窗页面级单例，消息项只经 env.onConvert 回调打开；
+// 缺 onConvert（无 Provider/未注入）fail-closed 不出按钮
+describe('ChannelMessageItem — 转为任务回调（B3 单例化）', () => {
+  const humanMsg: ChannelMessage = {
+    ...base, id: 'h-1', authorType: 'human', agentName: null, workUnitId: null,
+  };
+
+  it('人类消息（无 WU）点「转为任务」→ onConvert 回调携带消息本体', () => {
+    const onConvert = vi.fn();
+    renderItem(humanMsg, {}, { channelId: 'ch-1', onConvert });
+    fireEvent.click(screen.getByLabelText('转为任务'));
+    expect(onConvert).toHaveBeenCalledWith(humanMsg);
+  });
+
+  it('env 缺 onConvert → 不出「转为任务」按钮（fail-closed）', () => {
+    renderItem(humanMsg, {}, { channelId: 'ch-1' });
+    expect(screen.queryByLabelText('转为任务')).toBeNull();
+  });
+
+  it('agent 消息 / 已挂 WU 的人类消息不出「转为任务」按钮', () => {
+    const onConvert = vi.fn();
+    renderItem(base, {}, { channelId: 'ch-1', onConvert });
+    expect(screen.queryByLabelText('转为任务')).toBeNull();
+    renderItem({ ...humanMsg, id: 'h-2', workUnitId: 'WU-1' }, {}, { channelId: 'ch-1', onConvert });
+    expect(screen.queryByLabelText('转为任务')).toBeNull();
+  });
+});

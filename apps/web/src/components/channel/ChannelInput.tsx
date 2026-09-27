@@ -130,15 +130,20 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
   }, [channelId]);
 
   // 400ms 防抖拉 merge-target；内容变化重新判定，不满足条件即撤条。失败静默降级（不显示预览条）
+  // B3：seq 守卫——防抖只挡新请求，已发出的旧请求响应仍会覆盖新结果；
+  // 每次发请求 ++seq，响应只认最新 seq（退出分支同样 ++seq，使在途响应失效）
+  const mergeSeqRef = useRef(0);
   useEffect(() => {
     if (!mergePreviewEligible || !channelId) {
+      mergeSeqRef.current += 1;
       setMergePreview(null);
       return;
     }
     const timer = setTimeout(() => {
+      const seq = ++mergeSeqRef.current;
       channelApi.getMergeTarget(channelId)
-        .then(res => setMergePreview(res.data.data))
-        .catch(() => setMergePreview(null));
+        .then(res => { if (seq === mergeSeqRef.current) setMergePreview(res.data.data); })
+        .catch(() => { if (seq === mergeSeqRef.current) setMergePreview(null); });
     }, MERGE_PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [mergePreviewEligible, channelId, content]);

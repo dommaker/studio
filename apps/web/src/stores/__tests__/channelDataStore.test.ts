@@ -56,6 +56,18 @@ describe('channelDataStore 三切片拉取与去重', () => {
     expect(mockGetCurrentPmo).toHaveBeenCalledTimes(2);
   });
 
+  // B3：频道记录与成员面合一——ensureChannel 一次拉取落 channels/members 两 slice，
+  // ensureMembers 为其别名共享同一门禁（原页面挂载裸 get 与 ensureMembers 双拉同一端点）
+  it('ensureChannel 一次拉取落频道记录 + 成员两 slice；ensureMembers 共享门禁零二次请求', async () => {
+    await useChannelDataStore.getState().ensureChannel('ch-1');
+    const s = useChannelDataStore.getState();
+    expect(s.channels['ch-1']?.id).toBe('ch-1');
+    expect(s.members['ch-1']).toEqual(['a1', 'a2']);
+    expect(mockChannelGet).toHaveBeenCalledTimes(1);
+    await useChannelDataStore.getState().ensureMembers('ch-1');
+    expect(mockChannelGet).toHaveBeenCalledTimes(1);
+  });
+
   it('TTL 内重复调用零重拉；TTL 过期后重拉', async () => {
     vi.useFakeTimers();
     try {

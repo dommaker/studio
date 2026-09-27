@@ -17,6 +17,7 @@ vi.mock('../../../api/channel', () => ({
 }));
 
 import { ConvertToTaskDialog } from '../ConvertToTaskDialog';
+import { useProjectsStore } from '../../../stores/projectsStore';
 
 function renderDialog(messageContent: string) {
   render(
@@ -35,6 +36,7 @@ function renderDialog(messageContent: string) {
 describe('ConvertToTaskDialog', () => {
   beforeEach(() => {
     mockSuggestTask.mockReset().mockResolvedValue({ data: { data: {} } });
+    useProjectsStore.getState().__resetForTests();
   });
 
   it('renders nothing when open=false', () => {

@@ -2,11 +2,14 @@
 // 2026-07 视觉重构（方向 A Mission Control）：深色变量重绘；交互语义零变更
 // #403：agent 候选读 rosterStore×channelDataStore 客户端切片（同 ChannelInput 口径，
 // 不再打 /agent-profiles?channelId——打开弹层时触发切片拉取，TTL 内与其他消费方共享）
+// B3：工程候选读 projectsStore（TTL + single-flight，与顶栏默认工程下拉共享一份）；
+// 挂载单例化（页面级一实例，ChannelMessageItem 只回调打开）
 import { useState, useEffect, useMemo, useRef } from 'react';
-import type { AgentProfile, ConvertSuggestion, LocalProject } from '../../api/channel';
+import type { AgentProfile, ConvertSuggestion } from '../../api/channel';
 import { channelApi } from '../../api/channel';
 import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
 import { useChannelDataStore } from '../../stores/channelDataStore';
+import { useProjectsStore } from '../../stores/projectsStore';
 import { Select, Modal } from '../ui';
 
 // #292: 标题兜底——首个非空行截断约 50 字；suggestTask 失败/为空时创建链路也无需手打标题
@@ -29,7 +32,7 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
   const [description, setDescription] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
   const [projectPath, setProjectPath] = useState('');
-  const [projects, setProjects] = useState<LocalProject[]>([]);
+  const projects = useProjectsStore((s) => s.projects) ?? [];
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -64,22 +67,23 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
     }
   }
 
-  // Fetch projects + LLM suggestion on open（agent 切片拉取触发另起，见上）
+  // Fetch LLM suggestion on open（工程候选走 projectsStore 门禁；agent 切片拉取触发另起，见上）
   useEffect(() => {
     if (!open) return;
     void useRosterStore.getState().ensureFresh();
     if (channelId) void useChannelDataStore.getState().ensureMembers(channelId);
+    void useProjectsStore.getState().ensureProjects();
 
-    Promise.all([
-      channelApi.discoverProjects().then(r => r.data.data).catch(() => []),
-      channelApi.suggestTask(channelId, messageId).then(r => r.data.data).catch(() => ({} as ConvertSuggestion)),
-    ]).then(([projectsRes, suggestion]) => {
-      setProjects(projectsRes);
-      if (suggestion.title && !titleTouchedRef.current) setTitle(suggestion.title);
-      if (suggestion.description) setDescription(suggestion.description);
-      if (suggestion.suggestedAssigneeId) setAssigneeId(suggestion.suggestedAssigneeId);
-      if (suggestion.suggestedProjectPath) setProjectPath(suggestion.suggestedProjectPath);
-    }).finally(() => setLoading(false));
+    channelApi.suggestTask(channelId, messageId)
+      .then(r => r.data.data)
+      .catch(() => ({} as ConvertSuggestion))
+      .then((suggestion) => {
+        if (suggestion.title && !titleTouchedRef.current) setTitle(suggestion.title);
+        if (suggestion.description) setDescription(suggestion.description);
+        if (suggestion.suggestedAssigneeId) setAssigneeId(suggestion.suggestedAssigneeId);
+        if (suggestion.suggestedProjectPath) setProjectPath(suggestion.suggestedProjectPath);
+      })
+      .finally(() => setLoading(false));
   }, [open, channelId, messageId]);
 
   const handleSubmit = async () => {

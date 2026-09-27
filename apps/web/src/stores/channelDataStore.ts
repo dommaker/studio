@@ -1,6 +1,7 @@
 // Channel Data Store — #403 per-channelId 频道数据面 store（ADR 2026-08-31-channel-data-plane-store）
-// 管四样：文件词表（/channels/:id/file-vocabulary）/ 当前 PMO（/channels/:id/current-pmo）/
-// 频道成员 ID 列表（channel.members，源自 GET /channels/:id）/ PMO 补全候选（/channels/:id/pmo-candidates，#638）。
+// 管五样：频道记录（GET /channels/:id 本体，B3 起）/ 文件词表（/channels/:id/file-vocabulary）/
+// 当前 PMO（/channels/:id/current-pmo）/ 频道成员 ID 列表（channel.members，与频道记录同响应派生）/
+// PMO 补全候选（/channels/:id/pmo-candidates，#638）。
 // 机制照 rosterStore（#346），
 // 取数纪律走 fetchDiscipline 底座——按 (slice, channelId) 粒度各自 TTL 锚点 / single-flight / seq 守卫。
 // 新鲜度 = TTL + 白捡触发器，不新增 SSE 事件（ADR 决策 3）：
@@ -8,10 +9,14 @@
 //   REQ 变更同样改变 # 补全候选集 → 同钩内一并失效强刷 pmo-candidates（#638）
 // - members：面板内修改成功后 setMembers 本地写穿，不做多端实时（现状亦无）
 // - 词表：无失效事件（后端本有 60s 内存缓存，实时性从来不存在）
+// B3：频道记录与成员面合一——ensureChannel 一次拉取同时落 channels/members 两 slice（同响应），
+// ensureMembers 为其别名（原页面裸 channelApi.get 与 ensureMembers 并发双拉同一端点）；
+// setMembers 写穿只动 members slice 与共享 TTL 锚点，不回写 channels 记录的 members 字段
+//（记录面消费方读 name/type/defaultPath，成员口径一律读 members slice）。
 // 注意（ADR 决策 2）：agent 档案不进本 store——rosterStore.listAllAgents 是全量正本，
 // 消费方读 rosterStore 客户端切片，「频道 members 为空 → 全部 active」回退语义在消费方实现。
 import { create } from 'zustand';
-import { channelApi, type ChannelCurrentPmo, type ChannelFileVocabulary, type ChannelPmoCandidate } from '../api/channel';
+import { channelApi, type Channel, type ChannelCurrentPmo, type ChannelFileVocabulary, type ChannelPmoCandidate } from '../api/channel';
 import { createFetchGate, disciplinedFetch, type FetchGate, type FetchGateState } from './fetchDiscipline';
 
 /** 缺省 TTL：与 rosterStore 30s 兜底同频——频道间路由切换 TTL 内零重拉（#403 验收） */
@@ -31,6 +36,8 @@ export function parseChannelMembers(membersJson: string | null | undefined): str
 }
 
 interface ChannelDataState {
+  /** channelId → 频道记录本体（B3 起；缺键 = 未拉到：含拉取失败，消费方按缺省文案降级） */
+  channels: Record<string, Channel | undefined>;
   /** channelId → 文件词表（缺键 = 未拉到：含拉取失败，消费方按无词表降级） */
   vocabulary: Record<string, ChannelFileVocabulary | undefined>;
   /** channelId → 当前 PMO 派生（null = 后端派生为空；缺键 = 未拉到） */
@@ -40,8 +47,11 @@ interface ChannelDataState {
   /** #638：channelId → PMO 补全候选（缺键 = 未拉到/失败 → fail-closed 不出弹框；[] = 确无候选） */
   pmoCandidates: Record<string, ChannelPmoCandidate[] | undefined>;
 
+  /** 频道记录 + 成员面一次拉取（同响应落 channels/members 两 slice；B3 起页面挂载唯一入口） */
+  ensureChannel: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
   ensureVocabulary: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
   ensureCurrentPmo: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
+  /** ensureChannel 别名（成员面事实源 = 频道记录同响应，不再单独发请求） */
   ensureMembers: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
   /** #638：`#` 弹框激活时懒加载 PMO 候选（形状护栏非数组按 [] 落库） */
   ensurePmoCandidates: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
@@ -75,10 +85,36 @@ function capVocabulary(map: Record<string, ChannelFileVocabulary | undefined>): 
 }
 
 export const useChannelDataStore = create<ChannelDataState>((set, get) => ({
+  channels: {},
   vocabulary: {},
   currentPmo: {},
   members: {},
   pmoCandidates: {},
+
+  ensureChannel: (channelId, opts) => {
+    const s = sliceOf(`channel:${channelId}`);
+    return disciplinedFetch(
+      s.gate,
+      { read: () => s.state, setInflight: (p) => { s.state.inflight = p; } },
+      { maxAgeMs: opts?.maxAgeMs ?? CHANNEL_DATA_TTL_MS },
+      async (seq) => {
+        try {
+          // 频道记录与成员面同响应：一次拉取落两 slice（成员关系事实源 = channel.members，与旧服务端 channelId 过滤同口径）
+          const res = await channelApi.get(channelId);
+          if (!s.gate.isLatest(seq)) return;
+          const record = res.data?.data;
+          if (!record || typeof record.id !== 'string') return; // 坏负载不落库不编造
+          set((st) => ({
+            channels: { ...st.channels, [channelId]: record },
+            members: { ...st.members, [channelId]: parseChannelMembers(record.members) },
+          }));
+          s.state.loadedAt = Date.now();
+        } catch {
+          // 缺键 = 未拉到：消费方按「记录/成员面不可用」降级（缺省文案、不献 mention 候选），不落锚点
+        }
+      },
+    );
+  },
 
   ensureVocabulary: (channelId, opts) => {
     const s = sliceOf(`vocab:${channelId}`);
@@ -125,24 +161,9 @@ export const useChannelDataStore = create<ChannelDataState>((set, get) => ({
   },
 
   ensureMembers: (channelId, opts) => {
-    const s = sliceOf(`members:${channelId}`);
-    return disciplinedFetch(
-      s.gate,
-      { read: () => s.state, setInflight: (p) => { s.state.inflight = p; } },
-      { maxAgeMs: opts?.maxAgeMs ?? CHANNEL_DATA_TTL_MS },
-      async (seq) => {
-        try {
-          // 成员关系事实源 = channel.members（与旧服务端 channelId 过滤同口径）
-          const res = await channelApi.get(channelId);
-          if (!s.gate.isLatest(seq)) return;
-          const parsed = parseChannelMembers(res.data?.data?.members);
-          set((st) => ({ members: { ...st.members, [channelId]: parsed } }));
-          s.state.loadedAt = Date.now();
-        } catch {
-          // 缺键 = 未拉到：消费方按「成员面不可用」降级（不献 mention 候选），不落锚点
-        }
-      },
-    );
+    // B3：成员面与频道记录同源（GET /channels/:id）——委托 ensureChannel 共享同一门禁，
+    // 不再单独发请求（原页面裸 channelApi.get 与本切片并发双拉同一端点）
+    return get().ensureChannel(channelId, opts);
   },
 
   ensurePmoCandidates: (channelId, opts) => {
@@ -168,7 +189,7 @@ export const useChannelDataStore = create<ChannelDataState>((set, get) => ({
   },
 
   setMembers: (channelId, members) => {
-    sliceOf(`members:${channelId}`).state.loadedAt = Date.now();
+    sliceOf(`channel:${channelId}`).state.loadedAt = Date.now();
     set((st) => ({ members: { ...st.members, [channelId]: members } }));
   },
 
@@ -183,6 +204,6 @@ export const useChannelDataStore = create<ChannelDataState>((set, get) => ({
 
   __resetForTests: () => {
     book.clear();
-    set({ vocabulary: {}, currentPmo: {}, members: {}, pmoCandidates: {} });
+    set({ channels: {}, vocabulary: {}, currentPmo: {}, members: {}, pmoCandidates: {} });
   },
 }));

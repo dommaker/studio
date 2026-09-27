@@ -138,7 +138,8 @@ export const channelApi = {
     api.patch<{ success: boolean; data: Channel }>(`/channels/${channelId}`, data),
 
   listMessages: (channelId: string, params?: { before?: string; limit?: number }) =>
-    api.get<{ success: boolean; data: ChannelMessage[]; total: number; hasMore: boolean }>(
+    // 响应里的 total 后端 2026-09 起恒 0（默认跳过节流扫描，?includeTotal=true 才实算）且前端无消费方——类型不收
+    api.get<{ success: boolean; data: ChannelMessage[]; hasMore: boolean }>(
       `/channels/${channelId}/messages`,
       { params }
     ),

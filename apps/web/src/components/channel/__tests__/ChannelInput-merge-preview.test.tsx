@@ -168,4 +168,39 @@ describe('ChannelInput — 归属预览条（#632）', () => {
     expect(previewBar(container)).toBeNull();
     expect(mockGetMergeTarget).not.toHaveBeenCalled();
   });
+
+  // B3：seq 守卫——防抖只挡新请求，已发出的旧请求响应不得覆盖新结果
+  it('在途旧响应晚到不覆盖新结果（seq 守卫）', async () => {
+    let resolveFirst!: (v: unknown) => void;
+    mockGetMergeTarget
+      .mockReturnValueOnce(new Promise(r => { resolveFirst = r; }))
+      .mockResolvedValueOnce({
+        data: { data: { status: 'unique', workUnit: { id: 'wu-2', title: '新目标' } } },
+      });
+    const { textarea } = setup();
+
+    typeIn(textarea, '第一条内容');
+    await waitFor(() => expect(mockGetMergeTarget).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    typeIn(textarea, '第二条内容');
+    await waitFor(() => expect(screen.getByText('新目标')).toBeTruthy(), { timeout: 2000 });
+
+    // 旧请求此刻才落地——不得顶掉「新目标」
+    resolveFirst({ data: { data: { status: 'unique', workUnit: { id: 'wu-1', title: '旧目标' } } } });
+    await new Promise(r => setTimeout(r, 50));
+    expect(screen.queryByText('旧目标')).toBeNull();
+    expect(screen.getByText('新目标')).toBeTruthy();
+  });
+
+  it('内容清空（失去预览资格）后在途响应落地 → 预览条不复活', async () => {
+    let resolveFirst!: (v: unknown) => void;
+    mockGetMergeTarget.mockReturnValueOnce(new Promise(r => { resolveFirst = r; }));
+    const { textarea, container } = setup();
+
+    typeIn(textarea, '又删掉的内容');
+    await waitFor(() => expect(mockGetMergeTarget).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    typeIn(textarea, '');
+    resolveFirst({ data: { data: { status: 'unique', workUnit: { id: 'wu-1', title: '残留目标' } } } });
+    await new Promise(r => setTimeout(r, 50));
+    expect(previewBar(container)).toBeNull();
+  });
 });

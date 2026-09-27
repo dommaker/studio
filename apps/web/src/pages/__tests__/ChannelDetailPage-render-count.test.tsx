@@ -90,12 +90,10 @@ describe('ChannelDetailPage — #322 消息项 memo：step 事件零重渲', () 
     sseHandlers = [];
     currentMessages = [msg('m1', { createdAt: iso(0) }), msg('m2', { createdAt: iso(10) })];
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd', type: 'rnd', members: '[]' } } });
-    // live 状态条有一个执行中 WU（第 1 步）
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active'
-        ? { data: { data: [{ id: 'WU-1018', metadata: JSON.stringify({ stepCount: 1 }) }] } }
-        : { data: { data: [] } },
-    ));
+    // live 状态条有一个执行中 WU（第 1 步）——B3 起 live 集从 channelWorkStore 频道全集派生（无 status 参数查询）
+    mockListWorkunits.mockResolvedValue({
+      data: { data: [{ id: 'WU-1018', status: 'active', metadata: JSON.stringify({ stepCount: 1 }) }] },
+    });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockSendMessage.mockResolvedValue({});
