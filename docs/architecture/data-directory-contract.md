@@ -157,7 +157,7 @@ data/
 ### 其他已知漂移（登记，不修）
 
 - `log-path.ts:46-48` 生产分支直拼 `STUDIO_HOME/logs`（有意不走 studioDir() 防测试 env 泄漏，注释已注明）——语义等价的重复实现，登记为已知例外。
-- scripts/bench 直拼数据根路径（`scripts/normalize-archive-maturity.ts:132`、`cleanup-stuck-in-review-no-channel.ts:194`、`setup-config.sh:8`、`apps/api/bench/*`）——脚本/bench-only，登记；新脚本禁止新增。
+- scripts/bench 直拼数据根路径（`scripts/normalize-archive-maturity.ts:132`、`cleanup-stuck-in-review-no-channel.ts:194`、`apps/api/bench/*`）——脚本/bench-only，登记；新脚本禁止新增。
 - `data/` 内遗产：`sessions/`、`workspaces/`、`workspace-runtimes/`、`workspace-tokens/`、`req-pmo-map.json`、三个 knowledge-synthesis/audit md、`documents.retired-20260815.tar.gz`——零引用或已退役 trigger 产出，只登记。
 
 ## 9. 摸底冲突处置结论（10 条逐条）
