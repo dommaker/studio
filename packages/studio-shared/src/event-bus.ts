@@ -16,8 +16,12 @@ class StudioEventBus {
 
   // 发布事件
   publish(channel: string, payload: any) {
-    // 精确匹配
-    this.emitter.emit(channel, payload);
+    // 精确匹配：per-handler try/catch——单个同步抛错的订阅者不炸进发布方调用栈，
+    // 也不阻断其余 handler（对齐下方通配符路径既有口径；EventEmitter.emit 原生会透传异常）。
+    // 用 rawListeners：listeners() 会把 once 解包成原始函数，直调丢一次性语义（wrapper 才带自移除）
+    for (const handler of this.emitter.rawListeners(channel)) {
+      try { handler(payload); } catch (e) { console.error(`[EventBus] handler error for ${channel}:`, e); }
+    }
     // 通配符匹配
     for (const [pattern, handlers] of this.listeners) {
       if (this.matchPattern(pattern, channel)) {

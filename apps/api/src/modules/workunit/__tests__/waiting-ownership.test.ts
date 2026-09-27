@@ -214,6 +214,12 @@ describe('B3a: 回复解析绑定工程（唯一命中）', () => {
 
     // 指名 profile 的 loop 在 unassigned 过滤中看到后认领（agent-loop.ts runLoop 同款路径：
     // 过滤按 role.id 匹配 assigneeId，claim 传入 instance.id）
+    // B6：claim 锁内校验指名人——认领方 roleId 须命中指名，生产 loop 实例必有 state，此处补种
+    await fileStore.createState(MENTIONED_INSTANCE_ID, {
+      id: MENTIONED_INSTANCE_ID, roleId: MENTIONED_PROFILE_ID, sessionId: null, status: 'active',
+      currentWorkUnitId: null, startedAt: new Date().toISOString(), terminatedAt: null,
+      lastHeartbeat: null, metadata: null,
+    });
     const claimed = await wuService.claim(wu.id, MENTIONED_INSTANCE_ID);
 
     expect(claimed.status).toBe('active');

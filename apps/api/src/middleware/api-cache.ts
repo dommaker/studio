@@ -4,6 +4,20 @@ import { logger } from '../utils/logger.js';
 
 const cache = new Map<string, { data: string; expiresAt: number }>();
 
+/**
+ * 惰性清扫过期键（B6）：Map 只写不扫时过期键靠同 key 再访问才覆盖，缓慢泄漏。
+ * 挂在写入路径——每次写缓存顺手扫一轮，代价与存活键数量同阶。
+ * @returns 本次移除的键数（测试可观测）
+ */
+export function sweepExpired(): number {
+  const now = Date.now();
+  let removed = 0;
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt <= now) { cache.delete(key); removed++; }
+  }
+  return removed;
+}
+
 const CACHE_CONFIG = {
   short: 5,
   medium: 30,
@@ -34,6 +48,7 @@ export function apiCache(ttl: number = CACHE_CONFIG.medium) {
       res.json = (data: any) => {
         // 错误响应（≥400）不缓存：瞬时失败不得在 TTL 窗口内钉死端点（#403）
         if (res.statusCode < 400) {
+          sweepExpired();
           cache.set(cacheKey, { data: JSON.stringify(data), expiresAt: Date.now() + ttl * 1000 });
         }
         return originalJson(data);

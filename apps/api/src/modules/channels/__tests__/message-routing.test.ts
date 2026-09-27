@@ -692,7 +692,14 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
 
     it('竞态时序：created 处理器内同步抢跑认领 → 认领播报锚在派发消息下，线程单根', async () => {
-      await createTestAgent(fileStore, 'RaceAgent');
+      await createTestAgent(fileStore, 'RaceAgent', 'active', { id: 'profile-race' });
+      // B6：claim 锁内校验指名人——认领方 roleId 须命中指名 profile，生产 loop 实例必有
+      // state（getState 命中取 roleId），此处为 'instance-race' 补种
+      await fileStore.createState('instance-race', {
+        id: 'instance-race', roleId: 'profile-race', sessionId: null, status: 'active',
+        currentWorkUnitId: null, startedAt: new Date().toISOString(), terminatedAt: null,
+        lastHeartbeat: null, metadata: null,
+      });
       // 构造竞态：eventBus.publish 同步派发、不等待订阅侧（event-bus.ts），
       // 在 created 处理器内立即认领并发声——复刻 agent-loop observe→claim→announce
       // 与派发消息落库的抢跑（#494 票体时序）。修复后 anchor 取自 WU metadata

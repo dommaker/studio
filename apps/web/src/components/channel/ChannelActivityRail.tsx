@@ -66,6 +66,22 @@ function useCurrentPmo(channelId: string): ChannelCurrentPmo | null {
   return pmo;
 }
 
+/** projectId → 展示名 模块级缓存（B6：右栏每挂载曾逐 project 重拉一轮 projectApi.get）。
+ *  TTL 30s 对齐 channelDataStore/rosterStore 惯例；拉不到（项目已删）缓存 null，
+ *  TTL 窗口内不重试（调用方本就不渲染死按钮） */
+const PROJECT_LABEL_TTL_MS = 30_000;
+const projectLabelCache = new Map<string, { label: string | null; expiresAt: number }>();
+
+function readProjectLabels(ids: string[]): Record<string, string> {
+  const now = Date.now();
+  const next: Record<string, string> = {};
+  for (const id of ids) {
+    const entry = projectLabelCache.get(id);
+    if (entry && entry.expiresAt > now && entry.label) next[id] = entry.label;
+  }
+  return next;
+}
+
 /** projectId → 展示名（PMO 号 · 标题）；拉不到（项目已删）→ 不进 map，调用方不渲染死按钮 */
 function useProjectLabels(projectIds: string[]): Record<string, string> {
   const [labels, setLabels] = useState<Record<string, string>>({});
@@ -74,18 +90,20 @@ function useProjectLabels(projectIds: string[]): Record<string, string> {
     if (!idsKey) { setLabels({}); return; }
     let alive = true;
     const list = idsKey.split(',');
-    Promise.all(list.map(id =>
+    const now = Date.now();
+    const stale = list.filter(id => (projectLabelCache.get(id)?.expiresAt ?? 0) <= now);
+    if (stale.length === 0) { setLabels(readProjectLabels(list)); return; }
+    Promise.all(stale.map(id =>
       projectApi.get(id)
         .then(r => {
           const p = r.data as { pmoNumber?: string; title?: string } | null;
           return p?.title ? `${p.pmoNumber ?? 'PMO'} · ${p.title}` : null;
         })
-        .catch(() => null),
-    )).then(results => {
+        .catch(() => null)
+        .then(label => { projectLabelCache.set(id, { label, expiresAt: Date.now() + PROJECT_LABEL_TTL_MS }); }),
+    )).then(() => {
       if (!alive) return;
-      const next: Record<string, string> = {};
-      results.forEach((label, i) => { if (label) next[list[i]] = label; });
-      setLabels(next);
+      setLabels(readProjectLabels(list));
     });
     return () => { alive = false; };
   }, [idsKey]);

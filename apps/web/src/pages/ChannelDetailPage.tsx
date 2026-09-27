@@ -82,16 +82,28 @@ export function ChannelDetailPage() {
   // 原裸 channelApi.get 与 ChannelInput 的 ensureMembers 挂载并发双拉同一端点
   const channel = useChannelDataStore(s => (id ? s.channels[id] : undefined)) ?? null;
 
+  // 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换：accent-dim 底色 → 常态，仅 background-color 过渡）。
+  // 口径 = 全部新到达消息（含自己发送的回显——消息模型只有 authorType 无 authorId，区分不到个人，
+  // 与 useStreamFollow ownSendPending 窗口同一局限）；首拉与翻页 prepend/水合归并的历史不标
+  // （createdAt 早于到达前最新一条即历史）。2s 后移类，经 .mc-msg 基类过渡渐隐
+  // #548：判定本体迁出页面——useFreshMessageIds（hooks/），本页只消费派生集合
+  // （声明位置提前：下方 receipt_render effect 同消费此集合）
+  const freshMsgIds = useFreshMessageIds(messages);
+
   // #520 测量②：渲染完成终点（effect 于提交后跑 = 渲染已完成）——
   // ③ page_load：首屏消息渲染完成（每进页至多一次，起点消费后不再发；空频道不发属正常）；
-  // ② receipt_render：仅 SSE 到达时标记过的消息发事件（首拉/翻页/水合的历史消息无标记，天然跳过）
+  // ② receipt_render：仅 SSE 到达时标记过的消息发事件（首拉/翻页/水合的历史消息无标记，天然跳过）。
+  // B6：只遍历 freshMsgIds（SSE 新到达集，与 markReceiptArrived 同口径），不再随 messages 变化
+  // O(n) 全量循环——历史消息本就无标记，全量扫是空转
   useEffect(() => {
     if (!id || loading || messages.length === 0) return;
     emitPageFirstRender(id);
+    if (freshMsgIds.size === 0) return;
     for (const m of messages) {
+      if (!freshMsgIds.has(m.id)) continue;
       emitReceiptRendered({ messageId: m.id, channelId: id, workUnitId: m.workUnitId ?? null });
     }
-  }, [id, loading, messages]);
+  }, [id, loading, messages, freshMsgIds]);
   const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
   // #493：线程回复送达后的轻量「已送达/等待 agent」状态（wuId + 送达时刻；agent 响应或超时清除）
@@ -431,12 +443,7 @@ export function ChannelDetailPage() {
     return () => clearTimeout(timer);
   }, [awaitingAgent]);
 
-  // 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换：accent-dim 底色 → 常态，仅 background-color 过渡）。
-  // 口径 = 全部新到达消息（含自己发送的回显——消息模型只有 authorType 无 authorId，区分不到个人，
-  // 与 useStreamFollow ownSendPending 窗口同一局限）；首拉与翻页 prepend/水合归并的历史不标
-  // （createdAt 早于到达前最新一条即历史）。2s 后移类，经 .mc-msg 基类过渡渐隐
-  // #548：判定本体迁出页面——useFreshMessageIds（hooks/），本页只消费派生集合
-  const freshMsgIds = useFreshMessageIds(messages);
+  // 批次 E-3 freshMsgIds 已随 receipt effect 提前声明（见组件头部），此处不再重复
 
   // #547：频道消息环境——横切值单 Provider 下发，消息项 useContext 自取（公开 Props 收窄）。
   // #322 契约不变量：成员全为稳定引用（useCallback/镜像 ref），useMemo 组装后 value identity

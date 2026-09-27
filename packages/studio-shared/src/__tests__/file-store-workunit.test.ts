@@ -265,6 +265,25 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       expect(await store.claimWorkUnit('nonexistent', 'agent1')).toBe(false);
     });
 
+    it('B6 指名守卫（锁内）：assigneeId 非空且与认领方/认领方 roleId 均不匹配 → false 且不改写', async () => {
+      await seedWu(makeWuSnapshot('wu1', { assigneeId: 'profile-x' }));
+
+      expect(await store.claimWorkUnit('wu1', 'user-human')).toBe(false);
+      // 认领方 roleId 命中指名 → 放行（运行实例认领略径）
+      expect(await store.claimWorkUnit('wu1', 'inst-1', { assigneeRoleId: 'profile-x' })).toBe(true);
+
+      const [wu] = await store.getIndex();
+      expect(wu.assigneeId).toBe('inst-1');
+      // 被拒那次不产生 claimed 事件
+      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      expect(events.filter(e => e.type === 'claimed')).toHaveLength(1);
+    });
+
+    it('B6 指名守卫：认领方 id 与指名 id 相同 → 放行', async () => {
+      await seedWu(makeWuSnapshot('wu1', { assigneeId: 'agent1' }));
+      expect(await store.claimWorkUnit('wu1', 'agent1')).toBe(true);
+    });
+
     it('并发 claim 同一 WU 仅一个成功（flock 互斥）', async () => {
       await seedWu(makeWuSnapshot('wu1'));
       const results = await Promise.all([

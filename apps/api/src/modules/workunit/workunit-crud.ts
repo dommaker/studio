@@ -486,13 +486,11 @@ export class WorkUnitCrudService {
     if (!files || !Array.isArray(files) || files.length === 0) return [];
 
     const fileSet = new Set(files);
-    const activeSnapshots = await this.fileStore.getIndex({
-      status: 'active',
-    });
-    const reviewSnapshots = await this.fileStore.getIndex({
-      status: 'in_review',
-    });
-    const activeWorkUnits = [...activeSnapshots, ...reviewSnapshots].filter(s => s.id !== id);
+    // B6：一次 getIndex 读盘，内存过滤 active/in_review 两状态（原各调一次 = 两次全量读 index）
+    const snapshots = await this.fileStore.getIndex();
+    const activeWorkUnits = snapshots.filter(
+      s => s.id !== id && (s.status === 'active' || s.status === 'in_review'),
+    );
 
     const conflicts: string[] = [];
     for (const wu of activeWorkUnits) {
@@ -509,10 +507,11 @@ export class WorkUnitCrudService {
   /**
    * Claim a WorkUnit（flock 悲观互斥锁，mkdir 原子目录跨进程互斥；非乐观锁——
    * 无版本号/读后再验，冲突在锁内以 status!=='unassigned' 拒绝）。
-   * Only succeeds when status is 'unassigned' — file-store.claimWorkUnit 不校验
-   * 既有 assigneeId，认领成功会把 assigneeId 改写为认领方（loop 传入 instance.id）。
-   * mention 指名（assigneeId=profile id）的可见性由 AgentLoop.observe 的
-   * unassigned 过滤保证（仅被指名 profile 的 loop 可见），而非 claim 本身。
+   * B6 指名校验：WU assigneeId 非空（mention 指名=profile id / 显式指派）时，
+   * 只许同 id 认领方或该 profile 的运行实例（经 roleId 匹配）认领，其余抛
+   * 'Claim failed: already assigned to …'（沿用既有错误前缀 → REST 409 CLAIM_FAILED）。
+   * 锁外预检给出明确文案，fileStore.claimWorkUnit 锁内同判据兜底竞态窗口；
+   * 涌现认领（assigneeId 空）路径不受影响。
    * 决策 7: skill 匹配/注入在 agent-loop step 时进行，claim 不再触发 skill 加载。
    * @throws Error if claim fails (already claimed or invalid state)
    */
@@ -529,10 +528,17 @@ export class WorkUnitCrudService {
       throw new Error(`File conflict with WorkUnit(s): ${conflicts.join(', ')}`);
     }
 
-    // Use flock-based claim
     // 认领方是运行实例时取其 roleId 冗余快照到 WU（实例回收后展示层仍能解析角色名）；
     // 人工 REST 认领 agentId=用户 id，getState 落空 → null（回退短 UUID，与既有表现一致）
     const assigneeRoleId = (await this.fileStore.getState(agentId))?.roleId ?? null;
+
+    // B6 指名预检：mention 指名单只许被指名角色（其实例 roleId 命中）或同 id 认领方认领——
+    // 此前可见性只靠 AgentLoop.observe 过滤，REST 人工认领能抢走指名单
+    if (wuToClaim.assigneeId && wuToClaim.assigneeId !== agentId && wuToClaim.assigneeId !== assigneeRoleId) {
+      throw new Error(`Claim failed: already assigned to ${wuToClaim.assigneeId}`);
+    }
+
+    // Use flock-based claim
     // 决策 7: skill 匹配已从 claim 挪到 agent-loop step 时（消竞态、吃到 skill 库最新版），
     // claim 不再做 skill 自动加载/落盘。
     // #178（#63 决议 1）：租约制 —— 认领即写固定 5min 租约 timeoutAt（workunit-timeout

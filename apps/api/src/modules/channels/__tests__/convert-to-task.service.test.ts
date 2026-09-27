@@ -176,9 +176,11 @@ describe('AC-E1+E2: Convert to Task', () => {
       expect(workUnit.assigneeId).toBe(agentId);
       expect(workUnit.status).toBe('unassigned');
 
-      // 被指名 profile 的 loop 可认领：claim 只校验 status==='unassigned'，认领即改写为 instance.id
+      // 被指名 profile 的 loop 可认领：claim 校验 status==='unassigned' + B6 指名守卫
+      // （认领方 roleId 须命中指名；service 层经 getState(instanceId) 取 roleId 传入），
+      // 认领即改写为 instance.id
       const instanceId = `inst-e1-${Date.now()}`;
-      const claimed = await fileStore.claimWorkUnit(workUnit.id, instanceId);
+      const claimed = await fileStore.claimWorkUnit(workUnit.id, instanceId, { assigneeRoleId: agentId });
       expect(claimed).toBe(true);
       const snapshot = (await fileStore.getIndex()).find(s => s.id === workUnit.id);
       expect(snapshot?.status).toBe('active');

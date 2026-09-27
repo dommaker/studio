@@ -63,7 +63,8 @@ export interface ChannelData {
    * #466: 频道级「阶段→角色」路由表（plan/implement/review → AgentProfile ID）。
    * 未配置（undefined）或某档为空（null）= 该阶段回池涌现；配置了但角色 inactive/被移出频道
    * → 回池涌现 + 频道出声提醒（解析语义见 channels/routing.ts）。
-   * defaultPipeline（AC-6.1，name 数组）已吞并迁移进 routing.implement（channels/migrate-routing.ts）。
+   * defaultPipeline（AC-6.1，name 数组）已吞并迁移进 routing.implement；
+   * 启动迁移（原 channels/migrate-routing.ts）已随存量消化退役（B6，2026-09-27）。
    */
   routing?: { plan?: string | null; implement?: string | null; review?: string | null };
   createdAt: string;       // ISO 8601
