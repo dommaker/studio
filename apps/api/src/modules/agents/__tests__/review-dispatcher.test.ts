@@ -322,6 +322,16 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
 
     const updatedParent = await wuService.getById(parent.id);
     expect(['active', 'blocked']).toContain(updatedParent!.status);
+
+    // B1：打回出声——父 WU 线程补一条「评审未通过」里程碑（含 reason，经 wu-messenger 统一出口）
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const sysMsg = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('评审未通过：缺少错误处理'));
+    expect(sysMsg).toBeDefined();
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: parent.id }),
+      expect.stringContaining('已退回返工'),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
   });
 
   it('AC-4.5 + P0 修复: child done + 无 reviewReport -> 父保持 in_review，频道转人工（不再默认拒绝）', async () => {

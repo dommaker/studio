@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData, type ChannelData } from '@dommaker/studio-shared';
+import { clearCache } from '../../middleware/api-cache.js';
 import { resolveDefaultProvider } from './default-provider.js';
 import { summarizeRoleStates } from './agent-instance.service.js';
 import { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';
@@ -402,6 +403,7 @@ export class AgentProfileService {
     // #497: 同步收敛 channel.routing 中指名该 profile 的档（归一化为 null，其他档不动）——
     // 否则悬空指名此后每次派生单都触发 fallback 提醒，配置漂移无人修。
     const channels = await this.fileStore.listChannels();
+    let channelTouched = false;
     for (const ch of channels) {
       const ids = parseChannels(ch.members);
       const memberHit = ids.includes(id);
@@ -414,7 +416,11 @@ export class AgentProfileService {
           ? { routing: Object.fromEntries(Object.entries(routing!).map(([k, v]) => [k, v === id ? null : v])) as ChannelData['routing'] }
           : {}),
       });
+      channelTouched = true;
     }
+    // 直写 fileStore.updateChannel 绕过 channel.service 的写后失效——补同款失效，
+    // 否则 GET /channels 30s apiCache 继续服务旧 members/routing（键同 invalidateListCache）
+    if (channelTouched) await clearCache('/api/v1/channels');
     // F1: notify AgentLoopRegistry (unmounts the loop)
     eventBus.publish('agent-profile.deleted', { profileId: id });
   }

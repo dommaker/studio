@@ -471,6 +471,15 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
         ?? report.issues?.filter(i => i.severity === 'error').map(i => i.message).join('; ')
         ?? 'reviewer 拒绝';
       await this.workUnitService.reviewRejected(parent.id, reason, attestation);
+      // 打回出声：返工里程碑告知频道（非里程碑的「已派评审」出声只能覆盖派单瞬间）
+      await this.postSystemMessage(
+        parent,
+        `任务「${(parent.scope ?? '').slice(0, 50)}」评审未通过：${reason.slice(0, 200)}，已退回返工`,
+      ).catch(err =>
+        logger.warn('[ReviewDispatcher] Post review-rejected notice failed (non-blocking)', {
+          parentId: parent.id, error: String(err),
+        })
+      );
     }
   }
 

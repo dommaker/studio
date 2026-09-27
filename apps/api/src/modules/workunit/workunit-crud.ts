@@ -670,6 +670,9 @@ export class WorkUnitCrudService {
     };
     await this.fileStore.commitSnapshot(event, updatedParent);
 
+    // 聚合翻状态同样发 status_changed（列表实时刷新/评审触发消费，与 unclaim 等路径同口径）
+    await this.publishStatusChanged(updatedParent);
+
     logger.info('[WorkUnit] Parent status aggregated', {
       parentId: child.parentId,
       newStatus,

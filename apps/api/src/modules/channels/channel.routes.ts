@@ -122,7 +122,7 @@ router.get('/:id/merge-target', requireAuth(), handle(async (req, res) => {
 
 // GET /api/v1/channels/:id/messages — paginated messages
 // #319：before = 锚点消息 id 游标（原 timestamp 游标同毫秒撞车会漏/重）；分页半下沉到存储层（queryMessagesPage 切片）
-router.get('/:id/messages', requireAuth(), async (req, res) => {
+router.get('/:id/messages', requireAuth(), handle(async (req, res) => {
   const { before, limit = '50' } = req.query;
   const take = Math.min(Number(limit), 100);
 
@@ -142,7 +142,7 @@ router.get('/:id/messages', requireAuth(), async (req, res) => {
   }));
 
   res.json({ success: true, data, total: page.total, hasMore: page.hasMore });
-});
+}));
 
 // GET /api/v1/channels/:id/file-vocabulary — #281：@文件引用只读词表
 // 候选集 = 频道相关工程（默认工程 ∪ REQ 挂接 PMO ∪ 杂务 PMO，最近使用优先），
@@ -222,13 +222,13 @@ router.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), requireA
 // GET /api/v1/channels/:id/attachments/:attachmentId — 取图
 // <img> 无法带 Authorization 头：?token= 携带 JWT（SSE /events/stream 同款），
 // 映射进 header 后复用 requireAuth 语义；id 白名单校验防路径穿越（attachments.ts）。
-router.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), async (req, res) => {
+router.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), handle(async (req, res) => {
   const resolved = await resolveChannelImage(req.params.id, req.params.attachmentId);
   if (!resolved.ok) return res.status(resolved.status).json({ success: false, error: resolved.error });
   res.setHeader('Content-Type', resolved.value.mime);
   res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
   createReadStream(resolved.value.filePath).pipe(res);
-});
+}));
 
 // DELETE /api/v1/channels/:id — delete channel (B2-012: Goal fallback to #研发)
 router.delete('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) => {

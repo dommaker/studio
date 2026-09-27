@@ -601,14 +601,22 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(await studioMessages(wu.id)).toHaveLength(0);
   });
 
-  it('无 worktree 旁路：metadata 无 worktree 落档 → 跳过，无任何 git 调用', async () => {
+  it('无 worktree 旁路：metadata 无 worktree 落档 → 跳过合并，频道补「评审通过，任务完成」里程碑', async () => {
     const wu = await createWu({}); // analysis 等非代码类 WU：无 worktree 字段
 
     const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
 
     expect(outcome).toEqual({ attempted: false, reason: 'no-worktree' });
     expect(mockExecSh).not.toHaveBeenCalled();
-    expect(await studioMessages(wu.id)).toHaveLength(0);
+    // B1：非代码类 WU 评审通过 → done 时频道补一条完成里程碑（经 wu-messenger 统一出口）
+    const msgs = await studioMessages(wu.id);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toContain('评审通过，任务完成');
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: wu.id }),
+      expect.stringContaining('评审通过，任务完成'),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
     const updated = await wuService.getById(wu.id);
     expect(updated!.status).toBe('in_review'); // 状态不被合并模块触碰
   });
@@ -631,7 +639,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(msgs.some(m => m.content.includes(`已合并到 ${BASE}`))).toBe(true);
   });
 
-  it('reviewPassed 旁路：无 worktree 落档的 WU 行为完全不变（done，无 git，无消息）', async () => {
+  it('reviewPassed 旁路：无 worktree 落档的 WU 不做合并（done，无 git），频道补完成里程碑', async () => {
     const wu = await createWu({}, 'in_review');
 
     const passed = await wuService.reviewPassed(wu.id);
@@ -641,7 +649,10 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     // 「不发生」断言：settled 后收尾链已落定（旁路即时返回），比定长 sleep 窗口更强
     await waitForReviewPassSettled();
     expect(mockExecSh).not.toHaveBeenCalled();
-    expect(await studioMessages(wu.id)).toHaveLength(0);
+    // B1：旁路时频道补一条「评审通过，任务完成」里程碑
+    const msgs = await studioMessages(wu.id);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toContain('评审通过，任务完成');
     const updated = await wuService.getById(wu.id);
     expect(updated!.status).toBe('done'); // 不被置 blocked
     const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;

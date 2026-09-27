@@ -152,8 +152,13 @@ export async function mergeWorktreeBranchOnReviewPass(
   if (wu.type === 'analysis') {
     return { attempted: false, reason: 'analysis-bypass' };
   }
-  // 旁路：无 worktree 落档（普通 analysis 等非代码类 WU）→ 行为不变
+  // 旁路：无 worktree 落档（普通 analysis 等非代码类 WU）→ 无需合并；补一条完成里程碑出声
   if (!branch || !baseRepo || !baseBranch) {
+    await postSystemMessage(
+      fileStore,
+      wu,
+      `任务「${String(meta.title ?? wu.scope ?? '').slice(0, 50)}」评审通过，任务完成`,
+    ).catch(err => logger.warn('[MergeOnReviewPass] post review-passed message failed', { wuId: wu.id, error: String(err) }));
     return { attempted: false, reason: 'no-worktree' };
   }
   // 防重：已合并过（人工重复触发 / 事件重放）→ 跳过
