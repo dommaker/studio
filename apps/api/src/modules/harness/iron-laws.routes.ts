@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import { getAllConstraints, getConstraint, checkConstraint, checkConstraints } from '@dommaker/harness';
-import type { IronLawContext } from '@dommaker/harness';
+import type { ConstraintContext } from '@dommaker/harness';
 
 const router = Router();
 
@@ -29,7 +29,7 @@ router.get('/:id', async (req, res) => {
 
 router.post('/check', async (req, res) => {
   try {
-    const { lawId, context } = req.body as { lawId: string | string[]; context: IronLawContext };
+    const { lawId, context } = req.body as { lawId: string | string[]; context: ConstraintContext };
     if (!lawId) return res.status(400).json({ success: false, error: { code: 'MISSING_LAW_ID', message: '缺少 lawId 参数' } });
     if (!context) return res.status(400).json({ success: false, error: { code: 'MISSING_CONTEXT', message: '缺少 context 参数' } });
 
@@ -51,7 +51,7 @@ router.post('/check', async (req, res) => {
 
 router.post('/check-all', async (req, res) => {
   try {
-    const { context } = req.body as { context: IronLawContext };
+    const { context } = req.body as { context: ConstraintContext };
     if (!context) return res.status(400).json({ success: false, error: { code: 'MISSING_CONTEXT', message: '缺少 context 参数' } });
     const results = await checkConstraints(context);
     res.json({ success: true, data: results, source: 'harness' });
