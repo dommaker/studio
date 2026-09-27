@@ -23,7 +23,7 @@ import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommake
 import { LocalExecutor, type Executor } from './executor.js';
 import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service.js';
 import { claimWorkUnitAndAnnounce } from '../../workunit/claim-announce.js';
-import type { AgentProfileData } from '@dommaker/studio-shared';
+import type { AgentProfileData, ChannelMessageData } from '@dommaker/studio-shared';
 import { isSystemRole } from '../system-role.js';
 import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
@@ -148,6 +148,9 @@ export class AgentLoop {
   private currentExecutionId: string | null = null;
   /** #179（#66 决议 3 loop 侧）：实例心跳写连败计数（成功即清零，连败 HEARTBEAT_FAIL_LIMIT 次自裁） */
   private consecutiveHeartbeatFailures = 0;
+  /** B5（channel-flow-audit-fix）：observe 回复检测的增量水位（channelId → messages.jsonl
+   *  字节偏移）。进程内存簿记，重启清零 = 首轮全扫重建（重启间隙回复经 #493 >= 口径捞回）。 */
+  private readonly replyScanWatermarks = new Map<string, number>();
 
   constructor(role: AgentProfileData, fileStore?: FileStore) {
     this.role = role;
@@ -904,18 +907,45 @@ export class AgentLoop {
     const channelFilter = myActive.length > 0 && myActive.every(wu => wu.channelId)
       ? [...new Set(myActive.map(wu => wu.channelId as string))]
       : undefined;
-    const allReplies = activeWuIds.length > 0
-      ? (await this.fileStore.queryAllMessages({
-          workUnitIds: activeWuIds,
-          authorType: 'human',
-          channelIds: channelFilter,
-        })).filter(msg => {
-          const wu = myActive.find(w => w.id === msg.workUnitId);
-          // #493：>= 同毫秒边界——回复与 WU 簿记同毫秒落盘（含重启间隙首扫捞回）不再漏检；
-          // 不误循环：回复被消费后 recordResult 簿记推进 updatedAt，下一轮自然越界
-          return wu && new Date(msg.createdAt).getTime() >= wu.updatedAt.getTime();
-        })
-      : [];
+    // B5（channel-flow-audit-fix）：queryAllMessages 无 limit 全扫改 readChannelMessagesDelta
+    // 字节水位增量读——稳态（无新行）每频道只付一次 fstat，不再每轮全文件扫描归并。
+    // 边界锚 = 全部 active/blocked 快照的最小 updatedAt（pre-slice 全集、不限 assignee：
+    // slice(0,20) 外的在跑 WU 可能经排序挤入视野、认领/状态迁移新入的 WU updatedAt 必晚于
+    // 水位推进时点——水位只越过 createdAt < 边界的行，其对任何现在/未来候选恒不可见）。
+    // 未消费回复（createdAt >= wu.updatedAt）留在窗口内逐轮重复投递，与全扫口径逐条一致；
+    // 压实/重写触发原语 valid=false → 当轮回退 0 偏移全读重建水位。
+    let allReplies: ChannelMessageData[] = [];
+    if (activeWuIds.length > 0) {
+      let boundaryMs = Number.POSITIVE_INFINITY;
+      for (const s of allSnapshots) {
+        if (s.status !== 'active' && s.status !== 'blocked') continue;
+        const t = new Date(s.updatedAt).getTime();
+        if (t < boundaryMs) boundaryMs = t;
+      }
+      const channelSet = channelFilter ? new Set(channelFilter) : null;
+      const scanChannelIds = (await this.fileStore.listMessageChannelIds())
+        .filter(id => !channelSet || channelSet.has(id));
+      const perChannel = await Promise.all(scanChannelIds.map(async cid => {
+        try {
+          const wm = this.replyScanWatermarks.get(cid) ?? 0;
+          let delta = await this.fileStore.readChannelMessagesDelta(cid, wm, { boundarySinceMs: boundaryMs });
+          if (!delta.valid && wm !== 0) {
+            delta = await this.fileStore.readChannelMessagesDelta(cid, 0, { boundarySinceMs: boundaryMs });
+          }
+          if (delta.valid) this.replyScanWatermarks.set(cid, delta.newOffset);
+          return delta.messages;
+        } catch {
+          return []; // 读取失败按空处理（同 queryAllMessages 容错口径），不阻断 observe
+        }
+      }));
+      allReplies = perChannel.flat().filter(msg => {
+        if (msg.authorType !== 'human') return false;
+        const wu = myActive.find(w => w.id === msg.workUnitId);
+        // #493：>= 同毫秒边界——回复与 WU 簿记同毫秒落盘（含重启间隙首扫捞回）不再漏检；
+        // 不误循环：回复被消费后 recordResult 簿记推进 updatedAt，下一轮自然越界
+        return wu && new Date(msg.createdAt).getTime() >= wu.updatedAt.getTime();
+      });
+    }
 
     return { myActive, unassigned, newReplies: allReplies };
   }
