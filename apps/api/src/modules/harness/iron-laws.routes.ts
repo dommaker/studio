@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import { getAllConstraints, getConstraint, checkConstraint, checkConstraints } from '@dommaker/harness';
 import type { ConstraintContext } from '@dommaker/harness';
-import { sanitizeConstraintContext } from './sanitize-context.js';
+import { sanitizeConstraintContext, downgradeAnnotation, degradedChecksOf } from './sanitize-context.js';
 
 const router = Router();
 
@@ -35,7 +35,7 @@ router.post('/check', async (req, res) => {
     if (!context) return res.status(400).json({ success: false, error: { code: 'MISSING_CONTEXT', message: '缺少 context 参数' } });
     // #641：剥离请求体自报的证据标志（has*），依赖项降级 skip（见 sanitize-context.ts）
     const sanitized = sanitizeConstraintContext(context);
-    const downgrade = sanitized.strippedFlags.length > 0 ? { strippedEvidenceFlags: sanitized.strippedFlags } : {};
+    const downgrade = downgradeAnnotation(sanitized.strippedFlags);
 
     if (Array.isArray(lawId)) {
       const results: Record<string, unknown> = {};
@@ -59,9 +59,15 @@ router.post('/check-all', async (req, res) => {
     if (!context) return res.status(400).json({ success: false, error: { code: 'MISSING_CONTEXT', message: '缺少 context 参数' } });
     // #641：剥离请求体自报的证据标志（has*），依赖项降级 skip（见 sanitize-context.ts）
     const sanitized = sanitizeConstraintContext(context);
-    const downgrade = sanitized.strippedFlags.length > 0 ? { strippedEvidenceFlags: sanitized.strippedFlags } : {};
     const results = await checkConstraints(sanitized.context);
-    res.json({ success: true, data: results, source: 'harness', ...downgrade });
+    const degraded = degradedChecksOf(results);
+    res.json({
+      success: true,
+      data: results,
+      source: 'harness',
+      ...downgradeAnnotation(sanitized.strippedFlags),
+      ...(degraded.length > 0 ? { degradedChecks: degraded } : {}),
+    });
   } catch (error) {
     logger.error('[IronLaws] Check-all failed', { error: String(error) });
     res.status(500).json({ success: false, error: { code: 'IRON_LAW_CHECK_ERROR', message: '铁律检查失败' } });

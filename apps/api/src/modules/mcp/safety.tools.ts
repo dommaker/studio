@@ -9,7 +9,7 @@
  */
 
 import type { RegisteredTool } from './tool-registry.js';
-import { sanitizeConstraintContext } from '../harness/sanitize-context.js';
+import { sanitizeConstraintContext, downgradeAnnotation } from '../harness/sanitize-context.js';
 
 // ─── 安全约束 ───
 
@@ -39,7 +39,7 @@ const checkConstraint: RegisteredTool = {
         operation: input.operation,
         allowed: result.passed,
         violations,
-        ...(sanitized.strippedFlags.length > 0 ? { strippedEvidenceFlags: sanitized.strippedFlags } : {}),
+        ...downgradeAnnotation(sanitized.strippedFlags),
         message: result.passed
           ? 'Constraint check passed'
           : `${violations.length} violation(s) found`,

@@ -10,7 +10,7 @@
  * 标志清单与 harness ConstraintContext 的 boolean 证据标志字段保持一致
  * （harness 侧类型 = checkers/types.ts ContextEvidenceFlag，未导出值级清单）。
  */
-import type { ConstraintContext } from '@dommaker/harness';
+import type { ConstraintCheckResult, ConstraintContext } from '@dommaker/harness';
 
 const EVIDENCE_FLAGS = [
   'hasRootCauseInvestigation',
@@ -39,4 +39,19 @@ export function sanitizeConstraintContext(input: ConstraintContext): SanitizedCo
     }
   }
   return { context, strippedFlags };
+}
+
+/** 响应面降级标注（strippedEvidenceFlags），无剥离时为空对象（响应不带该字段） */
+export function downgradeAnnotation(strippedFlags: string[]): { strippedEvidenceFlags?: string[] } {
+  return strippedFlags.length > 0 ? { strippedEvidenceFlags: strippedFlags } : {};
+}
+
+/**
+ * 降级检查项清单（AC2 三态不可混淆）：从检查结果中收 skipped 项，
+ * 无论请求体是否带标志，证据不可得的检查项都在响应顶层显式可见。
+ */
+export function degradedChecksOf(result: ConstraintCheckResult): Array<{ id: string; skipReason?: string }> {
+  return [...result.errors, ...result.warnings]
+    .filter((r) => r.skipped)
+    .map((r) => ({ id: r.id, skipReason: r.skipReason }));
 }

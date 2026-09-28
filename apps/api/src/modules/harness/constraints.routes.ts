@@ -27,6 +27,7 @@ import yaml from 'js-yaml';
 import { buildConstraintsUsageReport } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared';
 import { loadHarness, harnessModule } from './runtime.js';
+import { sanitizeConstraintContext, downgradeAnnotation } from './sanitize-context.js';
 import {
   getConstraintReviewAdapter,
   submitConstraintUpgradeProposal,
@@ -259,14 +260,11 @@ constraintsRoutes.post('/check-constraints', async (req: Request, res: Response)
     if (!operation) return res.status(400).json({ error: 'operation is required' });
 
     // Use checkConstraints (checkConstraintsSafe removed in harness 0.13.0)
-    const result = await harnessModule!.checkConstraints({
-      operation: operation as string,
-      taskDescription,
-      projectPath,
-      hasRequirement: hasRequirement !== false,
-    });
+    // #641：证据标志不可由调用方自报——hasRequirement 剥离，依赖项降级 skip
+    const sanitized = sanitizeConstraintContext({ operation: operation as string, taskDescription, projectPath, hasRequirement });
+    const result = await harnessModule!.checkConstraints(sanitized.context);
 
-    return res.json({ data: result });
+    return res.json({ data: result, ...downgradeAnnotation(sanitized.strippedFlags) });
   } catch (error) {
     logger.error('Failed to check constraints', { error: String(error) });
     return res.status(500).json({ error: 'Failed to check constraints' });
