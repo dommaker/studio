@@ -79,11 +79,8 @@ describe('completion-gates: §10.5 提交守卫', () => {
   });
 
   it('review WU 整体豁免：不解析 cwd、不碰 git', async () => {
-    // 注入 checkers=null 隔离提交守卫语义：harness ≥1.1.0 起软观测段激活，
-    // contract-presence 对无 worktree 类型（含 review）会设计性回退解析 cwd 取 .harness 契约清单
-    // （见 completion-gates.ts runSoftObservation 注释），不在本测试的提交守卫豁免口径内。
     // reviewReport 备齐：收口闸 2（契约产物）对缺 reviewReport 的 review 会降级，不属于本测试口径。
-    const deps = makeDeps({ loadCompletionCheckers: async () => null });
+    const deps = makeDeps();
     const out = await runCompletionGuards(
       ctxOf(makeWu({ type: 'review' }), { reviewReport: { approved: true } }), deps);
 
@@ -321,9 +318,6 @@ describe('completion-gates: T7-E2 软观测段', () => {
       verifyPhaseFormat: vi.fn().mockReturnValue({
         checker: 'phase-format', verdict: 'pass', commits: [{ sha: 'aaaaaaa1', verdict: 'pass' }],
       }),
-      verifyContractPresence: vi.fn().mockReturnValue({
-        checker: 'contract-presence', verdict: 'skip', detail: '类型 task 无 contracts 表项',
-      }),
       ...(fnsOverrides ?? {}),
     };
     const events: SoftCheckEvent[] = [];
@@ -385,14 +379,13 @@ describe('completion-gates: T7-E2 软观测段', () => {
     expect(out.guardUpdates.processCheckHint).toBeUndefined();
   });
 
-  it('fail-open：git log 故障 → commit 两 checker 跳过不记事件，contract-presence 仍跑', async () => {
+  it('fail-open：git log 故障 → commit 两 checker 跳过不记事件', async () => {
     const { deps, fns, events } = makeSoftDeps({}, { commits: null });
     const out = await runCompletionGuards(ctxOf(makeWu(), SOFT_META), deps);
 
     expect(fns.verifyTddChain).not.toHaveBeenCalled();
     expect(fns.verifyPhaseFormat).not.toHaveBeenCalled();
-    expect(fns.verifyContractPresence).toHaveBeenCalled();
-    expect(events).toHaveLength(0); // contract-presence 无表项 skip 不记事件
+    expect(events).toHaveLength(0);
     expect(out.action).toBe('complete');
   });
 
@@ -404,31 +397,14 @@ describe('completion-gates: T7-E2 软观测段', () => {
     expect(fns.verifyPhaseFormat).toHaveBeenCalledWith(COMMITS, {});
   });
 
-  it('圈定口径：非代码类型（analysis）→ 不拉提交集；contracts 无表项 → contract-presence skip 不记事件', async () => {
+  it('圈定口径：非代码类型（analysis）→ 不拉提交集、commit 两 checker 不跑', async () => {
     const { deps, fns, events } = makeSoftDeps({});
     const out = await runCompletionGuards(ctxOf(makeWu({ type: 'analysis' }), SOFT_META), deps);
 
     expect(deps.readWuCommits).not.toHaveBeenCalled();
     expect(fns.verifyTddChain).not.toHaveBeenCalled();
-    expect(fns.verifyContractPresence).toHaveBeenCalled();
+    expect(fns.verifyPhaseFormat).not.toHaveBeenCalled();
     expect(events).toHaveLength(0);
-    expect(out.action).toBe('complete');
-  });
-
-  it('圈定口径：review 型契约 → reviewReport 透传（默认配置 {}），violation 事件 + hint', async () => {
-    // reviewReport 备齐以过收口闸 2（缺报告已在闸 2 硬降级，走不到软观测段）；
-    // 本用例只验软观测段把 reviewReport 透传给 harness contract-presence
-    const report = { approved: false, reason: '缺测试' };
-    const { deps, fns, events } = makeSoftDeps({
-      verifyContractPresence: vi.fn().mockReturnValue({
-        checker: 'contract-presence', verdict: 'violation', detail: '类型 review 契约标记缺失',
-      }),
-    });
-    const out = await runCompletionGuards(ctxOf(makeWu({ type: 'review' }), { reviewReport: report }), deps);
-
-    expect(fns.verifyContractPresence).toHaveBeenCalledWith('review', { reviewReport: report }, {});
-    expect(events).toContainEqual(expect.objectContaining({ checker: 'contract-presence', verdict: 'violation' }));
-    expect(out.guardUpdates.processCheckHint).toContain('[contract-presence]');
     expect(out.action).toBe('complete');
   });
 

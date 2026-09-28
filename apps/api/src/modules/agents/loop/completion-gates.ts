@@ -24,9 +24,7 @@ import { execFileAsync } from '../monitor/exec-async.js';
 import {
   verifyTddChain,
   verifyPhaseFormat,
-  verifyContractPresence,
   type CommitInput,
-  type ContractPresenceResult,
   type PhaseFormatResult,
   type TddChainResult,
 } from '@dommaker/harness';
@@ -145,7 +143,7 @@ export interface CompletionGuardDeps {
   /** 收口闸 2: analysis 契约报告落盘检查（默认 fs.promises 实现；inspection 变体只认 inspection-*.md） */
   analysisReportExists?: (workspaceRoot: string, inspection: boolean) => Promise<boolean>;
   runVerification?: (wu: WorkUnitData, metadata: WorkUnitMetadata, worktreePath: string) => Promise<WuVerifyOutcome>;
-  /** T7-E2（#161）: harness 三纯函数（默认 = @dommaker/harness 静态导入，#425 去镜像；
+  /** T7-E2（#161）: harness 两纯函数（默认 = @dommaker/harness 静态导入，#425 去镜像；
    *  返回 null = 软观测段整体 fail-open 跳过） */
   loadCompletionCheckers?: () => Promise<CompletionCheckerFns | null>;
   /** T7-E2: 一次 git log 拉 WU 提交集（默认 execFileAsync，2s 超时；失败返回 null = fail-open） */
@@ -177,7 +175,7 @@ export interface CompletionGuardOutcome {
   notices: CompletionGuardNotices;
 }
 
-// ─── T7-E2（#161）软观测段：消费 harness completion-checkers 三纯函数（#160） ───
+// ─── T7-E2（#161）软观测段：消费 harness completion-checkers 两纯函数（#160） ───
 //
 // 定位：第四段「软观测」——只观测不拦截。action 未被前三张守卫降级（仍为 complete）才跑；
 // pass/violation/waiver 落 checker:soft_check 台账事件（skip 不记），违规合并成
@@ -185,20 +183,22 @@ export interface CompletionGuardOutcome {
 // 返工时才被消费——可接受，不做跨 WU 投递）。一切故障（git/超时/解析）
 // 一律 fail-open 静默跳过 + logger 留痕，绝不阻断 COMPLETE。
 //
-// 类型与三纯函数直接取自 @dommaker/harness ^1.2.3 公开导出（#425 去镜像——
+// 类型与两纯函数直接取自 @dommaker/harness ^1.2.3 公开导出（#425 去镜像——
 // 0.19.0 时代的镜像类型 + loadHarness 特征检测随发版失去存续理由，已删）。
+// contract-presence 原在此段（tdd-chain/phase-format 之外的第三张），#649 移除：
+// 与硬闸 2 同锚点（reviewReport）且硬闸先跑——violation 结构性不可达，配置清单
+// 恒空又令其实测恒 skip，只能产出 pass 心跳，对台账无信息量。
 
-/** git log 拉取超时 2s：「单 checker 2s」上限落在段内唯一 I/O 上（三纯函数为同步纯计算） */
+/** git log 拉取超时 2s：「单 checker 2s」上限落在段内唯一 I/O 上（两纯函数为同步纯计算） */
 export const SOFT_CHECK_GIT_TIMEOUT_MS = 2_000;
-/** 三张 checker 合计 5s 预算：每张跑前检查余量，耗尽即停（fail-open） */
+/** 两张 commit checker 合计 5s 预算：每张跑前检查余量，耗尽即停（fail-open） */
 export const SOFT_CHECK_TOTAL_BUDGET_MS = 5_000;
 
-/** harness 三纯函数聚合（类型与实现直接取自 @dommaker/harness ^1.2.3 公开导出，#425 去镜像）；
+/** harness 两纯函数聚合（类型与实现直接取自 @dommaker/harness ^1.2.3 公开导出，#425 去镜像）；
  *  保留聚合接口仅为 deps 注入 seam（单测伪实现驱动软观测段） */
 export interface CompletionCheckerFns {
   verifyTddChain: typeof verifyTddChain;
   verifyPhaseFormat: typeof verifyPhaseFormat;
-  verifyContractPresence: typeof verifyContractPresence;
 }
 
 /** checker:soft_check 台账事件 payload（聚合归 #132，本段只产出） */
@@ -209,9 +209,9 @@ export interface SoftCheckEvent {
   detail: string;
 }
 
-/** 默认：直接返回 harness 静态导入的三纯函数（^1.2.3 公开导出，#425 去镜像后无特征检测） */
+/** 默认：直接返回 harness 静态导入的两纯函数（^1.2.3 公开导出，#425 去镜像后无特征检测） */
 async function defaultLoadCompletionCheckers(): Promise<CompletionCheckerFns | null> {
-  return { verifyTddChain, verifyPhaseFormat, verifyContractPresence };
+  return { verifyTddChain, verifyPhaseFormat };
 }
 
 /**
@@ -354,21 +354,6 @@ async function runSoftObservation(
           logger.info(`[AgentLoop] Soft check: commit checker threw for ${wuId}, skipped`, { error: String(e) });
         }
       }
-    }
-  }
-
-  // contract-presence：通用引擎，类型不在默认 contracts 清单内 = skip（不记事件）。
-  // 配置载体已随 #617 拆除——恒以默认配置跑（harness 内置 contracts 表）。
-  if (Date.now() < deadline) {
-    try {
-      const result = fns.verifyContractPresence(wu.type, { reviewReport: metadata.reviewReport }, {});
-      if (result.verdict !== 'skip') {
-        const detail = result.detail ?? '';
-        emit({ wuId, checker: 'contract-presence', verdict: result.verdict, detail });
-        if (result.verdict === 'violation') violationBlocks.push(`[contract-presence] ${detail || '契约标记缺失'}`);
-      }
-    } catch (e) {
-      logger.info(`[AgentLoop] Soft check: contract-presence threw for ${wuId}, skipped`, { error: String(e) });
     }
   }
 
