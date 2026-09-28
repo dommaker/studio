@@ -18,12 +18,29 @@ const { mockCheckConstraint, mockCheckConstraints } = vi.hoisted(() => ({
   mockCheckConstraints: vi.fn(),
 }));
 
-vi.mock('@dommaker/harness', () => ({
-  getAllConstraints: vi.fn(() => []),
-  getConstraint: vi.fn(),
-  checkConstraint: mockCheckConstraint,
-  checkConstraints: mockCheckConstraints,
-}));
+// importActual 展开保留公共类 ConstraintViolationError（instanceof 判据用真实类）
+vi.mock('@dommaker/harness', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/harness')>();
+  return {
+    ...actual,
+    getAllConstraints: vi.fn(() => []),
+    getConstraint: vi.fn(),
+    checkConstraint: mockCheckConstraint,
+    checkConstraints: mockCheckConstraints,
+  };
+});
+
+import { ConstraintViolationError } from '@dommaker/harness';
+
+/** 生产形态违规样例（1.15.0 no_completion_without_verification 证据缺失判定） */
+const violationResult = {
+  id: 'no_completion_without_verification',
+  severity: 'error',
+  satisfied: false,
+  message: '禁止无验证声明完成，必须有晚于最新变更的验证证据',
+  evidence: ['未运行验证：.harness/evidence 无测试输出记录'],
+  checkedAt: new Date(),
+};
 
 let server: Server;
 let base: string;
@@ -129,5 +146,63 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
     const batchCtx = mockCheckConstraint.mock.calls.at(-1)?.[1] ?? {};
     expect(batchCtx.hasPlanApproval).toBeUndefined();
     expect(batch.json.strippedEvidenceFlags).toEqual(['hasPlanApproval']);
+  });
+});
+
+/**
+ * block 模式违规 → 数据（harness 1.15.0 证据源重构适配）：
+ * checkConstraints 对首个 error 级违规抛 ConstraintViolationError（即抛即停），
+ * 路由必须把违规转成部分视图数据返回，而不是 500；500 只留给真实调不通 harness。
+ */
+describe('iron-laws 路由 block 模式违规返回部分视图数据', () => {
+  it('POST /check-all：ConstraintViolationError → 200 + data 含首个违规真实 id/message/evidence', async () => {
+    mockCheckConstraints.mockRejectedValue(new ConstraintViolationError({ ...violationResult, checkedAt: new Date() }));
+    const { status, json } = await api('POST', '/api/v1/iron-laws/check-all', {
+      context: { operation: 'code_implementation', projectPath: '/tmp/p' },
+    });
+    expect(status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.data.passed).toBe(false);
+    expect(json.data.errors).toHaveLength(1);
+    expect(json.data.errors[0]).toMatchObject({
+      id: 'no_completion_without_verification',
+      severity: 'error',
+      satisfied: false,
+      message: violationResult.message,
+      evidence: violationResult.evidence,
+    });
+    // 部分视图标注：即抛即停 = 仅首个违规，后续 error/warning 未执行
+    expect(json.violationPartialView).toMatchObject({ truncated: true });
+    expect(json.violationPartialView.reason).toBeTruthy();
+  });
+
+  it('POST /check-all：违规路径保留 #641 strippedEvidenceFlags 标注', async () => {
+    mockCheckConstraints.mockRejectedValue(new ConstraintViolationError({ ...violationResult, checkedAt: new Date() }));
+    const { status, json } = await api('POST', '/api/v1/iron-laws/check-all', {
+      context: { operation: 'code_implementation', hasTest: true },
+    });
+    expect(status).toBe(200);
+    expect(json.strippedEvidenceFlags).toEqual(['hasTest']);
+    const received = mockCheckConstraints.mock.calls.at(-1)?.[0] ?? {};
+    expect(received.hasTest).toBeUndefined();
+  });
+
+  it('POST /check-all：非违规异常（真实调不通）仍 500', async () => {
+    mockCheckConstraints.mockRejectedValue(new Error('down'));
+    const { status } = await api('POST', '/api/v1/iron-laws/check-all', {
+      context: { operation: 'code_implementation' },
+    });
+    expect(status).toBe(500);
+  });
+
+  it('POST /check：checkConstraint 不抛，违规结果原样走数据面（特征钉死，500 与本路径无关）', async () => {
+    mockCheckConstraint.mockResolvedValue({ ...violationResult, checkedAt: new Date() });
+    const { status, json } = await api('POST', '/api/v1/iron-laws/check', {
+      lawId: 'no_completion_without_verification',
+      context: { operation: 'code_implementation' },
+    });
+    expect(status).toBe(200);
+    expect(json.data.satisfied).toBe(false);
+    expect(json.data.id).toBe('no_completion_without_verification');
   });
 });

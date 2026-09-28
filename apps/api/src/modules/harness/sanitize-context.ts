@@ -10,7 +10,7 @@
  * 标志清单与 harness ConstraintContext 的 boolean 证据标志字段保持一致
  * （harness 侧类型 = checkers/types.ts ContextEvidenceFlag，未导出值级清单）。
  */
-import type { ConstraintCheckResult, ConstraintContext } from '@dommaker/harness';
+import type { ConstraintCheckResult, ConstraintContext, ConstraintViolationError } from '@dommaker/harness';
 
 const EVIDENCE_FLAGS = [
   'hasRootCauseInvestigation',
@@ -56,4 +56,28 @@ export function degradedChecksOf(result: ConstraintCheckResult): Array<{ id: str
   return [...result.errors, ...result.warnings]
     .filter((r) => r.skipped)
     .map((r) => ({ id: r.id, skipReason: r.skipReason }));
+}
+
+/**
+ * 违规部分视图（harness 1.15.0 block 模式适配，与 degradedChecks/strippedEvidenceFlags
+ * 同族标注 → violationPartialView）。
+ *
+ * checkConstraints 即抛即停：首个 error 级违规抛 ConstraintViolationError，只携带
+ * 该条 ConstraintResult，后续 error 级与全部 warning 级根本没跑。捕获侧不得据此
+ * 伪装「harness 不可用」（那留给真实调不通），也不得隐藏违规——转成数据返回并
+ * 显式标注这是部分视图。
+ */
+export const VIOLATION_PARTIAL_VIEW = {
+  truncated: true,
+  reason: 'checkConstraints block 模式首个 error 级违规即抛：本响应仅含首个违规，后续 error/warning 级检查未执行',
+} as const;
+
+/** ConstraintViolationError → ConstraintCheckResult 形状的部分视图（仅首个违规） */
+export function violationAsPartialView(error: ConstraintViolationError): ConstraintCheckResult {
+  return {
+    errors: [error.result],
+    warnings: [],
+    passed: false,
+    warningCount: 0,
+  };
 }

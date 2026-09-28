@@ -14,15 +14,15 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 | `runtime.ts` | @dommaker/harness 懒加载、Collector/Analyzer/KnowledgeStore 单例、TTL 缓存 |
 | `routes.ts` | 挂载门面（默认导出 Router，route-registry 挂 /api/v1/harness，2026-07 起 requireAuth+requireAdmin） |
 | `traces.routes.ts` | 轨迹采集/分析（/traces、/analysis；/diagnose 随 harness 1.2.0 ADR-0003 断链删除）。/analysis* 走 harness#100 报告入口 `analyzeRecentReport()`，响应含 `skippedLines` 坏行计数（>0 打 warn，#451）。harness 1.10.0（ADR-0029）起 trace 字段 level→severity：/traces 查询参数与 POST body 均收 `severity`，错误文案同步 |
-| `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints——#641 起同样剥离请求体自报的 hasRequirement 并以 strippedEvidenceFlags 标注，不再缺省 true；degrade/schedule 已随 0.17.0 移除；条目字段随 harness 1.10.0 换 severity 显式面，stats 聚合桶 byLevel→bySeverity；retired/rollback = config.yml 单落点——custom-constraints.yml 落点通道已随 #617 拆除，customConstraintsPath 一并删除；#646 起 rollback 写操作走 harness reactivate CLI，见注意事项）。`POST /constraints/propose-upgrade`（ADR-0033 子项 8，harness ≥1.12.0）：校验 constraintId 是应用层约束（`<repoRoot>/.harness/constraints.yml` 有定义）→ 建 constraint kind 提案卡（action='upgrade'，带 traces 统计白话）发 #系统；approve 后落点（spawn pack-proposal + 材料回帖）归 evolution/constraint-adapter |
+| `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints——#641 起同样剥离请求体自报的 hasRequirement 并以 strippedEvidenceFlags 标注，不再缺省 true；1.15.0 适配：违规抛 ConstraintViolationError → 200 部分视图数据（violationPartialView），500 只留真实 harness 故障；degrade/schedule 已随 0.17.0 移除；条目字段随 harness 1.10.0 换 severity 显式面，stats 聚合桶 byLevel→bySeverity；retired/rollback = config.yml 单落点——custom-constraints.yml 落点通道已随 #617 拆除，customConstraintsPath 一并删除；#646 起 rollback 写操作走 harness reactivate CLI，见注意事项）。`POST /constraints/propose-upgrade`（ADR-0033 子项 8，harness ≥1.12.0）：校验 constraintId 是应用层约束（`<repoRoot>/.harness/constraints.yml` 有定义）→ 建 constraint kind 提案卡（action='upgrade'，带 traces 统计白话）发 #系统；approve 后落点（spawn pack-proposal + 材料回帖）归 evolution/constraint-adapter |
 | `knowledge.routes.ts` | 知识引擎（/knowledge*） |
 | `sessions.routes.ts` | 上下文管理（/estimate-tokens、/sessions*） |
 | `agents.routes.ts` | Agent 生命周期（/agents*） |
 | `diagnostics.routes.ts` | 错误分类（/classify、/failures；/check-spec、/verify* 随 harness 1.2.0 ADR-0003 断链删除） |
 | `dashboard.routes.ts` | 健康检查（/health；/dashboard 随 harness 1.2.0 ADR-0003 断链删除） |
 | `cso.routes.ts` | CSO 验证（/validate；2026-07 起 /api/v1/cso 只挂本文件，不再整挂 routes.ts 门面——否则 harness 的 Admin 收紧可被 /cso/* 双挂载绕过） |
-| `iron-laws.routes.ts` | Iron Laws（独立子路由，挂 /api/v1/iron-laws；#641 起 /check 与 /check-all 剥离请求体自报的 has* 证据标志，依赖项由 harness 降级 skip，响应以 strippedEvidenceFlags 标注降级） |
-| `sanitize-context.ts` | #641 证据标志信任边界唯一口（mcp/safety.tools 复用）：被检查者不能自证，sanitizeConstraintContext 剥离请求侧 has* 标志；downgradeAnnotation/degradedChecksOf 负责响应面降级标注（strippedEvidenceFlags + 顶层 degradedChecks 清单，三态不可混淆） |
+| `iron-laws.routes.ts` | Iron Laws（独立子路由，挂 /api/v1/iron-laws；#641 起 /check 与 /check-all 剥离请求体自报的 has* 证据标志，依赖项由 harness 降级 skip，响应以 strippedEvidenceFlags 标注降级；1.15.0 适配：/check-all 捕获 ConstraintViolationError → 200 部分视图数据（violationPartialView），500 只留真实 harness 故障；/check 走 checkConstraint(id) 不抛、违规天然走数据面） |
+| `sanitize-context.ts` | #641 证据标志信任边界唯一口（mcp/safety.tools 复用）：被检查者不能自证，sanitizeConstraintContext 剥离请求侧 has* 标志；downgradeAnnotation/degradedChecksOf 负责响应面降级标注（strippedEvidenceFlags + 顶层 degradedChecks 清单，三态不可混淆）；violationAsPartialView + VIOLATION_PARTIAL_VIEW 承接 block 模式违规 → 部分视图数据（仅首个违规，与 degradedChecks 同族口径） |
 
 ### 核心导出
 
@@ -59,5 +59,13 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
   `<projectPath>/.harness/evidence/` 独立链路证据，新鲜度 = 最新证据 mtime ≥ 变更文件 mtime；
   证据缺失 = error 级 fail（本仓暂无证据生产方，触发域含 code_implementation 的直调面会恒 fail，
   生产方建设待 harness 侧口径落定）。`sanitize-context.ts` 剥离清单同步缩为 7 项。
+- 违规数据面适配（2026-09-28，1.15.0 后续）：`checkConstraints` block 模式对首个 error 级违规
+  即抛 `ConstraintViolationError`（只带该条结果，后续 error/warning 未跑）。三个消费面
+  （iron-laws /check-all、constraints /check-constraints、MCP checkConstraint）统一
+  `instanceof` 捕获 → 200 部分视图数据（`violationPartialView: {truncated, reason}` 标注，
+  与 degradedChecks/strippedEvidenceFlags 同族）；500/harnessUnavailable 只留给真实调不通
+  harness。注意 `checkConstraint(id)` 单约束面不抛，无需处理；docs-freshness 传
+  `module_modification`，不在该约束触发域（trigger=code_implementation），不受影响未改。
+  真根因（本仓缺 .harness/evidence 证据生产方）另票处理。
 - listRetiredConstraints 已随 harness 1.15.0（#188/#192）成公共面（签名 target: RunTarget，
   无 cwd 默认值）；constraints.routes.ts 的 retired 墓碑直读豁免切换属后续单票，本仓当前零调用点。

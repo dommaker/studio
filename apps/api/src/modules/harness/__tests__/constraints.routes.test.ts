@@ -47,6 +47,18 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
     getEffectiveConstraints: () => store,
     checkConstraints: async (opts: { operation: string }) => {
       checkConstraintsCalls.push(opts as Record<string, unknown>);
+      // 注入两个出口形态：block 模式违规抛（真实类）/ 真实调不通抛普通 Error
+      if (opts.operation === 'simulate-violation') {
+        throw new actual.ConstraintViolationError({
+          id: 'no_completion_without_verification',
+          severity: 'error',
+          satisfied: false,
+          message: '禁止无验证声明完成，必须有晚于最新变更的验证证据',
+          evidence: ['未运行验证：.harness/evidence 无测试输出记录'],
+          checkedAt: new Date(),
+        });
+      }
+      if (opts.operation === 'simulate-error') throw new Error('harness down');
       return { passed: true, operation: opts.operation, violations: [] };
     },
   };
@@ -261,6 +273,30 @@ describe('constraints.routes', () => {
     expect(received.hasRequirement).toBeUndefined();
     expect(received.operation).toBe('create-requirement');
     expect(res.json.strippedEvidenceFlags).toEqual(['hasRequirement']);
+  });
+
+  // block 模式即抛即停（harness 1.15.0 证据源重构后违规常态化触发）：
+  // ConstraintViolationError 必须转成部分视图数据，500 只留给真实调不通 harness
+  it('POST /check-constraints：违规抛 ConstraintViolationError → 200 部分视图数据', async () => {
+    const res = await api('POST', '/check-constraints', { operation: 'simulate-violation' });
+    expect(res.status).toBe(200);
+    expect(res.json.data.passed).toBe(false);
+    expect(res.json.data.errors).toHaveLength(1);
+    expect(res.json.data.errors[0].id).toBe('no_completion_without_verification');
+    expect(res.json.data.errors[0].message).toContain('禁止无验证声明完成');
+    expect(res.json.data.errors[0].evidence).toEqual(['未运行验证：.harness/evidence 无测试输出记录']);
+    expect(res.json.violationPartialView).toMatchObject({ truncated: true });
+  });
+
+  it('POST /check-constraints：违规路径保留 #641 strippedEvidenceFlags 标注', async () => {
+    const res = await api('POST', '/check-constraints', { operation: 'simulate-violation', hasRequirement: true });
+    expect(res.status).toBe(200);
+    expect(res.json.strippedEvidenceFlags).toEqual(['hasRequirement']);
+  });
+
+  it('POST /check-constraints：非违规异常（真实调不通）仍 500', async () => {
+    const res = await api('POST', '/check-constraints', { operation: 'simulate-error' });
+    expect(res.status).toBe(500);
   });
 
   describe('POST /constraints/propose-upgrade（ADR-0033 子项 8）', () => {

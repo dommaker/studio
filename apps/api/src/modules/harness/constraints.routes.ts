@@ -9,7 +9,8 @@
  * - POST /constraints/:id/rollback    撤销 retire：spawn harness `constraints reactivate` CLI（#646）
  * - POST /constraints/propose-upgrade 升级提案发起（ADR-0033 子项 8）：校验应用层约束 →
  *   建 constraint kind 提案卡（action='upgrade'）；approve 后 pack-proposal 打包脱敏材料
- * - POST /check-constraints           M2 质量门：非抛出式约束检查（RequirementsDoc UI）
+ * - POST /check-constraints           M2 质量门：约束检查（RequirementsDoc UI）；block 模式
+ *   违规抛 → 捕获转部分视图数据（violationPartialView），500 只留真实 harness 故障
  *
  * 0.17.0 移除：ConstraintRegistry（layer/deprecationStatus/permanent 概念随之删除）、
  * POST /constraints/:id/degrade、POST /constraints/:id/schedule（deprecationSchedule 删除）。
@@ -28,10 +29,11 @@ import { Router, Request, Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { buildConstraintsUsageReport } from '@dommaker/harness';
+import { buildConstraintsUsageReport, ConstraintViolationError } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared';
 import { loadHarness, harnessModule } from './runtime.js';
-import { sanitizeConstraintContext, downgradeAnnotation } from './sanitize-context.js';
+import { sanitizeConstraintContext, downgradeAnnotation, violationAsPartialView, VIOLATION_PARTIAL_VIEW } from './sanitize-context.js';
+import type { SanitizedContext } from './sanitize-context.js';
 import {
   getConstraintReviewAdapter,
   submitConstraintUpgradeProposal,
@@ -272,6 +274,7 @@ constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Re
  * M2: RequirementsDoc quality gate — run non-throwing constraint check for UI
  */
 constraintsRoutes.post('/check-constraints', async (req: Request, res: Response) => {
+  let sanitized: SanitizedContext | undefined;
   try {
     const loaded = await loadHarness();
     if (!loaded) return res.status(503).json({ error: 'Harness not available' });
@@ -281,11 +284,21 @@ constraintsRoutes.post('/check-constraints', async (req: Request, res: Response)
 
     // Use checkConstraints (checkConstraintsSafe removed in harness 0.13.0)
     // #641：证据标志不可由调用方自报——hasRequirement 剥离，依赖项降级 skip
-    const sanitized = sanitizeConstraintContext({ operation: operation as string, taskDescription, projectPath, hasRequirement });
+    sanitized = sanitizeConstraintContext({ operation: operation as string, taskDescription, projectPath, hasRequirement });
     const result = await harnessModule!.checkConstraints(sanitized.context);
 
     return res.json({ data: result, ...downgradeAnnotation(sanitized.strippedFlags) });
   } catch (error) {
+    // block 模式首个 error 级违规即抛（ConstraintViolationError 只带该条结果）：
+    // 违规是判定数据不是服务故障——转部分视图数据返回，500 只留给真实调不通 harness
+    if (error instanceof ConstraintViolationError) {
+      logger.warn('[Harness] check-constraints violation (partial view)', { id: error.result.id });
+      return res.json({
+        data: violationAsPartialView(error),
+        ...downgradeAnnotation(sanitized?.strippedFlags ?? []),
+        violationPartialView: VIOLATION_PARTIAL_VIEW,
+      });
+    }
     logger.error('Failed to check constraints', { error: String(error) });
     return res.status(500).json({ error: 'Failed to check constraints' });
   }

@@ -9,7 +9,8 @@
  */
 
 import type { RegisteredTool } from './tool-registry.js';
-import { sanitizeConstraintContext, downgradeAnnotation } from '../harness/sanitize-context.js';
+import { ConstraintViolationError } from '@dommaker/harness';
+import { sanitizeConstraintContext, downgradeAnnotation, VIOLATION_PARTIAL_VIEW } from '../harness/sanitize-context.js';
 
 // ─── 安全约束 ───
 
@@ -26,13 +27,13 @@ const checkConstraint: RegisteredTool = {
     required: ['operation'],
   },
   handler: async (input) => {
+    if (!input.operation?.trim()) {
+      return { error: 'operation is required and must be non-empty', allowed: false };
+    }
+    // #641：剥离调用方自报的证据标志（has*），依赖项由 harness 降级 skip
+    const sanitized = sanitizeConstraintContext({ ...input.context, operation: input.operation });
     try {
-      if (!input.operation?.trim()) {
-        return { error: 'operation is required and must be non-empty', allowed: false };
-      }
       const { checkConstraints } = await import('@dommaker/harness');
-      // #641：剥离调用方自报的证据标志（has*），依赖项由 harness 降级 skip
-      const sanitized = sanitizeConstraintContext({ ...input.context, operation: input.operation });
       const result = await checkConstraints(sanitized.context);
       const violations = [...result.errors, ...result.warnings].filter(r => !r.satisfied);
       return {
@@ -45,7 +46,20 @@ const checkConstraint: RegisteredTool = {
           : `${violations.length} violation(s) found`,
         checkedAt: new Date().toISOString(),
       };
-    } catch {
+    } catch (error) {
+      // block 模式首个 error 级违规即抛：违规是判定数据不是服务故障，
+      // 转部分视图返回；harnessUnavailable 只留给真实调不通 harness 的情形
+      if (error instanceof ConstraintViolationError) {
+        return {
+          operation: input.operation,
+          allowed: false,
+          violations: [error.result],
+          ...downgradeAnnotation(sanitized.strippedFlags),
+          violationPartialView: VIOLATION_PARTIAL_VIEW,
+          message: '1 violation(s) found',
+          checkedAt: new Date().toISOString(),
+        };
+      }
       return {
         operation: input.operation,
         allowed: false,
