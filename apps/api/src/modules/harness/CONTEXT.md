@@ -41,7 +41,8 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
   harness API/CLI，如 constraints retire/reactivate）；`constraints.yml`（应用层约束正本）归应用仓，
   harness 仅加载期读+schema 校验——studio 读写它不算绕过 harness。格式漂移由读方校验暴露。
 - rollback 落点（#646 实现，2026-09-28）：POST /constraints/:id/rollback 改 spawn harness
-  `constraints reactivate <id> --yes`（复用 evolution/applier 的 resolveHarnessBin/runCmd 纪律）。
+  `constraints reactivate <id> --yes`（复用 evolution/applier 的 resolveHarnessBin/runCmd 纪律，
+  并同 retire 路径钉 KNOWLEDGE_BASE_DIR=UNIFIED_KNOWLEDGE_DIR——复活与退役沉淀同根）。
   CLI 的 skip 与成功退出码同为 0，判定不碰 stdout 文案：前置读墓碑定 404（只认 retired+enabled:false，
   裸 disable 404）、写后复查墓碑摘除定成功、非零退出 500。retired 墓碑直读记豁免，待
   dommaker/harness#188（listRetiredConstraints）发布后切换。
