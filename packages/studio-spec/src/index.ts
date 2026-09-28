@@ -17,6 +17,8 @@ export type {
 
 export type {
   CheckpointType,
+  BusinessCheckpointType,
+  HarnessCheckpointType,
   CheckResult,
   ValidateChangeInput,
   ValidateChangeResult,

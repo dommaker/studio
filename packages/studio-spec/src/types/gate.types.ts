@@ -2,43 +2,40 @@
  * 门禁类型定义
  * 
  * SP-003: GateChecker 整合
+ * studio#644: 通用检查类型收敛到 harness checkpoint 机制
  */
 
+import type { CheckConfig as HarnessCheckConfig } from '@dommaker/harness';
 import { ChangeLevel } from './change.types.js';
 
 /**
- * 检查点类型
+ * Harness 通用检查配置（= harness `CheckConfig`，HTTP 请求体形状为其子集）
  */
-export type CheckpointType =
-  // 业务检查（GateChecker 实现）
+export type { HarnessCheckConfig };
+
+/**
+ * 业务检查点类型（GateChecker 实现）
+ */
+export type BusinessCheckpointType =
   | 'spec_format' // Spec 格式正确
   | 'test_coverage' // 测试覆盖变更
   | 'api_schema' // API Schema 有效
   | 'architecture' // 架构依赖检查
-  | 'ac_complete' // AC 完整覆盖
-  // Harness 通用检查
+  | 'ac_complete'; // AC 完整覆盖
+
+/**
+ * Harness 通用检查点类型（harness CheckpointValidator 执行，为 harness CheckType 子集）
+ */
+export type HarnessCheckpointType =
   | 'file_exists' // 文件存在
   | 'file_contains' // 文件包含内容
   | 'command_success' // 命令执行成功
   | 'output_matches'; // 输出匹配正则
 
 /**
- * Harness 检查配置
+ * 检查点类型
  */
-export interface HarnessCheckConfig {
-  /** 文件路径 */
-  path?: string;
-  /** 预期内容 */
-  content?: string;
-  /** 命令 */
-  command?: string;
-  /** 正则表达式 */
-  pattern?: string;
-  /** 工作目录 */
-  workdir?: string;
-  /** 超时时间（毫秒） */
-  timeout?: number;
-}
+export type CheckpointType = BusinessCheckpointType | HarnessCheckpointType;
 
 /**
  * 检查配置（统一）
@@ -126,7 +123,7 @@ export const GATE_POLICIES: Record<ChangeLevel, GatePolicy> = {
 };
 
 /**
- * Harness 检查类型映射
+ * Harness 检查类型映射（通用检查 → harness CheckpointValidator 的路由表）
  */
 export const HARNESS_CHECK_TYPES: Set<CheckpointType> = new Set([
   'file_exists',
@@ -136,8 +133,8 @@ export const HARNESS_CHECK_TYPES: Set<CheckpointType> = new Set([
 ]);
 
 /**
- * 判断是否是 Harness 检查
+ * 判断是否是 Harness 检查（type guard：窄化为 HarnessCheckpointType）
  */
-export function isHarnessCheck(type: CheckpointType): boolean {
+export function isHarnessCheck(type: CheckpointType): type is HarnessCheckpointType {
   return HARNESS_CHECK_TYPES.has(type);
 }
