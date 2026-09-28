@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SKIP_E2E_SERVER: 'true'
+      # gitleaks-action@v2 自 2026-09 起扫描 pull_request 事件强制要求 GITHUB_TOKEN
+      # （缺失即 fail-closed，PR #651 首次撞出）；push 事件不需要，故 master 推送一直绿。
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
