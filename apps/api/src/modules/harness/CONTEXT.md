@@ -22,7 +22,8 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 | `diagnostics.routes.ts` | 错误分类（/classify、/failures；/check-spec、/verify* 随 harness 1.2.0 ADR-0003 断链删除） |
 | `dashboard.routes.ts` | 健康检查（/health；/dashboard 随 harness 1.2.0 ADR-0003 断链删除） |
 | `cso.routes.ts` | CSO 验证（/validate；2026-07 起 /api/v1/cso 只挂本文件，不再整挂 routes.ts 门面——否则 harness 的 Admin 收紧可被 /cso/* 双挂载绕过） |
-| `iron-laws.routes.ts` | Iron Laws（独立子路由，挂 /api/v1/iron-laws） |
+| `iron-laws.routes.ts` | Iron Laws（独立子路由，挂 /api/v1/iron-laws；#641 起 /check 与 /check-all 剥离请求体自报的 has* 证据标志，依赖项由 harness 降级 skip，响应以 strippedEvidenceFlags 标注降级） |
+| `sanitize-context.ts` | #641 证据标志剥离唯一口（mcp/safety.tools 复用）：被检查者不能自证，has* 标志不许进判定层 |
 
 ### 核心导出
 

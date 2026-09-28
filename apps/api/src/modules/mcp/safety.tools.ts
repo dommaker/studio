@@ -9,6 +9,7 @@
  */
 
 import type { RegisteredTool } from './tool-registry.js';
+import { sanitizeConstraintContext } from '../harness/sanitize-context.js';
 
 // ─── 安全约束 ───
 
@@ -30,13 +31,15 @@ const checkConstraint: RegisteredTool = {
         return { error: 'operation is required and must be non-empty', allowed: false };
       }
       const { checkConstraints } = await import('@dommaker/harness');
-      const context = { ...input.context, operation: input.operation };
-      const result = await checkConstraints(context);
+      // #641：剥离调用方自报的证据标志（has*），依赖项由 harness 降级 skip
+      const sanitized = sanitizeConstraintContext({ ...input.context, operation: input.operation });
+      const result = await checkConstraints(sanitized.context);
       const violations = [...result.errors, ...result.warnings].filter(r => !r.satisfied);
       return {
         operation: input.operation,
         allowed: result.passed,
         violations,
+        ...(sanitized.strippedFlags.length > 0 ? { strippedEvidenceFlags: sanitized.strippedFlags } : {}),
         message: result.passed
           ? 'Constraint check passed'
           : `${violations.length} violation(s) found`,

@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import { getAllConstraints, getConstraint, checkConstraint, checkConstraints } from '@dommaker/harness';
 import type { ConstraintContext } from '@dommaker/harness';
+import { sanitizeConstraintContext } from './sanitize-context.js';
 
 const router = Router();
 
@@ -32,16 +33,19 @@ router.post('/check', async (req, res) => {
     const { lawId, context } = req.body as { lawId: string | string[]; context: ConstraintContext };
     if (!lawId) return res.status(400).json({ success: false, error: { code: 'MISSING_LAW_ID', message: '缺少 lawId 参数' } });
     if (!context) return res.status(400).json({ success: false, error: { code: 'MISSING_CONTEXT', message: '缺少 context 参数' } });
+    // #641：剥离请求体自报的证据标志（has*），依赖项降级 skip（见 sanitize-context.ts）
+    const sanitized = sanitizeConstraintContext(context);
+    const downgrade = sanitized.strippedFlags.length > 0 ? { strippedEvidenceFlags: sanitized.strippedFlags } : {};
 
     if (Array.isArray(lawId)) {
       const results: Record<string, unknown> = {};
       for (const id of lawId) {
-        results[id] = await checkConstraint(id, context);
+        results[id] = await checkConstraint(id, sanitized.context);
       }
-      res.json({ success: true, data: results, source: 'harness' });
+      res.json({ success: true, data: results, source: 'harness', ...downgrade });
     } else {
-      const result = await checkConstraint(lawId, context);
-      res.json({ success: true, data: result, source: 'harness' });
+      const result = await checkConstraint(lawId, sanitized.context);
+      res.json({ success: true, data: result, source: 'harness', ...downgrade });
     }
   } catch (error) {
     logger.error('[IronLaws] Check failed', { error: String(error) });
@@ -53,8 +57,11 @@ router.post('/check-all', async (req, res) => {
   try {
     const { context } = req.body as { context: ConstraintContext };
     if (!context) return res.status(400).json({ success: false, error: { code: 'MISSING_CONTEXT', message: '缺少 context 参数' } });
-    const results = await checkConstraints(context);
-    res.json({ success: true, data: results, source: 'harness' });
+    // #641：剥离请求体自报的证据标志（has*），依赖项降级 skip（见 sanitize-context.ts）
+    const sanitized = sanitizeConstraintContext(context);
+    const downgrade = sanitized.strippedFlags.length > 0 ? { strippedEvidenceFlags: sanitized.strippedFlags } : {};
+    const results = await checkConstraints(sanitized.context);
+    res.json({ success: true, data: results, source: 'harness', ...downgrade });
   } catch (error) {
     logger.error('[IronLaws] Check-all failed', { error: String(error) });
     res.status(500).json({ success: false, error: { code: 'IRON_LAW_CHECK_ERROR', message: '铁律检查失败' } });
