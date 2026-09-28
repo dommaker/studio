@@ -88,7 +88,7 @@ beforeEach(() => {
   fs.writeFileSync(path.join(rolesDir, 'developer.yaml'), ROLE_FIXTURE, 'utf-8');
   prevEnv = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
   process.env.STUDIO_PROMPT_OVERRIDES_DIR = overridesDir;
-  paths = resolveEvolutionPaths({ repoRoot: tmpDir, rolesDir, eventsDir: tmpDir, studioEventsFile: path.join(tmpDir, 'events.jsonl'), traceFile: path.join(tmpDir, 'traces.log') });
+  paths = resolveEvolutionPaths({ repoRoot: tmpDir, rolesDir, eventsDir: tmpDir, studioEventsFile: path.join(tmpDir, 'events.jsonl') });
 });
 
 afterEach(() => {

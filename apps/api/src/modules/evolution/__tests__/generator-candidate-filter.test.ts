@@ -43,7 +43,6 @@ beforeEach(() => {
   fileStore = new FileStore(tmpDir);
   paths = resolveEvolutionPaths({
     repoRoot: tmpDir,
-    traceFile: path.join(tmpDir, '.harness', 'logs', 'traces.log'),
     rolesDir: path.join(tmpDir, '.agents', 'roles'),
     eventsDir: path.join(tmpDir, 'events'),
     studioEventsFile: path.join(tmpDir, 'studio-events.jsonl'),

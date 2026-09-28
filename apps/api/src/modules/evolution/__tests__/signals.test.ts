@@ -5,7 +5,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { FileStore } from '@dommaker/studio-shared';
 
 // #335：包装窗口读口以计数调用（承载 #329「整个扫描对事件文件只读一次」的回归断言）
 vi.mock('../../../utils/studio-events-tail.js', async (importOriginal) => {
@@ -17,11 +16,9 @@ import { resolveEvolutionPaths, loadWindowSignals } from '../signals.js';
 import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 
 let tmp: string;
-let fileStore: FileStore;
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'evo-signals-'));
-  fileStore = new FileStore();
   vi.mocked(readStudioEventsSince).mockClear();
 });
 
@@ -36,7 +33,6 @@ describe('resolveEvolutionPaths', () => {
 
   it('derives harness paths from repoRoot by default', () => {
     const p = resolveEvolutionPaths({ repoRoot: tmp });
-    expect(p.traceFile).toBe(path.join(tmp, '.harness', 'logs', 'traces.log'));
     expect(p.rolesDir).toBe(path.join(tmp, '.agents', 'roles'));
   });
 });
@@ -46,10 +42,12 @@ describe('loadWindowSignals', () => {
     const now = Date.now();
     const paths = resolveEvolutionPaths({ repoRoot: tmp, eventsDir: path.join(tmp, 'events') });
     fs.mkdirSync(paths.eventsDir, { recursive: true });
-    fs.mkdirSync(path.dirname(paths.traceFile), { recursive: true });
+    // #646：constraint traces 读取走 harness readProjectTraces(repoRoot)（固定 .harness/logs/traces.log）
+    const traceFile = path.join(tmp, '.harness', 'logs', 'traces.log');
+    fs.mkdirSync(path.dirname(traceFile), { recursive: true });
     fs.mkdirSync(path.dirname(paths.studioEventsFile), { recursive: true });
 
-    fs.writeFileSync(paths.traceFile, [
+    fs.writeFileSync(traceFile, [
       JSON.stringify({ timestamp: now - 1000, constraintId: 'c1' }),
       JSON.stringify({ timestamp: now - 48 * 3600_000, constraintId: 'old' }),
     ].join('\n') + '\n');
@@ -64,7 +62,7 @@ describe('loadWindowSignals', () => {
       JSON.stringify({ type: 'knowledge:consumption', createdAt: new Date(now - 1000).toISOString(), payload: '{}' }),
     ].join('\n') + '\n');
 
-    const sig = await loadWindowSignals(paths, 24, fileStore);
+    const sig = await loadWindowSignals(paths, 24);
     expect(sig.constraintTraces).toHaveLength(1);
     expect(sig.constraintTraces[0].constraintId).toBe('c1');
     expect(sig.toolCalls).toHaveLength(2);
@@ -78,9 +76,8 @@ describe('loadWindowSignals', () => {
       repoRoot: tmp,
       eventsDir: path.join(tmp, 'none'),
       studioEventsFile: path.join(tmp, 'none', 'studio-events.jsonl'),
-      traceFile: path.join(tmp, 'none', 'traces.log'),
     });
-    const sig = await loadWindowSignals(paths, 24, fileStore);
+    const sig = await loadWindowSignals(paths, 24);
     expect(sig.constraintTraces).toEqual([]);
     expect(sig.toolCalls).toEqual([]);
     expect(sig.outcomes).toEqual([]);
@@ -91,14 +88,13 @@ describe('loadWindowSignals', () => {
     // 同一断言迁移到 readStudioEventsSince 调用计数（见顶部 vi.mock 包装）。
     const now = Date.now();
     const paths = resolveEvolutionPaths({ repoRoot: tmp, eventsDir: path.join(tmp, 'events') });
-    fs.mkdirSync(path.dirname(paths.traceFile), { recursive: true });
     fs.mkdirSync(path.dirname(paths.studioEventsFile), { recursive: true });
     fs.writeFileSync(paths.studioEventsFile, [
       JSON.stringify({ type: 'tool:call', timestamp: now - 1000, tool: 'Read', success: true }),
       JSON.stringify({ type: 'knowledge:outcome:success', createdAt: new Date(now - 1000).toISOString(), payload: '{}' }),
     ].join('\n') + '\n');
 
-    const sig = await loadWindowSignals(paths, 24, fileStore);
+    const sig = await loadWindowSignals(paths, 24);
 
     // #329 回归：整个扫描对事件文件只读一次（#335 起经窗口读口承载）
     expect(vi.mocked(readStudioEventsSince).mock.calls.filter(c => c[0]?.file === paths.studioEventsFile)).toHaveLength(1);

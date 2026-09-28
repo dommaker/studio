@@ -238,7 +238,7 @@ async function rolePresetProposals(signals: WindowSignals, deps: GeneratorDeps):
  */
 export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<GenerationResult> {
   const { fileStore } = deps;
-  const signals = await loadWindowSignals(deps.paths, deps.windowHours, fileStore);
+  const signals = await loadWindowSignals(deps.paths, deps.windowHours);
   // #602 D5：事故台账条目计数（只观测进 scanned，不进启发式——纪律事故与注入失败语义不同源）
   const incidents = (await loadIncidentLedger(fileStore).catch(() => [])).length;
   const skipped: Record<string, number> = {};

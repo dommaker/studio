@@ -4,9 +4,9 @@
  * 从 routes.ts 提取（T3 大文件拆分），harness 0.17.0 适配（ADR-0001 决策 8）：
  * - GET  /constraints                 列出生效约束集（getEffectiveConstraints）
  * - GET  /constraints/stats           生效集统计（注册于 /constraints/:id 之前）
- * - GET  /constraints/retired         已退役约束元数据：config.yml（唯一落点）
+ * - GET  /constraints/retired         已退役约束元数据：config.yml（唯一落点；读取豁免见下）
  * - GET  /constraints/:id             约束详情（生效集内查找）
- * - POST /constraints/:id/rollback    撤销 retire：config.yml 删 constraints.<id> 段
+ * - POST /constraints/:id/rollback    撤销 retire：spawn harness `constraints reactivate` CLI（#646）
  * - POST /constraints/propose-upgrade 升级提案发起（ADR-0033 子项 8）：校验应用层约束 →
  *   建 constraint kind 提案卡（action='upgrade'）；approve 后 pack-proposal 打包脱敏材料
  * - POST /check-constraints           M2 质量门：非抛出式约束检查（RequirementsDoc UI）
@@ -18,6 +18,10 @@
  * custom-constraints.yml 装载机制已随 harness 1.10.0 退役（studio#606），本仓的
  * custom 落点通道（retired 清单 source:custom / rollback 删 retired 段 / customConstraintsPath）
  * 已随 #617 拆除——retired/rollback 恒为 config.yml 单落点。
+ * #646（.harness/ 所有权裁定）：config.yml 归 harness，rollback 写操作改走 harness
+ * `constraints reactivate` CLI（spawn，同 constraint-adapter 解析纪律）；
+ * retired 墓碑读取暂无 harness 公共面，直读记豁免，待 dommaker/harness#188
+ * （listRetiredConstraints）发布升级后切换并清除本豁免。
  */
 
 import { Router, Request, Response } from 'express';
@@ -32,6 +36,7 @@ import {
   getConstraintReviewAdapter,
   submitConstraintUpgradeProposal,
 } from '../evolution/constraint-adapter.js';
+import { resolveHarnessBin, runCmd } from '../evolution/applier.js';
 import { formatConstraintStats } from '../evolution/format-constraint-stats.js';
 
 export const constraintsRoutes = Router();
@@ -41,8 +46,17 @@ function projectRoot(): string {
   return process.cwd();
 }
 
-function configPath(): string {
-  return path.join(projectRoot(), '.harness', 'config.yml');
+/**
+ * 读 config.yml 的 retired 墓碑段（constraints.<id>）。
+ * 豁免（#646）：config.yml 所有权归 harness，retired 清单读取暂无 harness 公共面，
+ * 待 dommaker/harness#188（listRetiredConstraints 库导出）发布并升级依赖后切换、清除本豁免。
+ * 写操作不走此口——rollback 一律 spawn harness `constraints reactivate` CLI。
+ */
+function readRetiredTombstones(root: string): Record<string, Record<string, unknown>> {
+  const file = path.join(root, '.harness', 'config.yml');
+  if (!fs.existsSync(file)) return {};
+  const raw = (yaml.load(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>) ?? {};
+  return (raw.constraints ?? {}) as Record<string, Record<string, unknown>>;
 }
 
 // ─── Constraint Lifecycle (T-002) ───
@@ -103,14 +117,10 @@ constraintsRoutes.get('/constraints/retired', async (_req: Request, res: Respons
   try {
     const retired: Array<{ id: string; enabled: boolean; source: 'config'; retired: unknown }> = [];
 
-    const file = configPath();
-    if (fs.existsSync(file)) {
-      const raw = (yaml.load(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>) ?? {};
-      const constraints = (raw.constraints ?? {}) as Record<string, Record<string, unknown>>;
-      for (const [id, v] of Object.entries(constraints)) {
-        if (v && typeof v === 'object' && v.retired) {
-          retired.push({ id, enabled: v.enabled === true, source: 'config', retired: v.retired });
-        }
+    const tombstones = readRetiredTombstones(projectRoot());
+    for (const [id, v] of Object.entries(tombstones)) {
+      if (v && typeof v === 'object' && v.retired) {
+        retired.push({ id, enabled: v.enabled === true, source: 'config', retired: v.retired });
       }
     }
 
@@ -207,35 +217,42 @@ constraintsRoutes.post('/constraints/propose-upgrade', async (req: Request, res:
 
 /**
  * POST /api/v1/harness/constraints/:id/rollback
- * 撤销 retire/disable：config.yml 删 constraints.<id> 段；无该 id → 404。
- * js-yaml 重写不保留原文件注释（与 harness CLI 一致）。
+ * 撤销 retire（#646）：spawn harness `constraints reactivate <id> --yes -p <projectRoot>`
+ * （config.yml 写操作归 harness，与 constraint-adapter 同一 spawn 纪律，不走 npx）。
+ * reactivate 只认 retired 墓碑（enabled:false + retired），裸 disable / 无条目 → not_retired
+ * → 404；接受其 knowledge 沉淀副作用（constraint-reactivated-<id>，与 retire 对称的治理留痕）。
+ * 判定不依赖 CLI stdout 文案（skip 与成功退出码同为 0）：前置墓碑检查定 404，
+ * 写后复查墓碑已摘除定成功，CLI 非零退出 → 500。
  */
 constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Response) => {
   try {
-    let removed = false;
-
-    const file = configPath();
-    if (fs.existsSync(file)) {
-      const raw = (yaml.load(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>) ?? {};
-      const constraints = (raw.constraints ?? {}) as Record<string, unknown>;
-      if (req.params.id in constraints) {
-        delete constraints[req.params.id];
-        if (Object.keys(constraints).length === 0) delete raw.constraints;
-        else raw.constraints = constraints;
-        fs.writeFileSync(file, yaml.dump(raw, { lineWidth: 120 }), 'utf-8');
-        removed = true;
-      }
+    const root = projectRoot();
+    const before = readRetiredTombstones(root);
+    const entry = before[req.params.id];
+    if (!(entry && typeof entry === 'object' && entry.retired && entry.enabled === false)) {
+      return res.status(404).json({ error: `No retired entry for constraint: ${req.params.id}` });
     }
 
-    if (!removed) {
-      return res.status(404).json({ error: `No retire/disable entry for constraint: ${req.params.id}` });
+    const spawned = await runCmd(process.execPath, [
+      resolveHarnessBin(), 'constraints', 'reactivate', req.params.id, '--yes', '-p', root,
+    ]);
+    if (spawned.code !== 0) {
+      logger.error('harness constraints reactivate failed', { id: req.params.id, code: spawned.code, stderr: spawned.stderr.slice(0, 400) });
+      return res.status(500).json({ error: 'Failed to rollback constraint (harness CLI error)' });
+    }
+
+    // 写后复查：墓碑仍在 = CLI skip（如 unknown_id），不冒报成功
+    const after = readRetiredTombstones(root);
+    if (req.params.id in after) {
+      logger.error('harness constraints reactivate skipped (tombstone still present)', { id: req.params.id, stdout: spawned.stdout.slice(0, 400) });
+      return res.status(500).json({ error: `Failed to rollback constraint: ${req.params.id}（reactivate 未生效）` });
     }
 
     // 回滚后若重新进入生效集，返回其定义
     let restored = null;
     const loaded = await loadHarness();
     if (loaded && harnessModule) {
-      restored = harnessModule.getEffectiveConstraints(projectRoot())
+      restored = harnessModule.getEffectiveConstraints(root)
         .find(c => c.id === req.params.id) ?? null;
     }
     return res.json({ data: restored, rolledBack: true });

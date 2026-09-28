@@ -1,18 +1,19 @@
 /**
  * E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：路径解析 + 信号加载。
  *
- * 三个信号源（全部文件型，tmp dir 可注入）：
- *   1. harness 约束 traces：<repoRoot>/.harness/logs/traces.log（ExecutionTrace JSONL，
- *      由 @dommaker/harness TraceCollector 写入；原供 autoEvolve 使用，
- *      0.17.0 起为 constraints report 数据源，E1 (a) 链路挂起期间仅扫描计数）
+ * 三个信号源（全部文件型，tmp dir 可注入 repoRoot/studioEventsFile）：
+ *   1. harness 约束 traces：经 harness 公共 API `readProjectTraces(repoRoot)` 读取
+ *      （#646：.harness/ 文件所有权归 harness，不再 FileStore 直读 traces.log；
+ *      ExecutionTrace JSONL 由 @dommaker/harness TraceCollector 写入；
+ *      原供 autoEvolve 使用，0.17.0 起为 constraints report 数据源，
+ *      E1 (a) 链路挂起期间仅扫描计数）
  *   2. 工具调用 traces：<studioEventsFile>（tool:call 事件 —— D18 后与 knowledge
  *      事件同一统一事件文件；原 <eventsDir>/studio.jsonl 已收敛）
  *   3. 执行结果事件：<studioEventsFile>（knowledge:outcome:* 事件，含 consumedKnowledge
  *      反馈数据 —— R1 断点 A 修复后有值）
  */
 import path from 'node:path';
-import type { ExecutionTrace } from '@dommaker/harness';
-import { FileStore } from '@dommaker/studio-shared';
+import { readProjectTraces, type ExecutionTrace } from '@dommaker/harness';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
@@ -22,8 +23,6 @@ import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 export interface EvolutionPaths {
   /** 仓库根（.harness/ 与 .agents/ 所在），默认 process.cwd() */
   repoRoot: string;
-  /** harness 约束 trace 文件（(a) 链路输入；0.17.0 挂起期间仅计数） */
-  traceFile: string;
   /** 角色预设目录（role-preset 提案的写入目标：<rolesDir>/<name>.yaml） */
   rolesDir: string;
   /** @deprecated D18 后事件全部收敛到 studioEventsFile；保留字段仅为兼容，不再被读取 */
@@ -36,7 +35,6 @@ export function resolveEvolutionPaths(overrides?: Partial<EvolutionPaths>): Evol
   const repoRoot = overrides?.repoRoot ?? process.cwd();
   return {
     repoRoot,
-    traceFile: overrides?.traceFile ?? path.join(repoRoot, '.harness', 'logs', 'traces.log'),
     rolesDir: overrides?.rolesDir ?? path.join(repoRoot, '.agents', 'roles'),
     // events/ 语义迁移（契约 §8）：统一事件流正本在 logs/；本字段 @deprecated 不再被读取，
     // 缺省值同步指 logs/（#571），events/ ensureDir 已从启动链移除
@@ -73,11 +71,16 @@ export interface WindowSignals {
 export async function loadWindowSignals(
   paths: EvolutionPaths,
   windowHours: number,
-  fileStore: FileStore,
 ): Promise<WindowSignals> {
   const sinceMs = Date.now() - windowHours * 3600_000;
 
-  const constraintTraces = (await fileStore.readJsonl<ExecutionTrace>(paths.traceFile).catch(() => []))
+  // #646：traces 读取走 harness 公共 API（readProjectTraces 自带缺失文件/坏行容错 → 空数组），
+  // 窗口过滤在调用方按 timestamp 进行，行为口径与旧 FileStore 直读一致
+  let traces: ExecutionTrace[] = [];
+  try {
+    traces = readProjectTraces(paths.repoRoot);
+  } catch { /* 容错口径：读取失败 = 零记录 */ }
+  const constraintTraces = traces
     .filter(t => t && typeof t.timestamp === 'number' && t.timestamp >= sinceMs && typeof t.constraintId === 'string');
 
   // D18: tool:call 与 knowledge:outcome 同一统一事件文件；兼容 payload 嵌套与历史扁平形态

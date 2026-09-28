@@ -67,12 +67,14 @@ beforeEach(() => {
   fs.writeFileSync(path.join(tmpDir, '.agents', 'roles', 'developer.yaml'), ROLE_YAML, 'utf-8');
   paths = resolveEvolutionPaths({
     repoRoot: tmpDir,
-    traceFile: path.join(tmpDir, '.harness', 'logs', 'traces.log'),
     rolesDir: path.join(tmpDir, '.agents', 'roles'),
     eventsDir: path.join(tmpDir, 'events'),
     studioEventsFile: path.join(tmpDir, 'studio-events.jsonl'),
   });
 });
+
+// #646：traces 落点固定为 harness 正本（readProjectTraces 读 <repoRoot>/.harness/logs/traces.log）
+const traceFile = (): string => path.join(tmpDir, '.harness', 'logs', 'traces.log');
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -91,7 +93,7 @@ describe('generateEvolutionProposals (E1)', () => {
   it('(a) 自动提案只留 high_noise（#624）：高噪候选产 retire 提案，零触发/不可评估 report-only', async () => {
     // no_test_simplification：25 次评估 21 次 fail（failRate 0.84 > 0.8，evaluated ≥ 20）→ high_noise；
     // docs_freshness：全部 skip → unevaluable；其余内置约束零触发 → zero_trigger。
-    writeJsonl(paths.traceFile, [
+    writeJsonl(traceFile(), [
       ...Array.from({ length: 25 }, (_, i) => ({
         constraintId: 'no_test_simplification',
         timestamp: NOW - 3600_000 + i * 1000,
@@ -124,7 +126,7 @@ describe('generateEvolutionProposals (E1)', () => {
   });
 
   it('(a) rejected 后同目标不重提：抑重键按 constraintChange，不受 proposedText 数字漂移影响（#624）', async () => {
-    writeJsonl(paths.traceFile, Array.from({ length: 25 }, (_, i) => ({
+    writeJsonl(traceFile(), Array.from({ length: 25 }, (_, i) => ({
       constraintId: 'no_test_simplification',
       timestamp: NOW - 3600_000 + i * 1000,
       result: i < 21 ? 'fail' : 'pass',
@@ -138,7 +140,7 @@ describe('generateEvolutionProposals (E1)', () => {
       proposedText: '退役（高噪）：fail 率 84%（21/25），疑似误报源',
     });
     // 下一轮统计数字漂移（fail 数变化，仍是 high_noise）——旧抑重键（拼 proposedText）会放行重提
-    writeJsonl(paths.traceFile, Array.from({ length: 30 }, (_, i) => ({
+    writeJsonl(traceFile(), Array.from({ length: 30 }, (_, i) => ({
       constraintId: 'no_test_simplification',
       timestamp: NOW - 1800_000 + i * 1000,
       result: i < 27 ? 'fail' : 'pass',

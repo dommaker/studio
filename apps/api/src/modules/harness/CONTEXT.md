@@ -15,7 +15,7 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 | `routes.ts` | 挂载门面（默认导出 Router，route-registry 挂 /api/v1/harness，2026-07 起 requireAuth+requireAdmin） |
 | `traces.routes.ts` | 轨迹采集/分析（/traces、/analysis；/diagnose 随 harness 1.2.0 ADR-0003 断链删除）。/analysis* 走 harness#100 报告入口 `analyzeRecentReport()`，响应含 `skippedLines` 坏行计数（>0 打 warn，#451）。harness 1.10.0（ADR-0029）起 trace 字段 level→severity：/traces 查询参数与 POST body 均收 `severity`，错误文案同步 |
 | `proposals.routes.ts` | 约束提案（/proposals；/evolve 已随 harness 0.17.0 移除，execute 为 410） |
-| `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints——#641 起同样剥离请求体自报的 hasRequirement 并以 strippedEvidenceFlags 标注，不再缺省 true；degrade/schedule 已随 0.17.0 移除；条目字段随 harness 1.10.0 换 severity 显式面，stats 聚合桶 byLevel→bySeverity；retired/rollback = config.yml 单落点——custom-constraints.yml 落点通道已随 #617 拆除，customConstraintsPath 一并删除）。`POST /constraints/propose-upgrade`（ADR-0033 子项 8，harness ≥1.12.0）：校验 constraintId 是应用层约束（`<repoRoot>/.harness/constraints.yml` 有定义）→ 建 constraint kind 提案卡（action='upgrade'，带 traces 统计白话）发 #系统；approve 后落点（spawn pack-proposal + 材料回帖）归 evolution/constraint-adapter |
+| `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints——#641 起同样剥离请求体自报的 hasRequirement 并以 strippedEvidenceFlags 标注，不再缺省 true；degrade/schedule 已随 0.17.0 移除；条目字段随 harness 1.10.0 换 severity 显式面，stats 聚合桶 byLevel→bySeverity；retired/rollback = config.yml 单落点——custom-constraints.yml 落点通道已随 #617 拆除，customConstraintsPath 一并删除；#646 起 rollback 写操作走 harness reactivate CLI，见注意事项）。`POST /constraints/propose-upgrade`（ADR-0033 子项 8，harness ≥1.12.0）：校验 constraintId 是应用层约束（`<repoRoot>/.harness/constraints.yml` 有定义）→ 建 constraint kind 提案卡（action='upgrade'，带 traces 统计白话）发 #系统；approve 后落点（spawn pack-proposal + 材料回帖）归 evolution/constraint-adapter |
 | `knowledge.routes.ts` | 知识引擎（/knowledge*） |
 | `sessions.routes.ts` | 上下文管理（/estimate-tokens、/sessions*） |
 | `agents.routes.ts` | Agent 生命周期（/agents*） |
@@ -37,6 +37,14 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 
 ### 注意事项
 
+- `.harness/` 文件所有权裁定（#646 grilling，2026-09-28）：`config.yml` 归 harness（写操作只能走
+  harness API/CLI，如 constraints retire/reactivate）；`constraints.yml`（应用层约束正本）归应用仓，
+  harness 仅加载期读+schema 校验——studio 读写它不算绕过 harness。格式漂移由读方校验暴露。
+- rollback 落点（#646 实现，2026-09-28）：POST /constraints/:id/rollback 改 spawn harness
+  `constraints reactivate <id> --yes`（复用 evolution/applier 的 resolveHarnessBin/runCmd 纪律）。
+  CLI 的 skip 与成功退出码同为 0，判定不碰 stdout 文案：前置读墓碑定 404（只认 retired+enabled:false，
+  裸 disable 404）、写后复查墓碑摘除定成功、非零退出 500。retired 墓碑直读记豁免，待
+  dommaker/harness#188（listRetiredConstraints）发布后切换。
 - 子路由路径首段字面前缀互不重叠；唯一前缀包含关系 /constraints/stats 先于
   /constraints/:id 注册（constraints.routes.ts 内保持顺序）。
 - 提案持久化于 `process.cwd()/.harness/proposals/`；会话与 AgentLifecycle 为内存态。

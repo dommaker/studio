@@ -3,9 +3,10 @@
  *
  * mock @dommaker/harness（getEffectiveConstraints + checkConstraints），
  * 挂载 constraintsRoutes 覆盖：GET /constraints、GET /constraints/stats、
- * GET /constraints/retired、GET /constraints/:id、POST rollback（config.yml 语义）、
- * POST /check-constraints。beforeAll chdir 到临时目录隔离 .harness/config.yml；
- * HOME 同样指向临时目录隔离 knowledge-bus 链路。
+ * GET /constraints/retired、GET /constraints/:id、POST rollback（#646 起 spawn 真实
+ * harness `constraints reactivate` CLI——种子 = constraints.yml 应用层约束 + config.yml
+ * retired 墓碑；applier.runCmd 包 vi.fn 以便单测注入 CLI 失败）、POST /check-constraints。
+ * beforeAll chdir 到临时目录隔离 .harness/；HOME 同样指向临时目录隔离 knowledge 落盘链路。
  * 注：degrade/schedule 端点及 ConstraintRegistry mock 已随 harness 0.17.0 移除（ADR-0001 决策 8）。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -17,15 +18,23 @@ import path from 'node:path';
 import os from 'node:os';
 import yaml from 'js-yaml';
 
-const { mockCreateCardMessage, checkConstraintsCalls } = vi.hoisted(() => ({
+const { mockCreateCardMessage, checkConstraintsCalls, mockRunCmd } = vi.hoisted(() => ({
   mockCreateCardMessage: vi.fn(),
   checkConstraintsCalls: [] as Array<Record<string, unknown>>,
+  mockRunCmd: vi.fn(),
 }));
 
 // propose-upgrade 端点建卡走 review-proposal 正本发卡（ADR-0033 子项 8）
 vi.mock('../../channels/channel-message.service.js', () => ({
   channelMessageService: { createCardMessage: mockCreateCardMessage, createAgentMessage: vi.fn() },
 }));
+
+// #646：rollback spawn 真实 CLI；runCmd 包一层 vi.fn 供「CLI 不可用 → 500」用例注入失败
+vi.mock('../../evolution/applier.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../evolution/applier.js')>();
+  mockRunCmd.mockImplementation(actual.runCmd);
+  return { ...actual, runCmd: mockRunCmd };
+});
 
 vi.mock('@dommaker/harness', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/harness')>();
@@ -165,23 +174,66 @@ describe('constraints.routes', () => {
     expect(miss.status).toBe(404);
   });
 
-  it('POST /constraints/:id/rollback deletes config.yml constraints.<id> section', async () => {
+  it('POST /constraints/:id/rollback 404 on bare disable（无 retired 墓碑，#646 新口径）', async () => {
     seedConfig([
       'constraints:',
-      '  c-old:',
+      '  c-disabled:',
+      '    enabled: false',
+      '',
+    ].join('\n'));
+    const res = await api('POST', '/constraints/c-disabled/rollback', {});
+    expect(res.status).toBe(404);
+    // 裸 disable 条目不被 rollback 动（写操作只走 harness CLI）
+    const written = fs.readFileSync(path.join(process.cwd(), '.harness', 'config.yml'), 'utf-8');
+    expect(written).toContain('c-disabled');
+    fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
+  });
+
+  it('POST /constraints/:id/rollback reactivates via harness CLI（真实 spawn，#646）', async () => {
+    // 种子：constraints.yml 应用层约束（discipline 通道免 checker）+ config.yml retired 墓碑
+    fs.mkdirSync(path.join(process.cwd(), '.harness'), { recursive: true });
+    fs.writeFileSync(path.join(process.cwd(), '.harness', 'constraints.yml'), yaml.dump({
+      constraints: [{ id: 'app_rb_target', rule: '回滚测试约束', severity: 'warning', channel: 'discipline' }],
+    }), 'utf-8');
+    seedConfig([
+      'constraints:',
+      '  app_rb_target:',
       '    enabled: false',
       '    retired: { at: "2026-08-01T00:00:00.000Z", reason: "r", stats: { total: 0, fail: 0, failRate: 0 } }',
       'scenes: []',
       '',
     ].join('\n'));
-    const ok = await api('POST', '/constraints/c-old/rollback', {});
+    const ok = await api('POST', '/constraints/app_rb_target/rollback', {});
     expect(ok.status).toBe(200);
     expect(ok.json.rolledBack).toBe(true);
-    // c-old 不在 mock 生效集中 → data 为 null
+    // app_rb_target 不在 mock 生效集中 → data 为 null
     expect(ok.json.data).toBeNull();
+    // CLI 已删 config.yml 墓碑段；constraints.yml 应用层条目不动
     const written = fs.readFileSync(path.join(process.cwd(), '.harness', 'config.yml'), 'utf-8');
-    expect(written).not.toContain('c-old');
+    expect(written).not.toContain('app_rb_target');
     expect(written).toContain('scenes');
+    expect(fs.readFileSync(path.join(process.cwd(), '.harness', 'constraints.yml'), 'utf-8')).toContain('app_rb_target');
+    fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
+  });
+
+  it('POST /constraints/:id/rollback 500 when harness CLI fails', async () => {
+    fs.mkdirSync(path.join(process.cwd(), '.harness'), { recursive: true });
+    fs.writeFileSync(path.join(process.cwd(), '.harness', 'constraints.yml'), yaml.dump({
+      constraints: [{ id: 'app_rb_fail', rule: '回滚失败测试约束', severity: 'warning', channel: 'discipline' }],
+    }), 'utf-8');
+    seedConfig([
+      'constraints:',
+      '  app_rb_fail:',
+      '    enabled: false',
+      '    retired: { at: "2026-08-01T00:00:00.000Z", reason: "r", stats: { total: 0, fail: 0, failRate: 0 } }',
+      '',
+    ].join('\n'));
+    mockRunCmd.mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'boom' });
+    const res = await api('POST', '/constraints/app_rb_fail/rollback', {});
+    expect(res.status).toBe(500);
+    // CLI 失败不留半状态：墓碑仍在
+    const written = fs.readFileSync(path.join(process.cwd(), '.harness', 'config.yml'), 'utf-8');
+    expect(written).toContain('app_rb_fail');
     fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
   });
 
