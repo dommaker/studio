@@ -2,7 +2,7 @@
  * routes.ts 门面测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * 验证拆分后门面（default export router）：
- * 1. 全部 9 个子路由的 34 个 (method, path) 完整注册（集合比较）；
+ * 1. 全部 8 个子路由的 32 个 (method, path) 完整注册（集合比较）；
  * 2. 关键顺序约束：GET /constraints/stats 必须在 GET /constraints/:id 之前；
  * 3. HTTP 层冒烟：/health、/agents、/api/v1/cso/validate 可达
  *    （部分 mock @dommaker/harness：保留真实模块，仅覆盖 AgentLifecycle/CSOValidator）。
@@ -54,14 +54,13 @@ function flattenRoutes(router: any): FlatRoute[] {
  *  /sandbox 随 InputGuardrail/OutputGuardrail/Sandbox 移除）→ 39 个；
  *  删 /diagnose、/check-spec、/verify、/verify/rules、/dashboard
  *  （孤儿子系统断链，前端零消费）→ 34 个；
- *  ADR-0033 子项 8：增 POST /constraints/propose-upgrade → 35 个。 */
+ *  ADR-0033 子项 8：增 POST /constraints/propose-upgrade → 35 个。
+ *  #648：删 proposals.routes（/proposals、/proposals/:id/review、
+ *  /proposals/:id/execute，legacy 面退役）→ 32 个。 */
 const EXPECTED: Array<[string, string]> = [
   // traces.routes
   ['GET', '/traces'], ['POST', '/traces'], ['GET', '/analysis'],
   ['GET', '/analysis/anomalies'],
-  // proposals.routes
-  ['GET', '/proposals'], ['POST', '/proposals/:id/review'],
-  ['POST', '/proposals/:id/execute'],
   // constraints.routes
   ['GET', '/constraints'], ['GET', '/constraints/stats'], ['GET', '/constraints/retired'],
   ['GET', '/constraints/:id'], ['POST', '/constraints/:id/rollback'],
@@ -122,7 +121,7 @@ describe('harness routes facade', () => {
     expect(typeof harnessRoutes.handle).toBe('function');
   });
 
-  it('all 9 sub-routers fully registered: 35 routes (set comparison)', () => {
+  it('all 8 sub-routers fully registered: 32 routes (set comparison)', () => {
     const flat = flattenRoutes(harnessRoutes);
     const actualSet = new Set(flat.map(r => `${r.method} ${r.path}`));
     const expectedSet = new Set(EXPECTED.map(r => `${r[0]} ${r[1]}`));
@@ -132,7 +131,7 @@ describe('harness routes facade', () => {
 
     expect(missing).toEqual([]);
     expect(extra).toEqual([]);
-    expect(flat).toHaveLength(35);
+    expect(flat).toHaveLength(32);
   });
 
   it('GET /constraints/stats registered before GET /constraints/:id (no shadowing)', () => {
@@ -166,6 +165,11 @@ describe('harness routes facade', () => {
 
   it('unregistered path falls through to Express 404', async () => {
     const res = await fetch(`${baseHarness}/no-such-endpoint`);
+    expect(res.status).toBe(404);
+  });
+
+  it('retired proposals surface is gone (#648): GET /proposals → 404', async () => {
+    const res = await fetch(`${baseHarness}/proposals`);
     expect(res.status).toBe(404);
   });
 });

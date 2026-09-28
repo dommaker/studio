@@ -12,8 +12,8 @@
  * - traces.routes.ts     轨迹采集/分析（T-015）：GET|POST /traces、
  *                        GET /analysis、GET /analysis/anomalies
  *                        （POST /diagnose 随 harness 1.2.0 ADR-0003 断链删除）
- * - proposals.routes.ts  约束提案（T-002）：GET /proposals、
- *                        POST /proposals/:id/review、POST /proposals/:id/execute（410）
+ *                        （proposals.routes 约束提案面已随 #648 退役删除——
+ *                        生产者早随 harness 0.17.0 移除，功能归 review-proposal 正本）
  * - constraints.routes.ts 约束清单 + 质量门（T-002/M2）：GET /constraints、
  *                        GET /constraints/stats、GET /constraints/retired、
  *                        GET /constraints/:id、POST /constraints/:id/rollback、
@@ -35,7 +35,7 @@
  * - cso.routes.ts        CSO 验证（Decision #5）：GET /validate
  *
  * 挂载顺序等价性（Express 路由匹配顺序敏感）：
- * 各子路由的路径首段字面前缀互不重叠（traces/analysis/proposals/
+ * 各子路由的路径首段字面前缀互不重叠（traces/analysis/
  * constraints/check-constraints/knowledge/
  * estimate-tokens/sessions/agents/classify/failures/health/validate），
  * router.use 无匹配时自动 fallthrough；唯一的前缀包含关系
@@ -45,7 +45,6 @@
 
 import { Router } from 'express';
 import { tracesRoutes } from './traces.routes.js';
-import { proposalsRoutes } from './proposals.routes.js';
 import { constraintsRoutes } from './constraints.routes.js';
 import { knowledgeRoutes } from './knowledge.routes.js';
 import { sessionsRoutes } from './sessions.routes.js';
@@ -58,7 +57,6 @@ const router = Router();
 
 // 挂载顺序 = 原文件注册顺序
 router.use(tracesRoutes);
-router.use(proposalsRoutes);
 router.use(constraintsRoutes);
 router.use(knowledgeRoutes);
 router.use(sessionsRoutes);

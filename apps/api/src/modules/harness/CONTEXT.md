@@ -14,7 +14,6 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 | `runtime.ts` | @dommaker/harness 懒加载、Collector/Analyzer/KnowledgeStore 单例、TTL 缓存 |
 | `routes.ts` | 挂载门面（默认导出 Router，route-registry 挂 /api/v1/harness，2026-07 起 requireAuth+requireAdmin） |
 | `traces.routes.ts` | 轨迹采集/分析（/traces、/analysis；/diagnose 随 harness 1.2.0 ADR-0003 断链删除）。/analysis* 走 harness#100 报告入口 `analyzeRecentReport()`，响应含 `skippedLines` 坏行计数（>0 打 warn，#451）。harness 1.10.0（ADR-0029）起 trace 字段 level→severity：/traces 查询参数与 POST body 均收 `severity`，错误文案同步 |
-| `proposals.routes.ts` | 约束提案（/proposals；/evolve 已随 harness 0.17.0 移除，execute 为 410） |
 | `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints——#641 起同样剥离请求体自报的 hasRequirement 并以 strippedEvidenceFlags 标注，不再缺省 true；degrade/schedule 已随 0.17.0 移除；条目字段随 harness 1.10.0 换 severity 显式面，stats 聚合桶 byLevel→bySeverity；retired/rollback = config.yml 单落点——custom-constraints.yml 落点通道已随 #617 拆除，customConstraintsPath 一并删除；#646 起 rollback 写操作走 harness reactivate CLI，见注意事项）。`POST /constraints/propose-upgrade`（ADR-0033 子项 8，harness ≥1.12.0）：校验 constraintId 是应用层约束（`<repoRoot>/.harness/constraints.yml` 有定义）→ 建 constraint kind 提案卡（action='upgrade'，带 traces 统计白话）发 #系统；approve 后落点（spawn pack-proposal + 材料回帖）归 evolution/constraint-adapter |
 | `knowledge.routes.ts` | 知识引擎（/knowledge*） |
 | `sessions.routes.ts` | 上下文管理（/estimate-tokens、/sessions*） |
@@ -27,7 +26,7 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 
 ### 核心导出
 
-- `routes.ts` default export：express Router（34 个端点，见门面注释）
+- `routes.ts` default export：express Router（32 个端点，见门面注释）
 
 ### 依赖关系
 
@@ -48,5 +47,9 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
   dommaker/harness#188（listRetiredConstraints）发布后切换。
 - 子路由路径首段字面前缀互不重叠；唯一前缀包含关系 /constraints/stats 先于
   /constraints/:id 注册（constraints.routes.ts 内保持顺序）。
-- 提案持久化于 `process.cwd()/.harness/proposals/`；会话与 AgentLifecycle 为内存态。
+- 提案面退役（#648，2026-09-28）：proposals.routes（GET /proposals、POST /:id/review、
+  POST /:id/execute，持久化 `process.cwd()/.harness/proposals/`）整体删除——生产者早随
+  harness 0.17.0 移除（GET 恒空 / review 恒 404 / execute 恒 410），web 零调用，提案生命周期
+ 归 review-proposal 正本（#351）；CLI `studio approve skill` 断链分支同票改为明确不支持提示。
+- 会话与 AgentLifecycle 为内存态。
 - GET /knowledge 有 30s TTL 缓存（runtime.ts）。

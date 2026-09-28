@@ -47,7 +47,7 @@ export async function studioApprove() {
               break;
             case 'skill_review_request':
               console.log(`  🔩 [${id}] ${channel} | Skill 待审批 | ${date}`);
-              console.log(`     → studio approve skill ${m.id}`);
+              console.log(`     → 请在频道卡片上审批（#648 起 CLI 不再支持，走 review-proposal 正本端点）`);
               break;
             case 'auditor_suggestion':
               console.log(`  📊 [${id}] ${channel} | 审计建议 | ${date}`);
@@ -80,7 +80,6 @@ export async function studioApprove() {
     console.log('  studio approve list                      List all pending approvals');
     console.log('  studio approve req <messageId>           Approve RequirementsDoc → start execution');
     console.log('  studio approve knowledge <messageId>     Approve knowledge entry');
-    console.log('  studio approve skill <messageId>         Approve skill proposal');
     console.log('  studio approve auditor <messageId>       Approve auditor suggestion');
     console.log('  studio approve deploy <messageId>        Approve deploy');
     console.log('  studio reject  <type> <messageId>        Reject any pending approval');
@@ -93,13 +92,19 @@ export async function studioApprove() {
     requirements_doc: 'start_execution',
     knowledge: 'knowledge_confirm',
     knowledge_confirm: 'knowledge_confirm',
-    skill: 'skill_review_request', // handled via skill API
     auditor: 'auditor_apply_confirm',
     auditor_suggestion: 'auditor_apply_confirm',
     deploy: 'deploy_approve',
     deploy_approval: 'deploy_approve',
   };
   const action = actionMap[type] || type;
+
+  // skill 提案审批已归 review-proposal 正本（#354 接线、#648 退役旧 /harness/proposals 面），
+  // CLI 不再支持：给出明确提示而非打已删除的端点。
+  if (type === 'skill' || type === 'skill_review_request') {
+    console.error('skill 提案请在频道卡片上审批（POST /api/v1/review-proposals/skill/:id/approve），CLI approve skill 已随 #648 退役');
+    process.exit(1);
+  }
 
   try {
     // Need to find the channel for this message
@@ -122,19 +127,6 @@ export async function studioApprove() {
     if (!foundChannel) {
       console.error('Could not find channel for message. Specify: studio approve <type> <messageId> <channelId>');
       process.exit(1);
-    }
-
-    // Special: skill approval goes through skills API
-    if (type === 'skill' || type === 'skill_review_request') {
-      console.log(`Approving skill proposal ${messageId}...`);
-      const r = await fetch(`${baseUrl}/harness/proposals/${messageId}/review`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved: true }),
-      });
-      const d = await r.json() as any;
-      if (r.ok) console.log('✅ Approved:', d.data?.status || 'done');
-      else console.error('❌ Failed:', d.error || r.status);
-      return;
     }
 
     console.log(`${action} → message ${messageId.slice(0, 8)} (channel ${foundChannel.slice(0, 8)})`);

@@ -3,6 +3,7 @@
  *
  * 覆盖审批域的离线路径（PORT 指向未占用端口）：
  * - studioApprove：无参数 → usage 块（不发请求、不 exit）；
+ *   skill 类型 → 明确不支持提示 + exit(1)，不发请求（#648：旧 /harness/proposals 面退役）；
  * - studioReject：无参数 → usage；未知类型 → Unknown reject type + exit(1)（不发请求）；
  *   合法类型但 API 不可达 → Failed + exit(1)。
  * process.exit mock 为抛错以断言退出码；process.argv 按用例替换并恢复。
@@ -53,6 +54,18 @@ describe('studioApprove', () => {
     expect(logs.join('\n')).toContain('Pending Approvals');
     expect(errs.join('\n')).toContain('Failed:');
     expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('approve skill → 明确不支持提示 + exit(1)，不发请求（#648 退役）', async () => {
+    process.argv = ['node', 'studio', 'approve', 'skill', 'msg-1'];
+    await expect(studioApprove()).rejects.toThrow('exit:1');
+    expect(errs.join('\n')).toContain('review-proposals/skill');
+  });
+
+  it('usage 不再列出 approve skill（#648）', async () => {
+    process.argv = ['node', 'studio', 'approve'];
+    await studioApprove();
+    expect(logs.join('\n')).not.toContain('approve skill');
   });
 });
 
