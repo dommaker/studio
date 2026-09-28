@@ -94,10 +94,15 @@ describe('AS-003: harness 约束检查集成', () => {
       // 落盘 tmp 文件是形似赋值、可被 checker 检出。
       // 1.15.0 起本 tmp 工程须先有新鲜证据，否则 no_completion 抢先抛、
       // 干扰 result.id 断言——checker 独立于被检约束本身。
+      // 新鲜度是 mtime 严格大于判定：证据 mtime 必须显式推后，靠它与写入同落
+      // 一毫秒不可复现（合跑负载下跨 1ms 即翻红，2026-09-28 实测）。
       const tmpRoot = mkProject(true);
       const fakeSecret = 'Sup3rSecretValue99';
       const leakLine = `const password = "${fakeSecret}";`;
       fs.writeFileSync(path.join(tmpRoot, 'leak.ts'), leakLine + '\n', 'utf-8');
+      const evidenceFile = path.join(tmpRoot, '.harness', 'evidence', 'vitest.log');
+      const freshAt = Date.now() / 1000 + 1;
+      fs.utimesSync(evidenceFile, freshAt, freshAt);
       try {
         const threw = await expectViolation(() =>
           checkConstraints({
