@@ -74,11 +74,11 @@ describe('safety.tools', () => {
     });
     const result = await tool('checkConstraint').handler({
       operation: 'deploy',
-      context: { roleId: 'r1', hasVerificationEvidence: true, hasTest: false },
+      context: { roleId: 'r1', hasPlanApproval: true, hasTest: false },
     });
     const received = mockCheckConstraints.mock.calls.at(-1)?.[0] ?? {};
     expect(received).toEqual({ roleId: 'r1', operation: 'deploy' });
-    expect(result.strippedEvidenceFlags).toEqual(['hasVerificationEvidence', 'hasTest']);
+    expect(result.strippedEvidenceFlags).toEqual(['hasPlanApproval', 'hasTest']);
     expect(result.allowed).toBe(true);
   });
 

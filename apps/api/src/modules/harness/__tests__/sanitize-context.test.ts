@@ -8,13 +8,12 @@ import { describe, it, expect } from 'vitest';
 import { sanitizeConstraintContext, downgradeAnnotation, degradedChecksOf } from '../sanitize-context.js';
 
 describe('sanitizeConstraintContext', () => {
-  it('剥离全部 8 个证据标志，保留非证据字段', () => {
+  it('剥离全部 7 个证据标志，保留非证据字段', () => {
     const { context, strippedFlags } = sanitizeConstraintContext({
       operation: 'commit',
       projectPath: '/tmp/x',
       hasRootCauseInvestigation: true,
       hasPlanApproval: false,
-      hasVerificationEvidence: true,
       hasTest: true,
       hasFailingTest: false,
       hasReuseCheck: true,
@@ -25,7 +24,6 @@ describe('sanitizeConstraintContext', () => {
     expect(strippedFlags).toEqual([
       'hasRootCauseInvestigation',
       'hasPlanApproval',
-      'hasVerificationEvidence',
       'hasTest',
       'hasFailingTest',
       'hasReuseCheck',
@@ -37,9 +35,9 @@ describe('sanitizeConstraintContext', () => {
   it('值为 undefined 的标志不算剥离', () => {
     const { context, strippedFlags } = sanitizeConstraintContext({
       operation: 'commit',
-      hasVerificationEvidence: undefined,
+      hasTest: undefined,
     });
-    expect(context).toEqual({ operation: 'commit', hasVerificationEvidence: undefined });
+    expect(context).toEqual({ operation: 'commit', hasTest: undefined });
     expect(strippedFlags).toEqual([]);
   });
 
@@ -65,7 +63,7 @@ describe('degradedChecksOf', () => {
       passed: true,
       warningCount: 0,
       errors: [
-        { id: 'a', severity: 'error', satisfied: true, skipped: true, skipReason: '证据标志 hasVerificationEvidence 未接线', checkedAt: new Date() },
+        { id: 'a', severity: 'error', satisfied: true, skipped: true, skipReason: '变更清单未接线（context.changedFiles 缺失），无法判定证据新鲜度，本次未评估', checkedAt: new Date() },
         { id: 'b', severity: 'error', satisfied: true, checkedAt: new Date() },
       ],
       warnings: [
@@ -73,7 +71,7 @@ describe('degradedChecksOf', () => {
       ],
     });
     expect(degraded).toEqual([
-      { id: 'a', skipReason: '证据标志 hasVerificationEvidence 未接线' },
+      { id: 'a', skipReason: '变更清单未接线（context.changedFiles 缺失），无法判定证据新鲜度，本次未评估' },
       { id: 'c', skipReason: undefined },
     ]);
   });

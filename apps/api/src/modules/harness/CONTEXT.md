@@ -43,8 +43,9 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
   `constraints reactivate <id> --yes`（复用 evolution/applier 的 resolveHarnessBin/runCmd 纪律，
   并同 retire 路径钉 KNOWLEDGE_BASE_DIR=UNIFIED_KNOWLEDGE_DIR——复活与退役沉淀同根）。
   CLI 的 skip 与成功退出码同为 0，判定不碰 stdout 文案：前置读墓碑定 404（只认 retired+enabled:false，
-  裸 disable 404）、写后复查墓碑摘除定成功、非零退出 500。retired 墓碑直读记豁免，待
-  dommaker/harness#188（listRetiredConstraints）发布后切换。
+  裸 disable 404）、写后复查墓碑摘除定成功、非零退出 500。retired 墓碑直读豁免的切换前置已满足
+  ——harness 1.15.0 已公共导出 listRetiredConstraints（harness#188/#192，签名无 cwd 缺省）；
+  切换动作未随采纳票做（不单方面扩范围），待后续票承接。
 - 子路由路径首段字面前缀互不重叠；唯一前缀包含关系 /constraints/stats 先于
   /constraints/:id 注册（constraints.routes.ts 内保持顺序）。
 - 提案面退役（#648，2026-09-28）：proposals.routes（GET /proposals、POST /:id/review、
@@ -53,3 +54,10 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
  归 review-proposal 正本（#351）；CLI `studio approve skill` 断链分支同票改为明确不支持提示。
 - 会话与 AgentLifecycle 为内存态。
 - GET /knowledge 有 30s TTL 缓存（runtime.ts）。
+- harness 1.15.0 采纳（harness#183 证据源重构，2026-09-28）：`no_completion_without_verification`
+  不再读 `ConstraintContext.hasVerificationEvidence`（字段已退役），改读
+  `<projectPath>/.harness/evidence/` 独立链路证据，新鲜度 = 最新证据 mtime ≥ 变更文件 mtime；
+  证据缺失 = error 级 fail（本仓暂无证据生产方，触发域含 code_implementation 的直调面会恒 fail，
+  生产方建设待 harness 侧口径落定）。`sanitize-context.ts` 剥离清单同步缩为 7 项。
+- listRetiredConstraints 已随 harness 1.15.0（#188/#192）成公共面（签名 target: RunTarget，
+  无 cwd 默认值）；constraints.routes.ts 的 retired 墓碑直读豁免切换属后续单票，本仓当前零调用点。

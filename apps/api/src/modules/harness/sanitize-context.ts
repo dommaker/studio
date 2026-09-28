@@ -15,7 +15,9 @@ import type { ConstraintCheckResult, ConstraintContext } from '@dommaker/harness
 const EVIDENCE_FLAGS = [
   'hasRootCauseInvestigation',
   'hasPlanApproval',
-  'hasVerificationEvidence',
+  // hasVerificationEvidence 已随 harness 1.15.0（harness#183 证据源重构）从
+  // ConstraintContext 退役：no_completion_without_verification 不再吃自报标志，
+  // 改读 .harness/evidence 独立链路证据，剥离本字段无所指，故移出清单。
   'hasTest',
   'hasFailingTest',
   'hasReuseCheck',

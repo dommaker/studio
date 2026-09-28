@@ -2,7 +2,7 @@
  * iron-laws.routes 证据标志信任边界测试（#641）。
  *
  * 被检查者不能自证：POST /check 与 /check-all 的 context 请求体不得携带
- * 证据标志（hasVerificationEvidence 等）进入 harness 判定层——路由层剥离，
+ * 证据标志（hasTest / hasPlanApproval 等）进入 harness 判定层——路由层剥离，
  * 依赖这些标志的检查项由 harness 输入契约降级 skip（skipped + skipReason），
  * 响应以 strippedEvidenceFlags 显式标注降级。
  *
@@ -54,18 +54,18 @@ afterAll(async () => {
 });
 
 describe('iron-laws 路由证据标志信任边界（#641）', () => {
-  it('POST /check-all：请求体自报 hasVerificationEvidence=true 不进入判定层，响应标注降级', async () => {
+  it('POST /check-all：请求体自报 hasPlanApproval/hasTest=true 不进入判定层，响应标注降级', async () => {
     mockCheckConstraints.mockResolvedValue({ passed: true, errors: [], warnings: [], warningCount: 0 });
     const { status, json } = await api('POST', '/api/v1/iron-laws/check-all', {
-      context: { operation: 'commit', hasVerificationEvidence: true, hasTest: true, taskDescription: 'x' },
+      context: { operation: 'commit', hasPlanApproval: true, hasTest: true, taskDescription: 'x' },
     });
     expect(status).toBe(200);
     const received = mockCheckConstraints.mock.calls.at(-1)?.[0] ?? {};
-    expect(received.hasVerificationEvidence).toBeUndefined();
+    expect(received.hasPlanApproval).toBeUndefined();
     expect(received.hasTest).toBeUndefined();
     expect(received.operation).toBe('commit');
     expect(received.taskDescription).toBe('x');
-    expect(json.strippedEvidenceFlags).toEqual(['hasVerificationEvidence', 'hasTest']);
+    expect(json.strippedEvidenceFlags).toEqual(['hasPlanApproval', 'hasTest']);
   });
 
   it('POST /check-all：无证据标志时响应不带 strippedEvidenceFlags', async () => {
@@ -83,7 +83,7 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
     mockCheckConstraints.mockResolvedValue({
       passed: true,
       errors: [
-        { id: 'no_completion_without_verification', satisfied: true, skipped: true, skipReason: '证据标志 hasVerificationEvidence 未接线' },
+        { id: 'no_completion_without_verification', satisfied: true, skipped: true, skipReason: '变更清单未接线（context.changedFiles 缺失），无法判定证据新鲜度，本次未评估' },
         { id: 'docs_freshness', satisfied: true },
       ],
       warnings: [],
@@ -94,7 +94,7 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
     });
     expect(status).toBe(200);
     expect(json.degradedChecks).toEqual([
-      { id: 'no_completion_without_verification', skipReason: '证据标志 hasVerificationEvidence 未接线' },
+      { id: 'no_completion_without_verification', skipReason: '变更清单未接线（context.changedFiles 缺失），无法判定证据新鲜度，本次未评估' },
     ]);
     expect(json.strippedEvidenceFlags).toBeUndefined();
   });
@@ -114,12 +114,12 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
     mockCheckConstraint.mockResolvedValue({ id: 'c1', satisfied: true });
     const single = await api('POST', '/api/v1/iron-laws/check', {
       lawId: 'no_completion_without_verification',
-      context: { operation: 'commit', hasVerificationEvidence: true },
+      context: { operation: 'commit', hasTest: true },
     });
     expect(single.status).toBe(200);
     const singleCtx = mockCheckConstraint.mock.calls.at(-1)?.[1] ?? {};
-    expect(singleCtx.hasVerificationEvidence).toBeUndefined();
-    expect(single.json.strippedEvidenceFlags).toEqual(['hasVerificationEvidence']);
+    expect(singleCtx.hasTest).toBeUndefined();
+    expect(single.json.strippedEvidenceFlags).toEqual(['hasTest']);
 
     const batch = await api('POST', '/api/v1/iron-laws/check', {
       lawId: ['a', 'b'],
