@@ -17,7 +17,10 @@ import path from 'node:path';
 import os from 'node:os';
 import yaml from 'js-yaml';
 
-const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
+const { mockCreateCardMessage, checkConstraintsCalls } = vi.hoisted(() => ({
+  mockCreateCardMessage: vi.fn(),
+  checkConstraintsCalls: [] as Array<Record<string, unknown>>,
+}));
 
 // propose-upgrade 端点建卡走 review-proposal 正本发卡（ADR-0033 子项 8）
 vi.mock('../../channels/channel-message.service.js', () => ({
@@ -33,11 +36,10 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
   return {
     ...actual,
     getEffectiveConstraints: () => store,
-    checkConstraints: async (opts: { operation: string }) => ({
-      passed: true,
-      operation: opts.operation,
-      violations: [],
-    }),
+    checkConstraints: async (opts: { operation: string }) => {
+      checkConstraintsCalls.push(opts as Record<string, unknown>);
+      return { passed: true, operation: opts.operation, violations: [] };
+    },
   };
 });
 
@@ -191,6 +193,15 @@ describe('constraints.routes', () => {
     const ok = await api('POST', '/check-constraints', { operation: 'create-requirement' });
     expect(ok.status).toBe(200);
     expect(ok.json.data).toEqual({ passed: true, operation: 'create-requirement', violations: [] });
+  });
+
+  it('POST /check-constraints 剥离请求体自报的 hasRequirement（#641），响应标注降级', async () => {
+    const res = await api('POST', '/check-constraints', { operation: 'create-requirement', hasRequirement: true });
+    expect(res.status).toBe(200);
+    const received = checkConstraintsCalls.at(-1) ?? {};
+    expect(received.hasRequirement).toBeUndefined();
+    expect(received.operation).toBe('create-requirement');
+    expect(res.json.strippedEvidenceFlags).toEqual(['hasRequirement']);
   });
 
   describe('POST /constraints/propose-upgrade（ADR-0033 子项 8）', () => {

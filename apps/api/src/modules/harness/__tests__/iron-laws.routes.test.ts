@@ -79,6 +79,37 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
     expect(json.strippedEvidenceFlags).toBeUndefined();
   });
 
+  it('POST /check-all：skip 的检查项在响应顶层 degradedChecks 显式标注（AC2 三态不可混淆）', async () => {
+    mockCheckConstraints.mockResolvedValue({
+      passed: true,
+      errors: [
+        { id: 'no_completion_without_verification', satisfied: true, skipped: true, skipReason: '证据标志 hasVerificationEvidence 未接线' },
+        { id: 'docs_freshness', satisfied: true },
+      ],
+      warnings: [],
+      warningCount: 0,
+    });
+    const { status, json } = await api('POST', '/api/v1/iron-laws/check-all', {
+      context: { operation: 'commit' },
+    });
+    expect(status).toBe(200);
+    expect(json.degradedChecks).toEqual([
+      { id: 'no_completion_without_verification', skipReason: '证据标志 hasVerificationEvidence 未接线' },
+    ]);
+    expect(json.strippedEvidenceFlags).toBeUndefined();
+  });
+
+  it('POST /check-all：无 skip 项时响应不带 degradedChecks', async () => {
+    mockCheckConstraints.mockResolvedValue({
+      passed: true,
+      errors: [{ id: 'docs_freshness', satisfied: true }],
+      warnings: [],
+      warningCount: 0,
+    });
+    const { json } = await api('POST', '/api/v1/iron-laws/check-all', { context: { operation: 'commit' } });
+    expect(json.degradedChecks).toBeUndefined();
+  });
+
   it('POST /check：单约束与批量路径同样剥离证据标志', async () => {
     mockCheckConstraint.mockResolvedValue({ id: 'c1', satisfied: true });
     const single = await api('POST', '/api/v1/iron-laws/check', {
