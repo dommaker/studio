@@ -66,6 +66,22 @@ describe('safety.tools', () => {
     expect(result.message).toBe('2 violation(s) found');
   });
 
+  it('checkConstraint 剥离请求侧证据标志（#641）：自报标志不进入判定层并显式标注', async () => {
+    mockCheckConstraints.mockResolvedValue({
+      passed: true,
+      errors: [{ satisfied: true }],
+      warnings: [{ satisfied: true }],
+    });
+    const result = await tool('checkConstraint').handler({
+      operation: 'deploy',
+      context: { roleId: 'r1', hasVerificationEvidence: true, hasTest: false },
+    });
+    const received = mockCheckConstraints.mock.calls.at(-1)?.[0] ?? {};
+    expect(received).toEqual({ roleId: 'r1', operation: 'deploy' });
+    expect(result.strippedEvidenceFlags).toEqual(['hasVerificationEvidence', 'hasTest']);
+    expect(result.allowed).toBe(true);
+  });
+
   it('checkConstraint 服务异常时降级 harnessUnavailable', async () => {
     mockCheckConstraints.mockRejectedValue(new Error('down'));
     const result = await tool('checkConstraint').handler({ operation: 'op' });
