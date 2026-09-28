@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-20
+> 最后更新: 2026-09-28
 
 ---
 
@@ -240,4 +240,6 @@
 | PlanDirectionCard | apps/web/src/components/channel/PlanDirectionCard.tsx | PlanDirectionCard — #567：方向锁定接力卡（plan 一脉会话内方向人闸，裁决轮前置环节） |
 | agent-decision | apps/api/src/modules/audit-logs/agent-decision.ts | audit-logs/agent-decision (#591 B 类) — agent 自主决策埋点统一入口 |
 | proposal-source | apps/api/src/modules/audit-logs/proposal-source.ts | audit-logs/proposal-source (#591 A 类) — review-proposal 正本的聚合读面 |
+| DeleteRoleDialog | apps/web/src/components/monitoring/DeleteRoleDialog.tsx | 删除角色确认框（#630，ADR 2026-09-23 决策 5）：删除能力服务端早已完整（清频道成员与路由指名、 |
+| RoleFormModal | apps/web/src/components/monitoring/RoleFormModal.tsx | 角色表单唯一正本（#630，ADR 2026-09-23-role-form-module 决策 1/2/3）： |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |
