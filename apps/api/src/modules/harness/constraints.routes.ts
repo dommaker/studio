@@ -37,6 +37,7 @@ import {
   submitConstraintUpgradeProposal,
 } from '../evolution/constraint-adapter.js';
 import { resolveHarnessBin, runCmd } from '../evolution/applier.js';
+import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge/knowledge-singletons.js';
 import { formatConstraintStats } from '../evolution/format-constraint-stats.js';
 
 export const constraintsRoutes = Router();
@@ -47,12 +48,12 @@ function projectRoot(): string {
 }
 
 /**
- * 读 config.yml 的 retired 墓碑段（constraints.<id>）。
+ * 读 config.yml 的 constraints 段（含 retired 墓碑与裸 disable 条目；墓碑过滤在调用方）。
  * 豁免（#646）：config.yml 所有权归 harness，retired 清单读取暂无 harness 公共面，
  * 待 dommaker/harness#188（listRetiredConstraints 库导出）发布并升级依赖后切换、清除本豁免。
  * 写操作不走此口——rollback 一律 spawn harness `constraints reactivate` CLI。
  */
-function readRetiredTombstones(root: string): Record<string, Record<string, unknown>> {
+function readConfigConstraints(root: string): Record<string, Record<string, unknown>> {
   const file = path.join(root, '.harness', 'config.yml');
   if (!fs.existsSync(file)) return {};
   const raw = (yaml.load(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>) ?? {};
@@ -117,8 +118,8 @@ constraintsRoutes.get('/constraints/retired', async (_req: Request, res: Respons
   try {
     const retired: Array<{ id: string; enabled: boolean; source: 'config'; retired: unknown }> = [];
 
-    const tombstones = readRetiredTombstones(projectRoot());
-    for (const [id, v] of Object.entries(tombstones)) {
+    const configured = readConfigConstraints(projectRoot());
+    for (const [id, v] of Object.entries(configured)) {
       if (v && typeof v === 'object' && v.retired) {
         retired.push({ id, enabled: v.enabled === true, source: 'config', retired: v.retired });
       }
@@ -220,14 +221,16 @@ constraintsRoutes.post('/constraints/propose-upgrade', async (req: Request, res:
  * 撤销 retire（#646）：spawn harness `constraints reactivate <id> --yes -p <projectRoot>`
  * （config.yml 写操作归 harness，与 constraint-adapter 同一 spawn 纪律，不走 npx）。
  * reactivate 只认 retired 墓碑（enabled:false + retired），裸 disable / 无条目 → not_retired
- * → 404；接受其 knowledge 沉淀副作用（constraint-reactivated-<id>，与 retire 对称的治理留痕）。
+ * → 404；接受其 knowledge 沉淀副作用（constraint-reactivated-<id>，与 retire 对称的治理留痕——
+ * 故与 applier retire 路径同纪律显式钉 KNOWLEDGE_BASE_DIR=UNIFIED_KNOWLEDGE_DIR，
+ * 否则沉淀落 harness 缺省 ~/.harness/knowledge，与退役沉淀不同根，ADR-0034）。
  * 判定不依赖 CLI stdout 文案（skip 与成功退出码同为 0）：前置墓碑检查定 404，
  * 写后复查墓碑已摘除定成功，CLI 非零退出 → 500。
  */
 constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Response) => {
   try {
     const root = projectRoot();
-    const before = readRetiredTombstones(root);
+    const before = readConfigConstraints(root);
     const entry = before[req.params.id];
     if (!(entry && typeof entry === 'object' && entry.retired && entry.enabled === false)) {
       return res.status(404).json({ error: `No retired entry for constraint: ${req.params.id}` });
@@ -235,14 +238,14 @@ constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Re
 
     const spawned = await runCmd(process.execPath, [
       resolveHarnessBin(), 'constraints', 'reactivate', req.params.id, '--yes', '-p', root,
-    ]);
+    ], { KNOWLEDGE_BASE_DIR: UNIFIED_KNOWLEDGE_DIR });
     if (spawned.code !== 0) {
       logger.error('harness constraints reactivate failed', { id: req.params.id, code: spawned.code, stderr: spawned.stderr.slice(0, 400) });
       return res.status(500).json({ error: 'Failed to rollback constraint (harness CLI error)' });
     }
 
     // 写后复查：墓碑仍在 = CLI skip（如 unknown_id），不冒报成功
-    const after = readRetiredTombstones(root);
+    const after = readConfigConstraints(root);
     if (req.params.id in after) {
       logger.error('harness constraints reactivate skipped (tombstone still present)', { id: req.params.id, stdout: spawned.stdout.slice(0, 400) });
       return res.status(500).json({ error: `Failed to rollback constraint: ${req.params.id}（reactivate 未生效）` });

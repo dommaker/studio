@@ -208,6 +208,13 @@ describe('constraints.routes', () => {
     expect(ok.json.rolledBack).toBe(true);
     // app_rb_target 不在 mock 生效集中 → data 为 null
     expect(ok.json.data).toBeNull();
+    // 复活沉淀钉统一知识库正本（ADR-0034，与 retire 路径同纪律；code-review 回归钉）
+    const { UNIFIED_KNOWLEDGE_DIR } = await import('../../knowledge/knowledge-singletons.js');
+    expect(mockRunCmd).toHaveBeenCalledWith(
+      process.execPath,
+      expect.arrayContaining(['reactivate', 'app_rb_target', '--yes']),
+      expect.objectContaining({ KNOWLEDGE_BASE_DIR: UNIFIED_KNOWLEDGE_DIR }),
+    );
     // CLI 已删 config.yml 墓碑段；constraints.yml 应用层条目不动
     const written = fs.readFileSync(path.join(process.cwd(), '.harness', 'config.yml'), 'utf-8');
     expect(written).not.toContain('app_rb_target');

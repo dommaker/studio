@@ -208,6 +208,9 @@ async function applyConstraintRetire(
  * M3.2：disable 提案落点 —— config.yml `constraints.<id>.enabled=false`，无 retired
  * 墓碑。harness 无 disable 子命令/函数（墓碑与知识沉淀是 retire 专有语义），此处直写
  * config.yml 不涉绕开飞轮入水口。同一验证+回滚纪律；幂等 already disabled。
+ * 豁免（#646 裁定 config.yml 归 harness）：本写点属 harness 公共面能力缺失，
+ * 待 dommaker/harness#190（disable 公共面）落地后切换；同文件 disable→retire 升级路径的
+ * 摘除 enabled 标记（applyRetire 内）同属此豁免。
  */
 async function applyConstraintDisable(
   proposal: EvolutionProposalData,
