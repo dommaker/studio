@@ -71,34 +71,24 @@ afterEach(() => {
 });
 
 describe('precipitate (G31 沉淀闸门)', () => {
-  it('marks 7-30d unmarked events as precipitated and reports gate results（兼容 createdAt 与历史 timestamp）', async () => {
-    // D18 后新事件用 createdAt；历史扁平事件用 timestamp —— 两种都应被闸门识别
-    const old = { type: 'x', timestamp: new Date(Date.now() - 10 * 24 * 3600_000).toISOString(), precipitated: false };
-    const oldNewShape = { type: 'z', createdAt: new Date(Date.now() - 10 * 24 * 3600_000).toISOString(), precipitated: false };
-    const recent = { type: 'y', createdAt: new Date().toISOString(), precipitated: false };
-    const fileStore = makeFileStore({ readJsonl: vi.fn(async () => [old, oldNewShape, recent]) });
+  it('sessions 闸门照常执行；studio-events 打标已随 #653 解除（闸门不再触碰事件文件）', async () => {
     const state = { lastPrecipitateRun: '', lastDataLifecycleRun: '' };
 
-    const gate = await precipitate(fileStore, state);
+    const gate = await precipitate(state);
 
-    expect(gate).toEqual({ studioEvent: true, sessions: true });
+    expect(gate).toEqual({ sessions: true });
     expect(state.lastPrecipitateRun).not.toBe('');
-    const written = fs.readFileSync(eventsFile, 'utf-8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
-    expect(written.find(e => e.type === 'x').precipitated).toBe(true);
-    expect(written.find(e => e.type === 'z').precipitated).toBe(true);
-    expect(written.find(e => e.type === 'y').precipitated).toBe(false);
+    expect(fs.existsSync(eventsFile)).toBe(false); // 不再读/重写 studio-events.jsonl
   });
 
   it('second call on the same day is a no-op (returns empty results)', async () => {
-    const fileStore = makeFileStore({ readJsonl: vi.fn(async () => []) });
     const state = { lastPrecipitateRun: '', lastDataLifecycleRun: '' };
 
-    await precipitate(fileStore, state);
-    expect(fileStore.readJsonl).toHaveBeenCalledTimes(1);
+    const first = await precipitate(state);
+    expect(first).not.toEqual({});
 
-    const again = await precipitate(fileStore, state);
+    const again = await precipitate(state);
     expect(again).toEqual({});
-    expect(fileStore.readJsonl).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -170,45 +160,23 @@ describe('dataLifecycle (每日 23:55 TTL)', () => {
     expect(deletedIds.sort()).toEqual(['wu-closed', 'wu-done']);
   });
 
-  it('truncates 统一事件文件 keeping last 7 days（createdAt 口径，坏行保留）', async () => {
+  it('#653：窗口内不再触碰 studio-events.jsonl —— >7d/>30d 事件自然存活，保留执法归 #173 轮转', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 19, 23, 55));
-    const realRead = async (fp: string) => {
-      if (!fs.existsSync(fp)) return [];
-      return fs.readFileSync(fp, 'utf-8').split('\n').filter(l => l.trim())
-        .map(l => { try { return JSON.parse(l); } catch { return null; } })
-        .filter(Boolean);
-    };
-    const fileStore = makeFileStore({ readJsonl: vi.fn(realRead) });
+    const fileStore = makeFileStore();
     const state = { lastPrecipitateRun: '', lastDataLifecycleRun: '' };
 
-    const old8d = { type: 'old', createdAt: new Date(Date.now() - 8 * 24 * 3600_000).toISOString(), precipitated: true };
-    const old8dLegacy = { type: 'old-legacy', timestamp: Date.now() - 8 * 24 * 3600_000, precipitated: true };
-    const recent = { type: 'recent', createdAt: new Date().toISOString() };
-    fs.writeFileSync(eventsFile,
-      [JSON.stringify(old8d), JSON.stringify(old8dLegacy), JSON.stringify(recent), '{broken'].join('\n') + '\n', 'utf-8');
+    const lines = [
+      JSON.stringify({ type: 'old-8d', createdAt: new Date(Date.now() - 8 * 24 * 3600_000).toISOString(), precipitated: true }),
+      JSON.stringify({ type: 'old-35d', createdAt: new Date(Date.now() - 35 * 24 * 3600_000).toISOString(), precipitated: true }),
+      JSON.stringify({ type: 'recent', createdAt: new Date().toISOString() }),
+      '{broken',
+    ];
+    const original = lines.join('\n') + '\n';
+    fs.writeFileSync(eventsFile, original, 'utf-8');
 
     await dataLifecycle(fileStore, state);
 
-    const keptRaw = fs.readFileSync(eventsFile, 'utf-8').split('\n').filter(l => l.trim());
-    // 注意：section 7（StudioEvent TTL，>30d 已沉淀）也会再删一轮 —— 8d 未超 30d，只被 section 5 移除；
-    // 坏行在 section 5 保留，但 section 7 走 readJsonl 重写会丢弃（既有行为，不在本次改动范围）
-    const kept = keptRaw.map(l => { try { return JSON.parse(l); } catch { return null; } });
-    expect(kept.some(e => e?.type === 'old')).toBe(false);
-    expect(kept.some(e => e?.type === 'old-legacy')).toBe(false);
-    expect(kept.some(e => e?.type === 'recent')).toBe(true);
-  });
-
-  it('skips StudioEvent cleanup when precipitation failed (gate=false)', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 6, 19, 23, 55));
-    const fileStore = makeFileStore({ readJsonl: vi.fn(async () => { throw new Error('read fail'); }) });
-    const state = { lastPrecipitateRun: '', lastDataLifecycleRun: '' };
-
-    await dataLifecycle(fileStore, state);
-
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      '[MonitorService] TTL: StudioEvent cleanup skipped (precipitation failed)',
-    );
+    expect(fs.readFileSync(eventsFile, 'utf-8')).toBe(original); // 字节级不变
   });
 });

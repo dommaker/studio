@@ -3,8 +3,13 @@
  *
  * 从 monitor.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责每日 23:55 的数据生命周期管理：
- *   - 沉淀闸门：清理前从即将过期的数据中提取知识，成功后标记 precipitated
- *   - TTL 清理：Session / WorkUnit / 统一事件文件（D18: studio-events.jsonl）/ StudioEvent / sessions 归档 / traces 备份
+ *   - 沉淀闸门：清理前从即将过期的数据中提取知识（sessions 归档）
+ *   - TTL 清理：Session / WorkUnit / sessions 归档 / traces 备份
+ *
+ * #653：studio-events.jsonl 的保留执法不归本模块——原 step 5（7 天截断）/
+ * step 7（30 天已沉淀清理）/ precipitateStudioEvents（每日全量打标重写）
+ * 与 #173 轮转（studio-events-rotation.ts：噪声 7 天滚、信号热 30 天→月度 gz
+ * 冷包永久、rename 原子）直接冲突，已全部删除；本模块不再读写事件文件。
  */
 
 import * as fs from 'fs';
@@ -12,8 +17,6 @@ import * as path from 'path';
 import { logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
-import { studioEventsJsonl } from './monitor-alerts.js';
-import { getStudioEventTime } from '../../../utils/studio-events.js';
 
 /**
  * 生命周期的实例级状态（由 MonitorService 实例持有并传入，保持 per-instance 语义）。
@@ -24,60 +27,23 @@ export interface LifecycleState {
 }
 
 /**
- * 知识沉淀闸门：清理前从即将过期的数据中提取知识写入 KnowledgeBus。
- * 成功后标记 precipitated=true，只有已沉淀的数据源才允许清理。
+ * 知识沉淀闸门：清理前从即将过期的数据中提取知识。
  * 沉淀失败 → 不清理对应数据源，下次重试。
+ * #653：StudioEvent 打标（precipitated）随事件截断删除一并解除——
+ * 闸门只剩 sessions 归档一路。
  */
-export async function precipitate(fileStore: FileStore, state: LifecycleState): Promise<Record<string, boolean>> {
+export async function precipitate(state: LifecycleState): Promise<Record<string, boolean>> {
   const results: Record<string, boolean> = {};
   const now = new Date();
   const today = now.toISOString().split('T')[0];
   if (state.lastPrecipitateRun === today) return results;
   state.lastPrecipitateRun = today;
 
-  // 1. StudioEvent: 提取 >7d 且未沉淀的事件
-  results.studioEvent = await precipitateStudioEvents(fileStore);
-
-  // 2. .agent.log 归档: 提取执行失败模式
+  // .agent.log 归档: 提取执行失败模式
   results.sessions = await precipitateSessionLogs();
 
   logger.info('[MonitorService] Precipitation completed', results);
   return results;
-}
-
-/** 从 StudioEvent 提取知识，成功后标记 precipitated */
-async function precipitateStudioEvents(fileStore: FileStore): Promise<boolean> {
-  try {
-    const cutoff = new Date(Date.now() - 7 * 24 * 3600_000);
-    const oldCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
-
-    const allEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
-    const inWindow = (e: any) => {
-      const ts = getStudioEventTime(e);
-      return Number.isFinite(ts) && ts >= oldCutoff.getTime() && ts < cutoff.getTime();
-    };
-    const unmarked = allEvents.filter((e: any) => !e.precipitated && inWindow(e));
-
-    if (unmarked.length === 0) {
-      logger.info('[MonitorService] Precipitate: no unprompted StudioEvents');
-      return true;
-    }
-
-    // Mark as precipitated in the JSONL file
-    const updatedEvents = allEvents.map((e: any) => (!e.precipitated && inWindow(e) ? { ...e, precipitated: true } : e));
-
-    await fs.promises.writeFile(
-      studioEventsJsonl(),
-      updatedEvents.map((e: any) => JSON.stringify(e)).join('\n') + '\n',
-      'utf-8',
-    );
-
-    logger.info('[MonitorService] Precipitate StudioEvent: marked', { count: unmarked.length });
-    return true;
-  } catch (e) {
-    logger.warn('[MonitorService] Precipitate StudioEvent failed', { error: String(e) });
-    return false;
-  }
 }
 
 /** 从 .agent.log 归档提取执行失败模式 */
@@ -142,7 +108,7 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
     logger.info('[MonitorService] Data lifecycle TTL cleanup starting', { date: today });
 
     // G31: 先沉淀后清理 — 沉淀失败的数据源不清理
-    const gate = await precipitate(fileStore, state);
+    const gate = await precipitate(state);
     logger.info('[MonitorService] Precipitation gate', gate);
 
     // 1. 文件存储不设 TTL（JSONL append-only，清理无意义）
@@ -201,59 +167,10 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
     // 4. FileStore disk check (no VACUUM needed for file-based storage)
     logger.info('[MonitorService] TTL: disk cleanup completed (FileStore — no VACUUM needed)');
 
-    // 5. Truncate 统一事件文件（D18: studio-events.jsonl）keeping only last 7 days
-    try {
-      const eventsFile = studioEventsJsonl();
-      if (fs.existsSync(eventsFile)) {
-        const raw = fs.readFileSync(eventsFile, 'utf-8');
-        const sevenDaysAgo = Date.now() - 7 * 24 * 3600_000;
-        const keepLines: string[] = [];
-        let removedCount = 0;
-        for (const line of raw.split('\n')) {
-          if (!line.trim()) continue;
-          try {
-            const entry = JSON.parse(line);
-            const ts = getStudioEventTime(entry);
-            if (Number.isFinite(ts) && ts >= sevenDaysAgo) {
-              keepLines.push(line);
-            } else {
-              removedCount++;
-            }
-          } catch {
-            // Preserve unparseable lines (safer than dropping them)
-            keepLines.push(line);
-          }
-        }
-        fs.writeFileSync(eventsFile, keepLines.join('\n') + '\n', 'utf-8');
-        logger.info('[MonitorService] TTL: studio-events.jsonl truncated', { kept: keepLines.length, removed: removedCount });
-      }
-    } catch (e) {
-      logger.warn('[MonitorService] TTL: studio-events.jsonl truncation failed', { error: String(e) });
-    }
+    // 5/7. (removed #653: studio-events.jsonl 7d 截断 + 30d 已沉淀清理 ——
+    // 与 #173 轮转策略冲突且非原子无锁，保留执法归 studio-events-rotation.ts 单口)
 
     // 6. (removed: knowledge.md truncation — dead chain, KnowledgeStore replaces)
-
-    // 7. StudioEvent TTL: 删除已沉淀且 >30d 的事件
-    if (gate.studioEvent !== false) {
-      try {
-        const eventCutoffMs = Date.now() - 30 * 24 * 3600_000;
-        const allEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
-        const filtered = allEvents.filter((e: any) =>
-          !(e.precipitated && Number.isFinite(getStudioEventTime(e)) && getStudioEventTime(e) < eventCutoffMs)
-        );
-        await fs.promises.writeFile(
-          studioEventsJsonl(),
-          filtered.map((e: any) => JSON.stringify(e)).join('\n') + '\n',
-          'utf-8',
-        );
-        const deleted = allEvents.length - filtered.length;
-        logger.info('[MonitorService] TTL: StudioEvent cleaned', { deleted });
-      } catch (e) {
-        logger.warn('[MonitorService] TTL: StudioEvent cleanup failed', { error: String(e) });
-      }
-    } else {
-      logger.warn('[MonitorService] TTL: StudioEvent cleanup skipped (precipitation failed)');
-    }
 
     // 8. sessions 归档 log: 删除 >30d 的文件（需沉淀成功）
     if (gate.sessions !== false) {
