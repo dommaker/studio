@@ -167,7 +167,7 @@ describe('ChangeAnalyzerService', () => {
     const newSpec: SpecContent = {
       ...baseSpec,
       architecture: {
-        dependencies: ['studio-shared', 'studio-prisma', 'studio-capability'],
+        dependencies: ['studio-shared', 'studio-prisma', 'studio-agent'],
         data_models: ['Company', 'CompanySkill'],
       },
     };

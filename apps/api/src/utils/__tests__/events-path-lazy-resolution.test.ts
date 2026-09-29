@@ -127,7 +127,8 @@ describe('#654 事件文件路径惰性解析（import 后改 STUDIO_EVENTS_FILE
     expect((executor as any).eventsFile).toBe(eventsFile);
   });
 
-  it('knowledge-singletons: appendKnowledgeEvent 写 env 指定文件', async () => {    appendKnowledgeEvent('knowledge:lazy_probe_654', { ok: true });
+  it('knowledge-singletons: appendKnowledgeEvent 写 env 指定文件', async () => {
+    appendKnowledgeEvent('knowledge:lazy_probe_654', { ok: true });
     const line = await waitForEventLine(l => l.includes('"knowledge:lazy_probe_654"'));
     expect(JSON.parse(line).type).toBe('knowledge:lazy_probe_654');
   }, 10_000);
