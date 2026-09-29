@@ -11,6 +11,9 @@
 // → step-retry-policy.js（同 Ctx/Deps/Outcome 模式，fake executor 直测占额/簿记回写）。
 // #635（2026-09）：stop() 语义收窄为「置退出意图」——不停租约心跳、不清租约轨道；
 // 心跳续租与 fencing 活到 runLoop 主循环退出，退出点统一停心跳收尾（在飞 step 全程租约保护）。
+// #655（2026-09）：recordResult 簿记段（计数推导 / F5 挂起标记 / B4 blocked 原因 /
+// #170 锁内合并 mutator）→ result-bookkeeping.js（纯函数零 deps，mutator 引用闭包
+// guardUpdates 保真 F6-c 后置 mutate）。
 // 本文件保留 AgentLoop 类编排逻辑；导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
 // 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
 import { execSync } from 'child_process';
@@ -39,6 +42,7 @@ import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamSte
 import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/current-wu-context.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
+import { prepareRecordBookkeeping } from './result-bookkeeping.js';
 import { runStepGuards } from './step-guards.js';
 import { harvestCompletionMetadata } from './completion-harvest.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
@@ -79,11 +83,6 @@ function stepSafetyLimit(wuType: string): number | null {
   if (wuType === 'plan') return null;
   return STEP_LIMIT;
 }
-
-/** #95: progressLog 环形簿记——保留最近成功步条数上限 */
-const PROGRESS_LOG_MAX_ENTRIES = 5;
-/** #95: progressLog 单条 summary 截断字符上限 */
-const PROGRESS_LOG_SUMMARY_MAX_CHARS = 200;
 
 /** #171（#54 决议 A1，数值来自 #68 实测）：三层超时 ——
  *  步墙钟 1800s 仅作兜底天花板（健康步时长 p99=693s × 2.6 安全系数；
@@ -1633,14 +1632,15 @@ export class AgentLoop {
       }
     }
 
-    const stepCount = (metadata.stepCount ?? 0) + 1;
-    const consecutiveStuck = action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
-
-    // #95: progressLog 环形簿记 —— 只记成功步（progress/complete；delegate 经 handleDelegateBranch
-    // 已归化为 progress/need_input，failed/need_input 不进 log），summary 截 200 字符、保留最近 5 条。
-    // 失败步不落 log：errorType 留在 metadata，由 prompt-composer 注入「前序进展」段时附「上一步失败」行。
-    // #170（决策 #65-1）：追加动作随下方 updateMetadata 移入锁内（基于锁内最新 progressLog，
-    // 不再用读时快照拼接后全量回写）。
+    // 簿记段（stepCount/consecutiveStuck 推导、F5 挂起标记、B4 blocked 原因、#170 锁内合并
+    // mutator）已抽到 ./result-bookkeeping.js（#655，行为一字不改）——mutator 按引用闭包
+    // guardUpdates，展开发生在锁内调用时，下方 F6-c 强制收口对 guardUpdates 的追加 mutate
+    // 会被包含。编排顺序保持：新鲜度段（上方）→ prepareRecordBookkeeping → F6-c → updateMetadata。
+    const bookkeeping = prepareRecordBookkeeping({
+      wu, metadata, action, result, guardUpdates, freshnessUpdates,
+      notices: { verifyBlocked, diffEmptyBlocked, contractArtifactBlocked },
+    });
+    const { stepCount, consecutiveStuck, blockReasonUpdates } = bookkeeping;
 
     // F6-c（断点 1）：步骤超限强制收口前补跑 L1 —— COMPLETE 验证守卫只在 action=complete 时跑，
     // 超限路径（任意 action）此前完全跳过验证，代码类 WU 被强制 in_review 时永远缺 l1。
@@ -1680,92 +1680,7 @@ export class AgentLoop {
       }
     }
 
-    // F5: NEED_INPUT 挂起标记（等待人类回复）；其他结果清除挂起标记（恢复后继续执行）
-    const waitingUpdates: Partial<WorkUnitMetadata> = action === 'need_input'
-      ? {
-          waitingForInput: true,
-          waitingQuestion: result.summary,
-          waitingSince: new Date().toISOString(),
-          waitingReminded: false,
-          // #467：裁决轮——RULING 行落档（裁决卡预填数据源）+ 挂起原因标记；
-          // 人提交裁决（POST /:id/ruling → pmo/plan-ruling.ts）后清除
-          ...(result.rulings?.length
-            ? { planRulings: result.rulings, waitingReason: 'plan-ruling' }
-            : {}),
-          // #567：方向锁定——DIRECTION 行落档（方向接力卡预填数据源）+ 挂起原因标记；
-          // 与 rulings 并存时 direction 优先定 waitingReason（方向是裁决轮前置环节）；
-          // 人提交选定（POST /:id/direction → pmo/plan-direction.ts）后清除
-          ...(result.directions
-            ? { planDirections: result.directions, waitingReason: 'plan-direction' }
-            : {}),
-        }
-      : metadata.waitingForInput
-        ? { waitingForInput: false, waitingReminded: false }
-        : {};
-
-    // B4（2026-08-03 token-burn issue P0-2）：blocked 原因落盘 —— 审计类 WU 全部 blocked
-    // 却无据可查的事故教训；本步不走 blocked 路径时清除陈旧原因（恢复执行即翻篇）。
-    const blockReasonUpdates: Partial<WorkUnitMetadata> = {};
-    if (verifyBlocked) {
-      blockReasonUpdates.blockReason = `verify-failed x${guardUpdates.verifyFailCount}: 自动验证连续失败`;
-    } else if (diffEmptyBlocked) {
-      blockReasonUpdates.blockReason = `diff-empty x${guardUpdates.diffEmptyCount}: 报告完成但无提交内容`;
-    } else if (contractArtifactBlocked) {
-      blockReasonUpdates.blockReason = `contract-artifact x${guardUpdates.contractArtifactCount}: 契约产物连续缺失`;
-    } else if (consecutiveStuck >= 3) {
-      blockReasonUpdates.blockReason = action === 'failed' && result.summary
-        ? `stuck: 连续 3 步无进展（${result.summary.slice(0, 200)}）`
-        : 'stuck: 连续 3 步无进展';
-    } else if (action === 'need_input') {
-      blockReasonUpdates.blockReason = `need-input: ${result.summary.slice(0, 200)}`;
-    } else if (metadata.blockReason) {
-      blockReasonUpdates.blockReason = undefined; // undefined 在 JSON 序列化时丢弃 → 清除
-    }
-
-    // #170（决策 #65-1）：锁内字段级合并写 —— 守卫/新鲜度/强制收口判定仍在锁外基于合并视图
-    // 完成，最终只把本步字段级增量交给 updateMetadata 的 mutator 应用到锁内最新 metadata：
-    // stepCount/consecutiveStuck 锁内重计、progressLog 锁内基于最新值追加、pendingReplies
-    // 三段合成（精确移除本步已注入的旧条目；保留 step 期间经 waiting-input 锁内新到的人类
-    // 回复；尾部追加新鲜度拦截暂存），其余增量覆盖到最新值——人类回复/扫描计数不再被
-    // recordResult 的陈旧快照全量回写冲掉（#58-M1 扫描计数回退一并消除）。
-    const persistedMeta = parseWuMetadata(wu.metadata);
-    const stepStartReplyCount = Array.isArray(persistedMeta.pendingReplies) ? persistedMeta.pendingReplies.length : 0;
-    // prompt-composer 消费清除标记：metadataUpdates 携带 pendingReplies: undefined = 本步已注入
-    const stepUpdates = result.metadataUpdates ?? {};
-    const consumedPending = 'pendingReplies' in stepUpdates && stepUpdates.pendingReplies === undefined;
-    const freshnessHeld = Array.isArray(freshnessUpdates.pendingReplies) ? freshnessUpdates.pendingReplies : [];
-
-    const recorded = await this.fileStore.updateMetadata(wuId, (latestRaw) => {
-      const latest = latestRaw as WorkUnitMetadata;
-      const nextStepCount = (latest.stepCount ?? 0) + 1;
-      const next: WorkUnitMetadata = {
-        ...latest,
-        ...stepUpdates,
-        ...waitingUpdates,
-        ...guardUpdates,
-        ...freshnessUpdates,
-        ...blockReasonUpdates,
-        stepCount: nextStepCount,
-        consecutiveStuck: action === 'progress' ? 0 : (latest.consecutiveStuck ?? 0) + 1,
-      };
-      // progressLog 环形簿记：锁内基于最新值尾部追加（截 200 字符、保留最近 5 条）
-      if (action === 'progress' || action === 'complete') {
-        const prevLog = Array.isArray(latest.progressLog) ? latest.progressLog : [];
-        next.progressLog = [...prevLog, {
-          step: nextStepCount,
-          action,
-          summary: (result.summary ?? '').slice(0, PROGRESS_LOG_SUMMARY_MAX_CHARS),
-          at: new Date().toISOString(),
-        }].slice(-PROGRESS_LOG_MAX_ENTRIES);
-      }
-      // pendingReplies 三段合成（追加只发生在尾部 → slice 精确移除本步已注入的旧条目）
-      let replies = Array.isArray(latest.pendingReplies) ? [...latest.pendingReplies] : [];
-      if (consumedPending) replies = replies.slice(stepStartReplyCount);
-      if (freshnessHeld.length > 0) replies.push(...freshnessHeld);
-      if (replies.length > 0) next.pendingReplies = replies;
-      else delete next.pendingReplies;
-      return next as Record<string, unknown>;
-    });
+    const recorded = await this.fileStore.updateMetadata(wuId, bookkeeping.mutator);
     if (!recorded) return; // WU 已被删除（terminate/GC 竞态）——簿记无处落，放弃本步收尾
 
     // P0 修复 6: trace 锚点 — 有 traceId 的 WU（频道消息链路）每步留一条可 grep 日志
