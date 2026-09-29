@@ -1,0 +1,23 @@
+# 全历史机密扫描门基线：以下 15 条为此前扫描命中、已逐条定性的记录。
+# 定性口径见私有台账；新增命中一律逐条定性后再评估，禁止自动扩充本清单。
+#
+# —— 历史态：文件已不在当前树，扫描命中只存在于历史提交 ——
+efe16b17deef9d9d3395d211f2c378d2b7cabb51:apps/web/public/proto-auth-381.html:jwt:8
+7669f3d9cc5f19944ce2452722a021bc15cc2052:.env.test:generic-api-key:19
+d047a12048f5175aa58411bdd0735258a61be13a:scripts/studio-config.ts:generic-api-key:24
+f0e39acab5de43c283d2b09b5fb16404c7d52a51:apps/api/src/modules/workspaces/__tests__/token.routes.test.ts:generic-api-key:82
+dd139631f02fc9845499c9b1a22e15168c5c6d54:apps/api/src/modules/workspaces/__tests__/token.routes.test.ts:generic-api-key:128
+ac4b30b83c0a9e493a9323c5afb7e8d1df9d3fd7:packages/studio-shared/src/config/__tests__/getProviderApiKey.test.ts:generic-api-key:10
+# —— 历史态：文件仍在树内，命中行已被后续提交改写 ——
+bde4ed9d1641eb18358335f1b9d000bfdc73d3ba:packages/studio-shared/src/config/index.ts:generic-api-key:153
+d047a12048f5175aa58411bdd0735258a61be13a:packages/studio-shared/src/config/index.ts:generic-api-key:157
+# —— 合成测试夹具：非真实凭证 ——
+4731f5611b2185ca325bd78aa9a738380ca7aada:apps/api/src/cli/__tests__/config.test.ts:generic-api-key:73
+4731f5611b2185ca325bd78aa9a738380ca7aada:apps/api/src/cli/__tests__/config.test.ts:generic-api-key:74
+4731f5611b2185ca325bd78aa9a738380ca7aada:apps/api/src/cli/__tests__/config.test.ts:generic-api-key:95
+4731f5611b2185ca325bd78aa9a738380ca7aada:apps/api/src/cli/__tests__/config.test.ts:generic-api-key:117
+0b148d0268c35af3c81aad59548a4894554c3f86:apps/api/src/modules/notify-channels/__tests__/routes.test.ts:generic-api-key:24
+# —— 键名误认：标识符键名，非密钥值 ——
+2e5ef9d68fffea9cd9f49bda6a2cf1f65932e4aa:apps/api/src/modules/workunit/gate-escalation.ts:generic-api-key:167
+# —— 已停跟踪的 e2e 登录态（本地生成，见 .gitignore；同组止血提交 73bbba0a）——
+cd9167e263e6779451c21ce15524b8dc181f6d8b:apps/web/e2e/.auth.json:jwt:1
