@@ -9,7 +9,7 @@
  * - convert-to-task 同样绑定（token / 自动新建）
  * - parseReqToken / normalizeReqId 纯函数
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -17,7 +17,8 @@ import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../../channels/message-routing.js';
 import { channelMessageService } from '../../channels/channel-message.service.js';
 import { ConvertToTaskService } from '../../channels/convert-to-task.service.js';
-import { RequirementService } from '../requirement.service.js';
+import { RequirementService, type RequirementWithProject } from '../requirement.service.js';
+import { deriveChannelReqPmo } from '../channel-req-pmo.js';
 import { parseReqToken, normalizeReqId, resolveReqIdForDispatch } from '../req-binding.js';
 
 let tmpDir: string;
@@ -269,5 +270,76 @@ describe('resolveReqIdForDispatch', () => {
       content: '做 #PM-001 相关', channelId, createdBy: 'mention', fileStore, deps,
     });
     expect(id).toMatch(/^REQ-\d{4}$/); // legacy 自动新建（tmp FileStore）
+  });
+});
+
+describe('#636 无 token 派单挂频道当前 PMO（A′ 裁决）', () => {
+  const projA = { id: 'proj-a', pmoNumber: 'PMO-1', title: '项目 A', status: 'active' } as never;
+  const neutralDeps = {
+    getProjectByAlias: async () => null,
+    findChoreProject: async () => null,
+    listAliasProjects: async () => [],
+    getProjectByPmoNumber: async () => null,
+    projectExists: async () => true,
+  };
+
+  async function seedAttachedReq(id: string, seq: number, projectId: string) {
+    await fileStore.createRequirement({
+      id, seq, title: id, status: 'in-progress',
+      channelId, createdAt: new Date().toISOString(), createdBy: 'mention', projectId,
+    } as Parameters<FileStore['createRequirement']>[0]);
+  }
+
+  /** 真实派生查询（tmp FileStore + getProject 中性桩），非全桩替身 */
+  const realDerivation = () => (ch: string) =>
+    deriveChannelReqPmo(ch, { fileStore, getProject: async () => projA });
+
+  it('无 token 派单：最近挂接 REQ 属于非杂务 PMO → 新 REQ projectId = 该项目', async () => {
+    await seedAttachedReq('REQ-0001', 1, 'proj-a');
+    const id = await resolveReqIdForDispatch({
+      content: '无 token 新需求', channelId, createdBy: 'mention', fileStore,
+      deps: { ...neutralDeps, deriveChannelProject: realDerivation() },
+    });
+    expect(id).toBe('REQ-0002');
+    const req = (await reqService.get('REQ-0002')) as RequirementWithProject;
+    expect(req.projectId).toBe('proj-a');
+    expect(req.status).toBe('in-progress');
+  });
+
+  it('显式 reqId / #REQ-n token 命中时优先级不变（不触发派生查询）', async () => {
+    await seedAttachedReq('REQ-0001', 1, 'proj-a');
+    const spy = vi.fn().mockResolvedValue(projA);
+    const deps = { ...neutralDeps, deriveChannelProject: spy };
+    expect(await resolveReqIdForDispatch({
+      explicitReqId: 'REQ-0001', content: '任意', channelId, createdBy: 'mention', fileStore, deps,
+    })).toBe('REQ-0001');
+    expect(await resolveReqIdForDispatch({
+      content: '继续 #REQ-0001', channelId, createdBy: 'mention', fileStore, deps,
+    })).toBe('REQ-0001');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('convert-to-task 入口同生效（同一绑定链，createdBy=convert）', async () => {
+    await seedAttachedReq('REQ-0001', 1, 'proj-a');
+    const id = await resolveReqIdForDispatch({
+      content: '把这条消息转成任务', channelId, createdBy: 'convert', fileStore,
+      deps: { ...neutralDeps, deriveChannelProject: realDerivation() },
+    });
+    const req = (await reqService.get(id!)) as RequirementWithProject;
+    expect(req.projectId).toBe('proj-a');
+    expect(req.createdBy).toBe('convert');
+  });
+
+  it('派生查询抛错 → 降级现有路径且派单不被阻断', async () => {
+    const deps = {
+      ...neutralDeps,
+      deriveChannelProject: async () => { throw new Error('derive boom'); },
+    };
+    const id = await resolveReqIdForDispatch({
+      content: '降级派单', channelId, createdBy: 'mention', fileStore, deps,
+    });
+    expect(id).toBe('REQ-0001');
+    const req = (await reqService.get('REQ-0001')) as RequirementWithProject;
+    expect(req.projectId ?? null).toBeNull();
   });
 });

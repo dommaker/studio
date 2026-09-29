@@ -1,13 +1,17 @@
 // 频道 live 执行状态条数据源（#242）：本频道执行中 WU 集合 + 最新步号
-// 事件全部复用现有 SSE（不新增事件类型）：
-//   - 初始/兜底：workunitApi.list({channelId, status:'active'})（进频道时已在执行的不漏）
-//   - workunit.status_changed：active → 加入集合；其余状态 → 移出（终态状态条消失）
+// B3（2026-09 频道前端效率批）：active 集合改为从 channelWorkStore.wus[channelId] 派生
+// （filter status==='active'），不再独立拉 GET /workunits?status=active 打底、不再自备
+// status_changed 簿记——WU 事实源单一（REST 打底 + status_changed 全量快照直替都在 store/sync 层），
+// 消除两路拉取与双口径漂移。注意 store 语义：未打底频道 applyWorkunitSnapshot no-op，
+// 故 live 集以 wus slice 成功落库为前提（TTL 内零重拉，失败由下次 ensure/兜底轮询自愈）。
+// 本 hook 只保留 step 事件簿记（步号不在 WU 快照契约内）：
 //   - workunit.execution.step：更新步号/动作（SSE 负载深化 决策 4：负载带 channelId 时按频道过滤，
 //     缺省（旧后端）保持现状不过滤）
-// 展示模型推导 = execution-rows.deriveLiveExecutions（#240 推导层复用），本 hook 只做订阅与集合维护。
-import { useEffect, useState } from 'react';
+//   - workunit.status_changed：仅作终态 step 条目清理（防内存残留，不限频道）
+// 展示模型推导 = execution-rows.deriveLiveExecutions（#240 推导层复用）。
+import { useEffect, useMemo, useState } from 'react';
 import { useWebSocketContext } from '../api/websocketHooks';
-import { workunitApi } from '../api/workunit';
+import { useChannelWorkStore } from '../stores/channelWorkStore';
 import {
   deriveLiveExecutions,
   parseLiveStepRef,
@@ -15,31 +19,22 @@ import {
   type LiveExecution,
 } from '../components/workunit/execution-rows';
 
-interface ActiveWu {
-  id: string;
-  metadata: string | null;
-}
-
 export function useChannelLiveExecutions(channelId: string | null): LiveExecution[] {
   const { onEvent } = useWebSocketContext();
-  const [activeWus, setActiveWus] = useState<ActiveWu[]>([]);
+  const wus = useChannelWorkStore(s => (channelId ? s.wus[channelId] : undefined));
   const [steps, setSteps] = useState<Record<string, { step: number; action?: string }>>({});
 
-  // 渲染期按 channelId 重置（同 ExecutionSteps 惯例：替代 effect 内同步重置，避免闪烁）
+  // 渲染期按 channelId 重置步索引（同 ExecutionSteps 惯例：替代 effect 内同步重置，避免闪烁）
   const [prevChannelId, setPrevChannelId] = useState(channelId);
   if (prevChannelId !== channelId) {
     setPrevChannelId(channelId);
-    setActiveWus([]);
     setSteps({});
   }
 
+  // 打底触发（TTL/single-flight 在 store 内；页面 sync 层已打底时零成本并入）
   useEffect(() => {
     if (!channelId) return;
-    let alive = true;
-    workunitApi.list({ channelId, status: 'active', limit: 100 })
-      .then(r => { if (alive) setActiveWus(r.data.data.map(w => ({ id: w.id, metadata: w.metadata }))); })
-      .catch(() => {});
-    return () => { alive = false; };
+    void useChannelWorkStore.getState().ensureWus(channelId);
   }, [channelId]);
 
   useEffect(() => {
@@ -61,31 +56,23 @@ export function useChannelLiveExecutions(channelId: string | null): LiveExecutio
       }
       if (msg.event_type === 'workunit.status_changed') {
         const wu = parseLiveWuRef(msg.data);
-        if (!wu) return;
+        if (!wu || wu.status === 'active') return;
         // 终态清理步条目不限频道：step 事件缺 channelId 时他频道条目仍会进入 steps，
-        // 其 status_changed 若被下方频道早退挡住将永不清理（内存残留修复）
-        if (wu.status !== 'active') {
-          setSteps(prev => {
-            if (!(wu.id in prev)) return prev;
-            const next = { ...prev };
-            delete next[wu.id];
-            return next;
-          });
-        }
-        if (wu.channelId !== channelId) return;
-        if (wu.status === 'active') {
-          setActiveWus(prev => {
-            const next: ActiveWu = { id: wu.id, metadata: wu.metadata };
-            return prev.some(w => w.id === wu.id)
-              ? prev.map(w => (w.id === wu.id ? next : w))
-              : [...prev, next];
-          });
-        } else {
-          setActiveWus(prev => prev.filter(w => w.id !== wu.id));
-        }
+        // 其 status_changed 若被频道过滤挡住将永不清理（内存残留修复）。
+        // live 集合本身的增删不由本 hook 管——channelWorkStore 快照直替派生
+        setSteps(prev => {
+          if (!(wu.id in prev)) return prev;
+          const next = { ...prev };
+          delete next[wu.id];
+          return next;
+        });
       }
     });
   }, [channelId, onEvent]);
 
+  const activeWus = useMemo(
+    () => (wus ?? []).filter(w => w.status === 'active').map(w => ({ id: w.id, metadata: w.metadata })),
+    [wus],
+  );
   return deriveLiveExecutions(activeWus, steps);
 }

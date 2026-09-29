@@ -11,7 +11,7 @@ export interface AgentProfileData {
   id: string;
   name: string;
   description: string | null;
-  channels: string;        // JSON: Channel ID[] — @deprecated §9.5: channel.members 为成员关系唯一事实源；过渡期保留可读，新代码勿写入
+  channels: string;        // JSON: Channel ID[] — @deprecated §9.5: channel.members 为成员关系唯一事实源；写侧已停（B4，2026-09-27），读兜底 + migrate-members 待存量消化后退役
   status: string;          // active | inactive
   provider: string | null; // bound CLI: claude | kimi | codex | opencode | openclaw | null
   createdAt: string;       // ISO 8601
@@ -26,6 +26,11 @@ export interface AgentProfileData {
   tools?: string[];
   /** #91: 角色 preset 带入的约束声明（键值对），prompt「## 你的角色」段消费 */
   constraints?: Record<string, unknown>;
+  /**
+   * #631: 角色种类——system=系统内置角色（不可停用/删除，list 默认排除），user=用户角色。
+   * additive 字段：新写入必带；历史无字段记录由 isSystemRole 按 name==='studio' 兜底一次。
+   */
+  kind?: 'system' | 'user';
 }
 
 export interface RuntimeStateData {
@@ -58,11 +63,10 @@ export interface ChannelData {
    * #466: 频道级「阶段→角色」路由表（plan/implement/review → AgentProfile ID）。
    * 未配置（undefined）或某档为空（null）= 该阶段回池涌现；配置了但角色 inactive/被移出频道
    * → 回池涌现 + 频道出声提醒（解析语义见 channels/routing.ts）。
-   * defaultPipeline（AC-6.1，name 数组）已吞并迁移进 routing.implement（channels/migrate-routing.ts）。
+   * defaultPipeline（AC-6.1，name 数组）已吞并迁移进 routing.implement；
+   * 启动迁移（原 channels/migrate-routing.ts）已随存量消化退役（B6，2026-09-27）。
    */
   routing?: { plan?: string | null; implement?: string | null; review?: string | null };
-  /** 决策 12: 无 @ 消息的默认认领角色（AgentProfile ID）。未配置（null/undefined）= 维持纯存储 */
-  defaultProfileId?: string | null;
   createdAt: string;       // ISO 8601
   updatedAt: string;       // ISO 8601
 }
@@ -117,11 +121,6 @@ export interface MessageCompactionOptions {
 export interface MessageArchiveOptions {
   maxAgeDays?: number;     // 超龄判据：计龄锚点距今 ≥ N 天即归档（默认 30）
   now?: () => Date;        // 计龄基准时刻（测试注入固定值）
-}
-
-export interface CountOpts {
-  workUnitId?: string;
-  authorType?: string;
 }
 
 export type WorkUnitEventType = 'created' | 'claimed' | 'updated' | 'completed' | 'closed' | 'blocked';

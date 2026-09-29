@@ -1,5 +1,5 @@
 // ChannelMessage Service — centralized message creation + event publishing
-import { eventBus, logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { eventBus, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface MessageMeta {
@@ -246,22 +246,6 @@ export class ChannelMessageService {
   }
 
   /**
-   * #524 P1-1：channelId 可选——带上按频道直查免全频道扇出；缺省保留扇出兼容（冷路径）。
-   */
-  async deleteMessage(messageId: string, channelId?: string): Promise<void> {
-    const found = await this.fileStore.getMessageById(messageId, channelId);
-    if (!found) {
-      logger.warn('[ChannelMessageService] Delete failed', { messageId, error: 'Message not found' });
-      return;
-    }
-    try {
-      await this.fileStore.softDeleteMessage(found.channelId, messageId);
-    } catch (e) {
-      logger.warn('[ChannelMessageService] Delete failed', { messageId, error: String(e) });
-    }
-  }
-
-  /**
    * AS-025 §5.16: List messages in a discussion space (grouped by workUnitId).
    * Returns messages ordered by createdAt ascending (chronological).
    * #524 P1-1 同构（#529 收口）：channelId 指定时按频道直查，免全频道扇出
@@ -294,8 +278,11 @@ export class ChannelMessageService {
       // 每频道各取最新 pageLimit 条再归并截断：全局最新 N ⊆ 各频道最新 N 之并，不丢。
       matched = [];
       const allChannels = await this.fileStore.listChannels();
-      for (const ch of allChannels) {
-        const msgs = await this.fileStore.queryMessages(ch.id, { workUnitId, before, limit: pageLimit });
+      // 各频道并行点查（结果随后按 createdAt 归并排序，并发不序不影响语义）
+      const perChannel = await Promise.all(
+        allChannels.map(ch => this.fileStore.queryMessages(ch.id, { workUnitId, before, limit: pageLimit })),
+      );
+      for (const msgs of perChannel) {
         matched = matched.concat(msgs);
       }
       matched.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());

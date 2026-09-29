@@ -513,10 +513,17 @@ describe('WorkUnit API service', () => {
       const c2 = await service.create({ scope: 'child-2', parentId: parent.id, status: 'done' });
       testIds.push(parent.id, c1.id, c2.id);
 
+      const publishSpy = vi.spyOn(eventBus, 'publish');
       await service.aggregateParentStatus(c1.id);
 
       const updated = await service.getById(parent.id);
       expect(updated!.status).toBe('in_review');
+      // B1：聚合翻状态同样发 status_changed（前端列表/评审触发实时消费，不再靠对账兜底）
+      expect(publishSpy).toHaveBeenCalledWith(
+        'workunit.status_changed',
+        expect.objectContaining({ workunit: expect.objectContaining({ id: parent.id, status: 'in_review' }) }),
+      );
+      publishSpy.mockRestore();
     });
 
     it('direct: any child active → parent active', async () => {

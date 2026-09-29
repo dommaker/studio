@@ -11,8 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SKIP_E2E_SERVER: 'true'
+      # gitleaks-action@v2 自 2026-09 起扫描 pull_request 事件强制要求 GITHUB_TOKEN
+      # （缺失即 fail-closed，PR #651 首次撞出）；push 事件不需要，故 master 推送一直绿。
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 全历史机密扫描（下述 gitleaks 步骤）需要完整 clone
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -22,6 +28,18 @@ jobs:
       # 默认 high 阈值不过即 fail。装完依赖先跑，fail fast。
       - name: Security (dependency audit)
         run: npx harness security
+      # 全历史机密扫描门（ADR-0031 / wayfinder harness-repositioning 票08 P1-8）：
+      # gitleaks 官方 action 对完整历史（fetch-depth: 0）扫描，命中即 fail，即时生效；
+      # npx harness security secrets 是统一入口。该子命令自 harness 1.13.0 起真实存在
+      # （1.12.0 时代多余参数被忽略、退化为依赖审计 exit 0——本注释此前据此判"门未生效"，
+      # 2026-09-24 采纳 1.14.0 时纠正）。它内部包装 gitleaks，二进制不在 PATH 时 skip 并
+      # exit 0，故上面 action 那一步是硬保险、本步是跨环境统一入口，两者并存不是冗余。
+      - name: Security (secret scan, full history)
+        # 供应链惯例 pin：锁到 v2.3.9 tag 对象解出的确切 commit（@v2 当时即解析到此；
+        # tag 可被重打，SHA 不可变。升级 = 换 SHA 并人工比对上游 diff，无自动 bot）
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+      - name: Security (secrets via harness)
+        run: npx harness security secrets
       - run: pnpm build
       - run: pnpm test
       # 顺序约束：本步骤必须在 pnpm test 之后串行执行（不可提前或并行）。

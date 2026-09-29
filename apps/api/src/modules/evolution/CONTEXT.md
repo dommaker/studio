@@ -9,7 +9,14 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - `signals.ts` — 路径解析 + 信号加载（traces/outcomes）
 - `generator.ts` — 提案生成器（信号 → 约束提案）。三条链路全部在线（#602）：
   (a) harness usage report 退役候选 → retire 提案（buildConstraintsUsageReport，
-  需 harness ≥1.10.1 公共导出；每轮上限 3）；(b) 注入知识仍高失败 → prompt-template；
+  需 harness ≥1.10.1 公共导出；每轮上限 3）。**自动提案只留 high_noise**（#624）：
+  zero_trigger/unevaluable/zero_intercept 三类 report-only（跳过计入
+  skipped['report-only-candidate']，诊断面 = `harness constraints report`），
+  人工退役走人工提案通道；proposedText/rationale 用稳定表述不带统计数字（数字在
+  evidence.eventCounts）。constraint 类提案抑重键 = `targetType:targetId:constraintChange`
+  （#624：原按 proposedText 全文比对，内嵌统计数字每日漂移导致 rejected 提案换数字
+  复现）；其余类型维持 `targetType:targetId:proposedText` 原口径。
+  (b) 注入知识仍高失败 → prompt-template；
   (c) 角色 caller 高频工具失败 → role-preset。TTL 清扫：pending/approved 超 14d 未审
   惰性转 stale（EVOLUTION_PROPOSAL_TTL_MS），不占 open-exists/duplicate 位（EP-0002 自锁修复）
 - `incident-ledger.ts` — 历史事故台账（#602 D5）：append-only incident-ledger.jsonl
@@ -21,6 +28,25 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
   EvolutionProposalStore 包现有 FileStore 读写（EP-XXXX.json 单提案文件零迁移），
   读侧归一 applied→executed / approved→pending（保重试通道）/ stale→stale，
   appendStatus no-op（状态唯一写入点 = decide）
+- `constraint-adapter.ts` — review-proposal 正本 adapter（kind='constraint'，
+  cardType `constraint_proposal`，ADR-0033 块 3 子项 7/8，harness ≥1.12.0）：约束
+  生命周期提案。action='new'（知识→约束）：runScan 经 scanConstraintCandidates 查
+  知识库 `constraintCandidate` 标签条目（升 proven 时 harness 自动打标）产新约束
+  提案卡；草稿推断 inferCheckerDraft（内容含可编译正则 → 预填 regex-scan pattern，
+  否则 checker=null 卡面标「待确认」，approve 以 aborted 拒落盘——参数残缺条目会让
+  harness 加载期抛错）；approve → append 写 `<repoRoot>/.harness/constraints.yml`
+  （不动既有条目）+ getEffectiveConstraints 写后验证（失败回滚）+ git commit 留痕
+  （trailer `Governance-Approved: <提案号>`，同退休 applier 口径，commit 失败降级
+  warn 不阻断）。action='upgrade'（应用层→通用层）：发起端点在
+  harness/constraints.routes.ts `POST /constraints/propose-upgrade`；approve →
+  spawn harness `constraints pack-proposal`（材料回帖 #系统，不自动开 issue）。
+  防重复提案消耗标记 = 提案记录本身（同 entryId 任何状态含 rejected 即跳过），
+  不回写知识条目。存储走正本默认物化 `<dataDir>/constraint-proposals.jsonl`
+- `format-constraint-stats.ts` — 约束统计白话渲染唯一出口（ADR-0033 子项 9，审卡 UI
+  禁黑话硬要求）：formatConstraintStats 产「累计评估 N 次，拦到 M 次」句式（零触发/
+  全跳过有专用句），CONSTRAINT_CANDIDATE_KIND_LABELS 候选类别整句词表（口径搬 harness
+  CANDIDATE_KIND_LABEL）。消费方：renderEvolutionCard 证据行（约束类提案）、
+  harness/constraints.routes.ts propose-upgrade 统计行、constraint-adapter 卡面 statsText
 - `applier.ts` — 提案生效器（审核通过后写入生效落点）。约束类（iron-law/guideline）
   落点 = `<repoRoot>/.harness/config.yml`；动作集已收敛（M3.2，2026-09-21）为
   **retire / disable 唯二**（message/exception/new-entry 无生效落点已出词表，存量
@@ -51,9 +77,11 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
   子通道同票拆除；amendConstraintMessage/appendConstraintEntry/loadCustomConstraints/
   applyConstraintChange 早前已随死格式删除）
 - `evolution.service.ts` — 聚合服务（扫描 → 生成 → 发卡 → 审核 → 生效编排）。构造即注册
-  review-proposal adapter（kind='evolution'）；runScan 新提案发 evolution_proposal 卡到
-  #系统（正本 postReviewProposalCard，替代旧频道文本消息）；decide 对超期
-  pending/approved 拒决策并转 stale（#602 D2）
+  review-proposal adapter（kind='evolution' 与 kind='constraint' 两个）；runScan 新提案
+  发 evolution_proposal 卡到 #系统（正本 postReviewProposalCard，替代旧频道文本消息）；
+  约束候选扫描（子项 7）显式装配才启用——`constraintCandidates.listEntries` 缺省不扫
+  （测试封闭），生产单例 getEvolutionService 接 knowledge-singletons sharedStore；
+  decide 对超期 pending/approved 拒决策并转 stale（#602 D2）
 - `evolution.routes.ts` — E1 约束进化 API
 
 ### 依赖关系
@@ -69,7 +97,9 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - **#623 归位正本卡片（2026-09-22）**：频道文本审核通道（人类回复 approve/reject + EP 编号的文本解析）整体退役，提案改发 review-proposal 正本卡（cardType `evolution_proposal`）到 #系统，审批走通用端点 `/api/v1/review-proposals/evolution/:id/{approve,reject,status}`；存量 `evolution/` 数据零迁移（EP 编号体系保留，admin API decide 路径不动）
 - **harness 1.10.0 适配（2026-09-20，ADR-0029 / studio#606）**：applier 的内置定义查表从 IRON_LAWS/GUIDELINES/PROMPTS 三桶改为 CONSTRAINTS 单桶（行为不变）；targetType 'iron-law'/'guideline' 是 studio 提案自有词表，不随 harness 三层命名退役；约束类提案落点（custom-constraints.yml）已随 #606 从本仓退役（#602 D1 新落点 config.yml，见核心导出 applier 条）。
 - **约束类提案落点加闸（2026-09-21 上午加闸，同日 #602 D1 裁定新落点后收窄）**：落笔前抛错闸仍对存量历史词表（message/new-entry/exception）生效（无消费端）；M3.2 后词表收敛为 retire/disable，retire 走 harness CLI（M3.3）+ 生效自动 commit 留痕（M3.5，trailer `Governance-Approved: EP-XXXX`）。
+- **disable 直写豁免（#646 评审补记，2026-09-28）**：`applyConstraintDisable` 直写 config.yml `enabled:false`（及 applyRetire 内 disable→retire 升级的摘除标记）属 harness 公共面能力缺失的豁免——harness 无 disable 子命令/库导出，已立 dommaker/harness#190，落地后切换。spawn harness CLI 一律钉 `KNOWLEDGE_BASE_DIR=UNIFIED_KNOWLEDGE_DIR`（ADR-0034，retire 路径原有纪律，#646 rollback 同此）。
 - `loadWindowSignals` 对统一事件文件（studioEventsFile）整个窗口扫描只读一次，toolCalls/outcomes 在内存内分两次 filter（#329，2026-08-25）；加信号类型时复用同一 `eventRows`，不要再开新 readJsonl
+- traces 信号读取（#646，2026-09-28）：constraint traces 走 harness 公共 API `readProjectTraces(repoRoot)`（缺失/坏行容错在 harness 侧），`EvolutionPaths.traceFile` 字段随之退役——traces 落点路径不再由 studio 拼，测试注入 tmp dir 用 `repoRoot` 即可（写 `<tmp>/.harness/logs/traces.log`）；`loadWindowSignals` 签名同步去掉不再使用的 fileStore 参数
 - 信号面无外部输入口：`loadWindowSignals` 只读三个固定文件源（traces.log + studio-events.jsonl 的 tool:call / knowledge:outcome:*），外部语义信号（如 distill 判出的「疑似过时约束」）要进飞轮须新建摄入机制，不是接线（#622 查实，2026-09-22）
 - 提案必须经人确认后才由 applier 生效，不做自动落地
 - **鉴权（2026-07-24 收紧）**：`/api/v1/evolution` 挂载级 `requireAuth()+requireAdmin()` —— approve/reject/run 直接让约束变更生效，此前仅 requireAuth。

@@ -12,6 +12,7 @@ import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelMessageEnvProvider, type ChannelMessageEnv } from '../components/channel/ChannelMessageEnv';
+import { ConvertToTaskDialog } from '../components/channel/ConvertToTaskDialog';
 import { ChannelStreamBody, type StreamMessageExtra } from '../components/channel/ChannelStreamBody';
 import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
 import { navigableIdsOf } from '../utils/streamView';
@@ -33,15 +34,14 @@ import { SkeletonText } from '../components/ui';
 import axios from 'axios';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
-import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
+import { useChannelDataStore } from '../stores/channelDataStore';
 import { useChannelWorkStore, parseRequirementPayload, wuIdleOf } from '../stores/channelWorkStore';
 import { agentAnsweredOf } from '../stores/channelMessageStore';
 import { useFreshMessageIds } from '../hooks/useFreshMessageIds';
 import { useNeedInputView } from '../hooks/useNeedInputView';
 import { useChannelWorkStoreSync } from '../hooks/useChannelWorkStoreSync';
 import type { Requirement } from '../api/requirements';
-import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api/channel';
-import { channelApi } from '../api/channel';
+import type { ChannelMessage, ChannelSuggestion, FileRef, SendIntent } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 import { markPageEntry, emitPageFirstRender, emitReceiptRendered } from '../utils/clientPerf';
 
@@ -77,19 +77,33 @@ export function ChannelDetailPage() {
 
   // #520 测量②：client.perf 埋点③起点——进页记时（埋点①在 ChannelInput，②起点在 useChannelMessages）
   useEffect(() => { if (id) markPageEntry(id); }, [id]);
-  const [channel, setChannel] = useState<Channel | null>(null);
   const { messages, loading, error, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
+  // B3：频道记录走 channelDataStore 门禁（ensureChannel：与成员面同响应一次拉取，TTL + single-flight）——
+  // 原裸 channelApi.get 与 ChannelInput 的 ensureMembers 挂载并发双拉同一端点
+  const channel = useChannelDataStore(s => (id ? s.channels[id] : undefined)) ?? null;
+
+  // 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换：accent-dim 底色 → 常态，仅 background-color 过渡）。
+  // 口径 = 全部新到达消息（含自己发送的回显——消息模型只有 authorType 无 authorId，区分不到个人，
+  // 与 useStreamFollow ownSendPending 窗口同一局限）；首拉与翻页 prepend/水合归并的历史不标
+  // （createdAt 早于到达前最新一条即历史）。2s 后移类，经 .mc-msg 基类过渡渐隐
+  // #548：判定本体迁出页面——useFreshMessageIds（hooks/），本页只消费派生集合
+  // （声明位置提前：下方 receipt_render effect 同消费此集合）
+  const freshMsgIds = useFreshMessageIds(messages);
 
   // #520 测量②：渲染完成终点（effect 于提交后跑 = 渲染已完成）——
   // ③ page_load：首屏消息渲染完成（每进页至多一次，起点消费后不再发；空频道不发属正常）；
-  // ② receipt_render：仅 SSE 到达时标记过的消息发事件（首拉/翻页/水合的历史消息无标记，天然跳过）
+  // ② receipt_render：仅 SSE 到达时标记过的消息发事件（首拉/翻页/水合的历史消息无标记，天然跳过）。
+  // B6：只遍历 freshMsgIds（SSE 新到达集，与 markReceiptArrived 同口径），不再随 messages 变化
+  // O(n) 全量循环——历史消息本就无标记，全量扫是空转
   useEffect(() => {
     if (!id || loading || messages.length === 0) return;
     emitPageFirstRender(id);
+    if (freshMsgIds.size === 0) return;
     for (const m of messages) {
+      if (!freshMsgIds.has(m.id)) continue;
       emitReceiptRendered({ messageId: m.id, channelId: id, workUnitId: m.workUnitId ?? null });
     }
-  }, [id, loading, messages]);
+  }, [id, loading, messages, freshMsgIds]);
   const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
   // #493：线程回复送达后的轻量「已送达/等待 agent」状态（wuId + 送达时刻；agent 响应或超时清除）
@@ -109,6 +123,10 @@ export function ChannelDetailPage() {
   const [inputPrefill, setInputPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  // B3：AC-E3 转任务弹窗页面级单例——页面持目标消息，消息项经 env.onConvert 只回调打开
+  // （原每条可见消息各挂一个实例：关闭态仍跑 2 个 store 订阅 + key 比较，roster/members 更新扇出 N 份）
+  const [convertTarget, setConvertTarget] = useState<ChannelMessage | null>(null);
+  const openConvert = useCallback((m: ChannelMessage) => setConvertTarget(m), []);
   // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
   // <1024 右栏卸载 → 顶栏「频道动态」入口 + 覆盖滑出抽屉（actRailOpen）。
   // matchMedia 缺失（jsdom）回落宽屏：内联三栏齐挂、覆盖层不开
@@ -120,11 +138,8 @@ export function ChannelDetailPage() {
 
   useEffect(() => {
     if (!id) return;
-    channelApi.get(id).then(r => {
-      setChannel(r.data.data);
-      // #403：成员面写穿（页面本就拉频道记录，白捡的成员数据源；store 缺拉取时自行兜底）
-      useChannelDataStore.getState().setMembers(id, parseChannelMembers(r.data.data.members));
-    }).catch(() => {});
+    // #403：成员面随频道记录同响应落库（store 内写穿）；重连强刷由下方 onReconnect 承担
+    void useChannelDataStore.getState().ensureChannel(id);
   }, [id]);
 
   // 打开频道即读：本频道未读通知（SSE @human 实时条目 + link 指向本频道的后端通知）标记已读
@@ -278,7 +293,8 @@ export function ChannelDetailPage() {
   }, [id]);
 
   // #285 AC4: 文件 chip 第一优先词表 = 各 agent 消息所属 WU 的产出/修改文件集
-  // （distinct workUnitId 逐个拉一次并缓存；拿不到/为空 → 该 WU 降级候选集词表，行为不变）
+  // （distinct workUnitId 合并一次批量拉取并缓存——2026-09-25 起走后端批量端点；
+  // 拿不到/为空 → 该 WU 降级候选集词表，行为不变）
   // #528：拉取纪律与缓存收编 channelWorkStore per-wuId slice（失败记 [] 不重试语义保留）
   const wuChangedFiles = useChannelWorkStore(s => s.wuChangedFiles);
   useEffect(() => {
@@ -390,15 +406,15 @@ export function ChannelDetailPage() {
     onFocusScroll: scrollToFocusedMessage,
   });
 
-  const handleSend = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
+  const handleSend = useCallback(async (content: string, replyToId?: string, files?: FileRef[], intent?: SendIntent) => {
     setSending(true);
     // 标记「自己发送」窗口：消息落地（本 effect 链或 SSE 先去重）时跟随分支消费并清除
     ownSendPendingRef.current = true;
     try {
-      // #281: files 仅在有文件引用时透传（保旧调用两参形态）
+      // #281: files 仅在有文件引用时透传（保旧调用两参形态）；#632: intent 为归属预览条显式选择
       const sent = files?.length
-        ? await sendMessage(content, replyToId, files)
-        : await sendMessage(content, replyToId);
+        ? await sendMessage(content, replyToId, files, intent)
+        : await sendMessage(content, replyToId, undefined, intent);
       setReplyTo(null);
       // #493：线程回复送达且命中 WU（workUnitId 继承成功 = 会触达 agent）→ 轻量「已送达/等待 agent」状态
       if (replyToId && sent?.workUnitId) setAwaitingAgent({ wuId: sent.workUnitId, since: Date.now() });
@@ -427,12 +443,7 @@ export function ChannelDetailPage() {
     return () => clearTimeout(timer);
   }, [awaitingAgent]);
 
-  // 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换：accent-dim 底色 → 常态，仅 background-color 过渡）。
-  // 口径 = 全部新到达消息（含自己发送的回显——消息模型只有 authorType 无 authorId，区分不到个人，
-  // 与 useStreamFollow ownSendPending 窗口同一局限）；首拉与翻页 prepend/水合归并的历史不标
-  // （createdAt 早于到达前最新一条即历史）。2s 后移类，经 .mc-msg 基类过渡渐隐
-  // #548：判定本体迁出页面——useFreshMessageIds（hooks/），本页只消费派生集合
-  const freshMsgIds = useFreshMessageIds(messages);
+  // 批次 E-3 freshMsgIds 已随 receipt effect 提前声明（见组件头部），此处不再重复
 
   // #547：频道消息环境——横切值单 Provider 下发，消息项 useContext 自取（公开 Props 收窄）。
   // #322 契约不变量：成员全为稳定引用（useCallback/镜像 ref），useMemo 组装后 value identity
@@ -449,7 +460,8 @@ export function ChannelDetailPage() {
     onOpenRequirement: openReq,
     onInlineReply: handleInlineReply,
     onQuoteClick: locateMessage,
-  }), [handleAction, handleReply, findMessage, id, openWu, openWuConfirm, openWuRuling, openWuDirection, openReq, handleInlineReply, locateMessage]);
+    onConvert: openConvert,
+  }), [handleAction, handleReply, findMessage, id, openWu, openWuConfirm, openWuRuling, openWuDirection, openReq, handleInlineReply, locateMessage, openConvert]);
 
   // #322：提升为 useCallback——消除每次渲染新建的内联 render props（memo 稳定 props 契约）
   // #547：手喂面收窄到 message + 5 个 per-message 派生值（共 6 个）；横切值经 messageEnv 下发，
@@ -674,6 +686,17 @@ export function ChannelDetailPage() {
         onClose={() => setDrawer(null)}
         onOpenWu={openWu}
         onOpenReq={openReq}
+      />
+
+      {/* AC-E3 转任务弹窗（B3 页面级单例）：closed 态 convertTarget=null → open=false 返回 null；
+          converted 后走统一卡片 action 路由（'converted' → 消息刷新，同原消息项内行为） */}
+      <ConvertToTaskDialog
+        open={convertTarget !== null}
+        onClose={() => setConvertTarget(null)}
+        messageId={convertTarget?.id ?? ''}
+        channelId={id}
+        messageContent={convertTarget?.content ?? ''}
+        onConverted={() => { if (convertTarget) handleAction(convertTarget.id, 'converted'); }}
       />
     </div>
   );

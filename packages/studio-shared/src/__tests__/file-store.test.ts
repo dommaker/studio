@@ -420,31 +420,9 @@ describe('FileStore', () => {
       await expect(store.softDeleteMessage(channelId, 'nonexistent')).rejects.toThrow('Message not found');
     });
 
-    it('should count messages', async () => {
-      await store.appendMessage(channelId, makeMessage('m1', channelId, { workUnitId: 'wu1', authorType: 'human' }));
-      await store.appendMessage(channelId, makeMessage('m2', channelId, { workUnitId: 'wu1', authorType: 'agent' }));
-      await store.appendMessage(channelId, makeMessage('m3', channelId, { workUnitId: 'wu2', authorType: 'human' }));
-      const total = await store.countMessages(channelId);
-      expect(total).toBe(3);
-      const wu1Count = await store.countMessages(channelId, { workUnitId: 'wu1' });
-      expect(wu1Count).toBe(2);
-      const humanCount = await store.countMessages(channelId, { authorType: 'human' });
-      expect(humanCount).toBe(2);
-    });
-
-    it('should not count soft-deleted messages', async () => {
-      await store.appendMessage(channelId, makeMessage('m1', channelId));
-      await store.appendMessage(channelId, makeMessage('m2', channelId));
-      await store.softDeleteMessage(channelId, 'm1');
-      const count = await store.countMessages(channelId);
-      expect(count).toBe(1);
-    });
-
     it('should handle empty messages', async () => {
       const msgs = await store.queryMessages(channelId);
       expect(msgs).toHaveLength(0);
-      const count = await store.countMessages(channelId);
-      expect(count).toBe(0);
     });
   });
 
@@ -1364,14 +1342,14 @@ describe('FileStore 读穿缓存 (A1)', () => {
     expect((await store.getProfile('p1'))?.name).toBe('external');
   });
 
-  it('软删除消息后 countMessages 立即反映（tombstone append 失效）', async () => {
+  it('软删除消息后 queryMessages 立即反映（tombstone append 失效）', async () => {
     await store.createChannel(makeChannel('ch-d'));
     await store.appendMessage('ch-d', makeMessage('m1', 'ch-d'));
     await store.appendMessage('ch-d', makeMessage('m2', 'ch-d'));
-    expect(await store.countMessages('ch-d')).toBe(2);
+    expect((await store.queryMessages('ch-d')).length).toBe(2);
 
     await store.softDeleteMessage('ch-d', 'm1');
-    expect(await store.countMessages('ch-d')).toBe(1);
+    expect((await store.queryMessages('ch-d')).length).toBe(1);
   });
 });
 

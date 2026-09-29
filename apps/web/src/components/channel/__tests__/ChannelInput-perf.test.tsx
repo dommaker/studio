@@ -18,7 +18,7 @@ import { setClientPerfSink, resetClientPerfSink } from '../../../utils/clientPer
 
 function setup(onSend = vi.fn().mockResolvedValue(undefined)) {
   render(<ChannelInput onSend={onSend} sending={false} channelId="ch-1" />);
-  const textarea = screen.getByPlaceholderText('输入消息，@Agent 提及 Agent...') as HTMLTextAreaElement;
+  const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
   return { onSend, textarea };
 }
 

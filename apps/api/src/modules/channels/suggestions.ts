@@ -195,7 +195,8 @@ async function deriveChannelSuggestionsInner(
     const channel = await fileStore.getChannel(channelId);
     if (!channel) return EMPTY;
 
-    const channelWus = (await fileStore.getIndex()).filter(s => s.channelId === channelId);
+    // B2：channelId 过滤下推 getIndex（缓存命中只克隆命中行，不再全量快照后手 filter）
+    const channelWus = await fileStore.getIndex({ channelId });
     const current = pickCurrentWuSnapshot(channelWus, channelId);
     const memberIds = parseChannels(channel.members);
     if (!current) {

@@ -90,7 +90,7 @@ function findBuiltinConstraint(id: string): BuiltinConstraintDef | null {
 interface CmdResult { code: number; stdout: string; stderr: string }
 
 /** spawn 外部命令，退出码归一化（非零退出不 reject；ENOENT/超时等 spawn 级错误并入 stderr）；env 增量合并进 process.env */
-function runCmd(cmd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<CmdResult> {
+export function runCmd(cmd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<CmdResult> {
   return new Promise((resolve) => {
     execFile(cmd, args, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) }, (err, stdout, stderr) => {
       const exitCode = typeof (err as { code?: unknown } | null)?.code === 'number'
@@ -115,6 +115,8 @@ function resolveHarnessBin(): string {
   _harnessBin = path.join(path.dirname(entry), '..', 'bin', 'harness.js');
   return _harnessBin;
 }
+/** 导出供 constraint 升级提案（子项 8）spawn pack-proposal 复用同一解析纪律 */
+export { resolveHarnessBin };
 
 /** 读 config.yml 的 constraints 段（不存在 → 空）。 */
 function readConfigConstraints(targetPath: string): Record<string, Record<string, unknown>> {
@@ -206,6 +208,9 @@ async function applyConstraintRetire(
  * M3.2：disable 提案落点 —— config.yml `constraints.<id>.enabled=false`，无 retired
  * 墓碑。harness 无 disable 子命令/函数（墓碑与知识沉淀是 retire 专有语义），此处直写
  * config.yml 不涉绕开飞轮入水口。同一验证+回滚纪律；幂等 already disabled。
+ * 豁免（#646 裁定 config.yml 归 harness）：本写点属 harness 公共面能力缺失，
+ * 待 dommaker/harness#190（disable 公共面）落地后切换；同文件 disable→retire 升级路径的
+ * 摘除 enabled 标记（applyRetire 内）同属此豁免。
  */
 async function applyConstraintDisable(
   proposal: EvolutionProposalData,

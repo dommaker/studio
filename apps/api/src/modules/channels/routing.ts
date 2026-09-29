@@ -169,11 +169,12 @@ export function resetFallbackReminderCooldown(): void {
 }
 
 /**
- * #497: members 移出的指名漂移检查——被移出角色仍被 routing 档/入口角色指名时
- * 产出人读 warning（响应附带，不阻断；与 defaultProfileId/routing 校验只查存在性的严格度对齐）。
+ * #497: members 移出的指名漂移检查——被移出角色仍被 routing 档指名时
+ * 产出人读 warning（响应附带，不阻断；与 routing 校验只查存在性的严格度对齐）。
+ * #632：入口角色（defaultProfileId）已退役，不再参与指名检查。
  */
 export function buildMemberRemovalWarning(
-  channel: Pick<ChannelData, 'routing' | 'defaultProfileId'>,
+  channel: Pick<ChannelData, 'routing'>,
   removedIds: string[],
 ): string | undefined {
   if (removedIds.length === 0) return undefined;
@@ -181,17 +182,13 @@ export function buildMemberRemovalWarning(
     const v = channel.routing?.[s];
     return v != null && removedIds.includes(v);
   });
-  const namedDefault = channel.defaultProfileId != null && removedIds.includes(channel.defaultProfileId);
-  if (stages.length === 0 && !namedDefault) return undefined;
-  const parts: string[] = [];
-  if (stages.length > 0) parts.push(`「${stages.map(s => ROUTING_STAGE_LABELS[s]).join('、')}」阶段路由`);
-  if (namedDefault) parts.push('入口角色');
-  return `成员移出提醒：被移出的角色仍被指名为本频道${parts.join('与')}，相关派单将回池涌现——请到频道设置调整配置`;
+  if (stages.length === 0) return undefined;
+  return `成员移出提醒：被移出的角色仍被指名为本频道「${stages.map(s => ROUTING_STAGE_LABELS[s]).join('、')}」阶段路由，相关派单将回池涌现——请到频道设置调整配置`;
 }
 
 /**
- * PATCH/POST 入口校验（defaultProfileId 先例：只校验 active profile 存在性，
- * 不强制频道成员——成员边界在路由时判定）。
+ * PATCH/POST 入口校验：只校验 active profile 存在性，
+ * 不强制频道成员——成员边界在路由时判定。
  *  - undefined → ok 无 value（跳过更新）
  *  - 非对象/数组/未知阶段键 → 拒绝
  *  - 值 '' / null → 清除该档（归一化为 null）

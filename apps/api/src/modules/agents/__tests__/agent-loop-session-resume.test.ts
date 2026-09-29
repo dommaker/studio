@@ -216,7 +216,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(step.metadataUpdates?.lastSessionResumed).toBe(true);
   });
 
-  it('kimi：metadata.sessionId 在（无文件可查）→ 续用传 sessionId + sessionResume；新建不传 sessionId', async () => {
+  it('kimi：档案有 CLI 会话号（cliSessionId）→ 续用传该号 + sessionResume；无 → 新建不传 sessionId（#639）', async () => {
     const kimiLoop = new AgentLoop({ ...mockRole, provider: 'kimi' } as typeof mockRole, fileStore);
 
     // 新建：不传 sessionId（kimi --session 是续用语义，对未使用 id 会报错，CLI 自建会话）
@@ -225,16 +225,76 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(lastTask().parameters?.sessionId).toBeUndefined();
     expect(lastTask().parameters?.sessionResume).toBeUndefined();
     expect(step1.metadataUpdates?.lastSessionResumed).toBe(false);
-    const sessionId = step1.metadataUpdates?.sessionId;
-    expect(typeof sessionId).toBe('string');
+    expect(typeof step1.metadataUpdates?.sessionId).toBe('string');
 
-    // 同一 WU 第二步：档案有号即续用（kimi 无 id 文件可查，cli-adapter 侧转 --continue）
-    await wuService.update(wu.id, { metadata: { sessionId: sessionId!, sessionCount: 1 } });
+    // 同一 WU 第二步：档案有 CLI 会话号 → 点名续用（cli-adapter 侧转 --session <id>）
+    await wuService.update(wu.id, {
+      metadata: { sessionId: step1.metadataUpdates!.sessionId!, sessionCount: 1, cliSessionId: 'session_6bc14e1d' },
+    });
     const wu2 = (await wuService.getById(wu.id))!;
     const step2 = await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu2 });
-    expect(lastTask().parameters?.sessionId).toBe(sessionId);
+    expect(lastTask().parameters?.sessionId).toBe('session_6bc14e1d');
     expect(lastTask().parameters?.sessionResume).toBe(true);
     expect(step2.metadataUpdates?.lastSessionResumed).toBe(true);
+  });
+
+  it('kimi：旧档案只有自建 UUID（无 cliSessionId）→ 新建（#639：不再 cwd 维度接最新）', async () => {
+    const kimiLoop = new AgentLoop({ ...mockRole, provider: 'kimi' } as typeof mockRole, fileStore);
+    const wu = await setupWorkUnit({ sessionId: 'legacy-uuid', sessionCount: 1 });
+
+    const step = await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+
+    expect(lastTask().parameters?.sessionId).toBeUndefined();
+    expect(lastTask().parameters?.sessionResume).toBeUndefined();
+    expect(step.metadataUpdates?.lastSessionResumed).toBe(false);
+    expect(step.metadataUpdates?.sessionCount).toBe(2);
+  });
+
+  it('#639 AC1：同 cwd 交错执行两个 kimi WU → 各自按自己的 CLI 会话号续用，不接「最新」', async () => {
+    const kimiLoop = new AgentLoop({ ...mockRole, provider: 'kimi' } as typeof mockRole, fileStore);
+    const wuA = await setupWorkUnit({ sessionId: 'uuid-a', sessionCount: 1, cliSessionId: 'session_aaa' });
+    const wuB = await setupWorkUnit({ sessionId: 'uuid-b', sessionCount: 1, cliSessionId: 'session_bbb' });
+
+    await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wuA });
+    await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wuB });
+    await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wuA });
+
+    expect(taskAt(0).parameters?.sessionId).toBe('session_aaa');
+    expect(taskAt(0).parameters?.sessionResume).toBe(true);
+    expect(taskAt(1).parameters?.sessionId).toBe('session_bbb');
+    expect(taskAt(2).parameters?.sessionId).toBe('session_aaa');
+  });
+
+  it('#639：成功步从 rawOutput 解析 CLI 会话号落档（kimi resume_hint / claude result 行）', async () => {
+    const kimiLoop = new AgentLoop({ ...mockRole, provider: 'kimi' } as typeof mockRole, fileStore);
+    mockExecuteLightweight.mockResolvedValue({
+      ...SUCCESS_RESULT,
+      rawOutput: [
+        '{"role":"meta","type":"system.version","version":"0.36.1"}',
+        '{"role":"assistant","content":"OK"}',
+        '{"role":"meta","type":"session.resume_hint","session_id":"session_kimi_1","command":"kimi -r session_kimi_1"}',
+      ].join('\n'),
+    });
+    const kimiWu = await setupWorkUnit();
+    const kimiStep = await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: kimiWu });
+    expect(kimiStep.metadataUpdates?.cliSessionId).toBe('session_kimi_1');
+
+    mockExecuteLightweight.mockResolvedValue({
+      ...SUCCESS_RESULT,
+      rawOutput: '{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"410653b6-4d19-441d-828f-43c8a5c60526"}',
+    });
+    const claudeWu = await setupWorkUnit();
+    const claudeStep = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: claudeWu });
+    expect(claudeStep.metadataUpdates?.cliSessionId).toBe('410653b6-4d19-441d-828f-43c8a5c60526');
+  });
+
+  it('#639：rawOutput 无 CLI 会话号 → 不落档（诚实口径，不编造）', async () => {
+    const kimiLoop = new AgentLoop({ ...mockRole, provider: 'kimi' } as typeof mockRole, fileStore);
+    const wu = await setupWorkUnit();
+
+    const step = await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+
+    expect(step.metadataUpdates).not.toHaveProperty('cliSessionId');
   });
 
   it('instance 槽位不再读写：新建后 fileStore 里的 state.sessionId 仍为初始值', async () => {

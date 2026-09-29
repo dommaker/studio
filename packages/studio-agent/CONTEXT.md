@@ -36,7 +36,7 @@ executeLightweight(task):
 
 调用方给全量 prompt，本包不再自行构建（旧 loop 的续接 prompt、卡死重投、strategy hints 随路径一并删除）。
 
-**会话续接只有一个通道**：`task.parameters.sessionId`（+ `sessionResume: true` 表示续用已存在会话），经 cli-adapter 按 provider 换语法（claude `--session-id <id>` 新建 / `--resume <id>` 续用；kimi、opencode `--continue` 走 cwd 维度；codex `exec resume --last`；实证记录见 `src/cli-adapter.ts` 文件头）。本包不接收任何 provider 专属 flag 原文——旧 daemon 链路那种「调用方直接给一串 claude 参数」的通道已随其生产者删除（#587），活路径的停滞判定也不在此（agent-loop 传 `silenceKillMs`，判据 = 距最后一次输出间隔）。
+**会话续接只有一个通道**：`task.parameters.sessionId`（+ `sessionResume: true` 表示续用已存在会话），经 cli-adapter 按 provider 换语法——#639 起一律按 CLI 真实会话号 id 形态点名续用（claude `--session-id <id>` 新建 / `--resume <id>` 续用；kimi、opencode `--session <id>`；codex `exec resume <id>`；cwd 维度 `--continue`/`exec resume --last` 已撤除，实证记录见 `src/cli-adapter.ts` 文件头）。本包不接收任何 provider 专属 flag 原文——旧 daemon 链路那种「调用方直接给一串 claude 参数」的通道已随其生产者删除（#587），活路径的停滞判定也不在此（agent-loop 传 `silenceKillMs`，判据 = 距最后一次输出间隔）。
 
 #### Worktree 文件布局
 

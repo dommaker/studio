@@ -4,6 +4,7 @@
  * Endpoints:
  *   GET    /api/v1/agent-profiles          — list
  *   POST   /api/v1/agent-profiles          — create
+ *   GET    /api/v1/agent-profiles/presets  — 角色 preset 清单（#633，须在 /:id 前注册）
  *   GET    /api/v1/agent-profiles/:id      — get by id
  *   PATCH  /api/v1/agent-profiles/:id      — update
  *   DELETE /api/v1/agent-profiles/:id      — delete
@@ -11,7 +12,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
-import { AgentProfileService } from './agent-profile.service.js';
+import { AgentProfileService, listRolePresets } from './agent-profile.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
@@ -65,6 +66,18 @@ router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Res
     }
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: msg },
+    });
+  }
+});
+
+/** GET /presets — 角色 preset 清单（#633「从模板开始」数据源；只回 name + description，死字段不浮出）。
+ *  须注册在 /:id 之前，否则 'presets' 被当 id 匹配。 */
+router.get('/presets', (_req: Request, res: Response) => {
+  try {
+    res.json({ data: listRolePresets() });
+  } catch (error) {
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
     });
   }
 });

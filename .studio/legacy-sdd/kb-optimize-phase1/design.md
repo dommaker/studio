@@ -17,8 +17,8 @@ version: "1.0"
 | AC-B.1 | `studio/apps/api/src/modules/knowledge/knowledge-service.ts` | 新增 | `validateKnowledgeForm()` 函数 |
 | AC-B.2 | `~/.studio/skills/knowledge-extraction/SKILL.md` | 改写 | 质量门加形态判断 |
 | AC-B.3 | `studio/apps/api/src/modules/agents/knowledge-agent.service.ts` | 改写 | `safeIngest()` 集成门禁 |
-| AC-C.1a | `/root/.zshrc` | 改写 | cstnew 函数：JSONL.bak 移到 data/sessions/ |
-| AC-C.1b | `/root/transport/events-daemon.js` | 改写 | session:archive 移动文件而非 POST |
+| AC-C.1a | `~/.zshrc` | 改写 | cstnew 函数：JSONL.bak 移到 data/sessions/ |
+| AC-C.1b | `~/transport/events-daemon.js` | 改写 | session:archive 移动文件而非 POST |
 | AC-C.2 | `studio/apps/api/src/modules/agents/default-triggers.ts` | 新增 | session-knowledge-extraction trigger |
 
 ## 共享工具模块
@@ -350,7 +350,7 @@ cstnew() {
         echo "\033[33mSession saved: ${_dest##*/}\033[0m"
         # 不再调 cst-emit.sh session:archive
     fi
-    bash /root/projects/studio/scripts/preflight.sh 2>&1 | sed 's/^/  /'
+    bash ~/projects/studio/scripts/preflight.sh 2>&1 | sed 's/^/  /'
     echo "\033[32mStarting fresh session (old context cleared)...\033[0m"
     cst
 }

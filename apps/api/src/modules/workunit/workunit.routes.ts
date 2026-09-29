@@ -47,7 +47,7 @@ import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './wai
 import { applyPlanRuling, validateRulingItems } from '../pmo/plan-ruling.js';
 import { applyPlanDirection, validateDirectionPick } from '../pmo/plan-direction.js';
 import { claimWorkUnitAndAnnounce } from './claim-announce.js';
-import { listWorkUnitChangedFiles } from './wu-changed-files.js';
+import { listWorkUnitsChangedFiles } from './wu-changed-files.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 import { requireAuth, requireNotGuest, type AuthRequest } from '../../middleware/auth.js';
 import { HttpRouteError, WORKUNIT_ERROR_MAPS, route, requireHuman } from './http-helpers.js';
@@ -151,6 +151,21 @@ router.get('/last-done', route([], async (req, res) => {
   res.json({ success: true, data });
 }));
 
+/**
+ * GET /changed-files?ids=a,b,c — #285 AC4 批量版（2026-09-25 频道首屏合并）：
+ * 一次 30d 窗口读派生全部 WU 的文件集，替代前端逐 WU 单发（每次各自全窗口扫描）。
+ * 空 ids → 空映射；单项无数据/整体读取失败 → 该 WU 空数组（chip 降级候选集词表）。
+ * 须注册在 /:id 之前（同 /last-done 先例）。只读，匿名公开（与 GET /:id/changed-files 同口径）。
+ */
+router.get('/changed-files', route([], async (req, res) => {
+  const raw = req.query.ids;
+  const ids = typeof raw === 'string'
+    ? raw.split(',').map(s => s.trim()).filter(s => s.length > 0)
+    : [];
+  const filesByWu = await listWorkUnitsChangedFiles(ids.slice(0, MAX_BATCH_IDS));
+  res.json({ success: true, data: { filesByWu } });
+}));
+
 /** GET /:id — get WorkUnit by id */
 router.get('/:id', route([], async (req, res) => {
   res.json(await mustGetWu(req.params.id));
@@ -184,16 +199,6 @@ router.get('/:id/tree-tokens', route([], async (req, res) => {
   const rootId = meta.collab?.rootId ?? wu.id;
   const report = await aggregateTreeTokens(rootId, fileStore);
   res.json(report);
-}));
-
-/**
- * GET /:id/changed-files — #285 AC4（决策 #249 §5）：per-WU 产出/修改文件集
- * （session:start.workUnitId → file:change 绝对路径；无数据/读取失败 → 空数组，
- * 前端文件 chip 降级候选集词表）。只读，匿名公开（与 GET /:id 同口径）。
- */
-router.get('/:id/changed-files', route([], async (req, res) => {
-  const files = await listWorkUnitChangedFiles(req.params.id);
-  res.json({ success: true, data: { files } });
 }));
 
 /** DELETE /:id — delete WorkUnit */
@@ -476,7 +481,10 @@ router.patch('/:id/messages/:messageId', requireAuth(), requireNotGuest(), route
   }
 
   // Verify message belongs to this WorkUnit
-  const found = await fileStore.getMessageById(req.params.messageId);
+  // B2（#529 同款口径）：从 WU 解析频道归属直查，消全频道扇出；
+  // wu 不存在或无 channelId（legacy/手工单）→ undefined 走扇出 fallback
+  const wu = await service.getById(req.params.id);
+  const found = await fileStore.getMessageById(req.params.messageId, wu?.channelId ?? undefined);
   if (!found) {
     throw new HttpRouteError(404, 'NOT_FOUND', `Message ${req.params.messageId} not found`);
   }

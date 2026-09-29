@@ -3,7 +3,8 @@
  *
  * - routeMessage（#481）：不再落 workspaceId 机器指针——显式指定与频道
  *   defaultWorkspaceId 两级归属已退役，workspaceId 字段仅历史记录展示用
- * - ConvertToTaskService.convert: 绑定规则不变（workspaceId 仅展示/候选集语义）
+ * - ConvertToTaskService.convert（B4 清扫对齐 #481）：同样不再落 workspaceId
+ *   机器指针（输入字段接收与频道默认落档均已拆除）
  * - validateDefaultWorkspaceId: 频道 PATCH 校验（workspace 须已注册，'' → 清除）
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -101,7 +102,7 @@ describe('routeMessage workspace binding（#481：机器指针退役）', () => 
   });
 });
 
-describe('F6: convert-to-task workspace binding', () => {
+describe('F6: convert-to-task workspace binding（B4：机器指针停落）', () => {
   async function createSourceMessage(): Promise<string> {
     const now = new Date().toISOString();
     const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -112,27 +113,17 @@ describe('F6: convert-to-task workspace binding', () => {
     return msgId;
   }
 
-  it('binds channel defaultWorkspaceId when no explicit workspaceId', async () => {
+  it('频道配 defaultWorkspaceId 也不再落 WU（与 routeMessage #481 同口径）', async () => {
     channelId = await createChannel(testWsId);
     const msgId = await createSourceMessage();
     const service = new ConvertToTaskService(fileStore);
 
     const wu = await service.convert(channelId, msgId, { title: 'task' });
 
-    expect(wu.workspaceId).toBe(testWsId);
+    expect(wu.workspaceId ?? null).toBeNull();
   });
 
-  it('explicit workspaceId wins over channel default', async () => {
-    channelId = await createChannel(testWsId);
-    const msgId = await createSourceMessage();
-    const service = new ConvertToTaskService(fileStore);
-
-    const wu = await service.convert(channelId, msgId, { title: 'task', workspaceId: 'ws-explicit-2' });
-
-    expect(wu.workspaceId).toBe('ws-explicit-2');
-  });
-
-  it('workspaceId=null when channel has no default and none given', async () => {
+  it('workspaceId=null when channel has no default', async () => {
     const msgId = await createSourceMessage();
     const service = new ConvertToTaskService(fileStore);
 

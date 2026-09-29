@@ -150,3 +150,63 @@ describe('RoleCard（信息全卡）', () => {
     expect(linkCount['/agents/p2']).toBe(1);
   });
 });
+
+// #630（ADR 2026-09-23 决策 6）：卡头悬停 ⋯ 菜单（编辑资料/编辑技能/删除）
+describe('RoleCard ⋯ 菜单（#630 决策 6）', () => {
+  const menuRole = () => idleRole('p1', 'dev-agent');
+
+  it('未传菜单回调 → 不渲染 ⋯（旧 props 形态兼容）', () => {
+    render(<RoleCard role={menuRole()} lastDone={null} channelNames={EMPTY_CHANNELS} onOpenWu={mockOpenWu} />);
+    expect(screen.queryByTestId('role-card-menu-btn')).toBeNull();
+  });
+
+  it('⋯ 菜单三项齐全，点击回调携带本角色并收起菜单', () => {
+    const onEditProfile = vi.fn();
+    const onEditSkills = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <RoleCard role={menuRole()} lastDone={null} channelNames={EMPTY_CHANNELS} onOpenWu={mockOpenWu}
+        onEditProfile={onEditProfile} onEditSkills={onEditSkills} onDelete={onDelete} />,
+    );
+    fireEvent.click(screen.getByTestId('role-card-menu-btn'));
+    const menu = screen.getByTestId('role-card-menu');
+
+    fireEvent.click(within(menu).getByText('编辑资料'));
+    expect(onEditProfile).toHaveBeenCalledWith(expect.objectContaining({ profile: expect.objectContaining({ id: 'p1' }) }));
+    expect(screen.queryByTestId('role-card-menu')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('role-card-menu-btn'));
+    fireEvent.click(within(screen.getByTestId('role-card-menu')).getByText('编辑技能'));
+    expect(onEditSkills).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('role-card-menu-btn'));
+    fireEvent.click(within(screen.getByTestId('role-card-menu')).getByText('删除'));
+    expect(onDelete).toHaveBeenCalled();
+  });
+
+  it('系统保留角色（studio）→ 菜单无「删除」项（服务端拒删，正本不给入口）', () => {
+    render(
+      <RoleCard role={idleRole('p0', 'studio')} lastDone={null} channelNames={EMPTY_CHANNELS} onOpenWu={mockOpenWu}
+        onEditProfile={() => {}} onEditSkills={() => {}} onDelete={() => {}} />,
+    );
+    fireEvent.click(screen.getByTestId('role-card-menu-btn'));
+    const menu = screen.getByTestId('role-card-menu');
+    expect(within(menu).getByText('编辑资料')).toBeDefined();
+    expect(within(menu).getByText('编辑技能')).toBeDefined();
+    expect(within(menu).queryByText('删除')).toBeNull();
+  });
+
+  it('点菜单外部收起（ChannelTopbarMenu 同款模式）', () => {
+    render(
+      <div>
+        <RoleCard role={menuRole()} lastDone={null} channelNames={EMPTY_CHANNELS} onOpenWu={mockOpenWu}
+          onEditProfile={() => {}} />
+        <button>外部</button>
+      </div>,
+    );
+    fireEvent.click(screen.getByTestId('role-card-menu-btn'));
+    expect(screen.getByTestId('role-card-menu')).toBeDefined();
+    fireEvent.mouseDown(screen.getByText('外部'));
+    expect(screen.queryByTestId('role-card-menu')).toBeNull();
+  });
+});

@@ -102,13 +102,17 @@ export class ActionCenterService {
    * wu-messenger 发为 authorType=agent 且挂 workUnitId，与频道页 chip 的「当前提问消息 =
    * 该 WU 最新非人类消息」（#279 走查 F4）同口径。热层查询（挂起中 WU 的消息不入冷层），
    * 查询失败/无匹配 → null（fail-closed，前端不拼 ?highlight=）。
+   * B2：改 readMessagesTail 谓词倒扫 limit 1（同 message-routing resolveMergeTarget 的
+   * #524 P1-1 先例）——倒扫序 = 新→旧，首个命中即最新，不再每挂起 WU 全热文件串行扫。
    */
   private async resolveWaitingMessageId(wuId: string, channelId: string | null): Promise<string | null> {
     if (!channelId) return null;
     try {
-      const messages = await this.fileStore.queryMessages(channelId, { workUnitId: wuId });
-      const latest = messages.filter(m => m.authorType !== 'human').at(-1);
-      return latest?.id ?? null;
+      const { messages } = await this.fileStore.readMessagesTail(channelId, {
+        limit: 1,
+        match: m => m.workUnitId === wuId && m.authorType !== 'human',
+      });
+      return messages[0]?.id ?? null;
     } catch {
       return null;
     }

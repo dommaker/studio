@@ -10,6 +10,7 @@ import { create } from 'zustand';
 import { monitoringApi, type AgentCurrentWorkUnit, type AgentInfo, type AgentPmoRef } from '../api/monitoring';
 import { channelApi, type AgentProfile, type Channel } from '../api/channel';
 import { isForbidden } from '../utils/http';
+import { isSystemRole } from '../utils/systemRole';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { useAuthStore } from './authStore';
 import { createFetchGate, disciplinedFetch } from './fetchDiscipline';
@@ -44,11 +45,12 @@ export function workUnitToCurrentWorkUnit(wu: WorkUnit): AgentCurrentWorkUnit {
 
 /**
  * 客户端切片：listAllAgents 全量正本 → /agent-profiles?status=active 等价过滤（#403 ADR 决策 2）。
- * includeSystem=false 时排除 studio 角色（对齐服务端 AC-1.4 默认排除语义——旧 listAgents 消费方
- * 看不到 studio，切片必须一致，否则 mention/成员面板混入系统角色）。
+ * includeSystem=false 时排除系统角色（对齐服务端 AC-1.4 默认排除语义——旧 listAgents 消费方
+ * 看不到系统角色，切片必须一致，否则 mention/成员面板混入系统角色）。
+ * #631: 身份判定走 isSystemRole（kind 直读 + 历史记录 name 兜底）。
  */
 export function activeAgentsOf(profiles: AgentProfile[], includeSystem = false): AgentProfile[] {
-  return profiles.filter((p) => p.status === 'active' && (includeSystem || p.name !== 'studio'));
+  return profiles.filter((p) => p.status === 'active' && (includeSystem || !isSystemRole(p)));
 }
 
 interface RosterState {

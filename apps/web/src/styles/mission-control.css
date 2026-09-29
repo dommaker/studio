@@ -1059,6 +1059,21 @@ button.mc-thread-context:focus-visible { outline: 1px solid var(--accent-primary
   cursor: pointer;
 }
 .mc-input-reply-jump:hover { background: var(--bg-hover); }
+/* #632：发送前归属预览条——容器/边框/淡色复用 .mc-input-reply；此处只加三态文案与切换 chip */
+.mc-input-merge-hint { flex: 1; color: var(--text-muted); }
+.mc-input-merge-default { flex: 1; color: var(--text-primary); }
+.mc-input-merge-chip {
+  padding: 0 8px;
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.mc-input-merge-chip:hover { background: var(--bg-hover); }
+.mc-input-merge-chip-active { border-color: var(--accent-primary); color: var(--accent-primary); }
 /* #485：composer 已挂文件引用 chip（台账可视化）；失效（正文被改得不含路径）标灰 + 「已失效」，不静默丢弃 */
 .mc-fileref-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .mc-fileref-chip {

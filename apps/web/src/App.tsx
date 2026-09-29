@@ -37,7 +37,6 @@ import { Sidebar } from './components/SidebarNew';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
 import { WebSocketProvider } from './api/websocket';
-import { channelApi } from './api/channel';
 import { useRosterStore } from './stores/rosterStore';
 import { useRequirementChainStoreSync } from './hooks/useRequirementChainStoreSync';
 import { useWorkUnitStoreSync } from './hooks/useWorkUnitStoreSync';
@@ -47,6 +46,7 @@ import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
 import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
 import { joinDefaultChannel } from './components/setup/joinChannel';
 import { isStudioRoleSetupDismissed, isFirstRoleSetupDismissed } from './components/setup/dismissed';
+import { isSystemRole } from './utils/systemRole';
 import './styles/theme.css';
 
 // #412：REQ chain 数据面 SSE 接线（App 级单点、零渲染；useWebSocketContext 依赖 Provider，故置于 Provider 内）
@@ -121,14 +121,14 @@ export default function App() {
     // profiles 切片成功落库才评估（对齐旧 listAgents .then 时机：切片失败静默不评，等后续拉取成功）
     if (!profilesLoadedOnce) return;
     bootEvaluatedRef.current = true;
-    const studio = profiles.find(p => p.name === 'studio');
+    const studio = profiles.find(p => isSystemRole(p));
     // AC-2.2: studio provider=null 且未 dismiss -> 弹框
     if (studio && !studio.provider && !isStudioRoleSetupDismissed()) {
       setStudioRoleSetupOpen(true);
     }
     // AC-2.3（F2，2026-07-28）: 无任何 provider 非空的 active 用户角色且未 dismiss -> 弹框
     // （内置三角色 seed 已退役；角色存在但 provider 为空 = 没有可用执行体，同样需要引导）
-    const hasConfiguredRole = profiles.some(p => p.name !== 'studio' && p.status === 'active' && !!p.provider);
+    const hasConfiguredRole = profiles.some(p => !isSystemRole(p) && p.status === 'active' && !!p.provider);
     if (!hasConfiguredRole && !isFirstRoleSetupDismissed()) {
       setFirstRoleSetupOpen(true);
     }
@@ -186,31 +186,23 @@ export default function App() {
       <PmoDataSync />
       {/* #549：WU 数据面 SSE 接线（App 级单点） */}
       <WorkUnitStoreSync />
-      {/* AC-2.2: studio 角色 provider=null 弹框 */}
+      {/* AC-2.2: studio 角色 provider=null 弹框（#630：表单段 = RoleFormModal 正本 edit，
+          studio profile 自 rosterStore 切片取；保存后强刷切片防残留 provider=null 触发重弹） */}
       <StudioRoleSetupModal
         open={studioRoleSetupOpen}
         onClose={() => setStudioRoleSetupOpen(false)}
-        onSave={async (provider) => {
-          try {
-            // #403：studio 身份来自 boot 已拉好的 rosterStore 切片（弹框只能由检测到 studio 才打开），
-            // 保存后强刷切片防 store 残留 provider=null 触发重弹
-            const studio = useRosterStore.getState().profiles.find(p => p.name === 'studio');
-            if (studio) await channelApi.updateAgent(studio.id, { provider });
-            await useRosterStore.getState().ensureFresh({ maxAgeMs: 0 });
-          } catch { /* best-effort */ }
+        profile={profiles.find(p => isSystemRole(p)) ?? null}
+        onSaved={() => {
+          void useRosterStore.getState().ensureFresh({ maxAgeMs: 0 }).catch(() => {});
         }}
       />
-      {/* AC-2.3: 无用户角色弹框；#465：创建成功后续接「一键加入 #研发」引导（不跳转断点在此补上） */}
+      {/* AC-2.3: 无用户角色弹框；#465：创建成功后续接「一键加入 #研发」引导（不跳转断点在此补上）；
+          #630：创建提交收口正本（失败内联报错留窗），onCreated = 刷 roster 切片让新角色即时可见 */}
       <FirstRoleSetupModal
         open={firstRoleSetupOpen}
         onClose={() => setFirstRoleSetupOpen(false)}
-        onCreate={async (data) => {
-          try {
-            const res = await channelApi.createAgent(data);
-            // 刷 roster 切片让新角色即时可见（同 StudioRoleSetupModal 保存后强刷先例）
-            await useRosterStore.getState().ensureFresh({ maxAgeMs: 0 }).catch(() => {});
-            return { id: res.data.id, name: res.data.name };
-          } catch { return null; /* best-effort：创建失败静默关窗（原语义） */ }
+        onCreated={() => {
+          void useRosterStore.getState().ensureFresh({ maxAgeMs: 0 }).catch(() => {});
         }}
         onJoinChannel={async (agentId) => {
           const channelId = await joinDefaultChannel(agentId);

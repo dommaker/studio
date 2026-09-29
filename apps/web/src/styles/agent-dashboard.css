@@ -148,19 +148,46 @@ button.agd-activity-row { width: 100%; text-align: left; }
 /* chip 数字档归 --fs-title（--fs-stat 按 §2.3 仅统计卡大数字用；chip 非统计卡），与 .wu-stat-num 同口径 */
 .agd-stat-num { font-size: var(--fs-title); }
 
-/* ---------- §6.4 创建角色弹框（CreateRoleModal） ---------- */
-.agd-cr-list { display: flex; flex-direction: column; gap: var(--space-2); }
-.agd-cr-item {
-  border: 1px solid var(--border-subtle);
+/* ---------- #630 决策 6：卡头悬停 ⋯ 菜单（类名体系镜像 mc-topbar-menu-*） ---------- */
+.agd-menu-wrap { position: relative; flex-shrink: 0; margin-left: auto; }
+/* 运行时长（.agd-head .agd-num 自带 margin-left:auto）在岗时菜单紧随其后，不再重复推开 */
+.agd-num ~ .agd-menu-wrap { margin-left: 0; }
+.agd-menu-btn {
+  opacity: 0;
+  padding: 0 6px;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.agd-card:hover .agd-menu-btn,
+.agd-menu-btn:focus-visible,
+.agd-menu-btn[aria-expanded="true"] { opacity: 1; }
+.agd-menu-btn:hover { background: var(--bg-hover); }
+.agd-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: var(--z-dropdown);
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
-  padding: 10px 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
 }
-.agd-cr-item-on { border-color: var(--border-strong); }
-.agd-cr-item-head { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
-.agd-cr-fields {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-  margin-left: 24px;
+.agd-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  text-align: left;
+  border-radius: 3px;
 }
+.agd-menu-item:hover { background: var(--bg-hover); }
+.agd-menu-item-danger { color: var(--error); }

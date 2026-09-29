@@ -16,7 +16,6 @@ vi.mock('react-router-dom', async () => {
 // 卡片子组件与本测试无关，避免其内部 API 依赖
 vi.mock('../channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
 vi.mock('../channel/KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => null }));
-vi.mock('../channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelMessageItem } from '../channel/ChannelMessageItem';
 import { ChannelMessageEnvProvider } from '../channel/ChannelMessageEnv';

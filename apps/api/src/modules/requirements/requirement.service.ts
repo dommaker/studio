@@ -11,8 +11,10 @@
  * PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的只读别名——
  * get/list 先查统一编号 PMO（reqAlias 命中 → 投影为 REQ 视图，projectId = PMO 自身 id），
  * 查不到才回落 legacy REQ 记录；update/maybeRollUpToDone 对别名视图只读跳过
- * （PMO 状态由 progress-rollup 拥有）。createFromDispatch：频道已登记杂务 PMO（决策 2）
- * 时小活归集到杂务 PMO 别名；未登记 → legacy 自动新建（归类判断在入口澄清环节做）。
+ * （PMO 状态由 progress-rollup 拥有）。createFromDispatch：#636（#632 Q7 域缝隙，A′ 裁决）
+ * 无 token 派单先派生频道当前 PMO 第一级（最近挂接 REQ 所属非杂务 PMO），命中 → 新 REQ
+ * 挂接其 projectId；派生落杂务/无结果/失败 → 频道已登记杂务 PMO（决策 2）时小活归集到
+ * 杂务 PMO 别名；未登记 → legacy 孤儿新建（归类判断在入口澄清环节做）。
  */
 import {
   eventBus,
@@ -26,6 +28,7 @@ import {
 } from '@dommaker/studio-shared';
 import { projectService, type ProjectData } from '../pmo/project.service.js';
 import { parseWuPmoId } from './wu-pmo-attribution.js';
+import { deriveChannelReqPmo } from './channel-req-pmo.js';
 
 export const REQUIREMENT_STATUSES: RequirementStatus[] = ['open', 'in-progress', 'done', 'archived'];
 
@@ -49,6 +52,8 @@ export interface RequirementServiceDeps {
   listAliasProjects?: () => Promise<ProjectData[]>;
   /** 决策 4：#PMO-n token 解析（默认 projectService.getByPmoNumber；req-binding 用） */
   getProjectByPmoNumber?: (pmoNumber: string) => Promise<ProjectData | null>;
+  /** #636：频道当前 PMO 第一级派生（默认 deriveChannelReqPmo 查本频道最近挂接 REQ 所属 PMO；只查不建、零副作用） */
+  deriveChannelProject?: (channelId: string) => Promise<ProjectData | null>;
 }
 
 /** PMO 状态 → REQ 状态视图映射（别名层只读投影） */
@@ -142,6 +147,7 @@ export class RequirementService {
   private findChoreProject: (channelId: string) => Promise<ProjectData | null>;
   private listAliasProjects: () => Promise<ProjectData[]>;
   private getProjectByPmoNumber: (pmoNumber: string) => Promise<ProjectData | null>;
+  private deriveChannelProject: (channelId: string) => Promise<ProjectData | null>;
 
   constructor(fileStore?: FileStore, deps?: RequirementServiceDeps) {
     this.fileStore = fileStore ?? new FileStore();
@@ -150,6 +156,8 @@ export class RequirementService {
     this.findChoreProject = deps?.findChoreProject ?? (async id => projectService.findChoreProject(id));
     this.listAliasProjects = deps?.listAliasProjects ?? (async () => projectService.list({ limit: 100000 }));
     this.getProjectByPmoNumber = deps?.getProjectByPmoNumber ?? (async n => projectService.getByPmoNumber(n));
+    this.deriveChannelProject = deps?.deriveChannelProject
+      ?? (async id => deriveChannelReqPmo(id, { fileStore: this.fileStore }));
   }
 
   /** 决策 4：#PMO-n token → REQ 别名（仅统一编号对象可解析；存量无别名 → null） */
@@ -184,13 +192,33 @@ export class RequirementService {
   }
 
   /**
-   * 派发路径自动创建（决策 2）：频道已登记杂务 PMO → 小活归集到杂务 PMO 的 REQ 别名
-   * （只查不建，热路径零副作用）；未登记 → legacy 自动新建
-   * （title 取消息前 ~80 字符，status=in-progress，channelId 落档）。
+   * 派发路径自动创建：
+   * #636（A′ 裁决）：先派生频道当前 PMO 第一级（最近挂接 REQ 所属 PMO），命中且非杂务
+   * → 新 REQ 挂接其 projectId（B3a 既有挂接机制）；派生落杂务/无结果 → 频道已登记杂务
+   * PMO（决策 2）时小活归集到杂务 PMO 的 REQ 别名（只查不建，热路径零副作用）；
+   * 未登记 → legacy 孤儿新建（title 取消息前 ~80 字符，status=in-progress，channelId 落档）。
+   * 派生查询抛错 → 记日志降级既有路径，绝不阻断派单（与 current-pmo 派生同原则）。
    * 需求级工作单建 PMO 的归类判断在入口澄清环节做，不在本函数。
    */
   async createFromDispatch(message: string, channelId: string | null, createdBy: string): Promise<RequirementData> {
     if (channelId) {
+      let derived: ProjectData | null = null;
+      try {
+        derived = await this.deriveChannelProject(channelId);
+      } catch (err) {
+        logger.warn('[Requirement] Current-PMO derivation failed, falling back to chore/orphan path', {
+          channelId, error: String(err),
+        });
+      }
+      if (derived && !derived.isChore) {
+        return this.create({
+          title: deriveTitle(message),
+          status: 'in-progress',
+          channelId,
+          createdBy,
+          projectId: derived.id,
+        });
+      }
       const chore = await this.findChoreProject(channelId);
       if (chore?.reqAlias) return toRequirementAliasView(chore);
     }

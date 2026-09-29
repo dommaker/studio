@@ -133,7 +133,7 @@ async function main(): Promise<void> {
     { label: 'monitor-round', run: () => (monitor as any).check() },
     { label: 'ops-round', run: () => (ops as any).healthCheck() },
     { label: 'auditor-round', run: () => (auditor as any).dailyAudit() },
-    { label: 'evolution-scan', run: () => loadWindowSignals(evolutionPaths, 24, fileStore) },
+    { label: 'evolution-scan', run: () => loadWindowSignals(evolutionPaths, 24) },
   ];
 
   const rounds: BenchRound[] = [];

@@ -91,7 +91,7 @@ events.jsonl 全文无 `reviewPassed` 字样；index 中无任何 analysis WU �
 
 ```python
 import json, collections
-idx = json.load(open('/root/.studio/data/workunits/index.json'))
+idx = json.load(open('~/.studio/data/workunits/index.json'))
 ana = [w for w in idx if w.get('type') == 'analysis']
 print(collections.Counter(w['status'] for w in ana))  # Q1
 # Q2/Q3/Q4：逐行 json.loads events.jsonl，过滤 wuId in ana，按 data.status 重建轨迹；

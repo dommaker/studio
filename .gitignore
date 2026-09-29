@@ -57,6 +57,9 @@ coverage/
 # Test results (screenshots, videos)
 test-results/
 
+# e2e 登录态文件停止跟踪，改由本地生成（auth.setup.ts 重建）
+apps/web/e2e/.auth.json
+
 # Spec source (ignored; docs/adr/ 豁免——决策记录是公共面永久导航件，须常规追踪，2026-08-21)
 docs/*
 !docs/adr/

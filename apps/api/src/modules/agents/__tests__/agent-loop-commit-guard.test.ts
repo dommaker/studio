@@ -9,12 +9,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
 
-const { mockExecSync } = vi.hoisted(() => ({
+const { mockExecSync, mockExecFile } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
+  mockExecFile: vi.fn(),
 }));
 
 vi.mock('child_process', () => ({
   execSync: mockExecSync,
+  execFile: mockExecFile,
+  exec: vi.fn(),
 }));
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
@@ -81,10 +84,11 @@ describe('§10.5: 提交守卫', () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  /** git mock：statusOut = `git status --porcelain` 输出；head = `git rev-parse HEAD` 输出 */
+  /** git mock（收口守卫已改 execFile 回调式异步出口）：statusOut = `git status --porcelain` 输出；head = `git rev-parse HEAD` 输出 */
+  type ExecFileCb = (err: Error | null, stdout: string, stderr: string) => void;
   function mockGit(statusOut: string, head: string) {
-    mockExecSync.mockImplementation((cmd: string) =>
-      String(cmd).includes('rev-parse') ? head : statusOut
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, cb: ExecFileCb) =>
+      cb(null, args.includes('rev-parse') ? head : statusOut, '')
     );
   }
 
@@ -151,9 +155,9 @@ describe('§10.5: 提交守卫', () => {
 
   it('首 step COMPLETE：worktreePath 仅在 metadataUpdates（未落库）时，守卫以合并视图检查 worktree 而非主仓库', async () => {
     // cwd 感知 mock：worktree 脏、主仓库干净 —— 修复前守卫查主仓库放行（假 complete）
-    mockExecSync.mockImplementation((cmd: string, opts?: { cwd?: string }) => {
-      if (String(cmd).includes('rev-parse')) return 'h1\n';
-      return opts?.cwd === '/tmp/wt-dirty' ? ' M README.md\n' : '';
+    mockExecFile.mockImplementation((_cmd: string, args: string[], opts: { cwd?: string }, cb: ExecFileCb) => {
+      if (args.includes('rev-parse')) return cb(null, 'h1\n', '');
+      return cb(null, opts?.cwd === '/tmp/wt-dirty' ? ' M README.md\n' : '', '');
     });
     const wu = await setupWorkUnit(); // 持久化 metadata 无 worktreePath（首 step 未落库）
 
@@ -196,9 +200,9 @@ describe('§10.5: 提交守卫', () => {
 
   it('#157（T6）：analysis 原型单 COMPLETE + 原型 worktree 未提交改动 → 打回 progress', async () => {
     // cwd 感知 mock：原型 worktree 脏、共享根干净 —— 修复前守卫查共享根放行（假 complete）
-    mockExecSync.mockImplementation((cmd: string, opts?: { cwd?: string }) => {
-      if (String(cmd).includes('rev-parse')) return 'h1\n';
-      return opts?.cwd === '/tmp/proto-wt' ? ' M proto.ts\n' : '';
+    mockExecFile.mockImplementation((_cmd: string, args: string[], opts: { cwd?: string }, cb: ExecFileCb) => {
+      if (args.includes('rev-parse')) return cb(null, 'h1\n', '');
+      return cb(null, opts?.cwd === '/tmp/proto-wt' ? ' M proto.ts\n' : '', '');
     });
     const wu = await setupWorkUnit({
       workspaceRoot: '/tmp/shared-root',
@@ -246,7 +250,8 @@ describe('§10.5: 提交守卫', () => {
   });
 
   it('COMPLETE + git 调用失败 → 静默跳过守卫，正常完成', async () => {
-    mockExecSync.mockImplementation(() => { throw new Error('not a git repository'); });
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ExecFileCb) =>
+      cb(new Error('not a git repository'), '', ''));
     const wu = await setupWorkUnit();
 
     await (agentLoop as unknown as RecordResultCapable).recordResult(
@@ -266,14 +271,13 @@ describe('§10.5: 提交守卫', () => {
     );
 
     expect((await wuService.getById(wu.id))!.status).toBe('in_review');
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockExecFile).not.toHaveBeenCalled();
   });
 
   it('PROGRESS 无提交监视：首次记录 HEAD，相同累加，新提交归零', async () => {
     let head = 'h1';
-    mockGit('', head);
-    mockExecSync.mockImplementation((cmd: string) =>
-      String(cmd).includes('rev-parse') ? head : ''
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, cb: ExecFileCb) =>
+      cb(null, args.includes('rev-parse') ? head : '', '')
     );
     const wu = await setupWorkUnit();
 
@@ -322,7 +326,8 @@ describe('§10.5: 提交守卫', () => {
   });
 
   it('PROGRESS + git 调用失败 → 静默跳过（metadata 不变，无提醒）', async () => {
-    mockExecSync.mockImplementation(() => { throw new Error('git down'); });
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ExecFileCb) =>
+      cb(new Error('git down'), '', ''));
     const wu = await setupWorkUnit({ lastCommitHash: 'h1', noCommitSteps: 2 });
 
     await progress(wu.id);

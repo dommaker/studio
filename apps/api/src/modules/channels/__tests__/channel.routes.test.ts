@@ -63,6 +63,7 @@ describe('频道读端点匿名 401（STUDIO_AUTH=on）', () => {
     `/${CH}/suggestions`,
     `/${CH}/current-pmo`,
     `/${CH}/file-vocabulary`,
+    `/${CH}/merge-target`,
   ];
 
   it.each(READ_PATHS)('GET /api/v1/channels%s 未携带 token → 401', async (suffix) => {

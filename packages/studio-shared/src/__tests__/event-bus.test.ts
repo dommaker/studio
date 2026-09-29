@@ -26,3 +26,33 @@ describe('StudioEventBus 监听器上限', () => {
     warnSpy.mockRestore();
   });
 });
+
+describe('StudioEventBus 精确匹配路径容错', () => {
+  it('单个订阅者同步抛错：不炸进发布方调用栈，其余 handler 照常送达', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const bus = new StudioEventBus();
+    const seen: string[] = [];
+    bus.subscribe('channel.message_sent', () => { throw new Error('boom'); });
+    bus.subscribe('channel.message_sent', () => { seen.push('second'); });
+
+    expect(() => bus.publish('channel.message_sent', { id: 'm-1' })).not.toThrow();
+    expect(seen).toEqual(['second']);
+    expect(errSpy).toHaveBeenCalledOnce();
+    expect(String(errSpy.mock.calls[0][0])).toContain('channel.message_sent');
+    errSpy.mockRestore();
+  });
+
+  it('once 订阅者抛错同样被隔离，且一次性语义不受影响', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const bus = new StudioEventBus();
+    const seen: string[] = [];
+    bus.once('evolution.applied', () => { throw new Error('boom'); });
+    bus.subscribe('evolution.applied', () => { seen.push('hit'); });
+
+    expect(() => bus.publish('evolution.applied', {})).not.toThrow();
+    expect(() => bus.publish('evolution.applied', {})).not.toThrow();
+    expect(seen).toEqual(['hit', 'hit']);
+    expect(errSpy).toHaveBeenCalledOnce();
+    errSpy.mockRestore();
+  });
+});

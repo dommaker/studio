@@ -39,7 +39,7 @@
 先修 P0 断链，再做架构性改造与优化。
 
 ### D5 存量清理
-备份后一次性脚本清理：42 个滞留 in_review WU、9+ 个 `daemon/reviewer-*` 分支、`/root/worktrees/reviewer-main` 残留。
+备份后一次性脚本清理：42 个滞留 in_review WU、9+ 个 `daemon/reviewer-*` 分支、`~/worktrees/reviewer-main` 残留。
 
 ### D6 工程发现（两层）
 - 排除清单：`STUDIO_PROJECTS_EXCLUDE`（冒号分隔），排除 studio-config 等（**不采用删 .git 方案**——studio-config 三标记全中，删了照样被扫出）

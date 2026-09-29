@@ -43,6 +43,8 @@ export interface AgentProfile {
   status: string;
   provider?: string | null;
   channels?: string | string[] | null; // JSON string of channel ID array（历史数据可能双重编码）
+  /** #631: 角色种类（system=系统内置 / user=用户）；历史无字段记录由 isSystemRole 按 name 兜底 */
+  kind?: 'system' | 'user';
   /** #462: 显式 skill 声明（注入索引候选，与 WU +skill 点名同权） */
   skills?: string[];
   isOnline?: boolean;
@@ -82,6 +84,13 @@ export interface ChannelCurrentPmo {
   gitRepos: string[];
 }
 
+/** #638：`#` 触发 PMO 自动补全弹框的候选项（当前 PMO 置顶 + 挂接 REQ 所属 PMO，seq 降序去重） */
+export interface ChannelPmoCandidate {
+  id: string;
+  pmoNumber: string;
+  title: string;
+}
+
 /**
  * #443（spec #441 情境引导 02）：频道建议派生端点形状。
  * 后端只回结构化数据（id = 文案模板锚 + params = 模板参数），文案由前端
@@ -106,6 +115,15 @@ export interface ChannelSuggestions {
   degraded?: boolean;
 }
 
+/** #632：发送 intent——'new-task' 显式建未指派 WU（涌现认领）并关联消息；'plain' 强制纯存储；不传 = 自动合并判定 */
+export type SendIntent = 'new-task' | 'plain';
+
+/** #632：发送前归属预览（GET /channels/:id/merge-target）——预测无 @ 无 replyTo 消息的三态归属 */
+export interface MergeTargetPreview {
+  status: 'unique' | 'ambiguous' | 'none';
+  workUnit?: { id: string; title: string };
+}
+
 export const channelApi = {
   list: () =>
     api.get<{ success: boolean; data: Channel[] }>('/channels'),
@@ -120,16 +138,21 @@ export const channelApi = {
     api.patch<{ success: boolean; data: Channel }>(`/channels/${channelId}`, data),
 
   listMessages: (channelId: string, params?: { before?: string; limit?: number }) =>
-    api.get<{ success: boolean; data: ChannelMessage[]; total: number; hasMore: boolean }>(
+    // 响应里的 total 后端 2026-09 起恒 0（默认跳过节流扫描，?includeTotal=true 才实算）且前端无消费方——类型不收
+    api.get<{ success: boolean; data: ChannelMessage[]; hasMore: boolean }>(
       `/channels/${channelId}/messages`,
       { params }
     ),
 
-  sendMessage: (channelId: string, content: string, replyToId?: string, files?: FileRef[]) =>
+  sendMessage: (channelId: string, content: string, replyToId?: string, files?: FileRef[], intent?: SendIntent) =>
     api.post<{ success: boolean; data: ChannelMessage }>(
       `/channels/${channelId}/messages`,
-      { content, replyToId, ...(files?.length ? { files } : {}) }
+      { content, replyToId, ...(files?.length ? { files } : {}), ...(intent ? { intent } : {}) }
     ),
+
+  /** #632: 发送前归属预览（无 @ 无 replyTo 消息的 merge 预测；失败由调用方静默降级为不显示预览条） */
+  getMergeTarget: (channelId: string) =>
+    api.get<{ success: boolean; data: MergeTargetPreview }>(`/channels/${channelId}/merge-target`),
 
   /** #281: @文件引用只读词表（候选集 = 频道相关工程；文件候选走词表路径后缀补全） */
   getFileVocabulary: (channelId: string) =>
@@ -145,6 +168,10 @@ export const channelApi = {
   /** #272: 顶栏「当前 PMO」chip 派生（最近挂接 REQ 所属 PMO / 杂务 PMO；无 → data=null） */
   getCurrentPmo: (channelId: string) =>
     api.get<{ success: boolean; data: ChannelCurrentPmo | null }>(`/channels/${channelId}/current-pmo`),
+
+  /** #638: `#` 触发 PMO 自动补全候选（当前 PMO 置顶 + 挂接 REQ 所属 PMO；无来源 → data=[]） */
+  getPmoCandidates: (channelId: string) =>
+    api.get<{ success: boolean; data: ChannelPmoCandidate[] }>(`/channels/${channelId}/pmo-candidates`),
 
   /** #443: 频道建议派生（fail-closed，按当前事实现算；无建议 → suggestions=[]） */
   getSuggestions: (channelId: string) =>
@@ -186,9 +213,17 @@ export const channelApi = {
   updateMembers: (channelId: string, ops: { add?: string[]; remove?: string[] }) =>
     api.patch<{ success: boolean; data: { members: string[] } }>(`/channels/${channelId}/members`, ops),
 
-  createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string; skills?: string[] }) =>
+  createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string; skills?: string[]; preset?: string }) =>
     api.post<AgentProfile>('/agent-profiles', data),
 
-  updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string; skills: string[] }>) =>
+  updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string; skills: string[]; persona: string | null; acceptedTypes: string[] }>) =>
     api.patch<AgentProfile>(`/agent-profiles/${id}`, data),
+
+  /** #633（ADR 2026-09-23-role-preset-surface）：角色 preset 清单——RoleFormModal「从模板开始」数据源（服务端扫 .agents/roles/，不硬编码） */
+  listRolePresets: () =>
+    api.get<{ data: { name: string; description?: string }[] }>('/agent-profiles/presets'),
+
+  /** #630（ADR 2026-09-23 决策 5）：删除角色（204；服务端级联清频道成员与路由指名、卸载 loop，studio 角色服务端拒删） */
+  deleteAgent: (id: string) =>
+    api.delete<void>(`/agent-profiles/${id}`),
 };

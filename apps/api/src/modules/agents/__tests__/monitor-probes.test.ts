@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { FileStore } from '@dommaker/studio-shared';
 
-const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseWithNotice, mockReadStudioEventsSince } = vi.hoisted(() => {
+const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseWithNotice, mockUpdateMetadata, mockReadStudioEventsSince } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
@@ -19,6 +19,8 @@ const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseW
     mockGetStats: vi.fn(() => ({} as Record<string, any>)),
     // #176（决策 #62 §3 双出声）：关闭统一出口（事件 + 频道 + 快照）打桩，探头只断言委托
     mockCloseWithNotice: vi.fn(() => Promise.resolve(true)),
+    // #610：关闭前留痕走 updateMetadata 语义口，打桩断言委托
+    mockUpdateMetadata: vi.fn(() => Promise.resolve(null)),
     // #181（决策 #62 D2）：失败趋势改读统一事件流，readStudioEvents 打桩
     mockReadStudioEventsSince: vi.fn(() => Promise.resolve([] as any[])),
   };
@@ -53,7 +55,7 @@ vi.mock('../../mcp/tool-registry.js', () => ({
 
 // #550：关闭状态机单口（WorkUnitService.close）打桩 —— 其自身行为由 workunit-close.test.ts 覆盖
 vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn(function () { return { close: mockCloseWithNotice }; }),
+  WorkUnitService: vi.fn(function () { return { close: mockCloseWithNotice, updateMetadata: mockUpdateMetadata }; }),
 }));
 
 // #181：统一事件流读取打桩（全量 mock——真模块顶层 new FileStore() 依赖 shared，不宜 importOriginal）
@@ -83,6 +85,7 @@ import {
   checkProgressStagnation,
   checkTotalExecutionTime,
   autoAbandonStaleBlocked,
+  expireTriggerPendingWorkUnits,
   checkSessionFileHealth,
   checkToolPatterns,
 } from '../monitor/monitor-probes.js';
@@ -540,6 +543,113 @@ describe('autoAbandon probes', () => {
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [plan]) });
 
     await autoAbandonStaleBlocked(fileStore, await fileStore.getIndex());
+
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
+  });
+});
+
+// #610（2026-09-24 决策单裁定）：trigger 建的 pending 单超期未确认 → 自动关闭 + 留痕。
+// 判据唯一 = metadata.triggerSource==='trigger-registry'，人工建的 pending 单永不受影响。
+describe('expireTriggerPendingWorkUnits', () => {
+  const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 3600_000).toISOString();
+  const mkTriggerPending = (id: string, createdDaysAgo: number) => makeSnapshot({
+    id, type: 'analysis', status: 'pending',
+    createdAt: daysAgo(createdDaysAgo),
+    metadata: JSON.stringify({ triggerSource: 'trigger-registry', triggerId: 'doc-semantic-review' }),
+  });
+
+  afterEach(() => { delete process.env.TRIGGER_PENDING_EXPIRY_DAYS; });
+
+  it('超期（默认 7 天）trigger pending 单 → 留痕后关闭', async () => {
+    const stale = mkTriggerPending('wu-stale', 8);
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [stale]) });
+
+    await expireTriggerPendingWorkUnits(fileStore, await fileStore.getIndex());
+
+    expect(mockUpdateMetadata).toHaveBeenCalledWith(
+      'wu-stale',
+      expect.objectContaining({ autoClosedBy: 'trigger-pending-expiry', autoClosedAt: expect.any(String) }),
+    );
+    expect(mockCloseWithNotice).toHaveBeenCalledTimes(1);
+    expect(mockCloseWithNotice).toHaveBeenCalledWith(
+      'wu-stale',
+      expect.objectContaining({ closedBy: 'trigger-pending-expiry' }),
+    );
+  });
+
+  it('无 triggerSource 标记的 pending 单（人工创建）超期也不动', async () => {
+    const manual = makeSnapshot({
+      id: 'wu-manual', status: 'pending', createdAt: daysAgo(30),
+    });
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [manual]) });
+
+    await expireTriggerPendingWorkUnits(fileStore, await fileStore.getIndex());
+
+    expect(mockUpdateMetadata).not.toHaveBeenCalled();
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
+  });
+
+  it('未超期的 trigger pending 单不受影响', async () => {
+    const fresh = mkTriggerPending('wu-fresh', 3);
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [fresh]) });
+
+    await expireTriggerPendingWorkUnits(fileStore, await fileStore.getIndex());
+
+    expect(mockUpdateMetadata).not.toHaveBeenCalled();
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
+  });
+
+  it('非 pending 状态的 trigger 单（超期）不动', async () => {
+    const active = mkTriggerPending('wu-active', 30);
+    active.status = 'active';
+    const unassigned = mkTriggerPending('wu-unassigned', 30);
+    unassigned.status = 'unassigned';
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [active, unassigned]) });
+
+    await expireTriggerPendingWorkUnits(fileStore, await fileStore.getIndex());
+
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
+  });
+
+  it('decision/spec/plan 类型的 trigger pending 单豁免（裁剪状态机无 closed 边）', async () => {
+    const spec = mkTriggerPending('wu-spec', 30);
+    spec.type = 'spec';
+    const decision = mkTriggerPending('wu-decision', 30);
+    decision.type = 'decision';
+    const plan = mkTriggerPending('wu-plan', 30);
+    plan.type = 'plan';
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [spec, decision, plan]) });
+
+    await expireTriggerPendingWorkUnits(fileStore, await fileStore.getIndex());
+
+    expect(mockUpdateMetadata).not.toHaveBeenCalled();
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
+  });
+
+  it('阈值可经 TRIGGER_PENDING_EXPIRY_DAYS 覆盖', async () => {
+    process.env.TRIGGER_PENDING_EXPIRY_DAYS = '30';
+    const stale = mkTriggerPending('wu-8d', 8); // 8 天 < 30 天阈值 → 不关
+    const old = mkTriggerPending('wu-31d', 31);
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [stale, old]) });
+
+    await expireTriggerPendingWorkUnits(fileStore, await fileStore.getIndex());
+
+    expect(mockCloseWithNotice).toHaveBeenCalledTimes(1);
+    expect(mockCloseWithNotice).toHaveBeenCalledWith(
+      'wu-31d',
+      expect.objectContaining({ closedBy: 'trigger-pending-expiry' }),
+    );
+  });
+
+  it('动作前新鲜度复核：点读时已非 pending → 不关闭', async () => {
+    const stale = mkTriggerPending('wu-race', 8);
+    const fileStore = makeFileStore({
+      getIndex: vi.fn(async (filter?: { id?: string }) =>
+        // 周期快照后人工已确认（pending → unassigned），点读返回新状态
+        filter?.id ? [{ ...stale, status: 'unassigned' }] : [stale]),
+    });
+
+    await expireTriggerPendingWorkUnits(fileStore, await fileStore.getIndex());
 
     expect(mockCloseWithNotice).not.toHaveBeenCalled();
   });

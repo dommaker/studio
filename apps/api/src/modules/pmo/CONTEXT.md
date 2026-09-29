@@ -10,7 +10,7 @@
 |------|------|------|
 | `getCurrentQuarter` / `OKRService` / `okrService` | `okr.service.ts` | OKR 核心 + 季度计算 + 单例 |
 | `OKRMetricQueries` | `okr-metric-queries.ts` | OKR 数据源查询基类，22 个 metric 查询 + `checkDataSourceHealth` |
-| `projectService` | `project.service.ts` | 项目服务单例（`getByReqAlias`/`getByPmoNumber`/`ensureChoreProject`/`findChoreProject`/`publish`） |
+| `projectService` | `project.service.ts` | 项目服务单例（`getByReqAlias`/`getByPmoNumber`/`findChoreProject`/`publish`） |
 | `generatePmoNumber` / `parsePmoSeq` | `project.service.ts` | 统一编号 max(PM/PMO,REQ)+1，格式 PMO-<n> |
 | `resolveDeliveryPolicy` | `project.service.ts` | 交付策略缺省解析（默认 branch-only） |
 | `resolveDeliveries` / `PmoMap` / `DeliveryLeg` / `LEG_STATUS` | `project.service.ts` | 探路地图 + 多交付腿模型（pending->active->in_review->completed->delivered） |
@@ -38,7 +38,7 @@
 - 项目数据存储在 `~/.studio/projects/{id}.json`，OKR 数据存储在 `~/.studio/okr/` JSONL 文件。所有服务基于 FileStore。
 - 统一编号：新 PMO 编号 = max(PM/PMO, REQ 两序列)+1，格式 PMO-<n>（分支名）；`reqAlias` 同号；存量 PM-XXX/REQ-XXXX 不迁移。
 - 交付策略 `deliveryPolicy`：`branch-only`（默认，只标记不碰链路）/ `auto-merge`（人工触发，证据齐才合并 PMO 分支 -> 默认分支，不 push）。
-- 杂务 PMO：`isChore + channelId` 联合标识，`ensureChoreProject` find-or-create。
+- 杂务 PMO：`isChore + channelId` 联合标识，`findChoreProject` 只查不建（B4 清扫起创建端点 POST /channels/:id/chore-pmo 与 `ensureChoreProject` 已删——仓内零调用方；存量杂务 PMO 的读侧回退保留）。
 - 多腿项目：`POST /project` 接受 `gitRepos: string[]`，每个工程落一条 `deliveries[]` 腿。
 - 鉴权：6 条写端点 requireAuth+requireNotGuest，DELETE project/okr requireRole('Admin')。
 - **OKR 缓存与冲突语义（#448，2026-09-02）**：`GET /okr` 挂 30s apiCache，OKR 写端点（POST/PUT/DELETE `/okr*`）成功后 `clearCache(baseUrl + '/okr')` 写后失效；`POST /okr` 季度撞重（`okrService.create` 抛 "already exists"）映射 409 CONFLICT（按 message 映射 status，同 publish 路由先例），其余 service 错误仍 500 INTERNAL_ERROR。

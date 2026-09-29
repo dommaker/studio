@@ -2,7 +2,7 @@
 
 > 研究票：issue #77（地图票 #74 的子票）。调研日期 2026-08-09。
 > 代码侧以 `apps/api/src` 为准；数据侧只读生产数据
-> （`/root/.claude/projects/` 的 claude 会话 transcript、`~/.studio/logs/studio-events.jsonl`、
+> （`~/.claude/projects/` 的 claude 会话 transcript、`~/.studio/logs/studio-events.jsonl`、
 > `~/.studio/data/workunits/index.json`、落盘的 `<worktree>/.daemon/prompt.md`）。
 > transcript 只做结构化统计，未引用对话正文。只测量，不定案。
 
@@ -11,8 +11,8 @@
 | 数据源 | 路径 | 体量 / 口径 |
 |--------|------|------|
 | prompt 组装代码 | `apps/api/src/modules/agents/loop/prompt-composer.ts`（`composeStepPrompt` :75-183、`INJECT_TOKEN_BUDGET = 2_000` :33）、`apps/api/src/modules/agents/loop/agent-loop-parsers.ts`（base prompt :190-221）、`packages/studio-agent/src/services/runner-params.ts:266-270`（knowledgeContext + base 拼接）、`apps/api/src/modules/knowledge/knowledge-service.ts:580-599`（trim 事件） | 全量精读 |
-| 步 prompt 语料 | `/root/.claude/projects/-root-projects-studio/*.jsonl` | **91 个真实执行步 prompt**（2026-07-31 ~ 08-09 窗口），行首锚定 `## 当前工作` 识别 |
-| 落盘 prompt | `/root/projects/studio/.daemon/prompt.md` | 1 份活样本（2026-08-09 17:03，dev 进程在跑 WU），4,447 字符，版式与 transcript 语料逐段一致，互证口径可靠 |
+| 步 prompt 语料 | `~/.claude/projects/-root-projects-studio/*.jsonl` | **91 个真实执行步 prompt**（2026-07-31 ~ 08-09 窗口），行首锚定 `## 当前工作` 识别 |
+| 落盘 prompt | `~/projects/studio/.daemon/prompt.md` | 1 份活样本（2026-08-09 17:03，dev 进程在跑 WU），4,447 字符，版式与 transcript 语料逐段一致，互证口径可靠 |
 | trim 事件 | `~/.studio/logs/studio-events.jsonl` | 10,831 行（2026-08-02 ~ 08-09），`knowledge:inject-trimmed` **0 条** |
 | WU 索引 | `~/.studio/data/workunits/index.json` | 150 WU；仅 3 个 metadata 含 `worktreePath` 且目录已拆除 |
 

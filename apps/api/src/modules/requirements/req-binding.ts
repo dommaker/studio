@@ -81,7 +81,8 @@ export async function resolveReqIdForDispatch(input: ResolveReqIdInput): Promise
     logger.warn('[Requirement] PMO token did not resolve to a unified project, falling through', { pmoToken });
   }
 
-  // 3. 自动新建（频道已登记杂务 PMO 时归集到杂务别名，见 createFromDispatch）
+  // 3. 自动新建（#636：先派生频道当前 PMO 挂接非杂务项目；否则频道已登记杂务 PMO 时
+  //    归集到杂务别名；都没有 → 孤儿新建，见 createFromDispatch）
   const requirement = await service.createFromDispatch(input.content, input.channelId, input.createdBy);
   return requirement.id;
 }

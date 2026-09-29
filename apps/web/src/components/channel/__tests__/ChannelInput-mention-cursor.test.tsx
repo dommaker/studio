@@ -37,7 +37,7 @@ describe('ChannelInput mention 光标重算（f7f05269）', () => {
 
   it('光标移出 @query 弹层关闭，移回重算后重新出现', async () => {
     const { container } = render(<ChannelInput onSend={() => {}} sending={false} />);
-    const textarea = screen.getByPlaceholderText('输入消息，@Agent 提及 Agent...') as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
     const popupOpen = () => !!container.querySelector('.mc-mention-popup');
 
     // 输入 'hi @dev'（onChange 把光标写在末尾）→ 弹层出现

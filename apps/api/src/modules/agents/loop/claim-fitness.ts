@@ -14,6 +14,12 @@
  * 从宽哲学：判断调用失败/超时/解析不出 → 视为适任（宁可误抢不可漏抢，错抢还有
  * NEED_INPUT 甩人兜底）。落档失败同口径从宽放行。
  *
+ * 优化钩子（2026-09-25，暂不实施）：本判断的 20s+ 时延是 CLI spawn 底座税而非决策固有，
+ * 每次判定由 ensureClaimFit 落 `agent:claim_fitness` 台账事件（verdict/时长/角色/wu.type），
+ * 攒够数据后按该台账裁决方向——①生产侧路由（建单时定 assignee，判断移出认领关键路径）；
+ * ②频道仅单候选角色时豁免；③换轻量模型/压 SystemExecutor 超时。
+ * 代码 seam 已备：judgeClaimFitness 的 `run` 注入（FitnessRunner）即替换点，勿新增机制。
+ *
  * LLM 调用复用 system-executor（轻量一次性 spawn，无 worktree，与 distill /
  * wu-completion-extraction 同款机制），经 getSystemExecutor() 懒单例；测试注入 run 替代。
  */

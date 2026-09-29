@@ -12,11 +12,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData, type ChannelData } from '@dommaker/studio-shared';
+import { clearCache } from '../../middleware/api-cache.js';
 import { resolveDefaultProvider } from './default-provider.js';
 import { summarizeRoleStates } from './agent-instance.service.js';
+import { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';
 
-/** 保留角色名：系统内置 studio 角色专用，用户不可创建/改名/删除 */
-export const STUDIO_ROLE_NAME = 'studio';
+// #631: 系统角色断言收口于 system-role.ts；此处 re-export 保持既有 import 路径不破
+export { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';
 
 /** B4a: studio 角色定位描述（种子默认值；用户自定义后不覆盖） */
 export const STUDIO_ROLE_DESCRIPTION = '系统角色：系统维护任务执行身份（挂 loop，仅消费指名给它的 WU）+ 平台维护性 LLM 直调与系统提醒署名';
@@ -100,6 +102,35 @@ export function loadRolePreset(preset: string, rolesDir: string = resolveRolesDi
   }
 }
 
+/**
+ * #633（ADR 2026-09-23-role-preset-surface）：`.agents/roles/` 下可用 preset 清单——
+ * RoleFormModal「从模板开始」入口的数据源。只回 name + description 摘要；
+ * templates/capabilities 死字段不浮出（ADR 决策 3）。目录不可读返回 []；
+ * 单个 yaml 解析失败跳过，不拖垮整个清单。
+ */
+export interface RolePresetSummary {
+  name: string;
+  description?: string;
+}
+
+export function listRolePresets(rolesDir: string = resolveRolesDir()): RolePresetSummary[] {
+  let files: string[];
+  try {
+    files = fs.readdirSync(rolesDir).filter(f => /\.ya?ml$/.test(f));
+  } catch {
+    return [];
+  }
+  const presets: RolePresetSummary[] = [];
+  for (const file of files) {
+    const name = file.replace(/\.ya?ml$/, '');
+    // 与 loadRolePreset 同口径：不可装载的 preset 不列（列了也创建不了）
+    const preset = loadRolePreset(name, rolesDir);
+    if (!preset) continue;
+    presets.push({ name, ...(preset.description ? { description: preset.description } : {}) });
+  }
+  return presets.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export interface UpdateAgentProfileInput {
   name?: string;
   description?: string | null;
@@ -108,6 +139,10 @@ export interface UpdateAgentProfileInput {
   status?: string;
   /** #462: 显式 skill 声明（传 [] 清空）；undefined = 不动既有值 */
   skills?: string[];
+  /** #633: 角色自述（prompt「## 你的角色」段内容）；null/空白串 = 清空，undefined = 不动 */
+  persona?: string | null;
+  /** #633: 职能域（阶段词表）；[] = 清空，undefined = 不动 */
+  acceptedTypes?: string[];
 }
 
 export type AgentProfileWithOnline = AgentProfileData & {
@@ -136,6 +171,10 @@ export async function ensureStudioProfile(fileStore: FileStore): Promise<AgentPr
   const existing = all.find(p => p.name === STUDIO_ROLE_NAME);
   if (existing) {
     const patch: Partial<AgentProfileData> = {};
+    // #631: 存量无 kind 记录回填 system（读取侧 isSystemRole 也有兜底，此处落盘固化）
+    if (existing.kind === undefined) {
+      patch.kind = 'system';
+    }
     if (!existing.description || !existing.description.trim() || existing.description === STUDIO_ROLE_LEGACY_DESCRIPTION) {
       patch.description = STUDIO_ROLE_DESCRIPTION;
     }
@@ -153,6 +192,7 @@ export async function ensureStudioProfile(fileStore: FileStore): Promise<AgentPr
   const data: AgentProfileData = {
     id: randomUUID(),
     name: STUDIO_ROLE_NAME,
+    kind: 'system',
     description: STUDIO_ROLE_DESCRIPTION,
     channels: '[]',
     provider: STUDIO_ROLE_DEFAULT_PROVIDER,
@@ -196,6 +236,7 @@ export class AgentProfileService {
     const data: AgentProfileData = {
       id: randomUUID(),
       name: input.name,
+      kind: 'user',
       description: input.description ?? preset?.description ?? null,
       channels: stringifyChannels(input.channels),
       // F1: provider 缺省时打戳为本机扫描到的默认 CLI（不再留 null 靠运行时隐式兜底）；
@@ -243,9 +284,9 @@ export class AgentProfileService {
 
     let profiles = await this.fileStore.listProfiles(status ? { status } : undefined);
 
-    // AC-1.4: 默认排除 studio 角色（系统内置，不面向用户）
+    // AC-1.4: 默认排除系统角色（不面向用户）；#631 起按 kind 判定（历史记录由 isSystemRole 兜底）
     if (!includeSystem) {
-      profiles = profiles.filter(p => p.name !== STUDIO_ROLE_NAME);
+      profiles = profiles.filter(p => !isSystemRole(p));
     }
 
     // When filtering by channelId, fetch all (no pagination) to avoid missing members across pages
@@ -303,7 +344,8 @@ export class AgentProfileService {
 
     // 2026-09-10：studio 转为系统维护 WU 执行角色（挂 loop），停用 = 系统任务死单生产线
     // 复活（trigger 指名单仅其 loop 可见）。保留名保护扩展到停用；其余字段（provider 等）可改。
-    if (existing.name === STUDIO_ROLE_NAME && input.status !== undefined && input.status !== 'active') {
+    // #631: 身份判定改读 kind（历史无 kind 记录由 isSystemRole 兜底）
+    if (isSystemRole(existing) && input.status !== undefined && input.status !== 'active') {
       throw new Error(`studio role cannot be deactivated (system workunit executor)`);
     }
 
@@ -324,22 +366,35 @@ export class AgentProfileService {
     if (input.status !== undefined) patch.status = input.status;
     // #462: 显式 skill 声明（[] = 清空）
     if (input.skills !== undefined) patch.skills = input.skills;
+    // #633: persona（null/空白串 = 清空——patch 置 undefined，FileStore 写盘 JSON 序列化丢 undefined 键）
+    if (input.persona !== undefined) {
+      const persona = typeof input.persona === 'string' ? input.persona.trim() : '';
+      (patch as Record<string, unknown>).persona = persona ? input.persona : undefined;
+    }
+    // #633: acceptedTypes（[] = 清空，与 skills 同口径）
+    if (input.acceptedTypes !== undefined) patch.acceptedTypes = input.acceptedTypes;
 
     await this.fileStore.updateProfile(id, patch);
     const updated = await this.fileStore.getProfile(id);
     if (!updated) throw new Error(`AgentProfile not found: ${id}`);
 
-    // F1: status transition (activate/deactivate) → AgentLoopRegistry mount/unmount
-    if (existing.status !== updated.status) {
-      eventBus.publish('agent-profile.updated', { profile: updated, previousStatus: existing.status });
+    // F1 + #634: 任何字段实际变更都发 agent-profile.updated（payload 带 changedFields），
+    // 不再只限 status 迁移——provider 变更静默落盘导致已挂载 loop 一直用构造期快照旧 CLI。
+    // registry 消费口径：status 迁移 → mount/unmount（既有行为不变）；
+    // active→active 且 changedFields 含 provider → 重挂（停旧 loop 等退出后以 store 现值重挂）。
+    const tracked = ['name', 'description', 'channels', 'provider', 'status', 'skills', 'persona', 'acceptedTypes'] as const;
+    const changedFields = tracked.filter(f =>
+      JSON.stringify(existing[f as keyof AgentProfileData] ?? null) !== JSON.stringify(updated[f as keyof AgentProfileData] ?? null));
+    if (changedFields.length > 0) {
+      eventBus.publish('agent-profile.updated', { profile: updated, previousStatus: existing.status, changedFields });
     }
     return updated;
   }
 
   async delete(id: string): Promise<void> {
-    // AC-1.5: 拒绝删除 studio 角色
+    // AC-1.5: 拒绝删除系统角色（#631 起按 kind 判定，历史记录由 isSystemRole 兜底）
     const existing = await this.fileStore.getProfile(id);
-    if (existing?.name === STUDIO_ROLE_NAME) {
+    if (existing && isSystemRole(existing)) {
       throw new Error(`studio role cannot be deleted`);
     }
 
@@ -348,6 +403,7 @@ export class AgentProfileService {
     // #497: 同步收敛 channel.routing 中指名该 profile 的档（归一化为 null，其他档不动）——
     // 否则悬空指名此后每次派生单都触发 fallback 提醒，配置漂移无人修。
     const channels = await this.fileStore.listChannels();
+    let channelTouched = false;
     for (const ch of channels) {
       const ids = parseChannels(ch.members);
       const memberHit = ids.includes(id);
@@ -360,7 +416,11 @@ export class AgentProfileService {
           ? { routing: Object.fromEntries(Object.entries(routing!).map(([k, v]) => [k, v === id ? null : v])) as ChannelData['routing'] }
           : {}),
       });
+      channelTouched = true;
     }
+    // 直写 fileStore.updateChannel 绕过 channel.service 的写后失效——补同款失效，
+    // 否则 GET /channels 30s apiCache 继续服务旧 members/routing（键同 invalidateListCache）
+    if (channelTouched) await clearCache('/api/v1/channels');
     // F1: notify AgentLoopRegistry (unmounts the loop)
     eventBus.publish('agent-profile.deleted', { profileId: id });
   }

@@ -22,6 +22,15 @@ import { parseWuMetadata } from '../../../workunit/wu-metadata.js';
 
 const { mockRun } = vi.hoisted(() => ({ mockRun: vi.fn() }));
 
+const { mockWriteStudioEvent } = vi.hoisted(() => ({ mockWriteStudioEvent: vi.fn() }));
+
+// studio-events 间谍包装：真实写盘保留（vitest 下 STUDIO_EVENTS_FILE 已隔离），另断言台账字段
+vi.mock('../../../../utils/studio-events.js', async (importOriginal) => {
+  const orig = await importOriginal() as { writeStudioEvent: (t: string, p: unknown, o?: unknown) => Promise<boolean> };
+  mockWriteStudioEvent.mockImplementation(orig.writeStudioEvent);
+  return { ...orig, writeStudioEvent: mockWriteStudioEvent };
+});
+
 vi.mock('../../system-executor.js', () => ({
   getSystemExecutor: () => ({ run: mockRun }),
 }));
@@ -82,7 +91,7 @@ let wuService: WorkUnitService;
 let agentLoop: AgentLoop;
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); // mockClear 只清调用记录，间谍仍委托真实写盘（STUDIO_EVENTS_FILE 已隔离）
   mockRun.mockResolvedValue({ output: 'FIT: yes: 属于本角色职能域' });
   testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-claim-fitness-'));
   fileStore = new FileStore(testDir);
@@ -378,6 +387,53 @@ describe('ensureClaimFit（认领前闸门）', () => {
     expect(await ensureClaimFit(wu)).toBe(false);
     const meta = parseWuMetadata((await wuService.getById(wu.id))!.metadata);
     expect(meta.unfitRoles).toBeUndefined();
+  });
+});
+
+describe('2026-09-25 判定台账（agent:claim_fitness 事件，后续优化数据源）', () => {
+  function fitnessEvents() {
+    return mockWriteStudioEvent.mock.calls.filter(c => c[0] === 'agent:claim_fitness');
+  }
+
+  it('涌现判定 → 落台账事件（wuId/roleId/fit/durationMs/wuType）', async () => {
+    const wu = await createUnassignedWu('普通后端单');
+    await ensureClaimFit(wu);
+
+    const events = fitnessEvents();
+    expect(events).toHaveLength(1);
+    const payload = events[0][1] as Record<string, unknown>;
+    expect(payload.wuId).toBe(wu.id);
+    expect(payload.roleId).toBe(SELF_ROLE_ID);
+    expect(payload.fit).toBe(true);
+    expect(payload.wuType).toBe('implement');
+    expect(typeof payload.durationMs).toBe('number');
+    expect(events[0][2]).toMatchObject({ source: 'claim-fitness' });
+  });
+
+  it('判 no → 台账带 fit=false 与 reason', async () => {
+    mockRun.mockResolvedValue({ output: 'FIT: no: 纯前端样式任务' });
+    const wu = await createUnassignedWu('调整按钮颜色');
+    await ensureClaimFit(wu);
+
+    const events = fitnessEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0][1]).toMatchObject({ fit: false, reason: '纯前端样式任务' });
+  });
+
+  it('判断调用失败从宽放行 → 台账仍落（fit=true，durationMs 即失败耗时）', async () => {
+    mockRun.mockRejectedValue(new Error('spawn failed'));
+    const wu = await createUnassignedWu('普通单');
+    await ensureClaimFit(wu);
+
+    const events = fitnessEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0][1]).toMatchObject({ fit: true });
+  });
+
+  it('显式指名 WU 不判 → 不落台账（无 LLM 成本可计）', async () => {
+    const wu = await createUnassignedWu('指名单', undefined, SELF_ROLE_ID);
+    await ensureClaimFit(wu);
+    expect(fitnessEvents()).toHaveLength(0);
   });
 });
 

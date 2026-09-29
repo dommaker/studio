@@ -9,13 +9,19 @@
 // 渲染边界（#348 契约不变）：动态订阅卡片自持（useRosterActivities 按 roleId 切片）——stream chunk
 // 只重渲本卡，他卡静态壳零重渲；memo + 稳定 props 让轮询驱动的页面重渲也跳过未变卡（#322 三件套）。
 // 「强制停止」不在卡面（§6.1 无操作位），能力保留在 AgentDetailPage 头部。
-import { memo } from 'react';
+// #630（ADR 2026-09-23 决策 6，修订 #397 §6.1「卡面无操作位」）：卡头加悬停 ⋯ 菜单
+// （编辑资料 / 编辑技能 / 删除，删除项对系统保留角色隐藏——服务端拒删 studio），
+// 菜单行形态复用 ChannelTopbarMenu 的类名体系（agd-* 族镜像 mc-topbar-menu-*）。
+// memo 契约（#348）：菜单开合是卡内局部 state、三个动作回调由页面以稳定引用传入（同 onOpenWu 先例），
+// 不传回调则不渲染菜单（测试 Host 沿用旧 props 形态）。
+import { memo, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useRosterActivities } from '../../stores/rosterActivityStore';
 import { AgentAvatar } from '../channel/AgentAvatar';
 import { IconAlertTriangle } from '../ui/icons';
 import type { RosterRole } from '../../hooks/useAgentRoster';
+import { isSystemRole } from '../../utils/systemRole';
 import type { WorkUnit } from '../../api/workunit';
 import {
   resolveCardStatusKey,
@@ -25,17 +31,36 @@ import {
   formatRelativeTime,
 } from '../../utils/agentStatus';
 
-export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, onOpenWu }: {
+export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, onOpenWu, onEditProfile, onEditSkills, onDelete }: {
   role: RosterRole;
   /** 空闲角色最近完成的 WU（页面按 roleId 切片传入，引用稳定） */
   lastDone: WorkUnit | null;
   channelNames: Record<string, string>;
   /** 批次 D-2 项7：WU 锚点/最近完成/动态行 → 开就地 WU 抽屉（页面须传稳定引用，memo 契约） */
   onOpenWu: (wuId: string) => void;
+  /** #630 决策 6：卡头 ⋯ 菜单动作（页面宿主弹框；须稳定引用，memo 契约）。三者皆缺 → 不渲染菜单 */
+  onEditProfile?: (role: RosterRole) => void;
+  onEditSkills?: (role: RosterRole) => void;
+  onDelete?: (role: RosterRole) => void;
 }) {
   const activities = useRosterActivities(role.profile.id);
   const { profile, runtime } = role;
-  const isSystemRole = profile.name === 'studio';
+  const systemRole = isSystemRole(profile);
+  // ⋯ 菜单开合（卡内局部 state，不触父级——#348 memo 口径不变）
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const hasMenu = Boolean(onEditProfile || onEditSkills || onDelete);
+
+  // 点击组件外部收起（ChannelTopbarMenu 同款模式）
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node)) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
   const wu = runtime?.currentWorkUnit ?? null;
   const statusKey = resolveCardStatusKey(profile.status, runtime?.status ?? null, wu?.status);
   const displayKey = CARD_TO_DISPLAY_STATUS[statusKey];
@@ -56,9 +81,43 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
         <Link to={`/agents/${profile.id}`} className="agd-name u-text u-hover-accent agd-ellipsis">
           {profile.name}
         </Link>
-        {isSystemRole && <span className="agd-chip">系统</span>}
+        {systemRole && <span className="agd-chip">系统</span>}
         <span className="agd-chip" title="背后的 CLI">{profile.provider ?? '未配置'}</span>
         {runtime && <span className="agd-num u-text-3" data-visual-ignore>{formatUptime(runtime.startedAt)}</span>}
+        {/* #630 决策 6：悬停 ⋯ 菜单（agd-* 族镜像 mc-topbar-menu 类名体系；删除项对系统角色隐藏） */}
+        {hasMenu && (
+          <div className="agd-menu-wrap" ref={menuRef}>
+            <button
+              type="button"
+              className="agd-menu-btn u-text-3"
+              aria-label="角色操作"
+              aria-expanded={menuOpen}
+              data-testid="role-card-menu-btn"
+              onClick={() => setMenuOpen(v => !v)}
+            >
+              ⋯
+            </button>
+            {menuOpen && (
+              <div className="agd-menu" data-testid="role-card-menu">
+                {onEditProfile && (
+                  <button type="button" className="agd-menu-item" onClick={() => { setMenuOpen(false); onEditProfile(role); }}>
+                    编辑资料
+                  </button>
+                )}
+                {onEditSkills && (
+                  <button type="button" className="agd-menu-item" onClick={() => { setMenuOpen(false); onEditSkills(role); }}>
+                    编辑技能
+                  </button>
+                )}
+                {onDelete && !systemRole && (
+                  <button type="button" className="agd-menu-item agd-menu-item-danger" onClick={() => { setMenuOpen(false); onDelete(role); }}>
+                    删除
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </header>
 
       {/* ② 视觉锚点：在做什么 / 空态 */}

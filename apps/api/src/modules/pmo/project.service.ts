@@ -400,25 +400,6 @@ export const projectService = {
     return projects.find(p => p.reqAlias === reqId) || null;
   },
 
-  /**
-   * 决策 2：频道杂务 PMO —— find-or-create（同频道幂等）。
-   * 小活归集的长期分支；deliveryPolicy 固定 branch-only，状态直接 active。
-   */
-  async ensureChoreProject(channelId: string, channelName?: string | null): Promise<ProjectData> {
-    const projects = await readAllProjects();
-    const existing = projects.find(p => p.isChore === true && p.channelId === channelId);
-    if (existing) return existing;
-    const project = await this.create({
-      title: `杂务 · ${channelName ?? channelId}`,
-      description: '频道杂务 PMO（决策 2）：小活归集的常青容器，需求级工作请单建 PMO',
-      deliveryPolicy: 'branch-only',
-      isChore: true,
-      channelId,
-    });
-    // 杂务 PMO 直接 active（不等 publish；进度回写不读 pending，但 active 语义更正）
-    return this.updateStatus(project.id, PROJECT_STATUS.ACTIVE, true);
-  },
-
   /** 决策 2 读取路径：只查不建（热路径零副作用——找不到返回 null 走 legacy） */
   async findChoreProject(channelId: string): Promise<ProjectData | null> {
     const projects = await readAllProjects();

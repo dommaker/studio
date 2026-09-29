@@ -174,6 +174,13 @@ describe('buildExecutionStepEvent', () => {
     expect(buildExecutionStepEvent(base)!).not.toHaveProperty('sessionResumed');
   });
 
+  it('#639: cliSessionId 透传（有值落 payload；缺省 → 无该键）', () => {
+    const raw = streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]);
+    const base = { workUnitId: 'w', executionId: 'e', step: 1, events: parseStreamEvents(raw) };
+    expect(buildExecutionStepEvent({ ...base, cliSessionId: 'session_6bc14e1d' })!.cliSessionId).toBe('session_6bc14e1d');
+    expect(buildExecutionStepEvent(base)!).not.toHaveProperty('cliSessionId');
+  });
+
   it('#172（#60 决策）：status 缺省 success；failed 携带 errorType/errorDetail', () => {
     const raw = streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]);
     const base = { workUnitId: 'w', executionId: 'e', step: 1, events: parseStreamEvents(raw) };

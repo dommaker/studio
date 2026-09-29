@@ -63,19 +63,19 @@ describe('buildSpawnArgs', () => {
       expect(result.args).not.toContain('--session-id');
     });
 
-    it('kimi: resume 改 --continue（cwd 维度续用，0.29.0 实测；Studio UUID 不接）', () => {
-      const result = buildSpawnArgs('kimi', { worktreeDir: '/tmp/test', sessionId: '01HZX', sessionResume: true });
-      expect(result.args).toEqual(['--output-format', 'stream-json', '--continue']);
+    it('kimi: resume 按 CLI 真实会话号传 --session <id>（#639 方向 D；0.29.0 实测未知 id 报 Session not found → #94 降级兜底）', () => {
+      const result = buildSpawnArgs('kimi', { worktreeDir: '/tmp/test', sessionId: 'session_6bc14e1d', sessionResume: true });
+      expect(result.args).toEqual(['--output-format', 'stream-json', '--session', 'session_6bc14e1d']);
     });
 
-    it('codex: resume 改 exec resume --last（cwd 过滤最新会话；仅 --help 实证）', () => {
-      const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: 'sess-123', sessionResume: true });
-      expect(result.args).toEqual(['exec', 'resume', '--last', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS]);
+    it('codex: resume 按 CLI 真实会话号走 exec resume <id>（#639 方向 D，取代 exec resume --last）', () => {
+      const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: '019ffaa8-a378-79e2-af4f-f618e93d4442', sessionResume: true });
+      expect(result.args).toEqual(['exec', 'resume', '019ffaa8-a378-79e2-af4f-f618e93d4442', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS]);
     });
 
-    it('opencode: resume 改 --continue（cwd 维度续用，1.18.4 实测；Studio UUID 不接）', () => {
-      const result = buildSpawnArgs('opencode', { worktreeDir: '/tmp/test', sessionId: 'sess-123', sessionResume: true });
-      expect(result.args).toEqual(['run', '--format', 'json', '--continue']);
+    it('opencode: resume 按 CLI 真实会话号传 --session <id>（#639 方向 D；1.18.32 实测按 id 续用成功）', () => {
+      const result = buildSpawnArgs('opencode', { worktreeDir: '/tmp/test', sessionId: 'ses_0058', sessionResume: true });
+      expect(result.args).toEqual(['run', '--format', 'json', '--session', 'ses_0058']);
     });
   });
 
@@ -155,14 +155,14 @@ describe('buildSpawnArgs', () => {
       expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS]);
     });
 
-    it('AC1: resume 路径（exec resume --last）同样过滤', () => {
+    it('AC1: resume 路径（exec resume <id>）同样过滤', () => {
       const result = buildSpawnArgs('codex', {
         worktreeDir: '/tmp/test',
         sessionId: 'sess-123',
         sessionResume: true,
         supportedFlags: new Set(['--json']),
       });
-      expect(result.args).toEqual(['exec', 'resume', '--last', '--json', ...CODEX_SAFETY_CONFIG_ARGS]);
+      expect(result.args).toEqual(['exec', 'resume', 'sess-123', '--json', ...CODEX_SAFETY_CONFIG_ARGS]);
     });
 
     it('AC2: 不传 supportedFlags（探测失败 fail-open）argv 与现状逐字节一致', () => {

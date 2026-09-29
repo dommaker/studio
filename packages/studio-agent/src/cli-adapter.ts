@@ -15,21 +15,21 @@
  * 新建：仅 claude 传 --session-id 建会话；kimi/codex/opencode 的 session 参数是续用
  * 语义，新建传未使用 id 会直接报错 → 一律丢弃（CLI 自建会话）。
  *
- * 续用 (sessionResume=true)：sessionId 指向已存在会话。但 Studio 持有的 sessionId 是
- * 自建 UUID，CLI 并不认识 —— kimi/opencode/codex 只能靠 CLI 自己的 cwd 维度会话记录
- * 续用（B3b-i 每 WU 独立 worktree = 独立 cwd，agent HOME 按 profile 隔离，cwd 维度
- * 恰好命中"同一 agent 在同一 WU 的上一次会话"）：
+ * 续用 (sessionResume=true)：sessionId 是 CLI 真实会话号（#639 方向 D，档案
+ * metadata.cliSessionId，由 extractCliSessionId 从本步流内解析落盘），按 id 形态
+ * 点名接——不再走 cwd 维度「接最新」（kimi/opencode --continue、codex exec resume
+ * --last 已于 #639 撤除：非代码 WU 共享 cwd 时交错执行静默接错别家会话，见 #637）：
  *   claude 2.1.80  — --resume <id>（既有实测：--session-id 撞已存在 id 报 already in use）
- *   kimi 0.29.0    — --continue（实测：续用 cwd 上一会话成功；cwd 无前会话时优雅新开不报错）
- *   opencode 1.18.4 — --continue（实测：cwd 维度续用成功；异 cwd 不串会话、无前会话新开）
- *   codex 0.144.4  — exec resume --last（2026-07-28 运行实证，CODEX_HOME 隔离 +
- *                    volcengine-agent-plan responses wire：① stdin 投 prompt 无需 `-` 占位；
- *                    ② 同 cwd 命中最新会话、上下文连续（cached tokens + 暗号记忆）；
- *                    ③ 异 cwd 过滤生效不串会话，该 cwd 无前会话时优雅新开不报错（exit 0，
- *                    与 kimi/opencode --continue 同构）。
- *                    ⚠️ 本机默认 ~/.codex/config.toml（DeepSeek wire_api=chat）在 0.144.4
- *                    连配置加载都失败（启动即拒 "no longer supported"，-c 覆盖无法绕过），
- *                    跑 codex 需先把 provider 换成 wire_api=responses 的可用网关）
+ *   kimi 0.29.0    — --session <id>（实测未知 id 报 Session not found → 走 #94 降级链）
+ *   opencode 1.18.32 — --session <id>（#639 冒烟实测：按 id 续用成功，上下文连续）
+ *   codex 0.154.0  — exec resume <id>（子命令经 resumeArgs 模板 {sessionId} 占位注入）
+ * 编号失效（Session not found / No conversation found）→ #94 降级链换新会话 +
+ * #95 前序进展段交接，无新机制。
+ *
+ * 会话池隔离口径（#637 探查实证，取代旧版「agent HOME 按 profile 隔离 / CODEX_HOME
+ * 隔离」过时注释）：实测无 per-profile HOME——kimi/opencode/codex 的会话存储均为
+ * 机器全局 × cwd 维度（codex rollout 文件 ~/.codex/sessions、opencode 会话库
+ * ~/.local/share/opencode），这正是 cwd 维度续用会跨 WU 串扰的根因。
  */
 
 import { resolveProviderDefinition, buildArgsFromTemplate, type ProviderId, type ProviderDefinition } from '@dommaker/studio-shared/node';
@@ -42,9 +42,9 @@ export interface SpawnParams {
   /** Session ID for persistent sessions */
   sessionId?: string;
   /**
-   * true = sessionId 指向已存在会话（续用）；缺省/false = 新建语义。
-   * claude 换 --resume <id>；kimi/opencode/codex 忽略 id 改走 cwd 维度续用
-   * （--continue / exec resume --last，见文件头实证记录）。
+   * true = sessionId 指向已存在的 CLI 真实会话（续用）；缺省/false = 新建语义。
+   * claude 换 --resume <id>；kimi/opencode 传 --session <id>、codex 走 exec resume <id>
+   * —— 均为 id 形态点名续用（#639 方向 D，cwd 维度 --continue/--last 已撤除，见文件头）。
    */
   sessionResume?: boolean;
   /** Max turns for the agent */
@@ -62,17 +62,6 @@ export interface SpawnArgs {
   /** Arguments array */
   args: string[];
 }
-
-/**
- * 续用时的 flag 覆盖（取代模板的 id 形态）：
- * claude 是 id 续用（--resume <id>，按 HOME+cwd 存储）；kimi/opencode 是 cwd 维度
- * 续用（--continue，不接 id）。codex 走子命令形态，不在此表（见 buildSpawnArgs）。
- */
-const RESUME_FLAG_OVERRIDES: Record<string, string> = {
-  claude: '--resume',
-  kimi: '--continue',
-  opencode: '--continue',
-};
 
 /**
  * session 参数为续用语义的 provider：新建时绝不能把 sessionId 传给 CLI
@@ -109,20 +98,18 @@ export function buildSpawnArgs(provider: Provider, params: SpawnParams): SpawnAr
   const command = def.binaries[0] || provider;
 
   if (params.sessionId && params.sessionResume) {
-    // codex：子命令形态 exec resume --last（cwd 过滤的最新会话）——'--last' 经 {sessionId}
-    // 占位注入 resumeArgs 模板，保留模板对 model/add-dir 等 flag 的处理；Studio UUID 忽略。
-    if (provider === 'codex') {
-      const { args } = buildArgsFromTemplate(def, { sessionId: '--last', maxTurns: params.maxTurns });
-      return { command, args: filterConditionalArgs(def, args, params.supportedFlags) };
-    }
-    const resumeFlag = RESUME_FLAG_OVERRIDES[provider];
-    if (resumeFlag) {
-      // claude 接 id；kimi/opencode 的 --continue 无值（cwd 维度续用）
+    // claude：--resume <id>（baseArgs 保留 --print/--output-format 等，模板 sessionIdFlag
+    // --session-id 是 create-only 语义，撞已存在 id 报 already in use → 不能走模板 id 形态）
+    if (provider === 'claude') {
       const { args } = buildArgsFromTemplate(def, { maxTurns: params.maxTurns });
-      args.push(resumeFlag, ...(provider === 'claude' ? [params.sessionId] : []));
+      args.push('--resume', params.sessionId);
       return { command, args: filterConditionalArgs(def, args, params.supportedFlags) };
     }
-    // 未覆盖的 provider（openclaw/generic）：回落模板 id 形态（未验证，保持旧行为）
+    // kimi/opencode/codex：模板原生 id 形态点名续用（kimi/opencode sessionIdFlag
+    // --session <id>；codex resumeArgs exec resume {sessionId}）。sessionId 必须是
+    // CLI 真实会话号（#639：调用方只在大档案有 cliSessionId 时才置 sessionResume）。
+    const { args } = buildArgsFromTemplate(def, { sessionId: params.sessionId, maxTurns: params.maxTurns });
+    return { command, args: filterConditionalArgs(def, args, params.supportedFlags) };
   }
 
   // 新建：resume-only provider 丢弃 sessionId（传了会报 Session not found）

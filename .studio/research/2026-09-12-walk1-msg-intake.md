@@ -2,7 +2,7 @@
 
 - 工单：#506（Part of #504）
 - 日期：2026-09-12
-- 方法：读代码为主 + 本地 bench（脚本 `bench-msg-intake.mts`，随本报告同分支；运行方式 `/root/projects/studio/node_modules/.bin/tsx bench-msg-intake.mts`，真实 `~/.studio` 只读、写测全在 tmp）
+- 方法：读代码为主 + 本地 bench（脚本 `bench-msg-intake.mts`，随本报告同分支；运行方式 `~/projects/studio/node_modules/.bin/tsx bench-msg-intake.mts`，真实 `~/.studio` 只读、写测全在 tmp）
 - 机器口径：本机 Linux，studio 仓 `git ls-files` 2099 条，真实数据 = 3 频道（最大 492 行/272KB）、workunits index 49 快照、sessions.json 592KB/966 条
 
 ## 结论先行
@@ -39,7 +39,7 @@
 ### 4. 嫌疑点⑧：file-ref-vocabulary 词表（`file-ref-vocabulary.ts`）
 
 - 机制：`vocabCache` 进程内存 Map，TTL 60s（`:122`、`:146-148`）；miss → `execFile('git', ['ls-files'])`（`:130-141`）在请求路径同步 await（`:151`、`:284`）；失败（非 git 仓）空词表且**失败同样入缓存**防反复 spawn（`:152-158`）。
-- 实测（#研发频道，候选集 = `/root/projects/studio`，2099 个被跟踪文件）：
+- 实测（#研发频道，候选集 = `~/projects/studio`，2099 个被跟踪文件）：
   - `git ls-files` 子进程：p50 **3.42ms**，p95 7.23ms，max 8.69ms（n=30）
   - `validateFileRefs` cold（清缓存 → 请求路径 spawn）：**5.34ms**；warm（TTL 内）：p50 **0.96ms**
   - `computeCandidateRepos` cold 13.18ms（首批 FileStore 读未暖）/ warm p50 0.97ms

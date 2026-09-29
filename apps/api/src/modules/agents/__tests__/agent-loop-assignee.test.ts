@@ -114,6 +114,12 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
     expect(target?.workUnit.id).toBe(wu.id);
 
     // 认领（与 runLoop 相同的路径）：flock claim → active + assigneeId=instanceId
+    // B6：claim 锁内校验指名人——认领方 roleId 须命中指名，生产 loop 实例必有 state，此处补种
+    await fileStore.createState(SELF_INSTANCE_ID, {
+      id: SELF_INSTANCE_ID, roleId: SELF_ROLE_ID, sessionId: null, status: 'active',
+      currentWorkUnitId: null, startedAt: new Date().toISOString(), terminatedAt: null,
+      lastHeartbeat: null, metadata: null,
+    });
     const claimed = await wuService.claim(target!.workUnit.id, SELF_INSTANCE_ID);
     expect(claimed.status).toBe('active');
     expect(claimed.assigneeId).toBe(SELF_INSTANCE_ID);

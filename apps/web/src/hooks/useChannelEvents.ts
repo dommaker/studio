@@ -4,7 +4,7 @@
 // 本 hook 退为薄接线：状态全在 store（per-channelId 切片），此处只保留
 // 取数时机（useGatedPoll/频道切换重拉）与 SSE 订阅路由；对外契约形状不变。
 import { useEffect, useCallback, useRef } from 'react';
-import { type ChannelMessage, type FileRef } from '../api/channel';
+import { type ChannelMessage, type FileRef, type SendIntent } from '../api/channel';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useGatedPoll } from './useGatedPoll';
 import { useChannelMessageStore, type MessageUpdatedPayload } from '../stores/channelMessageStore';
@@ -68,9 +68,9 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
 
   // #486：乐观回显本体在 store action（pending 插入 / 成功原位替换 / 失败回滚上抛）；
   // ChannelInput 回灌草稿 + toast 的既有路径不变
-  const sendMessage = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
+  const sendMessage = useCallback(async (content: string, replyToId?: string, files?: FileRef[], intent?: SendIntent) => {
     if (!channelId) return null;
-    return useChannelMessageStore.getState().sendMessage(channelId, content, replyToId, files);
+    return useChannelMessageStore.getState().sendMessage(channelId, content, replyToId, files, intent);
   }, [channelId]);
 
   // #290（清单 #22）：返回是否真实前插（供调用方在失败/无更多时清理行锚点，防视口乱跳）

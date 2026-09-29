@@ -23,7 +23,7 @@
 | `task.tools.ts` | 5 | getTaskBoard / createTask / assignTask / updateTaskStatus / getTaskStats |
 | `economy.tools.ts` | 1 | getBalance |
 | `spec.tools.ts` | 4 | createSpec / approveSpec / getSpecStatus / listSpecs |
-| `safety.tools.ts` | 1 | checkConstraint（checkGuardrail/getSandboxLevel 已随 harness 1.2.0 ADR-0003 删除） |
+| `safety.tools.ts` | 1 | checkConstraint（checkGuardrail/getSandboxLevel 已随 harness 1.2.0 ADR-0003 删除；#641 起剥离调用方自报的 has* 证据标志，降级标注 strippedEvidenceFlags；1.15.0 适配：捕获 ConstraintViolationError → allowed=false + violations + violationPartialView 部分视图，harnessUnavailable 只留给真实调不通 harness） |
 | `system.tools.ts` | 2 | systemHealth / emitEvent |
 | `devops.tools.ts` | 1 | publishPackage |
 | `skill.tools.ts` | 1 | loadSkill |

@@ -1,5 +1,6 @@
-// useChannelLiveExecutions — #242 频道 live 状态条数据源：
-// 初始 active 列表 + status_changed 增删 + execution.step 更新步号（推导在 execution-rows）
+// useChannelLiveExecutions — #242 频道 live 状态条数据源
+// B3（2026-09 频道前端效率批）：active 集从 channelWorkStore.wus 派生（不再独立 REST 打底），
+// 本 hook 只剩 step 事件簿记（含等值守卫/频道过滤/终态清理）；推导在 execution-rows
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
@@ -17,6 +18,17 @@ vi.mock('../../api/workunit', () => ({
 }));
 
 import { useChannelLiveExecutions } from '../useChannelLiveExecutions';
+import { useChannelWorkStore } from '../../stores/channelWorkStore';
+import type { WorkUnit } from '../../api/workunit';
+
+const wuRow = (id: string, over: Partial<WorkUnit> = {}): WorkUnit => ({
+  id, parentId: null, dependsOn: '', type: 'task', scope: `任务${id}`,
+  assigneeId: null, status: 'active', failureType: null, retryCount: 0,
+  timeoutAt: null, channelId: 'ch-1', metadata: null,
+  createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+  claimedAt: null, completedAt: null,
+  ...over,
+});
 
 const statusChanged = (id: string, status: string, channelId = 'ch-1', metadata = '{}') => ({
   event_type: 'workunit.status_changed',
@@ -33,32 +45,39 @@ describe('useChannelLiveExecutions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     handler = null;
+    useChannelWorkStore.getState().__resetForTests();
     mockOnEvent.mockImplementation((h: (m: unknown) => void) => { handler = h; return () => {}; });
     mockList.mockResolvedValue({ data: { data: [] } });
   });
 
-  it('初始拉取本频道 active WU（步号回退 metadata.stepCount）', async () => {
-    mockList.mockResolvedValue({ data: { data: [{ id: 'WU-1', metadata: JSON.stringify({ stepCount: 2 }) }] } });
+  it('active 集从 channelWorkStore.wus 派生（步号回退 metadata.stepCount）；不再发 status=active 查询', async () => {
+    mockList.mockResolvedValue({ data: { data: [
+      wuRow('WU-1', { metadata: JSON.stringify({ stepCount: 2 }) }),
+      wuRow('WU-2', { status: 'done' }),
+    ] } });
     const { result } = renderHook(() => useChannelLiveExecutions('ch-1'));
     await waitFor(() => expect(result.current).toEqual([{ workUnitId: 'WU-1', step: 2 }]));
-    expect(mockList).toHaveBeenCalledWith({ channelId: 'ch-1', status: 'active', limit: 100 });
+    // 唯一查询 = store 的全集打底（无 status 参数），不再有独立的 active 查询
+    expect(mockList).toHaveBeenCalledTimes(1);
+    expect(mockList).toHaveBeenCalledWith({ channelId: 'ch-1', limit: 100 });
   });
 
-  it('status_changed：active 加入、终态移出；他频道忽略', async () => {
+  it('store 快照落库驱动增删（active 出现、终态移出）；他频道 snapshot 不进本频道集', async () => {
     const { result } = renderHook(() => useChannelLiveExecutions('ch-1'));
     await waitFor(() => expect(mockList).toHaveBeenCalled());
-    act(() => { handler!(statusChanged('WU-1', 'active', 'ch-1', JSON.stringify({ stepCount: 1 }))); });
+    act(() => useChannelWorkStore.getState().applyWorkunitSnapshot('ch-1',
+      wuRow('WU-1', { metadata: JSON.stringify({ stepCount: 1 }) })));
     expect(result.current).toEqual([{ workUnitId: 'WU-1', step: 1 }]);
-    act(() => { handler!(statusChanged('WU-9', 'active', 'ch-other')); });
+    act(() => useChannelWorkStore.getState().applyWorkunitSnapshot('ch-other', wuRow('WU-9', { channelId: 'ch-other' })));
     expect(result.current).toHaveLength(1);
-    act(() => { handler!(statusChanged('WU-1', 'done')); });
+    act(() => useChannelWorkStore.getState().applyWorkunitSnapshot('ch-1', wuRow('WU-1', { status: 'done' })));
     expect(result.current).toEqual([]);
   });
 
   it('execution.step 事件更新步号（SSE 优先于 metadata）', async () => {
+    mockList.mockResolvedValue({ data: { data: [wuRow('WU-1', { metadata: JSON.stringify({ stepCount: 1 }) })] } });
     const { result } = renderHook(() => useChannelLiveExecutions('ch-1'));
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
-    act(() => { handler!(statusChanged('WU-1', 'active', 'ch-1', JSON.stringify({ stepCount: 1 }))); });
+    await waitFor(() => expect(result.current).toHaveLength(1));
     act(() => { handler!(stepEvent('WU-1', 4, 'progress')); });
     expect(result.current).toEqual([{ workUnitId: 'WU-1', step: 4, action: 'progress' }]);
   });
@@ -69,22 +88,23 @@ describe('useChannelLiveExecutions', () => {
     await waitFor(() => expect(mockList).toHaveBeenCalled());
     act(() => { handler!(stepEvent('WU-9', 9, undefined, 'ch-other')); });
     // WU-9 后转入本频道：若他频道步未被过滤，步号会错显 9 而非 metadata.stepCount
-    act(() => { handler!(statusChanged('WU-9', 'active', 'ch-1', JSON.stringify({ stepCount: 1 }))); });
+    act(() => useChannelWorkStore.getState().applyWorkunitSnapshot('ch-1',
+      wuRow('WU-9', { metadata: JSON.stringify({ stepCount: 1 }) })));
     expect(result.current).toEqual([{ workUnitId: 'WU-9', step: 1 }]);
   });
 
   it('本频道 step 事件（带 channelId）正常进步索引', async () => {
+    mockList.mockResolvedValue({ data: { data: [wuRow('WU-1')] } });
     const { result } = renderHook(() => useChannelLiveExecutions('ch-1'));
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
-    act(() => { handler!(statusChanged('WU-1', 'active', 'ch-1')); });
+    await waitFor(() => expect(result.current).toHaveLength(1));
     act(() => { handler!(stepEvent('WU-1', 5, undefined, 'ch-1')); });
     expect(result.current).toEqual([{ workUnitId: 'WU-1', step: 5 }]);
   });
 
   it('step 事件缺 channelId（旧后端）→ 不过滤，保持现状行为', async () => {
+    mockList.mockResolvedValue({ data: { data: [wuRow('WU-1')] } });
     const { result } = renderHook(() => useChannelLiveExecutions('ch-1'));
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
-    act(() => { handler!(statusChanged('WU-1', 'active', 'ch-1')); });
+    await waitFor(() => expect(result.current).toHaveLength(1));
     act(() => { handler!(stepEvent('WU-1', 6)); });
     expect(result.current).toEqual([{ workUnitId: 'WU-1', step: 6 }]);
   });
@@ -96,15 +116,16 @@ describe('useChannelLiveExecutions', () => {
     await waitFor(() => expect(mockList).toHaveBeenCalled());
     act(() => { handler!(stepEvent('WU-9', 9)); }); // 缺 channelId，向后兼容路径进入 steps
     act(() => { handler!(statusChanged('WU-9', 'done', 'ch-other')); }); // 他频道终态 → 清理残留
-    act(() => { handler!(statusChanged('WU-9', 'active', 'ch-1', JSON.stringify({ stepCount: 2 }))); });
+    act(() => useChannelWorkStore.getState().applyWorkunitSnapshot('ch-1',
+      wuRow('WU-9', { metadata: JSON.stringify({ stepCount: 2 }) })));
     expect(result.current).toEqual([{ workUnitId: 'WU-9', step: 2 }]); // 残留未清会错显 9
   });
 
   // F3 等值守卫：同 wuId 内容等值的 step 事件不再触发 setState（无新渲染，返回引用不变）
   it('等值 step 事件跳过 setState（结果引用不变）；变化事件仍生效', async () => {
+    mockList.mockResolvedValue({ data: { data: [wuRow('WU-1')] } });
     const { result } = renderHook(() => useChannelLiveExecutions('ch-1'));
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
-    act(() => { handler!(statusChanged('WU-1', 'active')); });
+    await waitFor(() => expect(result.current).toHaveLength(1));
     act(() => { handler!(stepEvent('WU-1', 5, 'progress')); });
     const before = result.current;
     act(() => { handler!(stepEvent('WU-1', 5, 'progress')); }); // step+action 全等值
@@ -113,13 +134,15 @@ describe('useChannelLiveExecutions', () => {
     expect(result.current).toEqual([{ workUnitId: 'WU-1', step: 6, action: 'progress' }]);
   });
 
-  it('channelId 切换 → 清空重拉', async () => {
+  it('channelId 切换 → 步索引清空，live 集跟随新频道 slice', async () => {
+    mockList.mockImplementation(({ channelId }: { channelId: string }) => Promise.resolve({
+      data: { data: channelId === 'ch-1' ? [wuRow('WU-1')] : [] },
+    }));
     const { result, rerender } = renderHook(({ id }) => useChannelLiveExecutions(id), { initialProps: { id: 'ch-1' as string | null } });
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
-    act(() => { handler!(statusChanged('WU-1', 'active')); });
-    expect(result.current).toHaveLength(1);
+    await waitFor(() => expect(result.current).toHaveLength(1));
     rerender({ id: 'ch-2' });
     expect(result.current).toEqual([]);
+    await act(async () => {}); // ch-2 打底落库（空集），防 act 外异步更新告警
   });
 
   it('channelId 为 null → 不拉取不订阅', () => {

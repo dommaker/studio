@@ -265,6 +265,25 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       expect(await store.claimWorkUnit('nonexistent', 'agent1')).toBe(false);
     });
 
+    it('B6 指名守卫（锁内）：assigneeId 非空且与认领方/认领方 roleId 均不匹配 → false 且不改写', async () => {
+      await seedWu(makeWuSnapshot('wu1', { assigneeId: 'profile-x' }));
+
+      expect(await store.claimWorkUnit('wu1', 'user-human')).toBe(false);
+      // 认领方 roleId 命中指名 → 放行（运行实例认领略径）
+      expect(await store.claimWorkUnit('wu1', 'inst-1', { assigneeRoleId: 'profile-x' })).toBe(true);
+
+      const [wu] = await store.getIndex();
+      expect(wu.assigneeId).toBe('inst-1');
+      // 被拒那次不产生 claimed 事件
+      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      expect(events.filter(e => e.type === 'claimed')).toHaveLength(1);
+    });
+
+    it('B6 指名守卫：认领方 id 与指名 id 相同 → 放行', async () => {
+      await seedWu(makeWuSnapshot('wu1', { assigneeId: 'agent1' }));
+      expect(await store.claimWorkUnit('wu1', 'agent1')).toBe(true);
+    });
+
     it('并发 claim 同一 WU 仅一个成功（flock 互斥）', async () => {
       await seedWu(makeWuSnapshot('wu1'));
       const results = await Promise.all([
@@ -295,6 +314,27 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
     it('撕裂 index → claim 抛错而非幻影 false', async () => {
       writeTornIndex();
       await expect(store.claimWorkUnit('wu1', 'agent1')).rejects.toThrow(indexPath());
+    });
+
+    it('opts.timeoutAt 锁内写入：index / claimed 事件 / rebuild 三处一致（2026-09 claim 单锁单写）', async () => {
+      const lease = new Date(Date.now() + 300_000).toISOString();
+      await seedWu(makeWuSnapshot('wu1'));
+
+      const ok = await store.claimWorkUnit('wu1', 'agent1', { timeoutAt: lease });
+      expect(ok).toBe(true);
+
+      const [wu] = await store.getIndex();
+      expect(wu.timeoutAt).toBe(lease);
+
+      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const claimed = events.filter(e => e.type === 'claimed');
+      expect(claimed).toHaveLength(1);
+      expect(claimed[0].data).toMatchObject({ timeoutAt: lease });
+      // 单锁单写：claim 不产生第二条 updated 事件
+      expect(events.filter(e => e.type === 'updated')).toHaveLength(0);
+
+      const rebuilt = await store.rebuildIndex();
+      expect(rebuilt[0].timeoutAt).toBe(lease);
     });
 
     it('claim 带 assigneeRoleId 快照：index / claimed 事件 / rebuild 三处都保留', async () => {

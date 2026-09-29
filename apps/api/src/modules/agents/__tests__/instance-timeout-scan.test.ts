@@ -9,6 +9,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, type RuntimeStateData } from '@dommaker/studio-shared';
+import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { parseWuMetadata } from '../../workunit/wu-metadata.js';
+import { MAX_TIMEOUT_RELEASES } from '../../workunit/timeout-release.js';
 
 const { mockDispatch } = vi.hoisted(() => ({ mockDispatch: vi.fn() }));
 
@@ -141,5 +144,89 @@ describe('#363: terminated 实例统一回收（跨角色，清理职责收进 s
 
     expect(result.reclaimed).toBe(0);
     expect((await fileStore.getState('live'))!.status).toBe('active');
+  });
+});
+
+describe('2026-09 性能治理：terminate 死实例连带释放其持有的 active WU', () => {
+  let wuService: WorkUnitService;
+  let channelId: string;
+
+  beforeEach(async () => {
+    wuService = new WorkUnitService(fileStore);
+    channelId = `ch-dead-inst-${Date.now()}`;
+    await fileStore.createChannel({
+      id: channelId, name: '#dead-inst-test', type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null, members: '[]',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+  });
+
+  async function createHeldWu(instanceId: string, type = 'task', metadata?: WorkUnitMetadata) {
+    return wuService.create({
+      scope: `${type} 单`, channelId, type,
+      status: 'active', assigneeId: instanceId,
+      ...(metadata ? { metadata } : {}),
+    });
+  }
+
+  it('死实例（pid 复核通过）terminate 后，其 active WU 立即释放回 unassigned（不等 5min 租约）', async () => {
+    const instId = 'inst-dead-holder';
+    await fileStore.createState(instId, makeState(instId, { pid: 2 ** 22 + 12347 }));
+    const wu = await createHeldWu(instId);
+
+    const result = await scanStaleAgentInstances(fileStore);
+
+    expect(result.terminated).toBe(1);
+    expect(result.releasedWorkUnits).toBe(1);
+    const after = (await wuService.getById(wu.id))!;
+    expect(after.status).toBe('unassigned');
+    expect(after.assigneeId).toBeNull();
+    expect(after.timeoutAt).toBeNull();
+    const meta = parseWuMetadata(after.metadata);
+    expect(meta.timeoutReleaseCount).toBe(1);
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    expect(messages.some(m => m.content.includes('持有实例已终止'))).toBe(true);
+  });
+
+  it('释放计数达 MAX_TIMEOUT_RELEASES → 转 blocked 不再回池（与 timeout-release 同口径）', async () => {
+    const instId = 'inst-dead-cap';
+    await fileStore.createState(instId, makeState(instId, { pid: 2 ** 22 + 12348 }));
+    const wu = await createHeldWu(instId, 'task', {
+      timeoutReleaseCount: MAX_TIMEOUT_RELEASES - 1,
+    });
+
+    const result = await scanStaleAgentInstances(fileStore);
+
+    expect(result.releasedWorkUnits).toBe(1);
+    const after = (await wuService.getById(wu.id))!;
+    expect(after.status).toBe('blocked');
+    expect(parseWuMetadata(after.metadata).blockReason).toContain('不再回池');
+  });
+
+  it('decision/plan 单豁免（人工等待类，无 holder 心跳概念）', async () => {
+    const instId = 'inst-dead-decision';
+    await fileStore.createState(instId, makeState(instId, { pid: 2 ** 22 + 12349 }));
+    const wu = await createHeldWu(instId, 'decision');
+
+    const result = await scanStaleAgentInstances(fileStore);
+
+    expect(result.terminated).toBe(1); // 实例照收
+    expect(result.releasedWorkUnits).toBe(0); // 但 WU 不动
+    const after = (await wuService.getById(wu.id))!;
+    expect(after.status).toBe('active');
+    expect(after.assigneeId).toBe(instId);
+  });
+
+  it('心跳过期但 pid 活（FileStore 故障嫌疑）→ 不 terminate 也不释放 WU', async () => {
+    const instId = 'inst-alive-holder';
+    await fileStore.createState(instId, makeState(instId, { pid: process.pid }));
+    const wu = await createHeldWu(instId);
+
+    const result = await scanStaleAgentInstances(fileStore);
+
+    expect(result.skippedAlive).toBe(1);
+    expect(result.releasedWorkUnits).toBe(0);
+    expect((await wuService.getById(wu.id))!.status).toBe('active');
   });
 });

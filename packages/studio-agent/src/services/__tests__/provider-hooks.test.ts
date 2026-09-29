@@ -125,12 +125,27 @@ describe('buildCodexHooksJson / writeCodexHooks', () => {
     const json = buildCodexHooksJson();
     const pre = (json.hooks as Record<string, unknown>).PreToolUse as Array<Record<string, unknown>>;
     expect(json.description).toContain(HOOK_MARKER);
-    expect(pre).toHaveLength(1);
+    expect(pre).toHaveLength(3);
     expect(pre[0].matcher).toBe('Bash');
-    const hooks = pre[0].hooks as Array<Record<string, unknown>>;
-    expect(hooks[0].type).toBe('command');
-    expect(hooks[0].command).toBe(`node ${resolvePreToolUseHookPath()}`);
-    expect(hooks[0].timeout).toBe(10);
+    for (const entry of pre) {
+      const hooks = entry.hooks as Array<Record<string, unknown>>;
+      expect(hooks[0].type).toBe('command');
+      expect(hooks[0].command).toBe(`node ${resolvePreToolUseHookPath()}`);
+      expect(hooks[0].timeout).toBe(10);
+    }
+  });
+
+  test('matcher 补全（P1-5）：apply_patch（含 Edit/Write 别名）+ MCP 前缀，均为合法正则且命中目标工具名', () => {
+    const json = buildCodexHooksJson();
+    const pre = (json.hooks as Record<string, unknown>).PreToolUse as Array<Record<string, unknown>>;
+    expect(pre[1].matcher).toBe('apply_patch|Edit|Write');
+    expect(pre[2].matcher).toBe('mcp__.*');
+    // codex 官方 matcher 语义 = 正则：断言三条 matcher 对目标 tool_name 的实际命中面
+    expect(new RegExp(pre[1].matcher as string).test('apply_patch')).toBe(true);
+    expect(new RegExp(pre[1].matcher as string).test('Edit')).toBe(true);
+    expect(new RegExp(pre[1].matcher as string).test('Write')).toBe(true);
+    expect(new RegExp(pre[2].matcher as string).test('mcp__filesystem__read_file')).toBe(true);
+    expect(new RegExp(pre[2].matcher as string).test('Bash')).toBe(false);
   });
 
   test('writeCodexHooks 落盘 <worktree>/.codex/hooks.json 且幂等', () => {

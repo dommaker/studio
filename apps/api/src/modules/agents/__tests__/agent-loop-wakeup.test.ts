@@ -125,30 +125,34 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     await (agentLoop as unknown as { observe(): Promise<unknown> }).observe();
   }
 
-  it('observe 调 queryAllMessages 时传 myActive 频道集合（channelIds 预过滤）', async () => {
+  it('observe 回复检测只读 myActive 频道（#330 扫描裁剪；B5 起走增量水位线读口）', async () => {
     const instanceId = await startAndWaitFirstObserve();
-    const wu = await createBlockedWu(instanceId, channelId);
-    const querySpy = vi.spyOn(fileStore, 'queryAllMessages');
+    await createBlockedWu(instanceId, channelId);
+    // 与活跃 WU 无关的另一频道（目录存在 = 在枚举面内，但应被频道过滤排除）
+    const now = new Date().toISOString();
+    await fileStore.createChannel({
+      id: 'ch-other', name: '#other', type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null, members: '[]',
+      createdAt: now, updatedAt: now,
+    });
+    const deltaSpy = vi.spyOn(fileStore, 'readChannelMessagesDelta');
 
     await refreshObserve();
 
-    expect(querySpy).toHaveBeenCalledWith(expect.objectContaining({
-      workUnitIds: [wu.id],
-      authorType: 'human',
-      channelIds: [channelId],
-    }));
+    expect(deltaSpy.mock.calls.some(c => c[0] === channelId)).toBe(true);
+    expect(deltaSpy.mock.calls.every(c => c[0] !== 'ch-other')).toBe(true);
   });
 
-  it('活跃 WU 无 channelId 时退全扫（不传 channelIds）', async () => {
+  it('活跃 WU 无 channelId 时退全扫（不做频道过滤）', async () => {
     const instanceId = await startAndWaitFirstObserve();
-    await createBlockedWu(instanceId, null);
-    const querySpy = vi.spyOn(fileStore, 'queryAllMessages');
+    await createBlockedWu(instanceId, null); // channelId=null → 退全扫
+    const deltaSpy = vi.spyOn(fileStore, 'readChannelMessagesDelta');
 
     await refreshObserve();
 
-    expect(querySpy).toHaveBeenCalled();
-    const arg = querySpy.mock.calls[0][0] as { channelIds?: string[] };
-    expect(arg.channelIds).toBeUndefined();
+    // channelId 与本 WU 无关仍被读 = 全频道扫描（无 channelIds 过滤）
+    expect(deltaSpy.mock.calls.some(c => c[0] === channelId)).toBe(true);
   });
 
   it('human + myActive WU 的 channel.message_sent 事件打断空闲 sleep，立即跑一轮 observe', async () => {
@@ -514,5 +518,121 @@ describe('#523: 步间 sleep 可中断（seam 直驱）', () => {
     seam.onWorkUnitClaimable({});
     seam.onWorkUnitClaimable(null);
     expect(seam.pendingWake).toBe(false);
+  });
+});
+
+// B5（channel-flow-audit-fix）：observe 回复检测增量水位线——queryAllMessages 全扫改
+// readChannelMessagesDelta 字节水位增量读。钉死三条等价语义：①未消费回复跨轮重复投递；
+// ②水位失效（压实/重写）当轮回退全量重建不漏；③边界锚覆盖 slice(0,20) 外的在跑 WU，
+// 其未消费回复不被水位吞掉（该 WU 经排序挤入视野时必须检出）。seam 直驱 observe，无竞态。
+describe('B5: observe 回复检测增量水位线', () => {
+  let testDir: string;
+  let fileStore: FileStore;
+  let wuService: WorkUnitService;
+  let channelId: string;
+
+  interface SeamB5 {
+    observe(): Promise<{ myActive: { id: string }[]; newReplies: { id: string }[] }>;
+    replyScanWatermarks: Map<string, number>;
+  }
+  const seamOf = (loop: AgentLoop) => loop as unknown as SeamB5;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-b5-'));
+    fileStore = new FileStore(testDir);
+    wuService = new WorkUnitService(fileStore);
+    channelId = `ch-b5-${Date.now()}`;
+  });
+
+  afterEach(() => {
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  const humanMsg = (id: string, workUnitId: string, createdAt: string) => ({
+    id, channelId, authorType: 'human' as const, agentName: null,
+    content: `回复-${id}`, replyToId: null, meta: '{}', workUnitId, createdAt,
+  });
+
+  const createBlockedWu = (scope: string, assigneeId = 'some-instance') =>
+    wuService.create({
+      scope, channelId, type: 'task',
+      status: 'blocked', assigneeId,
+      metadata: { waitingForInput: true },
+    });
+
+  it('增量等价：新追加回复被检出；未消费回复跨轮重复投递；过期回复中途落盘也不检出', async () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const wu = await createBlockedWu('等回复');
+    const seam = seamOf(loop);
+
+    // 第一轮：无回复，扫描面为空
+    let obs = await seam.observe();
+    expect(obs.newReplies).toEqual([]);
+
+    // 追加新回复（createdAt > wu.updatedAt）→ 增量窗口检出
+    await fileStore.appendMessage(channelId, humanMsg('m-new', wu.id, new Date(wu.updatedAt.getTime() + 1000).toISOString()));
+    obs = await seam.observe();
+    expect(obs.newReplies.map(m => m.id)).toEqual(['m-new']);
+
+    // 未消费（recordResult 未推进 updatedAt）→ 下一轮仍检出（与全扫重复投递口径逐条一致）
+    obs = await seam.observe();
+    expect(obs.newReplies.map(m => m.id)).toEqual(['m-new']);
+
+    // 过期回复（createdAt < wu.updatedAt）中途落盘 → 不检出
+    await fileStore.appendMessage(channelId, humanMsg('m-stale', wu.id, new Date(wu.updatedAt.getTime() - 1000).toISOString()));
+    obs = await seam.observe();
+    expect(obs.newReplies.map(m => m.id)).toEqual(['m-new']);
+  });
+
+  it('水位失效（压实/重写作废偏移）→ 当轮回退 0 偏移全读重建，回复不漏', async () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const wu = await createBlockedWu('等回复');
+    const seam = seamOf(loop);
+
+    await fileStore.appendMessage(channelId, humanMsg('m-1', wu.id, new Date(wu.updatedAt.getTime() + 1000).toISOString()));
+    const obs1 = await seam.observe();
+    expect(obs1.newReplies.map(m => m.id)).toEqual(['m-1']);
+    expect(seam.replyScanWatermarks.has(channelId)).toBe(true);
+
+    // 模拟压实原子重写使水位作废（偏移越界触发原语 valid=false）
+    seam.replyScanWatermarks.set(channelId, Number.MAX_SAFE_INTEGER);
+    const obs2 = await seam.observe();
+    expect(obs2.newReplies.map(m => m.id)).toEqual(['m-1']); // 回退全读，不漏
+    // 水位已重建为合法值
+    const rebuilt = seam.replyScanWatermarks.get(channelId);
+    expect(rebuilt).toBeDefined();
+    expect(rebuilt).not.toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it('边界锚覆盖 slice(0,20) 外的在跑 WU：经排序挤入视野后其未消费回复必须检出', async () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const seam = seamOf(loop);
+
+    // wuOld：updatedAt 旧（1 小时前），createdAt 最旧 → 被 slice(0,20) 挤出 myActive
+    const wuOld = await createBlockedWu('老 blocked 单');
+    const oldSnap = (await fileStore.getIndex()).find(s => s.id === wuOld.id)!;
+    await fileStore.upsertSnapshot({
+      ...oldSnap,
+      createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+      updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
+    });
+    // 20 个更新的在跑 WU 占满 slice
+    for (let i = 0; i < 20; i++) await createBlockedWu(`新单-${i}`);
+    // wuOld 的未消费回复：createdAt ∈ (wuOld.updatedAt, 其他 WU 的 updatedAt)
+    // ——边界锚若漏算 slice 外的 wuOld，水位会越过这条回复造成永久漏检
+    await fileStore.appendMessage(channelId, humanMsg('m-old-wu', wuOld.id, new Date(Date.now() - 1_800_000).toISOString()));
+
+    // 第一轮：wuOld 不在 myActive → 不投递（与全扫一致）；但水位不得越过 m-old-wu
+    const obs1 = await seam.observe();
+    expect(obs1.myActive.some(w => w.id === wuOld.id)).toBe(false);
+    expect(obs1.newReplies.some(m => m.id === 'm-old-wu')).toBe(false);
+
+    // wuOld 经 createdAt 排序挤入 slice（不改 updatedAt——纯排序进入视野，无任何簿记事件）
+    const snap = (await fileStore.getIndex()).find(s => s.id === wuOld.id)!;
+    await fileStore.upsertSnapshot({ ...snap, createdAt: new Date().toISOString() });
+
+    const obs2 = await seam.observe();
+    expect(obs2.myActive.some(w => w.id === wuOld.id)).toBe(true);
+    expect(obs2.newReplies.some(m => m.id === 'm-old-wu')).toBe(true);
   });
 });

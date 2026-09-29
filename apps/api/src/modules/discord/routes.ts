@@ -13,6 +13,9 @@ const router = express.Router();
 const fileStore = new FileStore();
 const workUnitService = new WorkUnitService(fileStore);
 
+// Discord 斜杠命令名（/studio …）；与角色域的 studio 系统角色无关，仅命令注册名
+const STUDIO_COMMAND_NAME = 'studio';
+
 // Discord Interaction Types
 const InteractionType = {
   PING: 1,
@@ -114,7 +117,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
     logger.info({ name, subcommand }, '[Discord] Slash command');
 
     try {
-      if (name === 'studio') {
+      if (name === STUDIO_COMMAND_NAME) {
         // /studio send 已下线（2026-08）：execSync 任意 shell 等于把服务器 shell 暴露给频道，
         // 仅靠 Discord 签名守门不足，run/progress/stop 覆盖正当用例。
         if (subcommand === 'run') {

@@ -3,15 +3,15 @@
 // wus/reqs 30s TTL + single-flight + seq 守卫走 fetchDiscipline；suggestions 无 TTL 纯事件驱动（500ms 防抖内化）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockWuList, mockReqList, mockGetSuggestions, mockGetChangedFiles } = vi.hoisted(() => ({
+const { mockWuList, mockReqList, mockGetSuggestions, mockGetChangedFilesBatch } = vi.hoisted(() => ({
   mockWuList: vi.fn(),
   mockReqList: vi.fn(),
   mockGetSuggestions: vi.fn(),
-  mockGetChangedFiles: vi.fn(),
+  mockGetChangedFilesBatch: vi.fn(),
 }));
 
 vi.mock('../../api/workunit', () => ({
-  workunitApi: { list: mockWuList, getChangedFiles: mockGetChangedFiles },
+  workunitApi: { list: mockWuList, getChangedFilesBatch: mockGetChangedFilesBatch },
 }));
 vi.mock('../../api/requirements', () => ({
   requirementApi: { list: mockReqList },
@@ -292,21 +292,30 @@ describe('channelWorkStore — applyRequirementEvent（envelope 解包就地 ups
   });
 });
 
-describe('channelWorkStore — ensureWuChangedFiles（per-wuId 文件集）', () => {
-  it('并发 fanOut 一次落库；已拉过的 wuId 不重拉；失败记 [] 不重试', async () => {
-    mockGetChangedFiles.mockImplementation((id: string) =>
-      id === 'wu-bad'
-        ? Promise.reject(new Error('boom'))
-        : Promise.resolve({ data: { success: true, data: { files: [`${id}.ts`] } } }));
+describe('channelWorkStore — ensureWuChangedFiles（per-wuId 文件集，2026-09-25 起批量端点）', () => {
+  it('批量一次落库；已拉过的 wuId 不重拉；缺键记 [] 降级候选集词表', async () => {
+    mockGetChangedFilesBatch.mockResolvedValue({
+      data: { success: true, data: { filesByWu: { 'wu-1': ['wu-1.ts'] } } }, // wu-bad 缺键
+    });
     useChannelWorkStore.getState().ensureWuChangedFiles(['wu-1', 'wu-bad']);
     useChannelWorkStore.getState().ensureWuChangedFiles(['wu-1']); // 在途/已拉不重复
     await vi.waitFor(() => {
       expect(useChannelWorkStore.getState().wuChangedFiles['wu-1']).toEqual(['wu-1.ts']);
     });
-    expect(useChannelWorkStore.getState().wuChangedFiles['wu-bad']).toEqual([]); // 失败记 [] 该 WU 走候选集词表
+    expect(mockGetChangedFilesBatch).toHaveBeenCalledTimes(1);
+    expect(mockGetChangedFilesBatch).toHaveBeenCalledWith(['wu-1', 'wu-bad']);
+    expect(useChannelWorkStore.getState().wuChangedFiles['wu-bad']).toEqual([]); // 缺键记 [] 走候选集词表
     useChannelWorkStore.getState().ensureWuChangedFiles(['wu-1', 'wu-bad']);
     await new Promise((r) => setTimeout(r, 0));
-    expect(mockGetChangedFiles).toHaveBeenCalledTimes(2); // 失败也不重试
+    expect(mockGetChangedFilesBatch).toHaveBeenCalledTimes(1); // 缺键也不重试
+  });
+
+  it('批量请求整体失败 → 全部记 [] 降级，不抛出', async () => {
+    mockGetChangedFilesBatch.mockRejectedValue(new Error('boom'));
+    useChannelWorkStore.getState().ensureWuChangedFiles(['wu-2']);
+    await vi.waitFor(() => {
+      expect(useChannelWorkStore.getState().wuChangedFiles['wu-2']).toEqual([]);
+    });
   });
 });
 

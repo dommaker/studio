@@ -81,9 +81,11 @@ function toRow(
  * distill/gc 由运行时装配（DistillService 构造）注册——未装配时按已知 kind 词表
  * warn 留痕（不静默缺源），读面跳过该 kind。
  * （audit kind 已随 #617/#620 拆除：adapter 删除 + 读取面清除，词表同步移除。
- *  evolution 随 #623 归位正本卡片：自定义 store 包 evolution FileStore 读写。）
+ *  evolution 随 #623 归位正本卡片：自定义 store 包 evolution FileStore 读写。
+ *  constraint 随 ADR-0033 子项 7 新增：adapter 与 evolution 同机注册——EvolutionService
+ *  构造即带出，下方 evolution 兜底分支覆盖。）
  */
-const KNOWN_KINDS = ['distill', 'gc', 'memory', 'skill', 'knowledge', 'auditor', 'evolution'] as const;
+const KNOWN_KINDS = ['distill', 'gc', 'memory', 'skill', 'knowledge', 'auditor', 'evolution', 'constraint'] as const;
 
 async function ensureAdaptersRegistered(): Promise<void> {
   const [skills, knowledge, auditor, memory, evolution] = await Promise.all([

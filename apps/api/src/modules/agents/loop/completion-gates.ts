@@ -13,18 +13,18 @@
  *
  * 可测试性：git/验证/子任务查询全部经 deps 注入，单测用纯 ctx 对象驱动，无需 vi.mock 模块工厂。
  * 默认实现（hasUncommittedChanges/readHeadHash/runWuVerification）与原 AgentLoop 私有方法逐字一致。
+ * 2026-09 性能治理：全部 git/fs 默认实现改异步（#374 exec-async 同款出口）——同步
+ * execSync/execFileSync 会冻结主进程事件循环，COMPLETE 收口期间全部 HTTP/SSE 停摆。
  */
 
-import { execFileSync, execSync } from 'child_process';
-import { readdirSync, statSync } from 'fs';
+import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import { logger, withAttestation } from '@dommaker/studio-shared';
+import { execFileAsync } from '../monitor/exec-async.js';
 import {
   verifyTddChain,
   verifyPhaseFormat,
-  verifyContractPresence,
   type CommitInput,
-  type ContractPresenceResult,
   type PhaseFormatResult,
   type TddChainResult,
 } from '@dommaker/harness';
@@ -33,11 +33,11 @@ import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.ser
 import type { StepResult } from './agent-loop.js';
 import { writeStudioEvent } from '../../../utils/studio-events.js';
 
-/** §10.5 提交守卫：worktree 是否有未提交改动。
+/** §10.5 提交守卫：worktree 是否有未提交改动（异步，不阻塞事件循环）。
  *  git 调用失败返回 false —— 守卫静默跳过，绝不因基础设施故障阻断完成。 */
-export function hasUncommittedChanges(cwd: string): boolean {
+export async function hasUncommittedChanges(cwd: string): Promise<boolean> {
   try {
-    const out = execSync('git status --porcelain', { cwd, timeout: 5000, encoding: 'utf-8' });
+    const out = await execFileAsync('git', ['status', '--porcelain'], { cwd, timeout: 5000 });
     return out.trim().length > 0;
   } catch {
     return false;
@@ -45,9 +45,9 @@ export function hasUncommittedChanges(cwd: string): boolean {
 }
 
 /** §10.5: 读取 worktree 当前 HEAD hash（失败返回 null —— 无提交监视静默跳过） */
-export function readHeadHash(cwd: string): string | null {
+export async function readHeadHash(cwd: string): Promise<string | null> {
   try {
-    return execSync('git rev-parse HEAD', { cwd, timeout: 5000, encoding: 'utf-8' }).trim() || null;
+    return (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: 5000 })).trim() || null;
   } catch {
     return null;
   }
@@ -55,11 +55,11 @@ export function readHeadHash(cwd: string): string | null {
 
 /** 收口闸 1（产出实）: git rev-list --count <base>..HEAD —— 提交守卫已保证无未提交改动，
  *  这里判「有没有提交内容」。git 失败返回 null —— 静默跳过（基础设施故障不阻断完成）。 */
-export function countBranchCommits(cwd: string, baseBranch: string): number | null {
+export async function countBranchCommits(cwd: string, baseBranch: string): Promise<number | null> {
   try {
-    const out = execFileSync('git', ['rev-list', '--count', `${baseBranch}..HEAD`], {
-      cwd, timeout: 5000, encoding: 'utf-8',
-    }).trim();
+    const out = (await execFileAsync('git', ['rev-list', '--count', `${baseBranch}..HEAD`], {
+      cwd, timeout: 5000,
+    })).trim();
     const n = Number.parseInt(out, 10);
     return Number.isFinite(n) ? n : null;
   } catch {
@@ -69,12 +69,12 @@ export function countBranchCommits(cwd: string, baseBranch: string): number | nu
 
 /** 收口闸 2（analysis）：契约报告落盘检查 —— <root>/.studio/research/ 下存在非空文件
  * （inspection 巡检变体只认 inspection-*.md）。目录不存在/读取失败 = 无产物（false）。 */
-export function hasAnalysisReport(workspaceRoot: string, inspection: boolean): boolean {
+export async function hasAnalysisReport(workspaceRoot: string, inspection: boolean): Promise<boolean> {
   try {
     const dir = join(workspaceRoot, '.studio', 'research');
-    for (const name of readdirSync(dir)) {
+    for (const name of await readdir(dir)) {
       if (inspection && !/^inspection-.+\.md$/.test(name)) continue;
-      const st = statSync(join(dir, name));
+      const st = await stat(join(dir, name));
       if (st.isFile() && st.size > 0) return true;
     }
     return false;
@@ -86,11 +86,11 @@ export function hasAnalysisReport(workspaceRoot: string, inspection: boolean): b
 /** 闸 2 锚点分派（按 wu.type）：返回缺失产物的人话描述；null = 产物在或本类型不进闸。
  *  decision 的 `## 结论摘要` 解析落档已由 #463 提供（agent-loop → metadata.decisionSuggestion），
  *  本闸只验非空，不重复解析。 */
-function missingContractArtifact(
+async function missingContractArtifact(
   wu: WorkUnitData,
   metadata: WorkUnitMetadata,
-  reportExists: (workspaceRoot: string, inspection: boolean) => boolean,
-): string | null {
+  reportExists: (workspaceRoot: string, inspection: boolean) => Promise<boolean>,
+): Promise<string | null> {
   switch (wu.type) {
     case 'review':
       return metadata.reviewReport ? null : '评审结论（REVIEW_RESULT 协议输出）';
@@ -109,7 +109,7 @@ function missingContractArtifact(
         ? metadata.workspaceRoot : null;
       if (!root) return null; // 无落盘根无法校验 → 静默跳过
       const inspection = metadata.inspection === true;
-      return reportExists(root, inspection)
+      return (await reportExists(root, inspection))
         ? null
         : inspection ? '巡检报告（.studio/research/inspection-<日期>.md）' : '调研报告（.studio/research/）';
     }
@@ -136,18 +136,18 @@ export interface CompletionGuardDeps {
   resolveExecutionCwd: (wu: WorkUnitData, metadata: WorkUnitMetadata) => Promise<string | null>;
   /** §6-2: 未完结（unassigned/active/blocked/in_review）子 WU 的 id 列表 */
   listUnfinishedChildren: (wuId: string) => Promise<string[]>;
-  hasUncommittedChanges?: (cwd: string) => boolean;
-  readHeadHash?: (cwd: string) => string | null;
-  /** 收口闸 1: git rev-list --count <base>..HEAD（默认 execFileSync；失败返回 null = 静默跳过） */
-  countBranchCommits?: (cwd: string, baseBranch: string) => number | null;
-  /** 收口闸 2: analysis 契约报告落盘检查（默认 fs 实现；inspection 变体只认 inspection-*.md） */
-  analysisReportExists?: (workspaceRoot: string, inspection: boolean) => boolean;
+  hasUncommittedChanges?: (cwd: string) => Promise<boolean>;
+  readHeadHash?: (cwd: string) => Promise<string | null>;
+  /** 收口闸 1: git rev-list --count <base>..HEAD（默认 execFileAsync；失败返回 null = 静默跳过） */
+  countBranchCommits?: (cwd: string, baseBranch: string) => Promise<number | null>;
+  /** 收口闸 2: analysis 契约报告落盘检查（默认 fs.promises 实现；inspection 变体只认 inspection-*.md） */
+  analysisReportExists?: (workspaceRoot: string, inspection: boolean) => Promise<boolean>;
   runVerification?: (wu: WorkUnitData, metadata: WorkUnitMetadata, worktreePath: string) => Promise<WuVerifyOutcome>;
-  /** T7-E2（#161）: harness 三纯函数（默认 = @dommaker/harness 静态导入，#425 去镜像；
+  /** T7-E2（#161）: harness 两纯函数（默认 = @dommaker/harness 静态导入，#425 去镜像；
    *  返回 null = 软观测段整体 fail-open 跳过） */
   loadCompletionCheckers?: () => Promise<CompletionCheckerFns | null>;
-  /** T7-E2: 一次 git log 拉 WU 提交集（默认 execFileSync，2s 超时；失败返回 null = fail-open） */
-  readWuCommits?: (worktreePath: string, baseBranch: string) => CommitInput[] | null;
+  /** T7-E2: 一次 git log 拉 WU 提交集（默认 execFileAsync，2s 超时；失败返回 null = fail-open） */
+  readWuCommits?: (worktreePath: string, baseBranch: string) => Promise<CommitInput[] | null>;
   /** T7-E2: 台账事件写入（默认 writeStudioEvent('checker:soft_check')，fire-and-forget） */
   writeSoftCheckEvent?: (event: SoftCheckEvent) => void;
 }
@@ -175,7 +175,7 @@ export interface CompletionGuardOutcome {
   notices: CompletionGuardNotices;
 }
 
-// ─── T7-E2（#161）软观测段：消费 harness completion-checkers 三纯函数（#160） ───
+// ─── T7-E2（#161）软观测段：消费 harness completion-checkers 两纯函数（#160） ───
 //
 // 定位：第四段「软观测」——只观测不拦截。action 未被前三张守卫降级（仍为 complete）才跑；
 // pass/violation/waiver 落 checker:soft_check 台账事件（skip 不记），违规合并成
@@ -183,20 +183,22 @@ export interface CompletionGuardOutcome {
 // 返工时才被消费——可接受，不做跨 WU 投递）。一切故障（git/超时/解析）
 // 一律 fail-open 静默跳过 + logger 留痕，绝不阻断 COMPLETE。
 //
-// 类型与三纯函数直接取自 @dommaker/harness ^1.2.3 公开导出（#425 去镜像——
+// 类型与两纯函数直接取自 @dommaker/harness ^1.2.3 公开导出（#425 去镜像——
 // 0.19.0 时代的镜像类型 + loadHarness 特征检测随发版失去存续理由，已删）。
+// contract-presence 原在此段（tdd-chain/phase-format 之外的第三张），#649 移除：
+// 与硬闸 2 同锚点（reviewReport）且硬闸先跑——violation 结构性不可达，配置清单
+// 恒空又令其实测恒 skip，只能产出 pass 心跳，对台账无信息量。
 
-/** git log 拉取超时 2s：「单 checker 2s」上限落在段内唯一 I/O 上（三纯函数为同步纯计算） */
+/** git log 拉取超时 2s：「单 checker 2s」上限落在段内唯一 I/O 上（两纯函数为同步纯计算） */
 export const SOFT_CHECK_GIT_TIMEOUT_MS = 2_000;
-/** 三张 checker 合计 5s 预算：每张跑前检查余量，耗尽即停（fail-open） */
+/** 两张 commit checker 合计 5s 预算：每张跑前检查余量，耗尽即停（fail-open） */
 export const SOFT_CHECK_TOTAL_BUDGET_MS = 5_000;
 
-/** harness 三纯函数聚合（类型与实现直接取自 @dommaker/harness ^1.2.3 公开导出，#425 去镜像）；
+/** harness 两纯函数聚合（类型与实现直接取自 @dommaker/harness ^1.2.3 公开导出，#425 去镜像）；
  *  保留聚合接口仅为 deps 注入 seam（单测伪实现驱动软观测段） */
 export interface CompletionCheckerFns {
   verifyTddChain: typeof verifyTddChain;
   verifyPhaseFormat: typeof verifyPhaseFormat;
-  verifyContractPresence: typeof verifyContractPresence;
 }
 
 /** checker:soft_check 台账事件 payload（聚合归 #132，本段只产出） */
@@ -207,9 +209,9 @@ export interface SoftCheckEvent {
   detail: string;
 }
 
-/** 默认：直接返回 harness 静态导入的三纯函数（^1.2.3 公开导出，#425 去镜像后无特征检测） */
+/** 默认：直接返回 harness 静态导入的两纯函数（^1.2.3 公开导出，#425 去镜像后无特征检测） */
 async function defaultLoadCompletionCheckers(): Promise<CompletionCheckerFns | null> {
-  return { verifyTddChain, verifyPhaseFormat, verifyContractPresence };
+  return { verifyTddChain, verifyPhaseFormat };
 }
 
 /**
@@ -248,16 +250,15 @@ export function parseWuGitLog(output: string): CommitInput[] {
 }
 
 /** 默认：一次 git log 拉 base..HEAD 有序提交集（2s 超时；任何失败 → null = fail-open） */
-function defaultReadWuCommits(worktreePath: string, baseBranch: string): CommitInput[] | null {
+async function defaultReadWuCommits(worktreePath: string, baseBranch: string): Promise<CommitInput[] | null> {
   try {
-    const out = execFileSync('git', [
+    const out = await execFileAsync('git', [
       'log', `${baseBranch}..HEAD`,
       "--format=%x1e%H%x1f%s%x1f%P%x1f%(trailers)",
       '--name-only',
     ], {
       cwd: worktreePath,
       timeout: SOFT_CHECK_GIT_TIMEOUT_MS,
-      encoding: 'utf-8',
       maxBuffer: 8 * 1024 * 1024,
     });
     return parseWuGitLog(out);
@@ -327,7 +328,7 @@ async function runSoftObservation(
     const readCommits = deps.readWuCommits ?? defaultReadWuCommits;
     let commits: CommitInput[] | null = null;
     try {
-      commits = readCommits(metadata.worktreePath, metadata.worktreeBaseBranch);
+      commits = await readCommits(metadata.worktreePath, metadata.worktreeBaseBranch);
     } catch {
       commits = null;
     }
@@ -353,21 +354,6 @@ async function runSoftObservation(
           logger.info(`[AgentLoop] Soft check: commit checker threw for ${wuId}, skipped`, { error: String(e) });
         }
       }
-    }
-  }
-
-  // contract-presence：通用引擎，类型不在默认 contracts 清单内 = skip（不记事件）。
-  // 配置载体已随 #617 拆除——恒以默认配置跑（harness 内置 contracts 表）。
-  if (Date.now() < deadline) {
-    try {
-      const result = fns.verifyContractPresence(wu.type, { reviewReport: metadata.reviewReport }, {});
-      if (result.verdict !== 'skip') {
-        const detail = result.detail ?? '';
-        emit({ wuId, checker: 'contract-presence', verdict: result.verdict, detail });
-        if (result.verdict === 'violation') violationBlocks.push(`[contract-presence] ${detail || '契约标记缺失'}`);
-      }
-    } catch (e) {
-      logger.info(`[AgentLoop] Soft check: contract-presence threw for ${wuId}, skipped`, { error: String(e) });
     }
   }
 
@@ -423,7 +409,7 @@ export async function runCompletionGuards(
   // 工具产物与评审无关），工作区洁净不是它的责任——否则 COMPLETE 被反复打回空转。
   const workspaceRoot = wu.type === 'review' ? null : await deps.resolveExecutionCwd(wu, metadata);
   if (workspaceRoot) {
-    if (action === 'complete' && dirty(workspaceRoot)) {
+    if (action === 'complete' && (await dirty(workspaceRoot))) {
       // COMPLETE 守卫：有未提交改动 → 打回按 PROGRESS 处理，提示注入下一轮 prompt
       action = 'progress';
       guardUpdates.commitGuardHint = '有未提交改动，请先 git add/commit 再报告完成';
@@ -431,7 +417,7 @@ export async function runCompletionGuards(
     }
     if (action === 'progress') {
       // PROGRESS 无提交监视：HEAD 不变 → 累计；连续 3 步发一次频道提醒并归零
-      const head = headHash(workspaceRoot);
+      const head = await headHash(workspaceRoot);
       if (head) {
         if (metadata.lastCommitHash === head) {
           const next = (metadata.noCommitSteps ?? 0) + 1;
@@ -473,7 +459,7 @@ export async function runCompletionGuards(
     const countCommits = deps.countBranchCommits ?? countBranchCommits;
     let commitCount: number | null = null;
     try {
-      commitCount = countCommits(metadata.worktreePath, metadata.worktreeBaseBranch);
+      commitCount = await countCommits(metadata.worktreePath, metadata.worktreeBaseBranch);
     } catch {
       commitCount = null;
     }
@@ -497,7 +483,7 @@ export async function runCompletionGuards(
     const reportExists = deps.analysisReportExists ?? hasAnalysisReport;
     let missingAnchor: string | null = null;
     try {
-      missingAnchor = missingContractArtifact(wu, metadata, reportExists);
+      missingAnchor = await missingContractArtifact(wu, metadata, reportExists);
     } catch {
       missingAnchor = null; // 检查故障静默跳过，绝不因基础设施故障阻断完成
     }

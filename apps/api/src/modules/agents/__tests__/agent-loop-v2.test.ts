@@ -115,12 +115,16 @@ describe('parseAgentOutput()', () => {
 });
 
 describe('dynamicInterval()', () => {
-  test('returns 3000 for progress', () => {
-    expect(dynamicInterval({ action: 'progress' })).toBe(3_000);
+  test('returns 500 for progress（2026-09 收紧：唤醒可中断，空睡即白等）', () => {
+    expect(dynamicInterval({ action: 'progress' })).toBe(500);
   });
 
-  test('returns 10000 for complete', () => {
-    expect(dynamicInterval({ action: 'complete' })).toBe(10_000);
+  test('returns 500 for delegate', () => {
+    expect(dynamicInterval({ action: 'delegate' })).toBe(500);
+  });
+
+  test('returns 3000 for complete', () => {
+    expect(dynamicInterval({ action: 'complete' })).toBe(3_000);
   });
 
   test('returns 30000 for need_input', () => {

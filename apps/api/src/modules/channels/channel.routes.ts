@@ -8,14 +8,15 @@ import type { Request, Response, NextFunction } from 'express';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelService, ChannelError, validateDefaultWorkspaceId } from './channel.service.js';
 import { saveChannelImage, resolveChannelImage, ATTACHMENT_BODY_LIMIT } from './attachments.js';
-import { routeMessage } from './message-routing.js';
-import { projectService } from '../pmo/project.service.js';
+import { routeMessage, resolveMergeTarget } from './message-routing.js';
+import { WorkUnitService } from '../workunit/workunit.service.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
 import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
 import { deriveChannelCurrentPmo } from './current-pmo.js';
+import { deriveChannelPmoCandidates } from './pmo-candidates.js';
 import { deriveChannelSuggestions } from './suggestions.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { validateRouting, buildMemberRemovalWarning } from './routing.js';
@@ -68,7 +69,7 @@ router.post('/', requireAuth(), requireNotGuest(), handle(async (req, res) => {
 
 // GET /api/v1/channels/:id — get channel detail
 // B8（2026-09-16 channel 性能审计）：去掉 prisma 时代遗留的 `_count.ChannelMessage`
-// （全仓无消费方，每请求 O(热文件行数) 全量 countMessages 纯浪费）
+// （全仓无消费方，每请求 O(热文件行数) 全量计数纯浪费；计数方法已随 B4 清扫删除）
 router.get('/:id', requireAuth(), handle(async (req, res) => {
   const channel = await channelService.getOrThrow(req.params.id);
   res.json({ success: true, data: channel });
@@ -83,18 +84,45 @@ router.get('/:id/current-pmo', requireAuth(), apiCache(CACHE_CONFIG.short), hand
   res.json({ success: true, data: pmo });
 }));
 
+// GET /api/v1/channels/:id/pmo-candidates — #638：`#` 触发 PMO 自动补全弹框的候选集。
+// 当前 PMO 置顶 + 挂接 REQ 所属 PMO（seq 降序去重，pmoNumber 为空过滤）；派生不落库，
+// 与 current-pmo 同为 N+1 全量读取挂短 TTL apiCache；派生内部容错绝不抛出（无来源 → []）。
+router.get('/:id/pmo-candidates', requireAuth(), apiCache(CACHE_CONFIG.short), handle(async (req, res) => {
+  await channelService.getOrThrow(req.params.id);
+  const candidates = await deriveChannelPmoCandidates(req.params.id);
+  res.json({ success: true, data: candidates });
+}));
+
 // GET /api/v1/channels/:id/suggestions — #443（spec #441 情境引导 02）：频道建议派生端点。
 // 不落库、按当前事实现算；fail-closed（前置不满足/拿不准不出）。本票只交付 status
 // 只读状态说明形态（自动评审在途）；action/prompt 形态见 #444/#445/#446（见 suggestions.ts）。
-router.get('/:id/suggestions', requireAuth(), handle(async (req, res) => {
+// B2：前端每条 agent 消息都重拉、每次全量 WU 派生，挂短 TTL apiCache（5s 档，同 current-pmo 先例）。
+router.get('/:id/suggestions', requireAuth(), apiCache(CACHE_CONFIG.short), handle(async (req, res) => {
   await channelService.getOrThrow(req.params.id);
   const data = await deriveChannelSuggestions(req.params.id, { fileStore });
   res.json({ success: true, data });
 }));
 
+// GET /api/v1/channels/:id/merge-target — #632：发送前归属预览（只读）。
+// 与 routeMessage 无地址路径共用 resolveMergeTarget 判定，保证「预览所见 = 实际路由」：
+// unique 附 workUnit{id,title}（标题 = WU scope）；ambiguous 不暴露并入目标。
+router.get('/:id/merge-target', requireAuth(), handle(async (req, res) => {
+  await channelService.getOrThrow(req.params.id);
+  const wuService = new WorkUnitService(fileStore);
+  const resolution = await resolveMergeTarget(req.params.id, fileStore, wuService);
+  if (resolution.kind !== 'unique') {
+    return res.json({ success: true, data: { status: resolution.kind } });
+  }
+  const wu = await wuService.getById(resolution.target.id);
+  res.json({
+    success: true,
+    data: { status: 'unique', workUnit: { id: resolution.target.id, title: wu?.scope ?? '' } },
+  });
+}));
+
 // GET /api/v1/channels/:id/messages — paginated messages
 // #319：before = 锚点消息 id 游标（原 timestamp 游标同毫秒撞车会漏/重）；分页半下沉到存储层（queryMessagesPage 切片）
-router.get('/:id/messages', requireAuth(), async (req, res) => {
+router.get('/:id/messages', requireAuth(), handle(async (req, res) => {
   const { before, limit = '50' } = req.query;
   const take = Math.min(Number(limit), 100);
 
@@ -114,7 +142,7 @@ router.get('/:id/messages', requireAuth(), async (req, res) => {
   }));
 
   res.json({ success: true, data, total: page.total, hasMore: page.hasMore });
-});
+}));
 
 // GET /api/v1/channels/:id/file-vocabulary — #281：@文件引用只读词表
 // 候选集 = 频道相关工程（默认工程 ∪ REQ 挂接 PMO ∪ 杂务 PMO，最近使用优先），
@@ -134,9 +162,13 @@ router.get('/:id/file-vocabulary', requireAuth(), apiCache(CACHE_CONFIG.short), 
 
 // POST /api/v1/channels/:id/messages — send a message
 router.post('/:id/messages', requireAuth(), requireNotGuest(), handle(async (req, res) => {
-  const { content, replyToId, reqId, files } = req.body;
+  const { content, replyToId, reqId, files, intent } = req.body;
   if (!content || typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ success: false, error: 'content is required' });
+  }
+  // #632：发送前归属预览的显式意图（仅作用于无 @ 无 replyTo 路径）
+  if (intent !== undefined && intent !== 'new-task' && intent !== 'plain') {
+    return res.status(400).json({ success: false, error: "intent must be 'new-task' or 'plain'" });
   }
   // #281: @文件引用结构化载体（可选）；形状不符整体 400，存在性校验在路由层
   if (files !== undefined && (!Array.isArray(files) || files.some(
@@ -167,6 +199,8 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), handle(async (req
       traceId,
       // #281: @文件引用（路由层做存在性校验 + 剔除播报）
       files: files as { repo: string; path: string }[] | undefined,
+      // #632: 归属预览的显式意图覆盖（new-task 建未指派 WU / plain 纯存储）
+      intent,
       // #525 P2-2（决策 #517 项 3）：上方 404 判定已读出的 channel 透传，消 routeMessage 重复读
       channel,
     },
@@ -188,13 +222,13 @@ router.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), requireA
 // GET /api/v1/channels/:id/attachments/:attachmentId — 取图
 // <img> 无法带 Authorization 头：?token= 携带 JWT（SSE /events/stream 同款），
 // 映射进 header 后复用 requireAuth 语义；id 白名单校验防路径穿越（attachments.ts）。
-router.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), async (req, res) => {
+router.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), handle(async (req, res) => {
   const resolved = await resolveChannelImage(req.params.id, req.params.attachmentId);
   if (!resolved.ok) return res.status(resolved.status).json({ success: false, error: resolved.error });
   res.setHeader('Content-Type', resolved.value.mime);
   res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
   createReadStream(resolved.value.filePath).pipe(res);
-});
+}));
 
 // DELETE /api/v1/channels/:id — delete channel (B2-012: Goal fallback to #研发)
 router.delete('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) => {
@@ -217,7 +251,11 @@ router.put('/:id/restore', requireAuth(), requireNotGuest(), handle(async (req, 
 // PATCH /api/v1/channels/:id — update channel settings
 router.patch('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) => {
   const { id } = req.params;
-  const { name, defaultWorkspaceId, defaultPath, routing, defaultProfileId } = req.body;
+  // #632：defaultProfileId（决策12 频道默认角色）已退役——不再接受该字段
+  if ('defaultProfileId' in (req.body ?? {})) {
+    return res.status(400).json({ success: false, error: 'defaultProfileId 已随 #632 退役：无 @ 消息归宿 = 合并窗口 / 纯存储，频道不再配置默认角色' });
+  }
+  const { name, defaultWorkspaceId, defaultPath, routing } = req.body;
   const data: Record<string, unknown> = {};
   if (name !== undefined) data.name = name;
   if (defaultWorkspaceId !== undefined) {
@@ -240,19 +278,6 @@ router.patch('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) =
       data.routing = validated.value;
     }
   }
-  // F5（决策 6）: 入口角色 defaultProfileId 可配置 — '' / null → 清除（@studio 与无 @ 消息回退未指派）；
-  // 非空校验为已存在的 active profile（不强制频道成员，成员边界在路由时按 §9.5 判定）
-  if (defaultProfileId !== undefined) {
-    if (defaultProfileId === '' || defaultProfileId === null) {
-      data.defaultProfileId = null;
-    } else {
-      const all = await fileStore.listProfiles({ status: 'active' });
-      if (!all.some(p => p.id === defaultProfileId)) {
-        return res.status(400).json({ success: false, error: `defaultProfileId ${defaultProfileId} 不是已存在的 active 角色` });
-      }
-      data.defaultProfileId = defaultProfileId;
-    }
-  }
   const updated = await channelService.update(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
   res.json({ success: true, data: updated });
 }));
@@ -272,26 +297,10 @@ router.patch('/:id/members', requireAuth(), requireNotGuest(), handle(async (req
   res.json({ success: true, data: { members, ...(warning ? { warning } : {}) } });
 }));
 
-/**
- * POST /api/v1/channels/:id/chore-pmo — 决策 2：登记频道杂务 PMO（find-or-create，幂等）。
- * 登记后，本频道无 token 的派发消息自动归集到杂务 PMO 的 REQ 别名（req-binding 只查不建）。
- */
-router.post('/:id/chore-pmo', requireAuth(), requireNotGuest(), handle(async (req, res) => {
-  const channel = await channelService.getOrThrow(req.params.id, `Channel not found: ${req.params.id}`);
-  try {
-    const project = await projectService.ensureChoreProject(channel.id, channel.name);
-    res.status(201).json({ success: true, data: project });
-  } catch (e: unknown) {
-    const msg = getErrorMessage(e);
-    logger.warn('[Channel] ensure chore PMO failed', { channelId: req.params.id, error: msg });
-    res.status(500).json({ success: false, error: msg });
-  }
-}));
-
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task (AC-E1)
 router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNotGuest(), async (req, res) => {
   const { id: channelId, messageId } = req.params;
-  const { title, description, assigneeId, projectPath, workspaceId, reqId } = req.body;
+  const { title, description, assigneeId, projectPath, reqId } = req.body;
 
   try {
     const workUnit = await convertToTaskService.convert(channelId, messageId, {
@@ -299,7 +308,6 @@ router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNo
       description,
       assigneeId,
       projectPath,
-      workspaceId,
       reqId,
     });
     res.status(201).json({ success: true, data: workUnit });
@@ -327,12 +335,12 @@ router.post('/:id/messages/:messageId/convert-to-task/suggest', requireAuth(), r
     }
     const message = found.message;
 
-    // 2. Get available agents
-    const allProfiles = await fileStore.listProfiles({ status: 'active' });
+    // 2/3. Get available agents + projects（互不依赖，并行拉取——B2）
+    const [allProfiles, projects] = await Promise.all([
+      fileStore.listProfiles({ status: 'active' }),
+      projectDiscoveryService.discover(),
+    ]);
     const agents = allProfiles.map(p => ({ id: p.id, name: p.name, description: p.description }));
-
-    // 3. Get available projects
-    const projects = await projectDiscoveryService.discover();
 
     // 4. Get LLM suggestion
     const suggestion = await convertToTaskService.suggest(

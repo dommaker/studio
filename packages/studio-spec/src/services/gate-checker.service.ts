@@ -14,6 +14,7 @@ import {
   ValidateChangeResult,
   CheckResult,
   CheckpointType,
+  HarnessCheckpointType,
   GatePolicy,
   GATE_POLICIES,
   isHarnessCheck,
@@ -168,7 +169,7 @@ export class GateCheckerService {
    * 执行 Harness 通用检查
    */
   private async runHarnessCheckpoint(
-    type: CheckpointType,
+    type: HarnessCheckpointType,
     config?: HarnessCheckConfig,
     level?: ChangeLevel,
     strictMode?: boolean
@@ -199,27 +200,25 @@ export class GateCheckerService {
     }
 
     try {
-      // 构建 Harness checkpoint
-      // 注：checkpoint/context 沿用既有的扁平形态（与 harness 声明类型不完全对齐，
-      // 属历史行为，仅作类型断言不改运行时结构）
-      const checkpoint = {
+      // 直接以 harness 原生 Checkpoint/CheckpointCheck 类型表达，交 CheckpointValidator 执行
+      const workdir = config?.workdir || process.cwd();
+
+      const checkpoint: Checkpoint = {
         id: `gate-${type}`,
-        checks: [this.buildHarnessCheck(type, config)],
+        checks: [{ id: type, type, config: config ?? {} }],
       };
 
-      const context = {
-        workDir: config?.workdir || process.cwd(),
+      const context: CheckpointContext = {
+        projectPath: workdir,
+        workdir,
       };
 
-      const result = await validator.validate(
-        checkpoint as unknown as Checkpoint,
-        context as unknown as CheckpointContext,
-      );
+      const result = await validator.validate(checkpoint, context);
 
       return {
         type,
         passed: result.passed,
-        message: result.message as string,
+        message: result.message ?? (result.passed ? 'Harness 检查通过' : 'Harness 检查失败'),
         details: { harnessResult: result },
       };
     } catch (error) {
@@ -228,51 +227,6 @@ export class GateCheckerService {
         passed: false,
         message: `Harness 检查失败: ${error.message}`,
       };
-    }
-  }
-
-  /**
-   * 构建 Harness 检查配置
-   */
-  private buildHarnessCheck(type: CheckpointType, config?: HarnessCheckConfig): Record<string, unknown> {
-    switch (type) {
-      case 'file_exists':
-        return {
-          id: 'file_exists',
-          type: 'file_exists',
-          path: config?.path,
-        };
-      
-      case 'file_contains':
-        return {
-          id: 'file_contains',
-          type: 'file_contains',
-          path: config?.path,
-          content: config?.content,
-        };
-      
-      case 'command_success':
-        return {
-          id: 'command_success',
-          type: 'command_success',
-          command: config?.command,
-          workdir: config?.workdir,
-          timeout: config?.timeout || 30000,
-        };
-      
-      case 'output_matches':
-        return {
-          id: 'output_matches',
-          type: 'output_matches',
-          command: config?.command,
-          pattern: config?.pattern,
-        };
-      
-      default:
-        return {
-          id: type,
-          type: 'custom',
-        };
     }
   }
 

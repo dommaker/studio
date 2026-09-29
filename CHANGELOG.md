@@ -99,7 +99,7 @@
 - upgrade @dommaker/harness to 0.13.0
 
 ### Other
-- /root/.nvm/versions/node/v22.22.0/bin/node
+- ~/.nvm/versions/node/v22.22.0/bin/node
 - test: pipeline contract tests — stage-level input/output format verification
 - perf: pre-flight API key check + raise model routing thresholds
 - perf: Analyst prefer merge dependent AC groups over serial chains

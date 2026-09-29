@@ -14,10 +14,7 @@
  */
 import { logger, type FileStore } from '@dommaker/studio-shared';
 import { scanAllProviders, type DetectedRuntime } from '../../daemon/cli-scanner.js';
-
-// 与 agent-profile.service.ts 的 STUDIO_ROLE_NAME 同值；就地写字面量避免循环import
-// （service.ts 也 import 本文件的 resolveDefaultProvider）
-const STUDIO_ROLE = 'studio';
+import { isSystemRole } from './system-role.js';
 
 /** 选默认 provider：扫描结果第一个（注册表顺序）。扫不到返回 null。 */
 export function resolveDefaultProvider(
@@ -44,7 +41,7 @@ export async function backfillProfileProviders(
   const all = await fileStore.listProfiles();
   let stamped = 0;
   for (const p of all) {
-    if (p.name === STUDIO_ROLE || p.status !== 'active' || p.provider) continue;
+    if (isSystemRole(p) || p.status !== 'active' || p.provider) continue;
     await fileStore.updateProfile(p.id, { provider });
     stamped++;
     logger.info('[DefaultProvider] Backfilled profile provider', { name: p.name, provider });

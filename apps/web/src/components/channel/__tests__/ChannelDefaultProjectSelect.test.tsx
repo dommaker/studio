@@ -15,6 +15,7 @@ vi.mock('../../../api/channel', () => ({
 }));
 
 import { channelApi } from '../../../api/channel';
+import { useProjectsStore } from '../../../stores/projectsStore';
 
 const mockProjects = [
   { name: 'studio', path: '/root/projects/studio', hasClaudeMd: true },
@@ -24,6 +25,7 @@ const mockProjects = [
 describe('ChannelDefaultProjectSelect（#272 顶栏默认工程）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useProjectsStore.getState().__resetForTests();
     vi.mocked(channelApi.discoverProjects).mockResolvedValue({
       data: { success: true, data: mockProjects },
     } as never);

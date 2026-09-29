@@ -1,5 +1,6 @@
 // #525 P2-2（决策 #517 项 3）：路由层读到的 channel 传参进 routeMessage，
-// 消灭 mention/默认角色路径的重复 getChannel 读。
+// 消灭 mention 路径的重复 getChannel 读（#632：默认角色路径已退役，
+// 无地址路径（合并判定/new-task）本就不读频道记录）。
 // 传入 options.channel 时 routeMessage 全程零次 fileStore.getChannel；
 // 未传入时保持现状读（既有直调 routeMessage 的调用方不受影响）。
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -67,13 +68,12 @@ describe('routeMessage options.channel 传参（#525 P2-2）', () => {
     expect(fileStore.getChannelCalls).toBe(0);
   });
 
-  it('默认角色路径：传入 channel 时全程零次 getChannel', async () => {
-    const channelId = 'ch-default-pass';
-    const channel = makeChannel(channelId, { defaultProfileId: 'agent-default-1' });
+  it('无地址路径（intent=new-task）：传入 channel 时全程零次 getChannel', async () => {
+    const channelId = 'ch-newtask-pass';
+    const channel = makeChannel(channelId);
     await fileStore.createChannel(channel);
-    await fileStore.createProfile(makeProfile('agent-default-1', 'DefaultAgent'));
 
-    const result = await routeMessage(channelId, 'plain message no mention', undefined, { fs: fileStore, channel });
+    const result = await routeMessage(channelId, 'plain message no mention', undefined, { fs: fileStore, channel, intent: 'new-task' });
 
     expect(result.workUnitId).toBeTruthy();
     expect(fileStore.getChannelCalls).toBe(0);
@@ -91,14 +91,13 @@ describe('routeMessage options.channel 传参（#525 P2-2）', () => {
     expect(fileStore.getChannelCalls).toBeGreaterThan(0);
   });
 
-  it('默认角色路径：未传 channel 时保持现状读（行为不变）', async () => {
-    const channelId = 'ch-default-nopass';
-    await fileStore.createChannel(makeChannel(channelId, { defaultProfileId: 'agent-default-2' }));
-    await fileStore.createProfile(makeProfile('agent-default-2', 'DefaultAgent2'));
+  it('无地址路径（合并窗口判定）：未传 channel 时也不读 getChannel（#632 解耦后无频道配置依赖）', async () => {
+    const channelId = 'ch-merge-nopass';
+    await fileStore.createChannel(makeChannel(channelId));
 
     const result = await routeMessage(channelId, 'plain message no mention', undefined, { fs: fileStore });
 
-    expect(result.workUnitId).toBeTruthy();
-    expect(fileStore.getChannelCalls).toBe(1);
+    expect(result.workUnitId).toBeNull(); // 无合并目标 → 纯存储
+    expect(fileStore.getChannelCalls).toBe(0);
   });
 });

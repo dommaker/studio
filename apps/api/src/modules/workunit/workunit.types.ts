@@ -24,8 +24,8 @@ export interface WorkUnitMetadata {
   title?: string;             // 从 WorkUnit.title 降级（Phase 3 迁移）
   _consecutiveReviewRejections?: number;  // 连续 review reject 计数（3x → auto-block）
   sourceMessageId?: string;   // createFromMessage 涌现路径来源
-  creationMode?: string;      // 创建模式：from-message / manual
-  // #494（方案 c，票内预授权）：频道派发消息 id——mention/频道默认派单建单时落档；
+  creationMode?: string;      // 创建模式：from-message / manual / mention / channel-new-task（#632；历史 channel-default 只读兼容）
+  // #494（方案 c，票内预授权）：频道派发消息 id——mention/显式建单（new-task）派单建单时落档；
   // wu-messenger 系统消息（认领播报等）优先锚它，消除「created 事件先于派发消息落库」的
   // findAnchorMessage 时序竞态；缺失时回退既有「首条根消息」语义
   anchorMessageId?: string;
@@ -35,7 +35,13 @@ export interface WorkUnitMetadata {
   // （追加预算 / 现有产出收尾 / 放弃，见 waiting-input.ts）；缺省/<=0 = 无上限
   tokenBudget?: number;
   // Agent Loop session 追踪（AS-025 Agent Loop 重写）
-  sessionId?: string;         // 当前关联的 Claude session
+  sessionId?: string;         // 档案会话号（Studio 自建 UUID；仅对 claude 同时是 CLI 真实会话号）
+  // #639（#637 方向 D）：CLI 真实会话号——provider 侧真实 session_id（claude result 行 /
+  // kimi 流内 session.resume_hint meta 行 / codex thread.started thread_id / opencode 事件
+  // sessionID），成功步由 agent-loop 经 extractCliSessionId 从 rawOutput 解析落档。
+  // kimi/codex/opencode 的续用只信本字段（有号才点名续用；无号 = 新建，不再 cwd 维度接最新）；
+  // claude 续用仍走 sessionId（本字段仅观测落档）。读不到不编造。
+  cliSessionId?: string;
   stepCount?: number;         // 已执行步骤数
   startedAt?: string;         // 首次执行时间
   consecutiveStuck?: number;  // 连续无进展步数
@@ -180,7 +186,7 @@ export interface WorkUnitMetadata {
     delegationCount: number;  // 本 WU 已派出的子任务数（宽度上限输入）
   };
   childGuardHint?: string;    // §6-2 父 complete 守卫：存在未完结子 WU 被打回时的提示（注入下一轮 prompt 后清除）
-  // T7-E2（#161）软观测守卫：COMPLETE 时过程检查（tdd-chain/phase-format/contract-presence）
+  // T7-E2（#161）软观测守卫：COMPLETE 时过程检查（tdd-chain/phase-format）
   // 违规合并提示——软观测不阻断完成，COMPLETE 放行时本 hint 沉睡，返工时才被消费（注入后即清除）
   processCheckHint?: string;
   freshnessInterrupts?: number; // §4.2 发言层新鲜度检查：结果回帖被「房间已变」连续拦截次数（≥2 后照发并归零）
@@ -214,6 +220,9 @@ export interface WorkUnitMetadata {
   // #186（#167 决议 1）：trigger 巡检单（无频道 + 无 TASK）免确认直转 done 的留痕
   autoConfirmedBy?: string;       // 固定 'trigger-inspection-no-gate'
   autoConfirmedAt?: string;       // 自动确认时间 ISO 8601
+  // #610（2026-09-24 决策单裁定）：trigger 建单 pending 超期未确认自动关闭的留痕
+  autoClosedBy?: string;          // 固定 'trigger-pending-expiry'
+  autoClosedAt?: string;          // 自动关闭时间 ISO 8601
   // #177（#69 决议）：analysis 人工确认处可选「默认执行角色」（profile id）——
   // analysis-handoff spawnTasks 据此给全部派生 task 子 WU 落 assigneeId；缺省 = 涌现
   defaultTaskAssigneeId?: string;
@@ -293,8 +302,8 @@ export interface UnfitRoleEntry {
 /** #550（自 wu-closure.ts 归置）：结构化关闭事件类型（REST 回放：GET /api/v1/events?type=workunit:closed） */
 export const WORKUNIT_CLOSED_EVENT_TYPE = 'workunit:closed';
 
-/** #550（自 wu-closure.ts 归置）：关闭来源——24h 死信 / 2.5h 总时长强杀 / 人类「关闭」指令 */
-export type WorkUnitClosedBy = 'auto-abandon-stale-blocked' | 'total-time-kill' | 'human-command';
+/** #550（自 wu-closure.ts 归置）：关闭来源——24h 死信 / 2.5h 总时长强杀 / 人类「关闭」指令 / trigger pending 超期自动关闭（#610） */
+export type WorkUnitClosedBy = 'auto-abandon-stale-blocked' | 'total-time-kill' | 'human-command' | 'trigger-pending-expiry';
 
 /** #550：WorkUnitService.close 入参（事件 payload 与缺省频道文案共用 reason；message 覆盖频道说明全文） */
 export interface CloseWorkUnitOptions {

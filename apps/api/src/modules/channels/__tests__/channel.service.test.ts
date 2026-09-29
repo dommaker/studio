@@ -59,7 +59,7 @@ describe('getOrThrow：404 判定单点', () => {
     expect((err as ChannelError).message).toBe('Channel not found');
   });
 
-  it('自定义文案（chore-pmo 现状）', async () => {
+  it('自定义文案覆盖', async () => {
     const err = await service.getOrThrow('ch-x', 'Channel not found: ch-x').catch((e: unknown) => e);
     expect((err as ChannelError).message).toBe('Channel not found: ch-x');
   });

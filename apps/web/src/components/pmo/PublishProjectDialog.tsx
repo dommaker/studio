@@ -8,6 +8,7 @@ import { toast } from '../../utils/toast';
 import { Select, Modal } from '../ui';
 import { IconAlertTriangle } from '../ui/icons';
 import { resolveChannelResponders } from './channelResponders';
+import { isSystemRole } from '../../utils/systemRole';
 
 interface PublishProjectDialogProps {
   open: boolean;
@@ -61,7 +62,7 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
     channelApi.listAllAgents()
       .then(res => {
         if (cancelled) return;
-        const active = (res.data?.data || []).filter(p => p.status === 'active' && p.name !== 'studio');
+        const active = (res.data?.data || []).filter(p => p.status === 'active' && !isSystemRole(p));
         const ch = channelOptions.find(c => c.id === selectedChannelId);
         setChannelAgents(resolveChannelResponders(ch, selectedChannelId, active));
       })

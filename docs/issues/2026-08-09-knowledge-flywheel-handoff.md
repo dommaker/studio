@@ -13,7 +13,7 @@
    - `~/.studio/data/sessions/` 共 19 个文件，全部 `.done`，最新沉积 2026-07-16/18；此后无任何新会话文件落盘。
    - 代码库中**没有任何写入该目录的逻辑**——唯一引用是 `apps/api/src/modules/agents/default-triggers.ts:67,205` 里 `session-knowledge-extraction` 触发器给 agent 的 scope 文本（"Scan ~/.studio/data/sessions/ for unprocessed JSONL…"）。存量文件是手工拷贝的 `.bak`（文件名 `a1b2c3d4-...` 为占位 UUID）。
    - 后果：该触发器每天 04:17 照常建 WU，agent 扫描后空转退出（`workunit:execution_step` 事件实证："All files already have .done suffix"）——每日白烧一轮 token。
-   - 真正的会话数据源其实存在：claude transcript 在 `/root/.claude/projects/<cwd-slug>/*.jsonl`（生产 106+ 个 studio 步会话，见 `docs/research/timeout-data-measurement.md`），kimi 在 `~/.kimi-code/sessions/`。**缺的是 transcript → data/sessions 的自动归档器**。
+   - 真正的会话数据源其实存在：claude transcript 在 `~/.claude/projects/<cwd-slug>/*.jsonl`（生产 106+ 个 studio 步会话，见 `docs/research/timeout-data-measurement.md`），kimi 在 `~/.kimi-code/sessions/`。**缺的是 transcript → data/sessions 的自动归档器**。
 
 2. **KnowledgeSync 每小时写零值噪声条目**
    - `apps/api/src/modules/knowledge/knowledge-sync.service.ts:344`：每个 sync cycle 无条件 `recordPattern` 一条 trend 条目，即使 `0 stale, 0 unmonitored, 0 healed`。

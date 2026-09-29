@@ -2,7 +2,7 @@
 
 - 票：#259（wayfinder 地图 #245 子票），复验 #247 走查报告（`2026-08-19-channel-e2e-walkthrough.md`）中三项 dev 限定/未覆盖结论
 - 日期：2026-08-19
-- 对象：studio-prod 生产环境（`http://localhost:13101`，systemd `studio-api.service`，代码 `/root/projects/studio-prod` @ c6a24732，数据 `~/.studio/`）
+- 对象：本机生产环境部署（本地端口 HTTP + systemd 服务托管；代码为生产部署 checkout @ c6a24732，数据 `~/.studio/`）
 - 方式：curl 直打 API + Playwright（Chromium）实操 UI + prod 代码确认，全部一手实测
 - 纪律：只读。全程未发消息、未建频道、未改任何设置；「默认工程」下拉只展开查看、Escape 关闭未选择
 
@@ -33,7 +33,7 @@
 
 **根因（代码一手确认）：**
 
-- `/root/projects/studio-prod/apps/api/src/app.ts:26` 全局 `app.use(compression())`。compression 中间件对 `Accept-Encoding: gzip` 的响应做压缩缓冲，首帧数据不够触发 flush，响应头与 body 都被挂住；SSE 端点（`modules/events/sse.routes.ts:83`）虽写了 `X-Accel-Buffering: no`，那只对 nginx 有效，管不到应用内 compression。
+- `apps/api/src/app.ts:26` 全局 `app.use(compression())`。compression 中间件对 `Accept-Encoding: gzip` 的响应做压缩缓冲，首帧数据不够触发 flush，响应头与 body 都被挂住；SSE 端点（`modules/events/sse.routes.ts:83`）虽写了 `X-Accel-Buffering: no`，那只对 nginx 有效，管不到应用内 compression。
 - curl 默认不发 `Accept-Encoding`，所以不压缩、秒回——完美解释 F11 的「curl 正常、Chromium 挂起」对照现象。
 - dev 仓 `apps/api/src/app.ts:26` 同样全局 compression → F11 在 dev 的根因同此，**不是 vite 代理问题**（vite 代理只是透传了 Accept-Encoding）。
 

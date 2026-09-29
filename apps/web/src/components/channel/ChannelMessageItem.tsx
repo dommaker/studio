@@ -21,7 +21,6 @@ import { ReviewProposalCard } from './ReviewProposalCard';
 import { AnalysisConfirmCard } from './AnalysisConfirmCard';
 import { PlanRulingCard } from './PlanRulingCard';
 import { PlanDirectionCard } from './PlanDirectionCard';
-import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 import { NeedInputOptions } from './NeedInputOptions';
 import { PmoChip } from '../pmo/PmoChip';
 import { shortWuId } from '../../utils/id';
@@ -31,8 +30,10 @@ import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 
 // #547（架构评审 2026-09-15 候选 B3，grilling 已决）：公开 Props 收窄到消息本体 +
 // per-message 派生值（5）+ 结构 props（6，ChannelStreamBody 经封闭 extra 通道喂入）；
-// 11 个横切值（onAction/onReply/findMessage/channelId/抽屉回调/onInlineReply/onQuoteClick）
+// 12 个横切值（onAction/onReply/findMessage/channelId/抽屉回调/onInlineReply/onQuoteClick/onConvert）
 // 经 ChannelMessageEnv Context 自取，fileVocabulary 经 useChannelDataStore selector 自取。
+// B3：AC-E3 转任务弹窗提升为页面级单例——每条消息不再各挂一个 ConvertToTaskDialog 实例
+//（关闭态也跑 hooks、roster/members 更新扇出 N 份），本项只经 onConvert 回调打开。
 export interface ChannelMessageItemProps {
   message: ChannelMessage;
   /** F5: 关联 WorkUnit 挂起等待人类回复（NEED_INPUT） */
@@ -81,6 +82,8 @@ function renderCard(
     case 'distill_proposal': // #143 蒸馏提案人审闸口
     case 'gc_proposal': // #144 知识库 GC 候选清单人审闸口
     case 'auditor_suggestion': // B3-005 审计建议（#356 起并入合一壳）
+    case 'constraint_proposal': // ADR-0033 子项 7/8 约束提案（新约束 / 升级）
+    case 'evolution_proposal': // #623 约束进化提案（断点 3 遗留补丁）
       // #352（ADR 2026-08-25 决策 5）：人审提案卡合一为 ReviewProposalCard 壳 + proposalCardConfigs 配置
       return <ReviewProposalCard message={message} meta={meta} onAction={onAction} />;
     case 'analysis_confirm': // #284（决策 #250 D6）analysis 接力卡
@@ -108,7 +111,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   const {
     onAction, onReply, findMessage, channelId,
     onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenWorkUnitDirection, onOpenRequirement,
-    onInlineReply, onQuoteClick,
+    onInlineReply, onQuoteClick, onConvert,
   } = env ?? {};
   // #285: agent 消息 inline-code 文件 chip 词表；按 channelId 键控（无跨频道串词表）；
   // 缺 Provider/词表未加载 → undefined，chip 不渲染（失败静默降级语义不变）
@@ -118,7 +121,6 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   // 缺 Provider（env=null）→ onAction 缺省 → 卡片不渲染（fail-closed；生产装配层必挂 Provider）
   const card = onAction ? renderCard(meta, message, onAction, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenWorkUnitDirection) : null;
   const parentMessage = message.replyToId && findMessage ? findMessage(message.replyToId) : undefined;
-  const [convertOpen, setConvertOpen] = useState(false);
   const [needDraft, setNeedDraft] = useState('');
   const [needSent, setNeedSent] = useState(false);
   // #276（P2 #15）：发送中状态——禁用表单防重复触发，await 真实结果后才置位「已回复」
@@ -157,17 +159,12 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   );
   // #270：NEED_INPUT 内嵌回复框共享 composer 同款 IME 守卫
   const { handleCompositionEnd, isImeEvent } = useImeEnterGuard();
-  const canConvert = !message.workUnitId && isHuman && !!channelId;
+  // B3：弹窗页面级单例——本项只回调打开；onConvert 缺省 fail-closed 不出按钮
+  const canConvert = !message.workUnitId && isHuman && !!channelId && !!onConvert;
   const reqId: string | undefined = meta.requirementId || meta.reqId;
   // 2026-07 §5.7: 里程碑消息 meta.pmoId（老消息没有 → undefined，不渲染 PMO chip）
   const pmoId: string | undefined = typeof meta.pmoId === 'string' ? meta.pmoId : undefined;
   const navigate = useNavigate();
-
-  const handleConverted = () => {
-    setConvertOpen(false);
-    // Parent will refresh messages via onAction（canConvert 要求 channelId，即 Provider 在场，onAction 必有）
-    onAction?.(message.id, 'converted');
-  };
 
   // F5: 卡片内嵌回复 —— 走与回复按钮完全相同的链路（sendMessage + replyToId），
   // 后端 message-routing 检测 replyTo 继承 workUnitId 后调 resumeWaitingWorkUnit
@@ -247,7 +244,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       )}
       {canConvert && (
         <button
-          onClick={() => setConvertOpen(true)}
+          onClick={() => onConvert?.(message)}
           className="mc-icon-btn"
           title="转为任务"
           aria-label="转为任务"
@@ -410,18 +407,6 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             </button>
           )}
         </div>
-      )}
-
-      {/* AC-E3: Convert to Task dialog */}
-      {channelId && (
-        <ConvertToTaskDialog
-          open={convertOpen}
-          onClose={() => setConvertOpen(false)}
-          messageId={message.id}
-          channelId={channelId}
-          messageContent={message.content}
-          onConverted={handleConverted}
-        />
       )}
     </div>
   );

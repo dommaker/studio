@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, eventBus, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
-import { ReviewDispatcher } from '../loop/review-dispatcher.js';
+import { ReviewDispatcher, REVIEW_DISPATCH_RETRY_DELAY_MS } from '../loop/review-dispatcher.js';
 
 const { mockPostWuSystemMessage } = vi.hoisted(() => ({ mockPostWuSystemMessage: vi.fn() }));
 
@@ -322,6 +322,16 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
 
     const updatedParent = await wuService.getById(parent.id);
     expect(['active', 'blocked']).toContain(updatedParent!.status);
+
+    // B1：打回出声——父 WU 线程补一条「评审未通过」里程碑（含 reason，经 wu-messenger 统一出口）
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const sysMsg = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('评审未通过：缺少错误处理'));
+    expect(sysMsg).toBeDefined();
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: parent.id }),
+      expect.stringContaining('已退回返工'),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
   });
 
   it('AC-4.5 + P0 修复: child done + 无 reviewReport -> 父保持 in_review，频道转人工（不再默认拒绝）', async () => {
@@ -737,5 +747,87 @@ describe('P7: STUDIO_AUTO_REVIEW 开关（fake/无凭证环境豁免自动评审
     vi.stubEnv('STUDIO_AUTO_REVIEW', 'true');
     const { child } = await createParentAndReview('实现功能 P7D', executorProfile.id);
     expect(child).toBeDefined();
+  });
+});
+
+describe('2026-09 性能治理：路径 A 事件链失败 30s 进程内重试', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function createActiveParent(scope: string) {
+    return wuService.create({
+      scope,
+      type: 'feature',
+      channelId: 'ch-test',
+      assigneeId: executorProfile.id,
+      status: 'active',
+    });
+  }
+
+  function findReviewChild(parentId: string) {
+    return fileStore.getIndex().then(snaps =>
+      snaps.find(s => s.parentId === parentId && s.type === 'review'));
+  }
+
+  it('首次建单瞬时失败 → 30s 后自动重试成功建评审子 WU', async () => {
+    vi.useFakeTimers();
+    // 首次事件链 getChannel 抖动失败一次，其后恢复正常（spyOn 默认透传原实现）
+    const getChannelSpy = vi.spyOn(fileStore, 'getChannel')
+      .mockRejectedValueOnce(new Error('fs jitter'));
+
+    const parent = await createActiveParent('实现功能 RT1');
+    await wuService.transitionStatus(parent.id, 'in_review');
+    await dispatcher.waitForSettled(); // 首链落定：失败 + 重试已挂
+    expect(await findReviewChild(parent.id)).toBeUndefined();
+    expect(getChannelSpy).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS);
+    await dispatcher.waitForSettled();
+
+    const child = await findReviewChild(parent.id);
+    expect(child).toBeDefined();
+    expect(child!.status).toBe('unassigned');
+    getChannelSpy.mockRestore();
+  });
+
+  it('重试也失败 → 不再叠加重试（交 5min 对账兜底）', async () => {
+    vi.useFakeTimers();
+    const getChannelSpy = vi.spyOn(fileStore, 'getChannel')
+      .mockRejectedValueOnce(new Error('jitter-1'))
+      .mockRejectedValueOnce(new Error('jitter-2'));
+
+    const parent = await createActiveParent('实现功能 RT2');
+    await wuService.transitionStatus(parent.id, 'in_review');
+    await dispatcher.waitForSettled();
+
+    await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS);
+    await dispatcher.waitForSettled();
+    expect(await findReviewChild(parent.id)).toBeUndefined();
+    expect(getChannelSpy).toHaveBeenCalledTimes(2);
+
+    // 再过一个周期：无第三次尝试
+    await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS * 2);
+    await dispatcher.waitForSettled();
+    expect(getChannelSpy).toHaveBeenCalledTimes(2);
+    expect(await findReviewChild(parent.id)).toBeUndefined();
+    getChannelSpy.mockRestore();
+  });
+
+  it('重试触发时父 WU 已离开 in_review（人工已收口）→ 跳过不建单', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(fileStore, 'getChannel').mockRejectedValueOnce(new Error('fs jitter'));
+
+    const parent = await createActiveParent('实现功能 RT3');
+    await wuService.transitionStatus(parent.id, 'in_review');
+    await dispatcher.waitForSettled();
+
+    // 人工在对账/重试前直接收口到 done
+    await wuService.transitionStatus(parent.id, 'done');
+    await dispatcher.waitForSettled();
+
+    await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS);
+    await dispatcher.waitForSettled();
+    expect(await findReviewChild(parent.id)).toBeUndefined();
   });
 });

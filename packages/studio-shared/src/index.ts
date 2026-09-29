@@ -66,7 +66,6 @@ export type {
   MessagePageOpts,
   MessagePage,
   MessageCompactionOptions,
-  CountOpts,
   WorkUnitEvent,
   WorkUnitEventType,
   WorkUnitSnapshot,

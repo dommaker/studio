@@ -114,9 +114,9 @@ main() {
   # 快速命令
   echo -e "${BLUE}========================================${NC}"
   echo -e "快速命令:"
-  echo -e "  启动:   ./scripts/start-all.sh"
-  echo -e "  停止:   ./scripts/stop-all.sh"
-  echo -e "  状态:   ./scripts/status.sh"
+  echo -e "  启动:   ./scripts/dev/start.sh"
+  echo -e "  停止:   ./scripts/dev/stop.sh"
+  echo -e "  状态:   ./scripts/dev/status.sh"
   echo -e "  日志:   tail -f /tmp/agent-studio-logs/*.log"
   echo -e "${BLUE}========================================${NC}"
 }

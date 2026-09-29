@@ -11,6 +11,11 @@
 #   --update-baseline  Rebuild .tsc-baseline.json (after fixing errors)
 #
 # Set TSC_GATE_OFF=1 to skip (emergency only).
+#
+# 入口分工（#643 核查后保留）：本脚本是 .git/hooks/pre-commit 与人工命令行的
+# tsc-gate 入口——提供 .js 没有的能力：staged 文件 → packages 范围映射、--all、
+# TSC_GATE_OFF 逃生门、--update-baseline 透传。核心比对逻辑在 bin/tsc-gate.js；
+# pnpm typecheck 绕过本脚本直接调 .js（显式 --packages，全量四包）。
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASELINE_FILE="$REPO_ROOT/.tsc-baseline.json"

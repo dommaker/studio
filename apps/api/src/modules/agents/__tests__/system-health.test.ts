@@ -8,10 +8,8 @@ vi.mock('os', () => ({
   freemem: () => 4 * 1024 * 1024 * 1024,   // 4GB (75% used)
 }));
 
-// Mock dynamic imports used by collectDb() and collectWorkunitStats()
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: { $queryRawUnsafe: vi.fn().mockResolvedValue([{ 1: 1 }]) },
-}));
+// Mock dynamic imports used by collectDb() / collectWorkunitStats()（FileStore 走
+// @dommaker/studio-shared，见下；studio-prisma 包已删除，相关死桩随 #643 移除）
 
 vi.mock('@dommaker/studio-shared', () => {
   const FileStore = vi.fn();

@@ -8,9 +8,10 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 
 ### 核心导出
 
-- `requirement.service.ts` — Requirement Service（REQ CRUD 与编号分配；B3a: projectId 挂接 PMO 项目；决策 4 别名层 get/list/update/getChain 别名感知；决策 2 createFromDispatch 杂务归集——频道已登记杂务 PMO 时小活归集其 REQ 别名，只查不建）
+- `requirement.service.ts` — Requirement Service（REQ CRUD 与编号分配；B3a: projectId 挂接 PMO 项目；决策 4 别名层 get/list/update/getChain 别名感知；createFromDispatch：#636 A′ 裁决——无 token 派单先派生频道当前 PMO 第一级（最近挂接 REQ 所属非杂务 PMO），命中新 REQ 挂接其 projectId；派生落杂务/无结果/失败降级决策 2 杂务归集（只查不建）→ 孤儿新建）
 - `requirement.routes.ts` — Requirement API 路由
-- `req-binding.ts` — REQ 绑定解析（显式 reqId > #REQ-XXXX token > #PMO-n/#PM-n token（决策 4 别名层解析，无别名存量拒绝歧义降级）> 自动新建），@mention 派发 / convert-to-task 共用
+- `req-binding.ts` — REQ 绑定解析（显式 reqId > #REQ-XXXX token > #PMO-n/#PM-n token（决策 4 别名层解析，无别名存量拒绝歧义降级）> 自动新建（含 #636 当前 PMO 挂接）），@mention 派发 / convert-to-task 共用
+- `channel-req-pmo.ts` — 频道 REQ 挂接 PMO 查询原语（#636 自 channels/file-ref-vocabulary 下沉：channels 是 requirements 下游，派生核心查询须落在 requirements 可达位置）：`listChannelReqPmoProjects`（候选集与 current-pmo 共用，逐条容错）+ `deriveChannelReqPmo`（current-pmo 派生链第一级「最近挂接 REQ 所属 PMO」，seq 大→小取首个；只查不建、失败返回 null 绝不抛出；**B2（2026-09-27）起按 seq 降序惰性解析、首个命中即停**，不再 Promise.all 解析全部挂接项目，单条失败/缺失顺延口径不变）
 - `ownership-resolver.ts` — B3a 工程归属解析（决策 D2 + #285 决策 #249 §4）：Requirement.projectId → PMO gitRepo > 文件引用（#285：fileRefs 全部引用尾斜杠归一后同仓 → source=file-refs、workspaceRoot=归一 repo；跨多仓不参与落下一 rung，空数组等同无引用）> 频道 defaultPath（默认工程）> none。#481（2026-09-11）：「显式 workspaceId」与「频道 defaultWorkspaceId（默认执行机器）」两级已退役——机器指针不再产出（OwnershipResolution 无 workspaceId 字段；OwnershipSource 无 explicit/channel-default），频道只配机器指针等同无归属。#525 P2-2：输入新增可选 `channel`——路由层已读快照传入时「频道 defaultPath」级不再重复 `getChannel`（未传入保持现状读）
 - `pmo-branch-resolver.ts` — PMO-b（决策 3）：WU → PMO 分支解析（2026-08 归因统一后两级链：①创建期直读戳 metadata.pmoId ‖ deprecated legacy ownershipProjectId（同级，pmoId 优先）②reqId→REQ→PMO；branch = gitBranch || pmoNumber，透出 deliveryPolicy），agent-loop worktree base 与 merge-on-review-pass 的目标分支来源；#113 T7 多腿：显式多腿项目（resolveDeliveries > 1）按 WU→腿归属解析腿分支——口径 = pmo/evidence-summary 的 `matchWuToLeg`（metadata.workspaceRoot/worktreeBaseRepo 命中腿 gitRepo，或 pmoBranch 命中腿 branch，两侧非空才比较，归数组序首个命中腿），未命中任何腿回落项目级 gitBranch || pmoNumber，单腿项目不走腿归属、行为不变；`resolvePmoProjectIdForWU`（2026-07 PMO-flow UX §6）：同链只出项目 id（与 resolvePmoBranchForWU 共享内部 resolveAttribution，项目存在校验逐级容错），monitoring /agents 聚合（map 版 deps 批量内存匹配）与里程碑消息 meta.pmoId（agent-loop/ReviewDispatcher/timeout-release/merge-on-review-pass）共用。原 ③ metadata.pmoProjectId 级 2026-08 移除（agent-loop 落档的冗余缓存，生产存量为零；修复 analysis 派生链仅 pmoId、reqId=null 的 task WU 解析不到 PMO 分支的 bug）
 - `wu-pmo-attribution.ts` — 2026-08 归因统一：创建期 PMO 归因戳纯解析叶子（零 app 依赖，防 pmo/ → pmo-branch-resolver → project.service → workunit.service 循环）；`parseWuPmoId` = metadata.pmoId（canonical）→ metadata.ownershipProjectId（deprecated legacy 同位）容错同步解析，pmo-branch-resolver、pmo/evidence-summary（内存过滤）、workunit/workunit-crud（#402 父戳继承）与 requirement.service（#402 解绑对账 warn）共用
@@ -23,11 +24,12 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 
 ### 注意事项
 
-- 首次 @mention 派发时自动分配 REQ 编号（频道已登记杂务 PMO 时归集到杂务别名，不再每条消息新建 REQ）
+- 首次 @mention 派发时自动分配 REQ 编号（#636：频道最近挂接 REQ 属于非杂务 PMO 时新 REQ 直接挂接该项目——A′ 裁决，自增强粘性为接受行为，切项目走显式 token；否则频道已登记杂务 PMO 时归集到杂务别名，不再每条消息新建 REQ）
+- **#636 无 token 派单默认挂频道当前 PMO（#632 Q7 域缝隙，A′ 裁决）**：`createFromDispatch` 自动新建路径内先跑当前 PMO 第一级派生（`deriveChannelReqPmo`，最近挂接 REQ 所属 PMO），命中且非杂务 → 新 REQ 挂接其 projectId；派生为杂务 PMO/无结果 → 维持杂务归集或孤儿新建，行为不变；派生查询抛错 → 记日志降级，绝不阻断派单。显式 reqId / #REQ-n / #PMO-n token 优先级不动（不触发派生）。`RequirementServiceDeps.deriveChannelProject` 可注入中性桩（默认实现绑本 service 的 fileStore + projectService.get，只查不建、零副作用）——单测务必注入（同 findChoreProject 等桩模式）
 - 状态汇总走事件驱动（`workunit.status_changed`），不做轮询
 - **requirement.created/updated 已接 SSE（2026-08-24 SSE 负载加深）**：publish 负载 = `{ requirement }`（RequirementData 含 id/title/status/channelId，无需补齐），经 events 模块 workunit-events-bridge 转发到 'events' 频道，topic = requirements（sse.routes 前缀映射）
 - **鉴权（2026-07-24 收紧）**：POST /、PATCH /:id 已收 requireAuth+requireNotGuest；GET 端点保持大门层鉴权不变。
 - **批量徽章统计(#387)**：GET /chain-stats?reqIds= 每需求 {finished,total}，finished = deriveDisplayState().workFinished（F6 唯一口径服务端同源）；getChainStats 一次索引扫描 + 别名一次 listAliasProjects 全量扫描解析，查无此需求不出 key（同原 404 口径）。PMO 卡片「任务 x/y」专用，消逐项目 getChain 的 N+1；单次 id 上限 MAX_BATCH_IDS=100。GET 只读，大门层鉴权不变。
 - **B3a（决策 D2）**：Requirement 增 projectId 字段挂 PMO 项目（工程归属锚点）；studio-shared 的 RequirementData 暂未加该字段（本批改动限 apps/api/src），由本地 `RequirementWithProject` 扩展类型承载，FileStore 透传 JSON 运行时无差异。#402：update 解绑（projectId: null）不拦截，但已挂项目且存在无 pmoId 戳关联 WU 时记对账 warn（affectedWorkUnits）——有戳 WU 经戳兜底仍归属原项目（逐 WU 归属口径见 pmo/evidence-summary.ts）。
-- **决策 4（别名层）**：别名视图 createdBy='pmo-alias' 只读；`RequirementServiceDeps` 可注入 getProjectByAlias/findChoreProject/listAliasProjects/getProjectByPmoNumber——单测务必注入中性桩（默认实现读真实 ~/.studio/projects，并行测试会被 routes 测试的真实项目串扰）。
+- **决策 4（别名层）**：别名视图 createdBy='pmo-alias' 只读；`RequirementServiceDeps` 可注入 getProjectByAlias/findChoreProject/listAliasProjects/getProjectByPmoNumber/deriveChannelProject——单测务必注入中性桩（默认实现读真实 ~/.studio/projects，并行测试会被 routes 测试的真实项目串扰）。
 - **GET / 无过滤即全量列表**（legacy REQ + PMO 别名视图合并，分页参数无——全量返回）：批次 D-2 项5 PMOPage「需求」索引 tab 消费（配合 chain-stats 批量计数），新增全量消费方注意单页规模。

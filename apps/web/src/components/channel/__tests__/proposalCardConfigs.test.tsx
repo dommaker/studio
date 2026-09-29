@@ -6,6 +6,8 @@ import { distillApi } from '../../../api/distill';
 import { memoryApi } from '../../../api/memory';
 import { knowledgeApi } from '../../../api/knowledge';
 import { auditorApi } from '../../../api/auditor';
+import { constraintApi } from '../../../api/constraint';
+import { evolutionApi } from '../../../api/evolution';
 
 vi.mock('../../../api/distill', () => ({
   distillApi: {
@@ -26,6 +28,12 @@ vi.mock('../../../api/knowledge', () => ({
 vi.mock('../../../api/auditor', () => ({
   auditorApi: { approveProposal: vi.fn(), rejectProposal: vi.fn(), proposalStatus: vi.fn() },
 }));
+vi.mock('../../../api/constraint', () => ({
+  constraintApi: { approve: vi.fn(), reject: vi.fn(), proposalStatus: vi.fn() },
+}));
+vi.mock('../../../api/evolution', () => ({
+  evolutionApi: { approve: vi.fn(), reject: vi.fn(), proposalStatus: vi.fn() },
+}));
 
 const CARD_TYPES = [
   'distill_proposal',
@@ -33,12 +41,14 @@ const CARD_TYPES = [
   'memory_proposal',
   'knowledge_proposal',
   'auditor_suggestion',
+  'constraint_proposal',
+  'evolution_proposal',
 ];
 
 beforeEach(() => vi.clearAllMocks());
 
 describe('PROPOSAL_CARD_CONFIGS 完整性', () => {
-  it('恰好覆盖 5 类提案卡', () => {
+  it('恰好覆盖 7 类提案卡', () => {
     expect(Object.keys(PROPOSAL_CARD_CONFIGS).sort()).toEqual([...CARD_TYPES].sort());
   });
 
@@ -55,18 +65,20 @@ describe('PROPOSAL_CARD_CONFIGS 完整性', () => {
     expect(typeof c.renderContent).toBe('function');
   });
 
-  it('distill 家族 + memory/knowledge/auditor kind 对齐注册表（distill/gc #351，memory #353，knowledge #355，auditor #356）', () => {
+  it('distill 家族 + memory/knowledge/auditor/constraint/evolution kind 对齐注册表（distill/gc #351，memory #353，knowledge #355，auditor #356，constraint ADR-0033 子项 7，evolution #623）', () => {
     expect(PROPOSAL_CARD_CONFIGS.distill_proposal.kind).toBe('distill');
     expect(PROPOSAL_CARD_CONFIGS.gc_proposal.kind).toBe('gc');
     expect(PROPOSAL_CARD_CONFIGS.memory_proposal.kind).toBe('memory');
     expect(PROPOSAL_CARD_CONFIGS.knowledge_proposal.kind).toBe('knowledge');
     expect(PROPOSAL_CARD_CONFIGS.auditor_suggestion.kind).toBe('auditor');
+    expect(PROPOSAL_CARD_CONFIGS.constraint_proposal.kind).toBe('constraint');
+    expect(PROPOSAL_CARD_CONFIGS.evolution_proposal.kind).toBe('evolution');
   });
 });
 
 describe('PROPOSAL_ACTION_INDEX', () => {
-  it('10 个 action 全部映射到配置与决策方向', () => {
-    expect(Object.keys(PROPOSAL_ACTION_INDEX)).toHaveLength(10);
+  it('14 个 action 全部映射到配置与决策方向', () => {
+    expect(Object.keys(PROPOSAL_ACTION_INDEX)).toHaveLength(14);
     for (const c of Object.values(PROPOSAL_CARD_CONFIGS)) {
       expect(PROPOSAL_ACTION_INDEX[c.approveAction]).toEqual({ config: c, decision: 'approve' });
       expect(PROPOSAL_ACTION_INDEX[c.rejectAction]).toEqual({ config: c, decision: 'reject' });
@@ -105,6 +117,87 @@ describe('distill 家族 fetchReviewed（statuses?.[id] 派生）', () => {
     await expect(
       PROPOSAL_CARD_CONFIGS.distill_proposal.fetchReviewed!({ proposalId: 'p1' }),
     ).resolves.toBeNull();
+  });
+});
+
+describe('constraint（ADR-0033 子项 7/8 通用端点）exec 与派生', () => {
+  it('approve → POST 通用端点；success=false → false 保持待审；缺 proposalId → false', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.constraint_proposal;
+    vi.mocked(constraintApi.approve).mockResolvedValue({ data: { success: true } } as never);
+    await expect(
+      cfg.exec({ proposalId: 'cp1', action: 'new', constraintId: 'app_x' }, 'approve'),
+    ).resolves.toBe(true);
+    expect(constraintApi.approve).toHaveBeenCalledWith('cp1');
+
+    vi.mocked(constraintApi.approve).mockResolvedValue({ data: { success: false } } as never);
+    await expect(cfg.exec({ proposalId: 'cp1' }, 'approve')).resolves.toBe(false);
+
+    await expect(cfg.exec({ action: 'new' }, 'approve')).resolves.toBe(false);
+    expect(constraintApi.approve).toHaveBeenCalledTimes(2);
+
+    vi.mocked(constraintApi.reject).mockResolvedValue({} as never);
+    await expect(cfg.exec({ proposalId: 'cp1' }, 'reject')).resolves.toBe(true);
+    expect(constraintApi.reject).toHaveBeenCalledWith('cp1');
+  });
+
+  it('派生按提案状态（executed→approved，rejected→rejected，failed→failed，pending/unknown→null）', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.constraint_proposal;
+    vi.mocked(constraintApi.proposalStatus).mockResolvedValue({ data: { status: 'executed' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'cp1' })).resolves.toBe('approved');
+    vi.mocked(constraintApi.proposalStatus).mockResolvedValue({ data: { status: 'rejected' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'cp1' })).resolves.toBe('rejected');
+    vi.mocked(constraintApi.proposalStatus).mockResolvedValue({ data: { status: 'failed' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'cp1' })).resolves.toBe('failed');
+    vi.mocked(constraintApi.proposalStatus).mockResolvedValue({ data: { status: 'pending' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'cp1' })).resolves.toBeNull();
+    await expect(cfg.fetchReviewed!({})).resolves.toBeNull();
+  });
+
+  it('countText：action=upgrade → 升级提案；否则新约束提案', () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.constraint_proposal;
+    expect(cfg.countText({ action: 'upgrade' })).toBe('升级提案');
+    expect(cfg.countText({ action: 'new' })).toBe('新约束提案');
+  });
+});
+
+describe('evolution（#623 断点 3 遗留补丁，通用端点 kind=evolution）exec 与派生', () => {
+  it('approve → POST 通用端点；success=false → false 保持待审；缺 proposalId → false；reject → reject', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.evolution_proposal;
+    vi.mocked(evolutionApi.approve).mockResolvedValue({ data: { success: true } } as never);
+    await expect(
+      cfg.exec({ proposalId: 'EP-0001', targetId: 'no_redis_import', constraintChange: 'retire' }, 'approve'),
+    ).resolves.toBe(true);
+    expect(evolutionApi.approve).toHaveBeenCalledWith('EP-0001');
+
+    vi.mocked(evolutionApi.approve).mockResolvedValue({ data: { success: false } } as never);
+    await expect(cfg.exec({ proposalId: 'EP-0001' }, 'approve')).resolves.toBe(false);
+
+    await expect(cfg.exec({ targetId: 'x' }, 'approve')).resolves.toBe(false);
+    expect(evolutionApi.approve).toHaveBeenCalledTimes(2);
+
+    vi.mocked(evolutionApi.reject).mockResolvedValue({} as never);
+    await expect(cfg.exec({ proposalId: 'EP-0001' }, 'reject')).resolves.toBe(true);
+    expect(evolutionApi.reject).toHaveBeenCalledWith('EP-0001');
+  });
+
+  it('派生按提案状态（executed→approved，rejected→rejected，failed→failed，pending→null）', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.evolution_proposal;
+    vi.mocked(evolutionApi.proposalStatus).mockResolvedValue({ data: { status: 'executed' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'EP-0001' })).resolves.toBe('approved');
+    vi.mocked(evolutionApi.proposalStatus).mockResolvedValue({ data: { status: 'rejected' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'EP-0001' })).resolves.toBe('rejected');
+    vi.mocked(evolutionApi.proposalStatus).mockResolvedValue({ data: { status: 'failed' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'EP-0001' })).resolves.toBe('failed');
+    vi.mocked(evolutionApi.proposalStatus).mockResolvedValue({ data: { status: 'pending' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'EP-0001' })).resolves.toBeNull();
+    await expect(cfg.fetchReviewed!({})).resolves.toBeNull();
+  });
+
+  it('countText：constraintChange → 白话动作标签', () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.evolution_proposal;
+    expect(cfg.countText({ constraintChange: 'retire' })).toBe('退役约束');
+    expect(cfg.countText({ constraintChange: 'disable' })).toBe('停用约束');
+    expect(cfg.countText({})).toBe('约束变更');
   });
 });
 

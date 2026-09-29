@@ -9,13 +9,13 @@
 |--------|------|------|
 | WU 索引 | `~/.studio/data/workunits/index.json` | 150 WU（2026-07-13 ~ 08-09） |
 | 业务事件流 | `~/.studio/logs/studio-events.jsonl` | 15,836 行（近 7 天） |
-| claude 会话 transcript | `/root/.claude/projects/<cwd-slug>/<sessionId>.jsonl`（agent 继承 `HOME=/root`，见 `runner-params.ts: buildSessionEnv`） | 候选目录约 130MB / 1,955 个会话文件 |
-| kimi 会话数据 | `/root/.kimi-code/sessions/wd_*/session_*/agents/main/wire.jsonl`（kimi CLI 自有落盘，cwd 维度分桶） | 5 个 cwd 桶、62 个主会话 |
+| claude 会话 transcript | `~/.claude/projects/<cwd-slug>/<sessionId>.jsonl`（agent 继承 `HOME=/root`，见 `runner-params.ts: buildSessionEnv`） | 候选目录约 130MB / 1,955 个会话文件 |
+| kimi 会话数据 | `~/.kimi-code/sessions/wd_*/session_*/agents/main/wire.jsonl`（kimi CLI 自有落盘，cwd 维度分桶） | 5 个 cwd 桶、62 个主会话 |
 | 知识引擎沉淀会话 | `~/.studio/data/sessions/*.jsonl.done`（claude transcript 格式沉积） | 19 个文件 / 143MB |
 
 **关键事实（决定样本口径）**：
 
-- 生产 agent 全部 7 个 active profile 的 `provider` 均为 **claude**（`~/.studio/data/agents/*/profile.json`）。**kimi/opencode/codex 在 agent-loop 生产执行中零使用**，本地 kimi 会话全部是交互式会话（workDir=`/root/projects`），只能作参考样本，不代表生产步。
+- 生产 agent 全部 7 个 active profile 的 `provider` 均为 **claude**（`~/.studio/data/agents/*/profile.json`）。**kimi/opencode/codex 在 agent-loop 生产执行中零使用**，本地 kimi 会话全部是交互式会话（workDir=`~/projects`），只能作参考样本，不代表生产步。
 - studio 步会话用 prompt 头指纹 `## 本次任务 Skills`（prompt-composer 注入）识别，1,955 个 claude 会话中命中 **106 个**。
 - 步边界 = transcript 中真实 prompt（user/string 行）；步内相邻事件时间戳差 = 静默间隔。
 - 被 120s 超杀（WU metadata `errorDetail="Command timed out after 2min"`，来自 `agent-loop.ts:703 timeoutMs: 120_000`）的步通过"会话与失败 WU 活跃窗口重叠"隔离，**不并入健康分布**。

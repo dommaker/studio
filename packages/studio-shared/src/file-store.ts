@@ -37,7 +37,6 @@ import type {
   MessagePage,
   MessageCompactionOptions,
   MessageArchiveOptions,
-  CountOpts,
   RequirementData,
   RequirementFilter,
   EvolutionProposalData,
@@ -59,7 +58,6 @@ export type {
   MessagePage,
   MessageCompactionOptions,
   MessageArchiveOptions,
-  CountOpts,
   WorkUnitEventType,
   WorkUnitEvent,
   WorkUnitSnapshot,
@@ -874,6 +872,102 @@ export class FileStore extends FileStoreWorkUnitBase {
   }
 
   /**
+   * B5（2026-09 channel-flow-audit-fix）：增量水位线读口——从字节偏移 fromOffset
+   * 前向读到「打开句柄时」的文件尾（fstat 快照 size；读中追加的行归下一轮），
+   * 返回窗口内 mergeActiveRows 归并的活消息（文件序 旧→新）与新水位。
+   * 设计要点：
+   * - 水位 = 字节偏移而非消息 id：更新副本/tombstone 只追加、原行字节不动；id 锚会被
+   *   「锚消息自身的更新副本/墓碑」毒化（倒扫先撞副本即停 → 中段新消息永丢），回复检测
+   *   路径漏人回复是回归，不可用 getMessagesSince 式 id 锚。
+   * - newOffset = 窗口内首个 createdAt >= boundarySinceMs 行的起始偏移（无则 endOffset）：
+   *   水位只越过「永久非候选」的行——调用方保证 boundarySinceMs 单调不减，未消费候选
+   *   永远留在窗口内重复投递。boundarySinceMs = +∞ 时水位直接推进到文件尾。
+   * - 失效检测（valid=false，调用方以 0 偏移全量重读重建水位）：fromOffset > 文件 size
+   *   （压实原子重写缩短）；fromOffset-1 字节非 \n（重写+追加后错位）；短读/末字节非 \n。
+   * - 直读磁盘不进 jsonlCache（同 getMessagesSince 的 seam 口径：增量读口，真源唯一）。
+   */
+  async readChannelMessagesDelta(
+    channelId: string,
+    fromOffset: number,
+    opts: { boundarySinceMs: number },
+  ): Promise<{ messages: ChannelMessageData[]; newOffset: number; endOffset: number; valid: boolean }> {
+    let handle: fs.promises.FileHandle | null = null;
+    try {
+      handle = await fs.promises.open(this.messagesPath(channelId), 'r');
+      const stat = await handle.stat();
+      const invalid = { messages: [] as ChannelMessageData[], newOffset: 0, endOffset: 0, valid: false };
+      if (fromOffset > stat.size) return invalid; // 压实重写缩短 → 水位不可信
+      if (fromOffset > 0) {
+        const probe = Buffer.alloc(1);
+        // 本包 @types/node 钉在 20.0.0 与 TS 5.7+ lib 的 ArrayBufferView 泛型不兼容
+        // （同 jsonl-tail.ts 既有适配）——Buffer 运行时是 Uint8Array 子类，仅类型层转换
+        const { bytesRead } = await handle.read(probe as Uint8Array, 0, 1, fromOffset - 1);
+        if (bytesRead !== 1 || probe[0] !== 0x0a) return invalid; // 重写后错位（行边界协议破坏）
+      }
+      const length = stat.size - fromOffset;
+      const rows: ChannelMessageRow[] = [];
+      let newOffset = stat.size;
+      if (length > 0) {
+        const buf = Buffer.alloc(length);
+        let filled = 0;
+        while (filled < length) {
+          const { bytesRead } = await handle.read(buf as Uint8Array, filled, length - filled, fromOffset + filled);
+          if (bytesRead === 0) return invalid; // 截断（追加/原子重写协议外） → 全量重来
+          filled += bytesRead;
+        }
+        if (buf[length - 1] !== 0x0a) return invalid; // 末行不完整 → 水位不可信
+        let lineStart = 0;
+        let boundaryFound = false;
+        for (let i = 0; i < length; i++) {
+          if (buf[i] !== 0x0a) continue;
+          if (i > lineStart) {
+            let row: ChannelMessageRow | null = null;
+            try {
+              row = JSON.parse(buf.toString('utf-8', lineStart, i)) as ChannelMessageRow;
+            } catch {
+              row = null; // 损坏行跳过（与 readJsonl 同容错口径）
+            }
+            if (row) {
+              rows.push(row);
+              // tombstone（deleted）不参与边界：它作废的目标必在其前（文件序），
+              // 水位越过它对候选集无影响
+              if (!boundaryFound && row.deleted !== true
+                && new Date(row.createdAt).getTime() >= opts.boundarySinceMs) {
+                newOffset = fromOffset + lineStart;
+                boundaryFound = true;
+              }
+            }
+          }
+          lineStart = i + 1;
+        }
+      }
+      return { messages: mergeActiveRows(rows), newOffset, endOffset: stat.size, valid: true };
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') {
+        // 频道/文件不存在 → 空窗口 + 水位归零（文件出现后从 0 全读）
+        return { messages: [], newOffset: 0, endOffset: 0, valid: true };
+      }
+      throw err;
+    } finally {
+      await handle?.close();
+    }
+  }
+
+  /**
+   * B5：消息频道目录枚举——与 queryAllMessages 同口径（channels 目录是事实源，
+   * 含无 config 的频道目录）。供 observe 增量水位线在「任一活跃 WU 无 channelId」
+   * 退化全扫时枚举扫描面；目录不存在按空处理（同 queryAllMessages 容错口径）。
+   */
+  async listMessageChannelIds(): Promise<string[]> {
+    try {
+      const entries = await this.readdirCached(this.channelsDir());
+      return entries.filter(e => e.isDirectory()).map(e => e.name);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * B4（2026-09-16 channel 体检）：before 锚点热层倒扫——从 messages.jsonl 尾部倒读，
    * 命中锚点后多收 limit+1 条活跃消息即停（锚不存在则扫到文件头）。
    * 去重/tombstone/损坏行口径同 readMessagesTail（复刻 mergeActiveRows）。
@@ -1275,20 +1369,6 @@ export class FileStore extends FileStoreWorkUnitBase {
     } finally {
       await handle?.close();
     }
-  }
-
-  async countMessages(channelId: string, opts?: CountOpts): Promise<number> {
-    const resolved = await this.resolveActiveMessages(channelId);
-    let filtered = resolved;
-
-    if (opts?.workUnitId) {
-      filtered = filtered.filter(m => m.workUnitId === opts.workUnitId);
-    }
-    if (opts?.authorType) {
-      filtered = filtered.filter(m => m.authorType === opts.authorType);
-    }
-
-    return filtered.length;
   }
 
   async softDeleteMessage(channelId: string, messageId: string): Promise<void> {

@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { eventBus, FileStore, logger } from '@dommaker/studio-shared';
-import { RequirementService, deriveTitle, TERMINAL_WORKUNIT_STATUSES } from '../requirement.service.js';
+import { RequirementService, deriveTitle, TERMINAL_WORKUNIT_STATUSES, type RequirementWithProject } from '../requirement.service.js';
 import type { ProjectData } from '../../pmo/project.service.js';
 import { initRequirementRollup } from '../rollup.js';
 import { WorkUnitService } from '../../workunit/workunit.service.js';
@@ -100,6 +100,84 @@ describe('RequirementService (vision §5.3)', () => {
     it('deriveTitle collapses whitespace and trims', () => {
       expect(deriveTitle('  hello\n\nworld  ')).toBe('hello world');
       expect(deriveTitle('短消息')).toBe('短消息');
+    });
+  });
+
+  describe('#636 无 token 派单挂频道当前 PMO（A′ 裁决）', () => {
+    const proj = { id: 'proj-1', pmoNumber: 'PMO-1', title: '项目一', status: 'active' } as never;
+    const neutralDeps = {
+      getProjectByAlias: async () => null,
+      findChoreProject: async () => null,
+      listAliasProjects: async () => [],
+      getProjectByPmoNumber: async () => null,
+    };
+
+    it('派生命中非杂务 PMO → 新 REQ 挂接该项目 projectId', async () => {
+      const svc = new RequirementService(fileStore, {
+        ...neutralDeps,
+        projectExists: async () => true,
+        deriveChannelProject: async () => proj,
+      });
+      const req = (await svc.createFromDispatch('做个新需求', 'ch-1', 'mention')) as RequirementWithProject;
+      expect(req.projectId).toBe('proj-1');
+      expect(req.status).toBe('in-progress');
+      expect(req.channelId).toBe('ch-1');
+      expect(req.createdBy).toBe('mention');
+    });
+
+    it('派生出杂务 PMO → 维持杂务归集，行为不变（不新建对象）', async () => {
+      const chore = {
+        id: 'proj-chore', pmoNumber: 'PMO-9', title: '杂务', status: 'active',
+        isChore: true, channelId: 'ch-1', reqAlias: 'REQ-0099',
+      } as never;
+      const svc = new RequirementService(fileStore, {
+        ...neutralDeps,
+        deriveChannelProject: async () => chore,
+        findChoreProject: async () => chore,
+      });
+      const req = await svc.createFromDispatch('帮我改个错别字', 'ch-1', 'mention');
+      expect(req.id).toBe('REQ-0099'); // 归集到杂务别名视图
+      expect((await fileStore.listRequirements()).length).toBe(0); // 未新建 legacy REQ
+    });
+
+    it('派生出杂务 PMO 但频道无杂务归集 → 孤儿 REQ（projectId=null）', async () => {
+      const choreElsewhere = {
+        id: 'proj-chore', pmoNumber: 'PMO-9', title: '杂务', status: 'active',
+        isChore: true, channelId: 'ch-other', reqAlias: 'REQ-0099',
+      } as never;
+      const svc = new RequirementService(fileStore, {
+        ...neutralDeps,
+        deriveChannelProject: async () => choreElsewhere,
+      });
+      const req = (await svc.createFromDispatch('普通任务', 'ch-1', 'mention')) as RequirementWithProject;
+      expect(req.projectId ?? null).toBeNull();
+    });
+
+    it('无派生结果 → 孤儿 REQ（projectId=null），行为不变', async () => {
+      const svc = new RequirementService(fileStore, {
+        ...neutralDeps,
+        deriveChannelProject: async () => null,
+      });
+      const req = (await svc.createFromDispatch('全新任务', 'ch-1', 'mention')) as RequirementWithProject;
+      expect(req.projectId ?? null).toBeNull();
+    });
+
+    it('派生查询抛错 → 降级现有路径，派单不被阻断', async () => {
+      const svc = new RequirementService(fileStore, {
+        ...neutralDeps,
+        deriveChannelProject: async () => { throw new Error('derive boom'); },
+      });
+      const req = (await svc.createFromDispatch('降级任务', 'ch-1', 'mention')) as RequirementWithProject;
+      expect(req.id).toMatch(/^REQ-\d{4}$/);
+      expect(req.projectId ?? null).toBeNull();
+    });
+
+    it('channelId 为 null → 不触发派生，直接孤儿新建', async () => {
+      const spy = vi.fn().mockResolvedValue(proj);
+      const svc = new RequirementService(fileStore, { ...neutralDeps, deriveChannelProject: spy });
+      const req = (await svc.createFromDispatch('无频道任务', null, 'mention')) as RequirementWithProject;
+      expect(spy).not.toHaveBeenCalled();
+      expect(req.projectId ?? null).toBeNull();
     });
   });
 

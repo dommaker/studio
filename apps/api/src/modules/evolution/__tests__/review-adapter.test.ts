@@ -138,6 +138,27 @@ describe('renderCardContent', () => {
     expect(adapter.cardType).toBe('evolution_proposal');
     expect(adapter.author).toBe('Evolution');
   });
+
+  // 子项 9（ADR-0033 禁黑话硬要求）：约束类证据（usage report 候选）改白话渲染
+  it('退休卡证据白话：含「评估 N 次」句式 + 候选类别整句，不含 failRate/evaluated/total= 原文', async () => {
+    const p = await seedProposal({
+      targetType: 'guideline',
+      targetId: 'some_constraint',
+      constraintChange: 'retire',
+      evidence: {
+        windowHours: 24,
+        eventCounts: { total: 60, evaluated: 60, fail: 0, failRate: 0 },
+        samples: ['zero_intercept'],
+      },
+    });
+    const adapter = registerEvolutionReviewAdapter({ fileStore, service });
+    const { content } = adapter.renderCardContent(p);
+    expect(content).toContain('累计评估 60 次，拦到 0 次');
+    expect(content).toContain('从来没拦到过');
+    expect(content).not.toContain('failRate');
+    expect(content).not.toContain('evaluated');
+    expect(content).not.toContain('total=');
+  });
 });
 
 describe('runScan 发布路径', () => {

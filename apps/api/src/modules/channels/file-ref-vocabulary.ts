@@ -17,11 +17,19 @@
  * 校验（路由层存在性校验用）：repo 不在候选集 → not-in-candidate-set；
  * path 不在该仓词表 → not-found。各数据源读取失败仅记日志并跳过该来源，
  * 候选集计算绝不抛出让消息路由失败。
+ *
+ * #636：`listChannelReqPmoProjects` / `ChannelReqPmoLink` / `ProjectLike` 已下沉到
+ * requirements/channel-req-pmo.ts（channels 是 requirements 下游，派生查询须落在
+ * requirements 可达位置），此处 re-export 保持既有引用面不变。
  */
 import { execFile } from 'node:child_process';
 import { logger, FileStore, stripTrailingSlashes } from '@dommaker/studio-shared';
 import { projectService } from '../pmo/project.service.js';
 import { resolveWorkspaceRoot as defaultResolveWorkspaceRoot } from '../workspaces/workspace-store.js';
+import { listChannelReqPmoProjects, type ChannelReqPmoLink, type ProjectLike } from '../requirements/channel-req-pmo.js';
+
+export { listChannelReqPmoProjects };
+export type { ChannelReqPmoLink, ProjectLike };
 
 export interface FileRef {
   /** 工程绝对路径（与 PMO gitRepos 条目同形） */
@@ -34,12 +42,6 @@ export type FileRefDropReason = 'not-found' | 'not-in-candidate-set' | 'validati
 
 export interface FileRefDrop extends FileRef {
   reason: FileRefDropReason;
-}
-
-/** PMO 工程的最小形状（getProject / findChoreProject 返回值收窄） */
-export interface ProjectLike {
-  gitRepo?: string | null;
-  deliveries?: Array<{ gitRepo?: string | null }>;
 }
 
 export interface FileRefVocabularyDeps {
@@ -57,52 +59,6 @@ export interface FileRefVocabularyDeps {
   /** 候选集缓存 TTL（默认 CANDIDATE_CACHE_TTL_MS=10_000ms） */
   candidateTtlMs?: number;
   now?: () => number;
-}
-
-/** 频道 REQ 挂接 PMO 工程的一条关联（seq 供调用方决定排序） */
-export interface ChannelReqPmoLink<P extends ProjectLike = ProjectLike> {
-  reqId: string;
-  seq: number;
-  projectId: string;
-  project: P;
-}
-
-/**
- * 频道 REQ 挂接 PMO 工程清单 —— computeCandidateRepos 候选集与 current-pmo
- * 派生共用的查询原语（原为两处逐字拷贝的 listRequirements→projectId→getProject
- * 逐条容错遍历）。
- * REQ 列表读取失败 → 抛出（两调用方降级路径不同，各自兜底）；
- * 单条 projectId 解析抛错/项目不存在 → 记日志跳过，不影响其他条目
- * （#249/#251：派生绝不因单条坏数据整体失败）。
- */
-export async function listChannelReqPmoProjects<P extends ProjectLike>(
-  channelId: string,
-  deps: {
-    fileStore?: FileStore;
-    /** 默认 projectService.get */
-    getProject?: (projectId: string) => Promise<P | null>;
-  } = {},
-): Promise<ChannelReqPmoLink<P>[]> {
-  const fileStore = deps.fileStore ?? new FileStore();
-  const getProject = deps.getProject
-    ?? (async (id: string) => (await projectService.get(id)) as unknown as P | null);
-  const requirements = await fileStore.listRequirements({ channelId });
-  // B7（2026-09-16 channel 性能审计）：多项目解析并行发出（Promise.all），
-  // 原为逐条串行 await（N+1 串行延迟叠加）；Promise.all 保输入序，输出序不变。
-  const results = await Promise.all(requirements.map(async (req): Promise<ChannelReqPmoLink<P> | null> => {
-    const projectId = (req as { projectId?: string | null }).projectId;
-    if (!projectId) return null;
-    try {
-      const project = await getProject(projectId);
-      return project ? { reqId: req.id, seq: req.seq, projectId, project } : null;
-    } catch (err) {
-      logger.warn('[ChannelReqPmo] REQ project resolution failed, skipped', {
-        channelId, reqId: req.id, projectId, error: String(err),
-      });
-      return null;
-    }
-  }));
-  return results.filter((l): l is ChannelReqPmoLink<P> => l !== null);
 }
 
 /** 工程记录 → 仓路径清单（gitRepo + deliveries[].gitRepo，去重保序；#272 当前 PMO chip 复用） */
@@ -244,11 +200,11 @@ async function computeCandidateReposFresh(
   // 最近使用优先：频道内 WU 的 metadata.workspaceRoot，按 updatedAt 新→旧；
   // 仅重排已在候选集内的工程（最近使用是排序信号，不扩张候选集）
   try {
-    const index = await fileStore.getIndex();
+    // B2：channelId 过滤下推 getIndex（同 suggestions 口径）
+    const index = await fileStore.getIndex({ channelId });
     const recentKeys: string[] = [];
     const recentSeen = new Set<string>();
     const channelWus = index
-      .filter(s => s.channelId === channelId)
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     for (const wu of channelWus) {
       if (!wu.metadata) continue;
@@ -285,11 +241,9 @@ export async function getChannelFileVocabulary(
   deps: FileRefVocabularyDeps = {},
 ): Promise<ChannelFileVocabulary> {
   const repos = await computeCandidateRepos(channelId, deps);
-  const out: { repo: string; files: string[] }[] = [];
-  for (const repo of repos) {
-    out.push({ repo, files: await getRepoFiles(repo, deps) });
-  }
-  return { repos: out };
+  // 多仓 git ls-files 并行（保序）：缓存未命中的冷启动不再逐仓串行阻塞
+  const filesPerRepo = await Promise.all(repos.map(repo => getRepoFiles(repo, deps)));
+  return { repos: repos.map((repo, i) => ({ repo, files: filesPerRepo[i] })) };
 }
 
 /**

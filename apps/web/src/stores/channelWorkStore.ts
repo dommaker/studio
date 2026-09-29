@@ -8,7 +8,6 @@ import { create } from 'zustand';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { requirementApi, type Requirement, type RequirementStatus } from '../api/requirements';
 import { channelApi, type ChannelSuggestion } from '../api/channel';
-import { fanOut } from '../utils/fanOut';
 import { createFetchGate, disciplinedFetch, type FetchGate, type FetchGateState } from './fetchDiscipline';
 
 /** 缺省 TTL：与 rosterStore / channelDataStore / requirementChainStore 30s 同频——频道间切换 TTL 内零重拉 */
@@ -38,7 +37,8 @@ interface ChannelWorkState {
   reqs: Record<string, Requirement[] | undefined>;
   /** channelId → 建议端点 slice（缺键 = 未拉到/首拉 degraded，消费方按加载态降级） */
   suggestions: Record<string, SuggestionsSlice | undefined>;
-  /** wuId → 该 WU 产出/修改文件集（文件 chip 第一优先词表 #285 AC4；失败记 [] 不重试，该 WU 走候选集词表） */
+  /** wuId → 该 WU 产出/修改文件集（文件 chip 第一优先词表 #285 AC4；批量端点一次拉全，
+   *  缺键/失败记 [] 不重试，该 WU 走候选集词表） */
   wuChangedFiles: Record<string, string[] | undefined>;
 
   ensureWus: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
@@ -49,7 +49,7 @@ interface ChannelWorkState {
   refreshSuggestions: (channelId: string) => Promise<void>;
   /** SSE 触发面统一入口：标脏 + 500ms trailing 防抖合并一次重拉（store 私有定时器） */
   markSuggestionsDirty: (channelId: string) => void;
-  /** agent 消息所属 WU 的产出文件集（distinct wuId 各拉一次并缓存；模块级台账防重拉） */
+  /** agent 消息所属 WU 的产出文件集（distinct wuId 合并一次批量拉取并缓存；模块级台账防重拉） */
   ensureWuChangedFiles: (wuIds: string[]) => void;
   /** SSE status_changed 与闸门动作（#545 gateWriter sink）共用快照落点：全量快照直替 upsert
    * （17 字段快照原样落库，删除编造时间戳）；未打底的频道 no-op（等 REST 打底）；坏负载 no-op */
@@ -226,12 +226,17 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
     if (pending.length === 0) return;
     for (const id of pending) wuFilesFetched.add(id);
     void (async () => {
-      const results = await fanOut(pending, (wuId) => workunitApi.getChangedFiles(wuId));
+      // 2026-09-25：批量端点一次拿全部（后端一次窗口读），替代逐 WU 单发；
+      // 整体失败/缺键 → 该 WU 记 [] 走候选集词表（降级语义不变）
+      let filesByWu: Record<string, string[]> = {};
+      try {
+        const r = await workunitApi.getChangedFilesBatch(pending);
+        filesByWu = r.data?.data?.filesByWu ?? {};
+      } catch { /* 静默降级：全部记 [] */ }
       set((st) => {
         const next = { ...st.wuChangedFiles };
-        for (let i = 0; i < pending.length; i++) {
-          const r = results[i];
-          next[pending[i]] = r.ok ? r.value.data?.data?.files ?? [] : []; // 失败静默降级：该 WU 走候选集词表
+        for (const id of pending) {
+          next[id] = filesByWu[id] ?? [];
         }
         return { wuChangedFiles: next };
       });

@@ -14,6 +14,7 @@ import { workunitApi, type WorkUnit } from '../api/workunit';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { AgentAvatar } from '../components/channel/AgentAvatar';
 import { RoleSkillsModal } from '../components/monitoring/RoleSkillsModal';
+import { RoleFormModal } from '../components/monitoring/RoleFormModal';
 import { ConfirmDialog, BackButton, SkeletonCard } from '../components/ui';
 import { IconCheck } from '../components/ui/icons';
 import { useWebSocketContext } from '../api/websocketHooks';
@@ -56,6 +57,8 @@ export function AgentDetailPage() {
   const [terminating, setTerminating] = useState(false);
   // #462：技能编辑弹框（role.skills 多选，候选 = skills MANIFEST）
   const [skillsOpen, setSkillsOpen] = useState(false);
+  // #630（ADR 2026-09-23 决策 6）：资料编辑弹框（name/description/provider，正本 RoleFormModal edit）
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const profile = useMemo(() => profiles.find((x) => x.id === profileId) ?? null, [profiles, profileId]);
   // 同一角色可能有多条历史 state，接口已按 startedAt 降序，取最新一条
@@ -299,6 +302,15 @@ export function AgentDetailPage() {
 
               {/* 统计栏（由历史列表推导） */}
               <div>
+                {/* #630 决策 6：资料卡（name/description/provider 编辑入口；沿用「技能」卡头+按钮模式） */}
+                <div className="card p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="mc-block-label">资料</div>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setProfileOpen(true)}>编辑资料</button>
+                  </div>
+                  <div className="text-sm u-text-2 mt-2">{profile.description?.trim() || '未填写描述'}</div>
+                </div>
+
                 {/* #462：技能卡（role.skills = 注入索引候选；编辑走 MANIFEST 多选弹框） */}
                 <div className="card p-3">
                   <div className="flex items-center justify-between">
@@ -338,6 +350,20 @@ export function AgentDetailPage() {
           profile={profile}
           onClose={() => setSkillsOpen(false)}
           onSaved={() => void useRosterStore.getState().ensureFresh({ maxAgeMs: 0 })}
+        />
+      )}
+
+      {/* #630 决策 6：资料编辑弹框（正本 RoleFormModal edit；保存后强制刷新名册，同技能卡先例） */}
+      {profile && (
+        <RoleFormModal
+          open={profileOpen}
+          mode="edit"
+          initial={profile}
+          onClose={() => setProfileOpen(false)}
+          onSaved={() => {
+            setProfileOpen(false);
+            void useRosterStore.getState().ensureFresh({ maxAgeMs: 0 });
+          }}
         />
       )}
 

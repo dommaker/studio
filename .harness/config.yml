@@ -1,3 +1,54 @@
 preset: standard
 harness:
-  version: 1.12.0
+  version: 1.15.0
+governance:
+  context_files:
+    enabled: true
+    # 显式声明源码根（原依赖 harness apps/*/src/modules 启发式自动探测，2026-09-27 去 studio 化前置）：
+    # 新增模块/包时须同步补此清单，否则 sync-docs 模块面与 context_doc_sync 覆盖不到新目录
+    required_dirs:
+      - packages/studio-agent/src
+      - packages/studio-audit/src
+      - packages/studio-capability/src
+      - packages/studio-notification/src
+      - packages/studio-shared/src
+      - packages/studio-skill/src
+      - packages/studio-spec/src
+      - apps/api/src/modules/action-center
+      - apps/api/src/modules/admin
+      - apps/api/src/modules/agents
+      - apps/api/src/modules/audit-logs
+      - apps/api/src/modules/auth
+      - apps/api/src/modules/builtin-tools
+      - apps/api/src/modules/capabilities
+      - apps/api/src/modules/channels
+      - apps/api/src/modules/companies
+      - apps/api/src/modules/deploy
+      - apps/api/src/modules/dingtalk
+      - apps/api/src/modules/discord
+      - apps/api/src/modules/distill
+      - apps/api/src/modules/events
+      - apps/api/src/modules/evolution
+      - apps/api/src/modules/executions
+      - apps/api/src/modules/harness
+      - apps/api/src/modules/knowledge
+      - apps/api/src/modules/lark
+      - apps/api/src/modules/library
+      - apps/api/src/modules/mcp
+      - apps/api/src/modules/monitoring
+      - apps/api/src/modules/notifications
+      - apps/api/src/modules/notify-channels
+      - apps/api/src/modules/outbound-notify
+      - apps/api/src/modules/pmo
+      - apps/api/src/modules/projects
+      - apps/api/src/modules/requirements
+      - apps/api/src/modules/review-proposal
+      - apps/api/src/modules/role-memory
+      - apps/api/src/modules/skills
+      - apps/api/src/modules/specs
+      - apps/api/src/modules/transcripts
+      - apps/api/src/modules/triage
+      - apps/api/src/modules/triggers
+      - apps/api/src/modules/workspaces
+      - apps/api/src/modules/workunit
+      - apps/web/src

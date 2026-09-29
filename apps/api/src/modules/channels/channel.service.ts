@@ -54,7 +54,7 @@ export class ChannelService {
     return this.fileStore.listChannels({ excludeArchived: true });
   }
 
-  /** 404 判定单点：取不到即抛 ChannelError(404)。message 可按端点现状覆盖（chore-pmo）。 */
+  /** 404 判定单点：取不到即抛 ChannelError(404)。message 可按端点现状覆盖。 */
   async getOrThrow(id: string, message = 'Channel not found'): Promise<ChannelData> {
     const channel = await this.fileStore.getChannel(id);
     if (!channel) throw new ChannelError(message, 404);
@@ -92,7 +92,7 @@ export class ChannelService {
       for (const agent of input.agents) {
         if (!agent.name || typeof agent.name !== 'string') continue;
         try {
-          const profile = await this.createAgentProfile(agent.name.trim(), agent.description ?? null, channel.id, agent.provider);
+          const profile = await this.createAgentProfile(agent.name.trim(), agent.description ?? null, agent.provider);
           createdAgentIds.push(profile.id);
         } catch (agentErr: any) {
           // Skip duplicate agent names, continue with others
@@ -216,7 +216,7 @@ export class ChannelService {
   }
 
   /** 创建频道时的初始 agent profile 创建（name 唯一冲突复用既有 profile） */
-  private async createAgentProfile(name: string, description: string | null, channelId: string, provider?: string): Promise<{ id: string }> {
+  private async createAgentProfile(name: string, description: string | null, provider?: string): Promise<{ id: string }> {
     // Check name uniqueness
     const all = await this.fileStore.listProfiles();
     const existing = all.find(p => p.name === name);
@@ -229,7 +229,9 @@ export class ChannelService {
       id: randomUUID(),
       name,
       description: description ?? null,
-      channels: JSON.stringify([channelId]),
+      // 废弃字段停写（B4）：members 已是成员关系唯一事实源，此处恒写空数组，
+      // 读侧兜底（routing.ts / agent-loop members 空回退）与 migrate-members 保留至存量消化
+      channels: '[]',
       provider: provider ?? null,
       status: 'active' as const,
       createdAt: now,

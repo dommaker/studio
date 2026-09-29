@@ -633,6 +633,40 @@ describe('claim', () => {
     await expect(service.claim(wu.id, 'inst-2')).rejects.toThrow('Claim failed');
   });
 
+  it('B6：mention 指名 WU（assigneeId=profile id）→ 无实例身份的他人认领被拒，指名不被改写', async () => {
+    const wu = await service.create({ scope: '指名单', status: 'unassigned', assigneeId: 'profile-x' });
+
+    await expect(service.claim(wu.id, 'user-human')).rejects.toThrow('Claim failed: already assigned to profile-x');
+
+    const snap = await findSnapshot(wu.id);
+    expect(snap!.status).toBe('unassigned');
+    expect(snap!.assigneeId).toBe('profile-x');
+  });
+
+  it('B6：被指名 profile 的运行实例认领放行（roleId 匹配），assigneeRoleId 快照落盘', async () => {
+    const wu = await service.create({ scope: '指名单', status: 'unassigned', assigneeId: 'profile-x' });
+    await fileStore.createState('inst-x', {
+      id: 'inst-x', roleId: 'profile-x', sessionId: null, status: 'active',
+      currentWorkUnitId: null, startedAt: new Date().toISOString(), terminatedAt: null,
+      lastHeartbeat: null, metadata: null,
+    });
+
+    const claimed = await service.claim(wu.id, 'inst-x');
+
+    expect(claimed.status).toBe('active');
+    expect(claimed.assigneeId).toBe('inst-x');
+    expect(claimed.assigneeRoleId).toBe('profile-x');
+  });
+
+  it('B6：认领方 id 与指名 id 相同 → 放行（REST 显式 agentId 旧契约）', async () => {
+    const wu = await service.create({ scope: '指名单', status: 'unassigned', assigneeId: 'agent-1' });
+
+    const claimed = await service.claim(wu.id, 'agent-1');
+
+    expect(claimed.status).toBe('active');
+    expect(claimed.assigneeId).toBe('agent-1');
+  });
+
   it('成功：active + assigneeId + claimedAt，写固定 5min 租约 timeoutAt，发 status_changed', async () => {
     const before = Date.now();
     const wu = await service.create({ scope: '认领任务', type: 'review', channelId: 'ch-1' });
@@ -732,6 +766,20 @@ describe('claim', () => {
     const contender = await service.create({
       scope: '争抢文件', type: 'task', channelId: 'ch-1',
       metadata: { files: ['src/a.ts', 'src/b.ts'] },
+    });
+
+    await expect(service.claim(contender.id, 'inst-2')).rejects.toThrow(/File conflict with WorkUnit\(s\):/);
+  });
+
+  it('B6：in_review 状态 WU 同样计入文件冲突（单次 getIndex 内存过滤两状态）', async () => {
+    await service.create({
+      scope: '评审中占用文件', type: 'task', channelId: 'ch-1',
+      status: 'in_review', assigneeId: 'inst-1',
+      metadata: { files: ['src/review.ts'] },
+    });
+    const contender = await service.create({
+      scope: '争抢评审文件', type: 'task', channelId: 'ch-1',
+      metadata: { files: ['src/review.ts'] },
     });
 
     await expect(service.claim(contender.id, 'inst-2')).rejects.toThrow(/File conflict with WorkUnit\(s\):/);

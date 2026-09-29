@@ -61,12 +61,21 @@ export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): nu
  * #499：active 中的 WU 收到回复同样入 pendingReplies 缓冲（下轮 prompt 必注入）——
  * 不再依赖 observe 的 newReplies 水位线（updatedAt 被簿记推进后回复会低于水位线被吞）。
  * B3a: metadata.waitingReason === 'ownership' 时走工程归属解析（见 resolveOwnershipFromReply）。
+ * opts.traceId（B2 性能）：本次关联消息的 traceId 折进复活/缓冲/分流的同一次锁内
+ * metadata 更新，省掉调用方独立一次 refreshWuTraceId 全量 index R/W；仅在本次确实
+ * 消费（发生锁内写）的分支折叠，未消费返回 false 时由调用方自行补写（口径同前）。
  * @returns true = 回复已消费（复活/关闭/拒绝关闭均属已消费）
  */
+export interface ResumeWaitingOptions {
+  /** 折进锁内 metadata 写的 traceId（仅消费分支生效；不传 = 不折叠，行为同前） */
+  traceId?: string | null;
+}
+
 export async function resumeWaitingWorkUnit(
   workUnitId: string,
   replyText: string,
   fs?: FileStore,
+  opts?: ResumeWaitingOptions,
 ): Promise<boolean> {
   const fileStore = fs ?? new FileStore();
   const wuService = new WorkUnitService(fileStore);
@@ -74,6 +83,8 @@ export async function resumeWaitingWorkUnit(
   if (!wu) return false;
 
   const metadata = parseWuMetadata(wu.metadata);
+  // B2：消费分支的锁内写统一折入 traceId（值固定，多次折叠幂等）
+  const traceMeta = opts?.traceId ? { traceId: opts.traceId } : {};
 
   // 已恢复但 loop 尚未消费 pendingReplies 的窗口内，后续回复直接追加拼接。
   // #499：active 一律入缓冲（不再要求 pendingReplies 非空）——执行中的 WU 收到线程回复时，
@@ -85,6 +96,7 @@ export async function resumeWaitingWorkUnit(
     await fileStore.updateMetadata(workUnitId, latest => ({
       ...latest,
       pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
+      ...traceMeta,
     }));
     return true;
   }
@@ -100,13 +112,13 @@ export async function resumeWaitingWorkUnit(
 
   // B3a 归属链：等待工程归属的挂起 — 回复先解析为工程，唯一命中才复活
   if (metadata.waitingReason === 'ownership') {
-    return resolveOwnershipFromReply(wu, metadata, replyText, fileStore);
+    return resolveOwnershipFromReply(wu, metadata, replyText, fileStore, opts);
   }
 
   // #162（T8-E1）：WU 级 token 预算到线的挂起 — 回复按人三选分流
   // （追加预算 → 回 active / 现有产出收尾 → in_review / 放弃 → closed）
   if (metadata.waitingReason === 'wu-token-budget') {
-    return resolveBudgetChoiceFromReply(wu, metadata, replyText, fileStore);
+    return resolveBudgetChoiceFromReply(wu, metadata, replyText, fileStore, opts);
   }
 
   // #585（ADR 2026-09-17-hooks-layer-shrink 衍生）：需求/AC 守卫拦停的挂起 ——
@@ -141,7 +153,8 @@ export async function resumeWaitingWorkUnit(
   // #471（Triage 定稿 1/会话连续性）：plan 步数额度到线的挂起 — 回复即续期：
   // planStepAllowance 加一份 PLAN_STEP_LIMIT（额度口径=人工授权批次，仿「追加预算」），
   // 随后走通用复活路径（清挂起/重置停滞/回复入 pendingReplies → active）。
-  // 会话预算（sessionCount）不动——复活后凭 metadata.sessionId 优先续用旧会话（#94）。
+  // 会话预算（sessionCount）不动——复活后凭档案会话号续用旧会话（#94；#639 起非 claude
+  // 凭 metadata.cliSessionId 点名续用）。
   if (metadata.waitingReason === 'plan-step-limit') {
     await fileStore.updateMetadata(workUnitId, latest => ({
       ...latest,
@@ -167,9 +180,11 @@ export async function resumeWaitingWorkUnit(
     consecutiveStuck: 0,    // #176（决策 #57 D2）：复活重置停滞计数（仿 B5 重置 sessionCount 先例）
     resumeCount: (typeof latest.resumeCount === 'number' ? latest.resumeCount : 0) + 1, // D5：观测钩子
     // timeoutReleaseCount 不动 —— 终身保留（#63 的 3 次上限不可被复活绕过）
-    // #94: 不再清零 sessionCount —— 复活后下一步凭 metadata.sessionId 优先续用旧会话，
+    // #94: 不再清零 sessionCount —— 复活后下一步凭档案会话号优先续用旧会话（#639 起
+    // 非 claude 凭 metadata.cliSessionId 点名续用），
     // 不靠清零预算放行（清零会让失控 WU 无限重开新会话烧 token）
     pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
+    ...traceMeta,
   }));
   await wuService.transitionStatus(workUnitId, 'active');
 
@@ -192,6 +207,7 @@ async function resolveBudgetChoiceFromReply(
   metadata: WorkUnitMetadata,
   replyText: string,
   fileStore: FileStore,
+  opts?: ResumeWaitingOptions,
 ): Promise<boolean> {
   const wuService = new WorkUnitService(fileStore);
   const text = replyText.trim();
@@ -206,6 +222,8 @@ async function resolveBudgetChoiceFromReply(
     waitingReminded: false,
     waitingReason: undefined, // JSON 序列化丢弃 undefined → 清除
     blockReason: undefined,
+    // B2：分流各消费分支共用这份 metadata 全量写，traceId 折进同一次落盘
+    ...(opts?.traceId ? { traceId: opts.traceId } : {}),
   };
   const notify = async (content: string) => {
     if (wu.channelId) await postWuSystemMessage(wu, content, { fileStore });
@@ -393,6 +411,7 @@ async function resolveOwnershipFromReply(
   metadata: WorkUnitMetadata,
   replyText: string,
   fileStore: FileStore,
+  opts?: ResumeWaitingOptions,
 ): Promise<boolean> {
   const wuService = new WorkUnitService(fileStore);
   const query = replyText.trim();
@@ -428,6 +447,8 @@ async function resolveOwnershipFromReply(
       ownershipSource: 'human-reply',
       ownershipAttempts: undefined, // #265: 绑定成功清除轮次计数（JSON 序列化丢弃 undefined）
       pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
+      // B2：绑定命中的锁内写折入本次 traceId（不再由路由层独立 refresh）
+      ...(opts?.traceId ? { traceId: opts.traceId } : {}),
     }));
     // 置回 unassigned 而非 active：此 WU 创建即挂起、从未被认领，assigneeId 仍是
     // mention 路由写入的 profile id。置 active 会让它对所有人不可见——loop 续跑

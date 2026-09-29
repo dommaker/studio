@@ -3,7 +3,8 @@
  *
  * 覆盖生成链路：
  *   (a) constraints usage report 退役候选 → retire 提案（#602 D1，harness 公共导出
- *       buildConstraintsUsageReport 消费；落点 = .harness/config.yml enabled:false）
+ *       buildConstraintsUsageReport 消费；落点 = .harness/config.yml enabled:false）；
+ *       自动提案只留 high_noise，zero_trigger/unevaluable/zero_intercept report-only（#624）
  *   (b) 注入知识仍高失败 → prompt-template 提案（保守阈值）
  *   (c) 角色 caller 高频工具失败 → role-preset 提案
  * 以及：信号稀薄时零提案（默认安静）、去重（open-exists / duplicate）、绝不自动生效。
@@ -66,12 +67,14 @@ beforeEach(() => {
   fs.writeFileSync(path.join(tmpDir, '.agents', 'roles', 'developer.yaml'), ROLE_YAML, 'utf-8');
   paths = resolveEvolutionPaths({
     repoRoot: tmpDir,
-    traceFile: path.join(tmpDir, '.harness', 'logs', 'traces.log'),
     rolesDir: path.join(tmpDir, '.agents', 'roles'),
     eventsDir: path.join(tmpDir, 'events'),
     studioEventsFile: path.join(tmpDir, 'studio-events.jsonl'),
   });
 });
+
+// #646：traces 落点固定为 harness 正本（readProjectTraces 读 <repoRoot>/.harness/logs/traces.log）
+const traceFile = (): string => path.join(tmpDir, '.harness', 'logs', 'traces.log');
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -87,30 +90,66 @@ describe('generateEvolutionProposals (E1)', () => {
     expect(fs.existsSync(path.join(tmpDir, '.harness', 'config.yml'))).toBe(false);
   });
 
-  it('(a) usage report 退役候选 → retire 提案（#602 D1，每轮上限 3 个）', async () => {
-    // traces 里 no_completion_without_verification 评估 60 次全 pass → zero_intercept 候选；
-    // 其余内置约束零触发 → zero_trigger 候选。report 候选排序 zero_trigger 在前。
-    writeJsonl(paths.traceFile, Array.from({ length: 60 }, (_, i) => ({
-      constraintId: 'no_completion_without_verification',
-      timestamp: NOW - 3600_000 + i * 1000,
-      result: 'pass',
-      operation: 'code_implementation',
-    })));
+  it('(a) 自动提案只留 high_noise（#624）：高噪候选产 retire 提案，零触发/不可评估 report-only', async () => {
+    // no_test_simplification：25 次评估 21 次 fail（failRate 0.84 > 0.8，evaluated ≥ 20）→ high_noise；
+    // docs_freshness：全部 skip → unevaluable；其余内置约束零触发 → zero_trigger。
+    writeJsonl(traceFile(), [
+      ...Array.from({ length: 25 }, (_, i) => ({
+        constraintId: 'no_test_simplification',
+        timestamp: NOW - 3600_000 + i * 1000,
+        result: i < 21 ? 'fail' : 'pass',
+        operation: 'code_implementation',
+      })),
+      ...Array.from({ length: 10 }, (_, i) => ({
+        constraintId: 'docs_freshness',
+        timestamp: NOW - 3600_000 + i * 1000,
+        result: 'skip',
+        operation: 'code_implementation',
+      })),
+    ]);
 
     const result = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
     const constraintProps = result.created.filter(p => p.constraintChange === 'retire');
-    expect(constraintProps.length).toBeGreaterThan(0);
-    expect(constraintProps.length).toBeLessThanOrEqual(3);
-    for (const p of constraintProps) {
-      expect(p.source).toBe('harness:usage-report');
-      expect(p.action).toBe('amend');
-      expect(['iron-law', 'guideline']).toContain(p.targetType);
-      expect(p.rationale).toContain('usage report');
-      expect(typeof p.evidence.eventCounts.total).toBe('number');
-    }
-    // 提案目标必须是真实内置约束 id
-    const { CONSTRAINTS } = await import('@dommaker/harness');
-    for (const p of constraintProps) expect(Object.keys(CONSTRAINTS)).toContain(p.targetId);
+    // 仅 high_noise 产提案，且只有 1 个
+    expect(constraintProps.length).toBe(1);
+    const p = constraintProps[0];
+    expect(p.targetId).toBe('no_test_simplification');
+    expect(p.source).toBe('harness:usage-report');
+    expect(p.action).toBe('amend');
+    expect(['iron-law', 'guideline']).toContain(p.targetType);
+    expect(p.rationale).toContain('usage report');
+    // 统计数字只进 evidence，不进 proposedText/rationale（#624：抑重键不受数字漂移影响）
+    expect(p.evidence.eventCounts).toMatchObject({ total: 25, evaluated: 25, fail: 21 });
+    expect(p.proposedText).not.toMatch(/\d/);
+    // zero_trigger（其余内置约束）+ unevaluable（docs_freshness）全部 report-only 跳过
+    expect(result.skipped['report-only-candidate']).toBeGreaterThanOrEqual(6);
+  });
+
+  it('(a) rejected 后同目标不重提：抑重键按 constraintChange，不受 proposedText 数字漂移影响（#624）', async () => {
+    writeJsonl(traceFile(), Array.from({ length: 25 }, (_, i) => ({
+      constraintId: 'no_test_simplification',
+      timestamp: NOW - 3600_000 + i * 1000,
+      result: i < 21 ? 'fail' : 'pass',
+      operation: 'code_implementation',
+    })));
+    const first = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    expect(first.created.length).toBe(1);
+    // 人审拒绝，且拟被拒绝的是旧格式提案（proposedText 内嵌统计数字——修复前形态）
+    await fileStore.updateEvolutionProposal(first.created[0].id, {
+      status: 'rejected',
+      proposedText: '退役（高噪）：fail 率 84%（21/25），疑似误报源',
+    });
+    // 下一轮统计数字漂移（fail 数变化，仍是 high_noise）——旧抑重键（拼 proposedText）会放行重提
+    writeJsonl(traceFile(), Array.from({ length: 30 }, (_, i) => ({
+      constraintId: 'no_test_simplification',
+      timestamp: NOW - 1800_000 + i * 1000,
+      result: i < 27 ? 'fail' : 'pass',
+      operation: 'code_implementation',
+    })));
+
+    const second = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    expect(second.created).toEqual([]);
+    expect(second.skipped['duplicate']).toBe(1);
   });
 
   it('(a) 信号稀薄（traces 不存在）时零提案，不报错', async () => {

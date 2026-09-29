@@ -546,7 +546,7 @@ GET /api/v1/workunits/:id/tree-tokens
 ### 7.3 验证命令
 
 ```bash
-cd /root/projects/studio
+cd ~/projects/studio
 pnpm test
 pnpm run build
 npx tsc --noEmit

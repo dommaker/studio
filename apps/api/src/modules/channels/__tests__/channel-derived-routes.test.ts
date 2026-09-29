@@ -6,7 +6,7 @@
  *     不得再触发派生（下游派生函数调用次数作探针，X-Cache 头佐证）。
  * B8：`GET /:id` 不再附 `_count.ChannelMessage`（prisma 时代遗留形状，
  *     前端/全仓无消费方，grep `_count` 于 apps/web 零命中）——响应无该字段
- *     且不再调用 fileStore.countMessages（每请求 O(热文件行数) 全量计数）。
+ *     （全量计数方法已随字段一并删除，见 B4 死代码清扫）。
  *
  * 接线同 channel.routes.test.ts：STUDIO_DATA_DIR 指临时目录后动态 import
  * channel.routes（模块级 new FileStore() 在 import 时解析数据目录）；
@@ -109,19 +109,13 @@ describe('B7：派生读端点短 TTL apiCache', () => {
   });
 });
 
-describe('B8：GET /:id 不再全量 countMessages', () => {
-  it('响应无 prisma 遗留 _count 字段，且不调用 fileStore.countMessages', async () => {
-    const countSpy = vi.spyOn(FileStore.prototype, 'countMessages');
-    try {
-      const res = await fetch(`${baseUrl}/${CH}`);
-      expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean; data: Record<string, unknown> };
-      expect(body.success).toBe(true);
-      expect(body.data.id).toBe(CH);
-      expect(body.data._count).toBeUndefined();
-      expect(countSpy).not.toHaveBeenCalled();
-    } finally {
-      countSpy.mockRestore();
-    }
+describe('B8：GET /:id 不再附 _count', () => {
+  it('响应无 prisma 遗留 _count 字段', async () => {
+    const res = await fetch(`${baseUrl}/${CH}`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { success: boolean; data: Record<string, unknown> };
+    expect(body.success).toBe(true);
+    expect(body.data.id).toBe(CH);
+    expect(body.data._count).toBeUndefined();
   });
 });

@@ -171,7 +171,7 @@ describe('runStepRetry: session-resume-lost（#94 续用丢失降级）', () => 
     expect(ctx.metadataUpdates.sessionCount).toBe(2);
   });
 
-  it('非 claude provider（kimi cwd 维度续用）→ 重试不传 sessionId', async () => {
+  it('非 claude provider（kimi）→ 重试不传 sessionId', async () => {
     const ctx = makeCtx({ provider: 'kimi', task: makeTask('kimi') });
     const deps = makeDeps();
 
@@ -180,6 +180,16 @@ describe('runStepRetry: session-resume-lost（#94 续用丢失降级）', () => 
     expect(ctx.task.parameters?.sessionId).toBeUndefined();
     expect(ctx.task.parameters?.sessionResume).toBeUndefined();
     expect(out.kind).toBe('retried');
+  });
+
+  it('#639: 换新会话即清除旧 CLI 会话号（显式 undefined，防下一步续死号；重试成功由成功路径重新落档）', async () => {
+    const ctx = makeCtx({ metadataUpdates: { cliSessionId: 'session_dead' } });
+    const deps = makeDeps();
+
+    const out = await runStepRetry(ctx, deps);
+
+    expect(out.kind).toBe('retried');
+    expect(ctx.metadataUpdates).toHaveProperty('cliSessionId', undefined);
   });
 });
 
