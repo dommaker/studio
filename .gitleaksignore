@@ -1,4 +1,4 @@
-# 全历史机密扫描门基线：以下 15 条为此前扫描命中、已逐条定性的记录。
+# 全历史机密扫描门基线：以下 16 条为此前扫描命中、已逐条定性的记录。
 # 定性口径见私有台账；新增命中一律逐条定性后再评估，禁止自动扩充本清单。
 #
 # —— 历史态：文件已不在当前树，扫描命中只存在于历史提交 ——
@@ -21,3 +21,5 @@ d047a12048f5175aa58411bdd0735258a61be13a:packages/studio-shared/src/config/index
 2e5ef9d68fffea9cd9f49bda6a2cf1f65932e4aa:apps/api/src/modules/workunit/gate-escalation.ts:generic-api-key:167
 # —— 已停跟踪的 e2e 登录态（本地生成，见 .gitignore；同组止血提交 73bbba0a）——
 cd9167e263e6779451c21ce15524b8dc181f6d8b:apps/web/e2e/.auth.json:jwt:1
+# —— 历史态：早期版本标记携带的另一棵历史线（与上文 .env.test 条目同文件同行同占位值）——
+ce7ad414a73877a8cea5bdebb8e4eba1144d20e9:.env.test:generic-api-key:19
