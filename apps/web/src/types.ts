@@ -123,18 +123,6 @@ export interface Company {
   updatedAt?: string;
 }
 
-export interface Capability {
-  id: string;
-  name: string;
-  type: 'tool' | 'step' | 'workflow' | 'skill';
-  category?: string;
-  description?: string;
-  cost?: number;
-  path?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
 export interface RoleCapability {
   id: string;
   roleId: string;

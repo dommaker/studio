@@ -1824,7 +1824,7 @@ export class FileStore extends FileStoreWorkUnitBase {
   /**
    * 扁平目录 JSON 实体清单：扫描 {dir}/*.json 全量读取，损坏/缺失文件跳过；
    * 目录不存在返回 []（不建目录）。与目录型实体的差异是实体直接平铺为文件、无子目录。
-   * 消费方：apps/api mcp tool-store.listJsonFiles、studio-capability CapabilityService.scanAll。
+   * 消费方：apps/api mcp tool-store.listJsonFiles。
    */
   public async listJsonInDir<T>(dir: string): Promise<T[]> {
     let entries: fs.Dirent[];

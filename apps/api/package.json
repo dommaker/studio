@@ -13,7 +13,6 @@
     "@dommaker/harness": "^1.15.0",
     "@dommaker/studio-agent": "workspace:*",
     "@dommaker/studio-audit": "workspace:*",
-    "@dommaker/studio-capability": "workspace:*",
     "@dommaker/studio-notification": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "@dommaker/studio-skill": "workspace:*",

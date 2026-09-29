@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-28
+> 最后更新: 2026-09-29
 
 ---
 
@@ -8,7 +8,6 @@
 |------|------|------|
 | src | packages/studio-agent/src/ | studio-agent 类型定义 |
 | audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
-| capability.service | packages/studio-capability/src/services/capability.service.ts | Capability Service - 能力管理服务 |
 | notification-service | packages/studio-notification/src/services/notification-service.ts | 通知服务 |
 | cli | packages/studio-shared/src/cli/ | 命令注册框架 |
 | levels | packages/studio-shared/src/constants/levels.ts | 级别配置 - 全局统一的职级定义 |
@@ -31,7 +30,6 @@
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | auth | apps/api/src/modules/auth/ | POST /api/v1/auth/guest-session |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
-| routes | apps/api/src/modules/capabilities/routes.ts | 从 YAML 文件读取 stage 字段 |
 | channels | apps/api/src/modules/channels/ | Seed default channels on startup (B1-001) |
 | companies | apps/api/src/modules/companies/ | Company API 路由 — 存储迁移 Prisma → FileStore |
 | routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
@@ -186,7 +184,6 @@
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
-| routes | apps/api/src/modules/capabilities/routes.ts | 从 YAML 文件读取 stage 字段 |
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
@@ -214,7 +211,6 @@
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
-| routes | apps/api/src/modules/capabilities/routes.ts | 从 YAML 文件读取 stage 字段 |
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |

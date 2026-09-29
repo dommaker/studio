@@ -58,7 +58,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   const [
     agentRoutes,
     executionRoutes,
-    capabilitiesRoutes,
     auditLogRoutes,
     { notificationRoutes },
     { knowledgeRoutes, knowledgeInternalRoutes },
@@ -73,7 +72,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   ] = await Promise.all([
     import('./modules/agents/routes.js').then(m => m.default),
     import('./modules/executions/routes.js').then(m => m.default),
-    import('./modules/capabilities/routes.js').then(m => m.default),
     import('./modules/audit-logs/routes.js').then(m => m.default),
     import('./modules/notifications/routes.js') as Promise<{ notificationRoutes: Router }>,
     import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
@@ -227,7 +225,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/projects', router: projectRoutes, middleware: auth, comment: 'AC-D1+D3: Local project discovery（登录即可：PMO 新建表单工程下拉依赖）' },
 
     // 能力与工具
-    { path: '/api/v1/capabilities', router: capabilitiesRoutes },
     // 顺序约束②：skillDemotionRoutes 必须先于 skillsRoutes 挂载（见文件尾部 assertRouteOrder）。
     // 原因：skillsRoutes 的 GET /:id（routes.ts:80）未命中时直接 404 不 next()，
     // 若 SkillHub 先挂载，GET /api/v1/skills/demotion-proposals 会被 :id='demotion-proposals' 吞掉，降级提案端点死路。

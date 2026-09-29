@@ -9,7 +9,6 @@ governance:
     required_dirs:
       - packages/studio-agent/src
       - packages/studio-audit/src
-      - packages/studio-capability/src
       - packages/studio-notification/src
       - packages/studio-shared/src
       - packages/studio-skill/src
@@ -20,7 +19,6 @@ governance:
       - apps/api/src/modules/audit-logs
       - apps/api/src/modules/auth
       - apps/api/src/modules/builtin-tools
-      - apps/api/src/modules/capabilities
       - apps/api/src/modules/channels
       - apps/api/src/modules/companies
       - apps/api/src/modules/deploy

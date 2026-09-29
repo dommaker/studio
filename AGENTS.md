@@ -17,7 +17,7 @@
 | `dist-npm/` | — |
 | `docs/` | 项目文档 |
 | `node-compile-cache/` | — |
-| `packages/` | monorepo 共享包：studio-agent、studio-audit、studio-capability、studio-notification、studio-shared、studio-skill、studio-spec |
+| `packages/` | monorepo 共享包：studio-agent、studio-audit、studio-notification、studio-shared、studio-skill、studio-spec |
 | `scripts/` | 工具脚本 |
 | `tests/` | 测试 |
 
@@ -40,7 +40,7 @@ pnpm start  # 启动生产服务
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 45 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 43 个），改动代码时同步更新
 
 <!-- PRESERVE:governance -->
 ## 治理契约
@@ -126,7 +126,6 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/audit-logs` | 提供审计日志的查询与统计 API 端点，支持按用户、角色、公司、操作类型、资源、状态、时间范围等条件过滤，并支持分页查询和统计汇总。 |
 | `apps/api/src/modules/auth` | 负责 API 用户认证与会话管理，包括注册、登录、Guest Session 创建、认证状态查询及 JWT 令牌管理。同时集成 OAuth 认证流程（参见 oauth.routes.ts 与 oauth.service.ts）和邮件验... |
 | `apps/api/src/modules/builtin-tools` | 提供一组内置工具（文件操作、搜索、执行、通信）的元数据定义与 RESTful 路由，供上层服务注册和调用。工具列表静态注册在 routes.ts 中，每个工具包含名称、描述、分类、输入 schema 与启用状态。 |
-| `apps/api/src/modules/capabilities` | 提供能力注册表的读取与 API 暴露，包括从文件系统加载工具/技能定义，并通过 Express 路由对外提供服务。同时定义能力类型（Capability）和注册表（Registry）接口，支持缓存与阶段（Stage）识别。 |
 | `apps/api/src/modules/channels` | Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线程 / @mention 派单 / #632 合并窗口（解耦 + 歧义守卫））、情境引导建议推导、@文件引用词表、「当前 PMO」派生。 |
 | `apps/api/src/modules/companies` | 公司（Company）记录的 CRUD REST API，FileStore 文件存储（~/.studio/data/companies/*.json），不依赖数据库。PMO 的 OKR/项目均以 companyId 作为归属维度。创... |
 | `apps/api/src/modules/deploy` | Deploy Webhook：GitHub push 事件触发的自动部署入口（触发式部署，替代每分钟轮询的主通道）。仅接受 push 到 refs/heads/master，202 立即返回后异步触发部署脚本（幂等可重入，脚本内含方向... |
@@ -159,7 +158,6 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/workunit` | WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 NEED_INPUT 挂起/恢复与超时提醒。 |
 | `packages/studio-agent` | Sub-agent 的完整生命周期管理：创建隔离 worktree → 传播 harness 配置 → spawn provider CLI（单 session）→ stream-json 解析与事件发射。完成判定/状态机不在本包，由... |
 | `packages/studio-audit` | 提供审计日志的记录、查询、统计与导出功能。通过 AuditService 进行持久化日志操作（JSONL 存储）。 |
-| `packages/studio-capability` | 本目录负责能力管理（CapabilityService）。CapabilityService 提供能力的 CRUD、同步、统计，并基于 FileStore JSON 文件存储实现（替代 Prisma）。 |
 | `packages/studio-notification` | 本目录提供 studio-notification 包的核心代码，包含通知的创建、查询、标记，服务层基于 FileStore 实现持久化通知管理。 |
 | `packages/studio-shared` | 跨 apps/packages 的共享层：provider 注册表（agent CLI 定义与 spawn 模板）、FileStore（全部运行时数据的文件存储）、eventBus、共享类型与工具、 harness 运行时。Node-... |
 | `packages/studio-skill` | 本目录是 Studio Skill 的核心模块，负责 Skill 的定义类型、从磁盘加载 Skill 定义（支持 frontmatter 解析和缓存）。为 Agent prompt 注入可加载的能力单元。内置 skill 库正本随包分... |

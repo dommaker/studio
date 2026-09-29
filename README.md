@@ -76,7 +76,6 @@ apps/
 packages/
   studio-agent/   # agent CLI 执行与 runner 协议
   studio-audit/   # 审计与告警通知
-  studio-capability/  # 能力清单
   studio-notification/ # 通知渠道
   studio-shared/  # 共享类型、FileStore、provider 配置
   studio-skill/   # skill 解析与注入

@@ -11,7 +11,6 @@ import { auditLogger } from './middleware/audit-logger.js';
 import { optionalAuth } from './middleware/auth.js';
 import { getMetrics } from './monitoring/index.js';
 import { buildRouteTable } from './route-registry.js';
-import { loadRegistry } from './modules/capabilities/routes.js';
 import { isAllowedOrigin } from './cors-origin.js';
 import { apiRateLimit } from './middleware/rate-limit.js';
 
@@ -76,9 +75,6 @@ app.get('/api/docs', (req: any, res: any) => {
  * 注册所有 API 路由（异步，启动时调用一次）
  */
 export async function registerRoutes(): Promise<void> {
-  // 预加载能力注册表
-  loadRegistry();
-
   // Lurk Wall: read-gate — production only, skip in dev/test
   if (process.env.NODE_ENV === 'production') {
     const PUBLIC_API = new Set([
