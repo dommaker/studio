@@ -35,7 +35,9 @@ jobs:
       # 2026-09-24 采纳 1.14.0 时纠正）。它内部包装 gitleaks，二进制不在 PATH 时 skip 并
       # exit 0，故上面 action 那一步是硬保险、本步是跨环境统一入口，两者并存不是冗余。
       - name: Security (secret scan, full history)
-        uses: gitleaks/gitleaks-action@v2
+        # 供应链惯例 pin：锁到 v2.3.9 tag 对象解出的确切 commit（@v2 当时即解析到此；
+        # tag 可被重打，SHA 不可变。升级 = 换 SHA 并人工比对上游 diff，无自动 bot）
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
       - name: Security (secrets via harness)
         run: npx harness security secrets
       - run: pnpm build
