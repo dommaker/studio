@@ -7,11 +7,9 @@
  * getAuditReport/getAnalystAccuracy/getStats）仅做薄封装。
  */
 
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 // #342：窗口读口（尾部倒读 + 窗口外早停）——事件流扫描切到此读口
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
-
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
 // ── Measure types ──
 
@@ -264,7 +262,7 @@ export function unavailableAnalystAccuracyReport(): AccuracyReport {
  */
 export async function computeOutcomeMetrics(opts?: { eventsFile?: string; windowDays?: number }): Promise<{ hitRate: number; improvement: number; source: 'events' | 'insufficient-data' }> {
   const windowDays = opts?.windowDays ?? 30;
-  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
+  const eventsFile = opts?.eventsFile ?? resolveStudioEventsFile(); // #654：调用时惰性解析
   const now = Date.now();
   const windowStart = now - windowDays * 86400000;
 
@@ -330,7 +328,7 @@ export async function scanKnowledgeEvents(opts?: { eventsFile?: string; windowDa
   outcomes: Array<{ ts: number; success: boolean }>;
 }> {
   const windowDays = opts?.windowDays ?? 30;
-  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
+  const eventsFile = opts?.eventsFile ?? resolveStudioEventsFile(); // #654：调用时惰性解析
   const now = Date.now();
   const windowStart = now - windowDays * 86400000;
 

@@ -76,7 +76,7 @@ let eventsFile: string;
 
 const prevGuardEnv = process.env.STUDIO_TOKEN_BUDGET_GUARD;
 const prevBudgetEnv = process.env.STUDIO_DAILY_TOKEN_BUDGET;
-const prevEventsJsonl = process.env.STUDIO_EVENTS_JSONL;
+const prevEventsJsonl = process.env.STUDIO_EVENTS_FILE;
 
 /** 建一个 runLoop 不会碰的 WU：status=active + assigneeId 指向别的实例 */
 async function createActiveWu(metadata: WorkUnitMetadata = {}, scope = '预算测试任务'): Promise<WorkUnitData> {
@@ -124,7 +124,7 @@ beforeEach(async () => {
   fileStore = new FileStore(tmpDir);
   wuService = new WorkUnitService(fileStore);
   eventsFile = path.join(tmpDir, 'studio-events.jsonl');
-  process.env.STUDIO_EVENTS_JSONL = eventsFile;
+  process.env.STUDIO_EVENTS_FILE = eventsFile;
   agentLoop = new AgentLoop(mockRole, fileStore);
   await agentLoop.start();
 });
@@ -141,8 +141,8 @@ afterEach(async () => {
   else process.env.STUDIO_TOKEN_BUDGET_GUARD = prevGuardEnv;
   if (prevBudgetEnv === undefined) delete process.env.STUDIO_DAILY_TOKEN_BUDGET;
   else process.env.STUDIO_DAILY_TOKEN_BUDGET = prevBudgetEnv;
-  if (prevEventsJsonl === undefined) delete process.env.STUDIO_EVENTS_JSONL;
-  else process.env.STUDIO_EVENTS_JSONL = prevEventsJsonl;
+  if (prevEventsJsonl === undefined) delete process.env.STUDIO_EVENTS_FILE;
+  else process.env.STUDIO_EVENTS_FILE = prevEventsJsonl;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }, 5000);
 

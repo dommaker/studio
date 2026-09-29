@@ -26,7 +26,7 @@ function initBenchEnv(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claim-latency-bench-'));
   process.env.STUDIO_HOME = root;
   process.env.STUDIO_DATA_DIR = path.join(root, 'data');
-  process.env.STUDIO_EVENTS_JSONL = path.join(root, 'logs', 'studio-events.jsonl');
+  process.env.STUDIO_EVENTS_FILE = path.join(root, 'logs', 'studio-events.jsonl');
   delete process.env.VITEST;
   delete process.env.NODE_ENV;
   return root;

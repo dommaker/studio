@@ -25,11 +25,11 @@ import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { MtimeMemoKnowledgeStore } from './knowledge-store-memo.js';
 
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
+// #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
 const fileStore = new FileStore();
 
 // KE-002 P0: unified absolute path for knowledge storage
@@ -112,7 +112,7 @@ export const sharedLinter = wrapWithSegmentSpan(
 // Cast needed: onReference added in harness 0.13.4+, npm version may lag
 let _consumptionCallbackRegistered = false;
 (sharedLifecycle as any).onReference?.((event: { entryId: string; contributor: string; timestamp: string }) => {
-  fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+  fileStore.appendJsonl(resolveStudioEventsFile(), {
     type: 'knowledge:consumption',
     source: event.contributor,
     payload: JSON.stringify({ entryId: event.entryId, timestamp: event.timestamp }),
@@ -174,7 +174,7 @@ export async function verifyConsumptionChain(): Promise<boolean> {
     // onReference 回调内 appendJsonl 是 fire-and-forget——轮询事件落盘，超时判失败
     const deadline = Date.now() + CONSUMPTION_PROBE_TIMEOUT_MS;
     for (;;) {
-      const events = await readStudioEventsSince({ file: STUDIO_EVENTS_JSONL, sinceMs: Date.now() - 60_000 });
+      const events = await readStudioEventsSince({ sinceMs: Date.now() - 60_000 });
       const hit = events.some(e => {
         if (e.type !== 'knowledge:consumption') return false;
         try {
@@ -396,7 +396,7 @@ export function ingestWithQualityGate(
 
 /** 知识事件写入（best-effort，不阻塞主流程）。source 保持 'knowledge-bus' 以兼容既有指标查询。 */
 export function appendKnowledgeEvent(type: string, payload: Record<string, unknown>): void {
-  fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+  fileStore.appendJsonl(resolveStudioEventsFile(), {
     type,
     source: 'knowledge-bus',
     payload: JSON.stringify(payload),

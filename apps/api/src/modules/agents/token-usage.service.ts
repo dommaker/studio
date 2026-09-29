@@ -26,11 +26,10 @@ import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { TREE_TOKEN_BUDGET } from '../workunit/delegation-gate.js';
 import { readCollab } from '../workunit/delegation-gate.js';
 import { buildAssigneeProfileResolver } from '../workunit/assignee-resolver.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 // #342：窗口读口（尾部倒读 + 窗口外早停）——三个事件读点切到此读口
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 /** #342：事件读窗口 30d——对齐 #173 事件热保留期（#335 先例：wu-changed-files 同款 30d） */
 const EVENTS_WINDOW_MS = 30 * 86_400_000;
 
@@ -116,7 +115,7 @@ function extractRootId(metadata: string | null): string | null {
  * 聚合指定 profile 的 token 使用视图。任何一步失败都返回全零（不抛错）。
  */
 export async function getAgentTokenUsage(profileId: string, opts?: TokenUsageOptions): Promise<AgentTokenUsage> {
-  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
+  const eventsFile = opts?.eventsFile ?? resolveStudioEventsFile(); // #654：调用时惰性解析
   const now = opts?.now ?? Date.now();
 
   const cacheKey = `${eventsFile}|${profileId}`;
@@ -253,7 +252,7 @@ export async function aggregateTreeTokens(
   fileStore: FileStore,
   opts?: { eventsFile?: string },
 ): Promise<TreeTokenReport> {
-  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
+  const eventsFile = opts?.eventsFile ?? resolveStudioEventsFile(); // #654：调用时惰性解析
 
   // 1. 找出子树 WU + 建立 workUnitId -> snapshot 映射
   const snapshots = await fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]);
@@ -344,7 +343,7 @@ export async function sumTokensForWorkUnits(
   opts?: { eventsFile?: string; fileStore?: FileStore },
 ): Promise<number> {
   if (workUnitIds.size === 0) return 0;
-  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
+  const eventsFile = opts?.eventsFile ?? resolveStudioEventsFile(); // #654：调用时惰性解析
   // 注：opts.fileStore 仅为历史签名兼容保留（#342 后事件读不经 FileStore）
 
   let rows: Array<Record<string, unknown>> = [];

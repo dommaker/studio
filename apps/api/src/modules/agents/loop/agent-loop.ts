@@ -33,8 +33,7 @@ import { withBlockedCta } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
 import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
-import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
-import { writeStudioEvent } from '../../../utils/studio-events.js';
+import { writeStudioEvent, resolveStudioEventsFile } from '../../../utils/studio-events.js';
 import { getErrorMessage } from '../../../utils/errors.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart, emitWorkUnitFailedEvent } from './execution-step-events.js';
 import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/current-wu-context.js';
@@ -62,13 +61,10 @@ import { WuLeaseTracker } from './wu-lease.js';
 import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcript-archive.js';
 
 /** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流）。
- *  STUDIO_EVENTS_JSONL 环境变量可覆盖（测试隔离用）；缺省走 resolveStudioLogFile ——
- *  测试环境（VITEST/NODE_ENV=test）自动改写 tmpdir，防止测试污染生产事件流
- *  （2026-08-03 token-burn issue：生产 studio-events.jsonl 曾混入大量 wu-cumulative-tokens 测试行）。
- *  调用时惰性解析：测试在 import 本模块后仍可改 env 生效。 */
-function studioEventsJsonlPath(): string {
-  return process.env.STUDIO_EVENTS_JSONL || resolveStudioLogFile('studio-events.jsonl');
-}
+ *  #654：路径解析归一到 resolveStudioEventsFile（认 STUDIO_EVENTS_FILE；缺省走
+ *  resolveStudioLogFile —— 测试环境（VITEST/NODE_ENV=test）自动改写 tmpdir，防止测试
+ *  污染生产事件流（2026-08-03 token-burn issue：生产 studio-events.jsonl 曾混入大量
+ *  wu-cumulative-tokens 测试行））。调用时惰性解析：测试在 import 本模块后仍可改 env 生效。 */
 
 /** B3b-i: 代码类 WU 判定与验证实现已抽到 ./wu-verification.js（F6-c，供强制收口与 /verify 端点复用） */
 /** 步骤数上限：超限强制 in_review 交人工。review WU 单独放宽——
@@ -962,7 +958,7 @@ export class AgentLoop {
       updateWuMetadata: (wuId, m) => this.workUnitService.update(wuId, { metadata: m }),
       closeWu: wuId => this.workUnitService.transitionStatus(wuId, 'closed', { id: this.instance?.id ?? this.role.id, type: 'agent' }),
       postNotice: (wuId, text) => this.postToDiscussionSpace(wuId, text),
-      eventsFilePath: studioEventsJsonlPath,
+      eventsFilePath: resolveStudioEventsFile,
     });
     if (guardOutcome.result) return guardOutcome.result;
 
@@ -1095,7 +1091,7 @@ export class AgentLoop {
     // 是否注入「前序进展」段与回放 waitingQuestion。
     const composeDeps = {
       role: this.role, acceptedTypes: this.acceptedTypes, fileStore: this.fileStore,
-      resolveEventsFile: studioEventsJsonlPath,
+      resolveEventsFile: resolveStudioEventsFile,
     };
     const composed = await composeStepPrompt(
       { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: !resumeSessionId },
@@ -1198,7 +1194,7 @@ export class AgentLoop {
     const recordTokenEvent = (res: ExecutionResult): RealUsage | null => {
       // #134: usage 解析按 provider 分流（opencode/codex 事件形态与 claude 不同）
       const real = resolveRealUsage(res, taskProvider);
-      void writeWorkunitTokenEvent(studioEventsJsonlPath(), {
+      void writeWorkunitTokenEvent(resolveStudioEventsFile(), {
         workUnitId: wu.id,
         channelId: wu.channelId,
         executionId: task.executionId,

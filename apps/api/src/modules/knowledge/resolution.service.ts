@@ -17,7 +17,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import type {
   Resolution,
   CreateResolutionInput,
@@ -26,7 +26,7 @@ import type {
 } from '@dommaker/studio-shared';
 
 const KNOWLEDGE_DIR = studioPath('knowledge');
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
+// #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
 const fileStore = new FileStore();
 
 // ── Helpers ──
@@ -146,7 +146,7 @@ export class ResolutionService {
           titles: matched.map(r => r.title),
         });
 
-        fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        fileStore.appendJsonl(resolveStudioEventsFile(), {
           type: 'knowledge:consumption',
           source: 'resolution-match',
           payload: JSON.stringify({

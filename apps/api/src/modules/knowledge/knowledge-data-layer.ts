@@ -2,13 +2,13 @@
  * knowledge-data-layer — KnowledgeService 的数据层（文件系统存取）
  *
  * 自 knowledge-service.ts 整块抽出（纯代码移动）：data/trends/ 趋势写入、
- * resolution 影子库 FileStore helpers、共享 FileStore 实例与
- * studio-events.jsonl 路径常量。
+ * resolution 影子库 FileStore helpers、共享 FileStore 实例。
  * knowledge-service.ts 以 re-export 保持 writeTrendData 导出面不变。
+ * （#654：本模块曾导出的事件文件路径常量已随加载期钉死纪律一并移除，
+ *  事件路径一律调用时 resolveStudioEventsFile() 解析。）
  */
 
 import { FileStore } from '@dommaker/studio-shared';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
@@ -16,7 +16,6 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 // ── Data layer: trends directory ──
 
 const DATA_TRENDS_DIR = studioPath('data', 'trends');
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 /**
@@ -59,4 +58,4 @@ async function listResolutions(): Promise<any[]> {
   }
 }
 
-export { STUDIO_EVENTS_JSONL, fileStore, RESOLUTIONS_DIR, listResolutions };
+export { fileStore, RESOLUTIONS_DIR, listResolutions };

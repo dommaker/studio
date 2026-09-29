@@ -1,10 +1,11 @@
 // Trigger Routes — REST API for trigger management (3.28c-4)
 import { Router } from 'express';
-import * as fs from 'fs';
 import { TriggerStore } from './trigger-store.js';
 import { getTriggerScheduler } from './trigger-registry.js';
 import { executeCreateAction, executeExecuteAction } from './trigger-action.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { parseStudioEventPayload } from '../../utils/studio-events.js';
+// #342/#654：窗口读口（尾部倒读 + 窗口外早停；file 缺省即 resolveStudioEventsFile()）
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { recordAgentDecision } from '../audit-logs/agent-decision.js';
 import { randomUUID } from 'node:crypto';
 import type { TriggerConfig } from './trigger.types.js';
@@ -56,34 +57,28 @@ router.get('/', (_req, res) => {
  * workunit:tokens 按 payload.triggerId 求和（billedTokens 优先，旧事件退回 totalTokens）；
  * system:tokens 按事件 source 统计调用次数与 token（usage 缺失时 tokens 为 0，calls 仍准确）。
  * 注意：必须注册在 GET /:id 之前，否则被 :id 捕获。
+ * #654：读口切 readStudioEventsSince（尾部倒扫、窗口外早停、NaT/损坏行跳过、文件不存在返回空），
+ * 不再整文件 readFileSync 同步阻塞；聚合语义不变。
  */
-router.get('/costs', (req, res) => {
+router.get('/costs', async (req, res) => {
   const days = Math.min(Math.max(parseInt(String(req.query.days ?? '30'), 10) || 30, 1), 365);
   const since = Date.now() - days * 24 * 60 * 60 * 1000;
   const byTrigger: Record<string, number> = {};
   const bySource: Record<string, number> = {};
   const callsBySource: Record<string, number> = {};
   try {
-    // 与 agent-loop 同一约定：STUDIO_EVENTS_JSONL 可覆盖（测试隔离），缺省走 studio-log-path
-    const eventsFile = process.env.STUDIO_EVENTS_JSONL || resolveStudioLogFile('studio-events.jsonl');
-    if (fs.existsSync(eventsFile)) {
-      for (const line of fs.readFileSync(eventsFile, 'utf8').split('\n')) {
-        if (!line) continue;
-        let e: { type?: string; source?: string; createdAt?: string; payload?: unknown };
-        try { e = JSON.parse(line); } catch { continue; }
-        const ts = Date.parse(e.createdAt ?? '');
-        if (!Number.isFinite(ts) || ts < since) continue;
-        let payload: Record<string, unknown> | null = null;
-        try { payload = JSON.parse(String(e.payload)); } catch { continue; }
-        if (e.type === 'workunit:tokens' && typeof payload.triggerId === 'string') {
-          const t = Number(payload.billedTokens ?? payload.totalTokens ?? 0) || 0;
-          byTrigger[payload.triggerId] = (byTrigger[payload.triggerId] || 0) + t;
-        } else if (e.type === 'system:tokens') {
-          const src = e.source || 'system-executor';
-          callsBySource[src] = (callsBySource[src] || 0) + 1;
-          const t = (Number(payload.inputTokens) || 0) + (Number(payload.outputTokens) || 0);
-          bySource[src] = (bySource[src] || 0) + t;
-        }
+    const events = await readStudioEventsSince({ sinceMs: since });
+    for (const e of events) {
+      const payload = parseStudioEventPayload(e);
+      if (!payload) continue;
+      if (e.type === 'workunit:tokens' && typeof payload.triggerId === 'string') {
+        const t = Number(payload.billedTokens ?? payload.totalTokens ?? 0) || 0;
+        byTrigger[payload.triggerId] = (byTrigger[payload.triggerId] || 0) + t;
+      } else if (e.type === 'system:tokens') {
+        const src = (typeof e.source === 'string' && e.source) || 'system-executor';
+        callsBySource[src] = (callsBySource[src] || 0) + 1;
+        const t = (Number(payload.inputTokens) || 0) + (Number(payload.outputTokens) || 0);
+        bySource[src] = (bySource[src] || 0) + t;
       }
     }
   } catch (err) {

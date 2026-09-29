@@ -19,8 +19,8 @@ import * as os from 'node:os';
 // SKILLS_DIR 在 manifest-loader 模块加载时读取 —— 必须先设再 import agent-loop
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-skills-'));
 process.env.SKILLS_DIR = testSkillsDir;
-// 事件文件隔离：skill 注入度量会写 STUDIO_EVENTS_JSONL，指向临时文件避免污染生产事件流
-process.env.STUDIO_EVENTS_JSONL = path.join(testSkillsDir, 'studio-events.jsonl');
+// 事件文件隔离：skill 注入度量会写 STUDIO_EVENTS_FILE，指向临时文件避免污染生产事件流
+process.env.STUDIO_EVENTS_FILE = path.join(testSkillsDir, 'studio-events.jsonl');
 // 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
 afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 

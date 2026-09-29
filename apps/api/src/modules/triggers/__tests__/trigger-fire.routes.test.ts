@@ -84,14 +84,14 @@ describe('trigger manual fire + costs', () => {
     const port = typeof addr === 'object' && addr ? addr.port : 0;
     base = `http://127.0.0.1:${port}/triggers`;
 
-    // costs 端点走 STUDIO_EVENTS_JSONL 覆盖（与 agent-loop 同一测试隔离约定）
+    // costs 端点走 STUDIO_EVENTS_FILE 覆盖（与 agent-loop 同一测试隔离约定）
     eventsTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trigger-fire-test-'));
     eventsFile = path.join(eventsTmpDir, 'events.jsonl');
-    process.env.STUDIO_EVENTS_JSONL = eventsFile;
+    process.env.STUDIO_EVENTS_FILE = eventsFile;
   });
 
   afterAll(async () => {
-    delete process.env.STUDIO_EVENTS_JSONL;
+    delete process.env.STUDIO_EVENTS_FILE;
     await new Promise<void>(resolve => server.close(() => resolve()));
     fs.rmSync(eventsTmpDir, { recursive: true, force: true });
   });
@@ -213,6 +213,8 @@ describe('trigger manual fire + costs', () => {
     const now = new Date();
     const old = new Date(now.getTime() - 40 * 24 * 3600_000);
     const lines = [
+      // 窗口外 → 过滤（写在最前：事件文件 append-only 时间单调，readStudioEventsSince 倒扫遇窗口外行即停）
+      { type: 'workunit:tokens', source: 'agent-loop', payload: JSON.stringify({ triggerId: 'doc-semantic-review', billedTokens: 7777 }), createdAt: old.toISOString() },
       // billed 优先
       { type: 'workunit:tokens', source: 'agent-loop', payload: JSON.stringify({ triggerId: 'doc-semantic-review', billedTokens: 1000, totalTokens: 100 }), createdAt: now.toISOString() },
       // 旧事件无 billed → totalTokens 兜底
@@ -222,8 +224,6 @@ describe('trigger manual fire + costs', () => {
       // system:tokens：usage 缺失 → calls 准确、tokens 为 0
       { type: 'system:tokens', source: 'knowledge-maintenance', payload: JSON.stringify({ inputTokens: null, outputTokens: null, durationMs: 1000 }), createdAt: now.toISOString() },
       { type: 'system:tokens', source: 'knowledge-maintenance', payload: JSON.stringify({ inputTokens: 10, outputTokens: 5, durationMs: 1000 }), createdAt: now.toISOString() },
-      // 窗口外 → 过滤
-      { type: 'workunit:tokens', source: 'agent-loop', payload: JSON.stringify({ triggerId: 'doc-semantic-review', billedTokens: 7777 }), createdAt: old.toISOString() },
     ];
     fs.writeFileSync(eventsFile, lines.map(l => JSON.stringify(l)).join('\n') + '\n');
 

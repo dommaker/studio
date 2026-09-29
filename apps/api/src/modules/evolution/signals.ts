@@ -15,7 +15,7 @@
 import path from 'node:path';
 import { readProjectTraces, type ExecutionTrace } from '@dommaker/harness';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readJsonl 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
@@ -39,7 +39,7 @@ export function resolveEvolutionPaths(overrides?: Partial<EvolutionPaths>): Evol
     // events/ 语义迁移（契约 §8）：统一事件流正本在 logs/；本字段 @deprecated 不再被读取，
     // 缺省值同步指 logs/（#571），events/ ensureDir 已从启动链移除
     eventsDir: overrides?.eventsDir ?? studioPath('logs'),
-    studioEventsFile: overrides?.studioEventsFile ?? resolveStudioLogFile('studio-events.jsonl'),
+    studioEventsFile: overrides?.studioEventsFile ?? resolveStudioEventsFile(),
   };
 }
 

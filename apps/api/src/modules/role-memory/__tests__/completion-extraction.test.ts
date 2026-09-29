@@ -81,7 +81,7 @@ beforeEach(async () => {
   resetDailyTokenBudgetState();
   delete process.env.STUDIO_TOKEN_BUDGET_GUARD;
   delete process.env.STUDIO_DAILY_TOKEN_BUDGET;
-  delete process.env.STUDIO_EVENTS_JSONL;
+  delete process.env.STUDIO_EVENTS_FILE;
 
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'completion-extraction-'));
   eventsFile = path.join(tmpDir, 'studio-events.jsonl');
@@ -105,7 +105,7 @@ afterEach(() => {
   resetDailyTokenBudgetState();
   delete process.env.STUDIO_TOKEN_BUDGET_GUARD;
   delete process.env.STUDIO_DAILY_TOKEN_BUDGET;
-  delete process.env.STUDIO_EVENTS_JSONL;
+  delete process.env.STUDIO_EVENTS_FILE;
   fs.rmSync(tmpDir, { recursive: true, force: true });
   // 只清理本文件写入的角色目录 / transcript 文件
   for (const rid of createdRoleIds) {

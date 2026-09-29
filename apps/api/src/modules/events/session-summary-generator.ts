@@ -9,11 +9,11 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import * as os from 'os';
 import * as path from 'path';
 import { skillStore } from '../skills/skill-store.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
-// #342：窗口读口（尾部倒读 + 窗口外早停）——两个事件读点切到此读口
+// #342：窗口读口（尾部倒读 + 窗口外早停）——两个事件读点切到此读口；
+// #654：file 缺省即 resolveStudioEventsFile()（调用时解析，认 STUDIO_EVENTS_FILE）
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 /** #342：事件读窗口 30d——session 跨度 ≪ 窗口；suggestSkillForPattern 本就按 30d 过滤 */
 const EVENTS_WINDOW_MS = 30 * 86_400_000;
 const fileStore = new FileStore();
@@ -51,7 +51,7 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
   try {
     // #342：窗口读 30d（挂在事件批量写入 HTTP 路径上，读成本必须与文件总量解耦）；
     // sessionId 的 payload.includes 子串匹配仍在窗口行内进行
-    const allEvents: any[] = await readStudioEventsSince({ file: STUDIO_EVENTS_JSONL, sinceMs: Date.now() - EVENTS_WINDOW_MS });
+    const allEvents: any[] = await readStudioEventsSince({ sinceMs: Date.now() - EVENTS_WINDOW_MS });
     const events = allEvents
       .filter((e: any) => e.payload && typeof e.payload === 'string' && e.payload.includes(sessionId))
       .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -119,7 +119,7 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
     };
 
     // Store as StudioEvent
-    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+    await fileStore.appendJsonl(resolveStudioEventsFile(), {
       type: 'session:summary',
       source: agentId,
       payload: JSON.stringify(summary),
@@ -220,7 +220,7 @@ async function suggestSkillForPattern(patternType: PatternType, toolsUsed: strin
 
   // Count recent sessions of this pattern type
   // #342：窗口读 30d（与下方 createdAt >= now-30d 过滤同口径）
-  const allSummariesEvents: any[] = await readStudioEventsSince({ file: STUDIO_EVENTS_JSONL, sinceMs: Date.now() - EVENTS_WINDOW_MS });
+  const allSummariesEvents: any[] = await readStudioEventsSince({ sinceMs: Date.now() - EVENTS_WINDOW_MS });
   const recentSummaries = allSummariesEvents.filter((e: any) =>
     e.type === 'session:summary' &&
     typeof e.payload === 'string' && e.payload.includes(`"patternType":"${patternType}"`) &&

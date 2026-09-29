@@ -14,7 +14,7 @@
  */
 
 import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { WorkUnitService, type WorkUnitData } from '../workunit/workunit.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
@@ -55,11 +55,6 @@ const TRANSCRIPT_MAX_CHARS = 12_000;
 
 /** 提取最多产出条目数（与 R3 会话提取同口径） */
 const MAX_ENTRIES = 5;
-
-/** WU 收尾提取的事件文件（同 agent-loop 口径：STUDIO_EVENTS_JSONL 覆盖 / resolveStudioLogFile 兜底，测试可隔离） */
-function studioEventsJsonlPath(): string {
-  return process.env.STUDIO_EVENTS_JSONL || resolveStudioLogFile('studio-events.jsonl');
-}
 
 /**
  * 归档器 transcript → 提取输入文本：rawOutput 逐行拼接（step/action 标注），
@@ -109,7 +104,8 @@ export class WuCompletionExtractor {
   constructor(
     private fileStore: FileStore,
     private workUnitService: WorkUnitService,
-    private eventsFile: string = studioEventsJsonlPath(),
+    // #654：构造时惰性解析（认 STUDIO_EVENTS_FILE，测试可覆盖；构造晚于 import，无钉死问题）
+    private eventsFile: string = resolveStudioEventsFile(),
   ) {}
 
   /** 订阅 workunit.status_changed。幂等。 */

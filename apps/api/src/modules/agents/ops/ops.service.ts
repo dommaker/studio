@@ -14,7 +14,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { loadRules, type OpsRules } from './ops-rules.js';
 import { readDiskUsage, readMemoryUsage, readLoadAvgRaw, countProcessesByCmdline, listPidsByCmdline } from './proc-probes.js';
 import { hashPassword } from '../../auth/service.js';
-import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../../utils/studio-events.js';
 import { ensureFrontendDist } from '../../../utils/frontend-dist.js';
 
 const execAsync = promisify(exec);
@@ -394,9 +394,9 @@ export class OpsService {
    */
   private async emitProxyRestartExhaustedAlert(synSentCount: number): Promise<void> {
     try {
-      const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
       const fs = new FileStore();
-      await fs.appendJsonl(STUDIO_EVENTS_JSONL, {
+      // #654：调用时惰性解析（认 STUDIO_EVENTS_FILE）
+      await fs.appendJsonl(resolveStudioEventsFile(), {
         type: 'proxy_restart_exhausted',
         source: 'ops-agent',
         payload: JSON.stringify({

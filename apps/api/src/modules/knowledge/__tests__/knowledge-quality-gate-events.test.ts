@@ -25,9 +25,10 @@ vi.mock('@dommaker/studio-shared', () => ({
     appendJsonl = mockAppendJsonl;
   },
   eventBus: { publish: mockEventBusPublish, subscribe: vi.fn(), unsubscribe: vi.fn() },
-  // #361 薄壳转发后 knowledge-singletons 经 utils/studio-log-path re-export 取用；
-  // 模块加载期即调用，partial mock 必须提供
+  // #361 薄壳转发：knowledge-singletons 经 utils/* re-export 取用这两个路径解析函数，
+  // 整体 mock 必须提供（#654 起事件路径为调用时 resolveStudioEventsFile 解析）
   resolveStudioLogFile: (name: string) => `/tmp/test-studio-logs/${name}`,
+  resolveStudioEventsFile: () => '/tmp/test-studio-logs/studio-events.jsonl',
 }));
 
 vi.mock('@dommaker/harness', () => {

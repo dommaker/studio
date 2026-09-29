@@ -20,7 +20,7 @@ import * as path from 'path';
 import { FileStore, logger, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import type { WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { syncTokenLedger } from '../../utils/token-ledger.js';
 
 /** 协作元数据（WorkUnitMetadata.collab 的具象类型） */
@@ -83,8 +83,6 @@ export interface DelegationCheckResult {
 /** §4.3 树级 token 预算上限 */
 export const TREE_TOKEN_BUDGET = 400_000;
 
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
-
 /**
  * §4.3 P2 树级预算闸门：树已耗 ≤ TREE_TOKEN_BUDGET(400K)。
  * 子 WU 预估取 0（TODO 后续基于历史均值）。
@@ -105,7 +103,8 @@ export async function checkTreeBudget(
 
   let treeTotal = 0;
   try {
-    const ledger = await syncTokenLedger(STUDIO_EVENTS_JSONL);
+    // #654：调用时惰性解析（认 STUDIO_EVENTS_FILE），不做模块加载期钉死
+    const ledger = await syncTokenLedger(resolveStudioEventsFile());
     for (const wuId of treeWuIds) {
       treeTotal += ledger.byWorkUnit[wuId]?.executionTokens ?? 0;
     }

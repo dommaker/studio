@@ -16,7 +16,7 @@ import * as path from 'path';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
 import { isSystemRole } from './system-role.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
 export interface SystemExecutorOptions {
@@ -76,15 +76,14 @@ export class SystemExecutorJsonParseError extends Error {
   }
 }
 
-const DEFAULT_EVENTS_FILE = resolveStudioLogFile('studio-events.jsonl');
-
 /** system:tokens 事件 source 缺省值（#370）：事件 payload / 成功打点 / 失败 warn 三处共用 */
 const DEFAULT_EVENT_SOURCE = 'system-executor';
 
 export class SystemExecutor {
   constructor(
     private fileStore: FileStore,
-    private eventsFile: string = DEFAULT_EVENTS_FILE,
+    // #654：构造时惰性解析（认 STUDIO_EVENTS_FILE），不做模块加载期钉死常量
+    private eventsFile: string = resolveStudioEventsFile(),
   ) {}
 
   async run(prompt: string, options?: SystemExecutorOptions): Promise<SystemExecutorResult> {

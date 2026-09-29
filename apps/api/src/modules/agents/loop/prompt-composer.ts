@@ -209,7 +209,7 @@ export interface PromptComposerDeps {
   role: AgentProfileData;
   acceptedTypes: string[];
   fileStore: FileStore;
-  /** studio-events.jsonl 路径解析（STUDIO_EVENTS_JSONL 环境变量可覆盖，测试隔离用） */
+  /** studio-events.jsonl 路径解析（#654：归一 resolveStudioEventsFile，认 STUDIO_EVENTS_FILE，测试隔离用） */
   resolveEventsFile: () => string;
 }
 
