@@ -23,6 +23,9 @@ WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 N
 - `wu-metadata.ts` - metadata 访问器(零依赖叶子): parseWuMetadata(容错解析) / parseWuTitle(展示名 title??scope 唯一出口, #312 起 getAgentSummary 与 status_changed 负载共用) / clearSessionBookkeeping(16 字段会话簿记权威清单, review 子 WU 不继承) / mergedWuView(持久化 + metadataUpdates 合并视图)。
 - `wu-dependencies.ts` - 接单依赖判定(零依赖叶子): parseBlockedBy / buildStatusById / hasUnfinishedDeps / resolveClaimable。
 - `assignee-resolver.ts` - assigneeId 双语义批量解析器: buildAssigneeProfileResolver -> (assigneeId) => profileId | null。
+- `inspection-opportunities.ts` - #163(T8-E2) 巡检机会清单 adopt/ignore 机制消费入口: adoptInspectionOpportunity(采纳即人工闸 → 建 feature WU 显式 status='unassigned' 直进 frontier, 不落 pending 双重人闸; 子单不带 channelId 不触发频道默认管线, 继承 pmoId/workspaceRoot 归属链, metadata 落溯源戳, 源单条目记 wuId) / ignoreInspectionOpportunity(终态, 可附理由作下轮巡检不重复上报判据); metadata 更新 = 写入前重读合并(#115 两哨兵互覆教训)。消费方 = workunit.routes POST /:id/opportunities/:oppId/adopt|ignore(Web 确认 UI)。
+- `http-helpers.ts` - #551 路由层 HTTP 助手, 错误契约收口唯一正本: WORKUNIT_ERROR_MAPS(全部端点「错误文案/类别 → 状态码+code」映射表) + sendMappedError(唯一翻译出口, 匹配器三态 = 字符串 includes / RegExp / Error 类 instanceof) + route() 包装器 + HttpRouteError(可预期业务拒绝直出, 绕过查表) + requireHuman(A2A §4.4 human-only 中间件) + resolveCallerAuthorType。
+- `confirm-payload.ts` - #463 review-passed 结构化 confirm body 校验与序列化唯一正本: resolveReviewConfirm(confirm 四形态 decision 结论 / spec TASK 物化行 / analysis·plan destination+fog+tasks, 与裸 summary 并存时 confirm 优先) + ConfirmPayloadError; 表单数据序列化进 l3.summary(存储契约不变, 下游 parseSpecTasks/parseMapOpening/decision-resolution 原样消费)。
 - `wu-changed-files.ts` - #285 AC4 per-WU 产出/修改文件集（session:start.workUnitId → sessionId → file:change.path，30d 窗口读口；读失败/无数据 → 空集绝不抛出）：唯一查询面 = `listWorkUnitsChangedFiles` 批量（端点 GET /changed-files?ids=，注册在 /:id 之前，MAX_BATCH_IDS 上限），一次窗口读派生全部 WU——单发 `listWorkUnitChangedFiles` 与端点 GET /:id/changed-files 已随 B4 死代码清扫删除（2026-09-25 批量版上线后零调用方）。
 
 ### 依赖关系
