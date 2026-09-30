@@ -61,7 +61,7 @@ describe('RoleFormModal — create 模式（决策 2：收窄单角色）', () =
   beforeEach(() => {
     vi.clearAllMocks();
     hookState.current = { detected: [], loading: false, noneDetected: true };
-    mockCreateAgent.mockResolvedValue({ data: { id: 'a1', name: 'qa-agent' } });
+    mockCreateAgent.mockResolvedValue({ data: { data: { id: 'a1', name: 'qa-agent' } } });
     mockListRolePresets.mockResolvedValue({ data: { data: [] } });
   });
 
@@ -140,7 +140,7 @@ describe('RoleFormModal — create 模式（决策 2：收窄单角色）', () =
   it('创建失败（409 名称冲突）→ 服务端 message 内联报错留窗，不调 onClose/onSaved', async () => {
     mockCreateAgent.mockRejectedValue({
       isAxiosError: true,
-      response: { status: 409, data: { error: { code: 'DUPLICATE', message: 'AgentProfile with name "qa-agent" already exists' } } },
+      response: { status: 409, data: { error: { code: 'DUPLICATE', message: 'Unique constraint: AgentProfile with name "qa-agent" already exists' } } },
     });
     const onClose = vi.fn();
     const onSaved = vi.fn();
@@ -177,7 +177,7 @@ describe('RoleFormModal — edit 模式（决策 3：name/description/provider �
   beforeEach(() => {
     vi.clearAllMocks();
     hookState.current = { ...detectedOk };
-    mockUpdateAgent.mockResolvedValue({ data: { ...editInitial, name: 'dev-agent-2' } });
+    mockUpdateAgent.mockResolvedValue({ data: { data: { ...editInitial, name: 'dev-agent-2' } } });
   });
 
   it('预填 initial 三项；skills 不进表单；无改动时提交键禁用', () => {
@@ -230,7 +230,7 @@ describe('RoleFormModal — edit 模式（决策 3：name/description/provider �
   it('保存失败（409 名称冲突）→ 服务端 message 内联报错留窗', async () => {
     mockUpdateAgent.mockRejectedValue({
       isAxiosError: true,
-      response: { status: 409, data: { error: { code: 'DUPLICATE', message: 'AgentProfile with name "taken" already exists' } } },
+      response: { status: 409, data: { error: { code: 'DUPLICATE', message: 'Unique constraint: AgentProfile with name "taken" already exists' } } },
     });
     const onClose = vi.fn();
     renderEdit({ onClose });
@@ -265,7 +265,7 @@ describe('RoleFormModal — #633 模板入口（create 模式「从模板开始�
   beforeEach(() => {
     vi.clearAllMocks();
     hookState.current = { ...detectedOk };
-    mockCreateAgent.mockResolvedValue({ data: { id: 'a1', name: 'dev-agent' } });
+    mockCreateAgent.mockResolvedValue({ data: { data: { id: 'a1', name: 'dev-agent' } } });
     mockListRolePresets.mockResolvedValue({
       data: { data: [
         { name: 'developer', description: '代码实现、TDD 流程' },
@@ -333,7 +333,7 @@ describe('RoleFormModal — #633 edit 模式 persona/acceptedTypes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     hookState.current = { ...detectedOk };
-    mockUpdateAgent.mockResolvedValue({ data: richInitial });
+    mockUpdateAgent.mockResolvedValue({ data: { data: richInitial } });
     mockListRolePresets.mockResolvedValue({ data: { data: [] } });
   });
 

@@ -44,3 +44,5 @@ export * from './discord.js';
 export * from './lark.js';
 export * from './dingtalk.js';
 export * from './deploy.js';
+export * from './agents.js';
+export * from './agent-profiles.js';

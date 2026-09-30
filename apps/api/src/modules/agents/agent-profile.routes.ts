@@ -1,6 +1,11 @@
 /**
  * AgentProfile API 路由 (AS-025 Phase 2)
  *
+ * 契约驱动迁移（2026-10 批次 8/8）：全部端点走 core/http.ts defineRoute——
+ * name 必填收进 zod（原手写 400 INVALID_INPUT → 400 BAD_REQUEST）；409 改名冲突
+ * 走错误映射表（message = service 原始消息，含 'Unique constraint:' 前缀）；
+ * 裸实体响应统一 `{ data }` 壳；500 code 'INTERNAL_ERROR' 归一 INTERNAL。
+ *
  * Endpoints:
  *   GET    /api/v1/agent-profiles          — list
  *   POST   /api/v1/agent-profiles          — create
@@ -10,135 +15,99 @@
  *   DELETE /api/v1/agent-profiles/:id      — delete
  */
 
-import { Router, type Request, type Response } from 'express';
+import { Router } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
-import { AgentProfileService, listRolePresets } from './agent-profile.service.js';
-import { getErrorMessage } from '../../utils/errors.js';
-import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
+import {
+  agentProfileListQuerySchema,
+  createAgentProfileBodySchema,
+  updateAgentProfileBodySchema,
+  agentProfileIdParamsSchema,
+} from '@dommaker/studio-contract';
+import { AgentProfileService, listRolePresets, type CreateAgentProfileInput, type UpdateAgentProfileInput } from './agent-profile.service.js';
+import { parsePagination } from '../../utils/pagination.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { defineRoute, HttpError, paginated } from '../../core/http.js';
 
 const router = Router();
 const fileStore = new FileStore();
 const service = new AgentProfileService(fileStore);
 
 /** GET / — list AgentProfiles */
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    const { status, channelId, includeSystem } = req.query;
-    const { page, limit } = parsePagination(req);
+router.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (req, _res, { query }) => {
+  const { page, limit } = parsePagination(req);
 
-    const result = await service.list({
-      status: status as string,
-      channelId: channelId as string,
-      page,
-      limit,
-      // AC-1.4: includeSystem=true 时包含 studio 角色（前端 setup 用）
-      includeSystem: includeSystem === 'true',
-    });
+  const result = await service.list({
+    status: query.status,
+    channelId: query.channelId,
+    page,
+    limit,
+    // AC-1.4: includeSystem=true 时包含 studio 角色（前端 setup 用）
+    includeSystem: query.includeSystem === 'true',
+  });
 
-    res.json(formatPaginatedResponse(result.data, result.total, page, limit));
-  } catch (error) {
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
-    });
-  }
-});
+  return paginated(result.data, {
+    page,
+    limit,
+    total: result.total,
+    totalPages: Math.ceil(result.total / limit),
+  });
+}));
 
 /** POST / — create AgentProfile */
-router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const { name, description, channels, provider, status, preset, persona, acceptedTypes, skills } = req.body;
-
-    if (!name || typeof name !== 'string') {
-      return res.status(400).json({
-        error: { code: 'INVALID_INPUT', message: 'name is required and must be a string' },
-      });
-    }
-
-    const profile = await service.create({ name, description, channels, provider, status, preset, persona, acceptedTypes, skills });
-    res.status(201).json(profile);
-  } catch (error) {
-    const msg = getErrorMessage(error);
-    if (msg.includes('Unique constraint')) {
-      return res.status(409).json({
-        error: { code: 'DUPLICATE', message: `AgentProfile with name "${req.body.name}" already exists` },
-      });
-    }
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: msg },
-    });
-  }
-});
+router.post('/', requireAuth(), requireNotGuest(), defineRoute(
+  { body: createAgentProfileBodySchema },
+  {
+    status: 201,
+    errors: [{ match: 'Unique constraint', status: 409, code: 'DUPLICATE' }],
+  },
+  async (_req, _res, { body }) => {
+    // z.infer 全字段退化可选（仓 strict:false），路由边界收回 service 必填入参
+    return service.create(body as CreateAgentProfileInput);
+  },
+));
 
 /** GET /presets — 角色 preset 清单（#633「从模板开始」数据源；只回 name + description，死字段不浮出）。
  *  须注册在 /:id 之前，否则 'presets' 被当 id 匹配。 */
-router.get('/presets', (_req: Request, res: Response) => {
-  try {
-    res.json({ data: listRolePresets() });
-  } catch (error) {
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
-    });
-  }
-});
+router.get('/presets', defineRoute({}, async () => listRolePresets()));
 
 /** GET /:id — get AgentProfile by id */
-router.get('/:id', async (req: Request, res: Response) => {
-  try {
-    const profile = await service.getById(req.params.id as string);
-    if (!profile) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: `AgentProfile ${req.params.id as string} not found` },
-      });
-    }
-    res.json(profile);
-  } catch (error) {
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
-    });
+router.get('/:id', defineRoute({ params: agentProfileIdParamsSchema }, async (_req, _res, { params }) => {
+  const profile = await service.getById(params.id);
+  if (!profile) {
+    throw new HttpError(404, 'NOT_FOUND', `AgentProfile ${params.id} not found`);
   }
-});
+  return profile;
+}));
 
 /** PATCH /:id — update AgentProfile */
-router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const profile = await service.update(req.params.id as string, req.body);
-    res.json(profile);
-  } catch (error) {
-    const msg = getErrorMessage(error);
-    if (msg.includes('not found') || msg.includes('Record to update not found')) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
-    }
-    // #298: 改名冲突与 create 同口径 -> 409 DUPLICATE
-    if (msg.includes('Unique constraint')) {
-      return res.status(409).json({
-        error: { code: 'DUPLICATE', message: `AgentProfile with name "${req.body.name}" already exists` },
-      });
-    }
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: msg },
-    });
-  }
-});
+router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
+  { params: agentProfileIdParamsSchema, body: updateAgentProfileBodySchema },
+  {
+    errors: [
+      // #298: 改名冲突与 create 同口径 -> 409 DUPLICATE
+      { match: 'Unique constraint', status: 409, code: 'DUPLICATE' },
+      { match: 'not found', status: 404, code: 'NOT_FOUND' },
+      { match: 'Record to update not found', status: 404, code: 'NOT_FOUND' },
+    ],
+  },
+  async (_req, _res, { params, body }) => {
+    return service.update(params.id, body as UpdateAgentProfileInput);
+  },
+));
 
 /** DELETE /:id — delete AgentProfile */
-router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    await service.delete(req.params.id as string);
-    res.status(204).send();
-  } catch (error) {
-    const msg = getErrorMessage(error);
-    if (msg.includes('not found') || msg.includes('Record to delete does not exist')) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
-    }
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: msg },
-    });
-  }
-});
+router.delete('/:id', requireAuth(), requireNotGuest(), defineRoute(
+  { params: agentProfileIdParamsSchema },
+  {
+    status: 204,
+    errors: [
+      { match: 'not found', status: 404, code: 'NOT_FOUND' },
+      { match: 'Record to delete does not exist', status: 404, code: 'NOT_FOUND' },
+    ],
+  },
+  async (_req, _res, { params }) => {
+    await service.delete(params.id);
+  },
+));
 
 export default router;

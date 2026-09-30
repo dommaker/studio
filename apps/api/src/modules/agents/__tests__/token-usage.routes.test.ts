@@ -51,7 +51,7 @@ describe('§10.5 GET /:id/token-usage', () => {
     vi.clearAllMocks();
   });
 
-  it('成功 -> 200 返回 service 聚合结果', async () => {
+  it('成功 -> 200 返回 service 聚合结果（契约迁移批次 8/8：统一 { data } 壳）', async () => {
     const usage = {
       profileId: 'profile-a',
       totals: { injectedTokens: 100, executionTokens: 900, totalTokens: 1000 },
@@ -67,8 +67,8 @@ describe('§10.5 GET /:id/token-usage', () => {
     await routeHandler.value!(req, res);
 
     expect(getAgentTokenUsageMock).toHaveBeenCalledWith('profile-a');
-    expect(res.json).toHaveBeenCalledWith(usage);
-    expect(res.status).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ data: usage });
   });
 
   it('空数据 -> 200 返回全零（service 层约定不抛）', async () => {
@@ -86,11 +86,11 @@ describe('§10.5 GET /:id/token-usage', () => {
     const { req, res } = mockReqRes('profile-empty');
     await routeHandler.value!(req, res);
 
-    expect(res.json).toHaveBeenCalledWith(zero);
-    expect(res.status).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ data: zero });
   });
 
-  it('service 抛错 -> 500 兜底（防御式，service 层已保证不抛）', async () => {
+  it('service 抛错 -> 500 兜底（防御式，service 层已保证不抛；契约迁移批次 8/8：code 归一 INTERNAL）', async () => {
     getAgentTokenUsageMock.mockRejectedValue(new Error('unexpected'));
 
     const { req, res } = mockReqRes('profile-x');
@@ -99,7 +99,7 @@ describe('§10.5 GET /:id/token-usage', () => {
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        error: expect.objectContaining({ code: 'INTERNAL_ERROR' }),
+        error: expect.objectContaining({ code: 'INTERNAL' }),
       }),
     );
   });

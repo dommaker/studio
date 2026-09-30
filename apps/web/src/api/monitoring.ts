@@ -4,9 +4,11 @@
 // import（别名保持旧名：AgentPmoRef=AgentPmoSummary、EvidenceStats=EvidenceMetrics、
 // CacheHitRateStats=CacheHitRateMetrics、SectionTrimStats=SectionTrimMetrics、
 // EfficiencyStats=EfficiencyMetrics）；响应统一 `{ data }` 壳（原裸对象），消费方
-// 解包 res.data → res.data.data。terminateInstance/getAgentInstance 属 agents 域
-// 端点（本批不迁），保持原样；MonitoringPage 多处直接调用只收口类型与解包，
-// 数据获取范式统一归 Phase 3。
+// 解包 res.data → res.data.data。
+// 契约驱动迁移（2026-10 批次 8/8）：terminateInstance/getAgentInstance 属
+// agents 域端点同批收口——本地 AgentInstanceInfo 删除改 contract AgentInstance
+// import，getAgentInstance 响应统一 `{ data }` 壳（无活体消费方，仅测试 mock 占位）；
+// MonitoringPage 多处直接调用只收口类型与解包，数据获取范式统一归 Phase 3。
 import type {
   AgentCurrentWorkUnit,
   AgentPmoSummary,
@@ -24,6 +26,7 @@ import type {
   HumanInterventionMetrics,
   EfficiencyMetrics,
   OverviewMetrics,
+  AgentInstance,
 } from '@dommaker/studio-contract';
 import { api } from './index';
 
@@ -50,13 +53,6 @@ export type SectionTrimStats = SectionTrimMetrics;
 /** #120：/monitoring/efficiency（契约名 EfficiencyMetrics） */
 export type EfficiencyStats = EfficiencyMetrics;
 
-/** #290（清单 #24）：RuntimeInstance 档案（agents 域端点，本批不迁，本地声明保留） */
-export interface AgentInstanceInfo {
-  id: string;
-  roleId: string;
-  status: string;
-}
-
 export const monitoringApi = {
   getAgentSummary: () => api.get<{ data: AgentSummary }>('/monitoring/agents'),
   getStats: () => api.get<{ data: MonitoringStats }>('/monitoring/stats'),
@@ -69,7 +65,7 @@ export const monitoringApi = {
   /** 强制停止实例（当前任务转人工处理；AgentDashboardPage / AgentDetailPage 共用） */
   terminateInstance: (instanceId: string) =>
     api.post(`/agent-instances/${instanceId}/terminate`),
-  /** #290（清单 #24）：单个 RuntimeInstance 档案（负责人离线回退解析 roleId） */
+  /** #290（清单 #24）：单个 RuntimeInstance 档案（负责人离线回退解析 roleId）；批次 8/8 起 `{ data }` 壳 */
   getAgentInstance: (instanceId: string) =>
-    api.get<AgentInstanceInfo>(`/agent-instances/${instanceId}`),
+    api.get<{ data: AgentInstance }>(`/agent-instances/${instanceId}`),
 };

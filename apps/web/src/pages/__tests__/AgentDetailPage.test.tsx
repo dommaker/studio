@@ -219,7 +219,7 @@ describe('AgentDetailPage', () => {
         ],
       },
     });
-    mockUpdateAgent.mockResolvedValue({ data: {} });
+    mockUpdateAgent.mockResolvedValue({ data: { data: {} } });
     render(<AgentDetailPage />);
 
     // 技能卡展示当前声明
@@ -250,7 +250,7 @@ describe('AgentDetailPage', () => {
 
   it('#630 决策 6：资料卡展示描述 + 「编辑资料」开正本 edit 弹框（预填 initial，改名 PATCH 脏字段后强刷名册）', async () => {
     mockApiGet.mockResolvedValue({ data: { runtimes: [{ provider: 'claude', version: '1.0.0', auth: 'ok' }] } });
-    mockUpdateAgent.mockResolvedValue({ data: { ...profile, name: 'dev-agent-2' } });
+    mockUpdateAgent.mockResolvedValue({ data: { data: { ...profile, name: 'dev-agent-2' } } });
     render(<AgentDetailPage />);
 
     // 资料卡（沿用「技能」卡头+按钮模式）

@@ -102,7 +102,7 @@ describe('AgentDashboardPage', () => {
     });
     mockOnEvent.mockImplementation(() => () => {});
     mockTerminateInstance.mockResolvedValue({});
-    mockCreateAgent.mockResolvedValue({ data: {} });
+    mockCreateAgent.mockResolvedValue({ data: { data: {} } });
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
     mockGetAgentSummary.mockResolvedValue({
       data: { data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } } },

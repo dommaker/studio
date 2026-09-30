@@ -8,7 +8,7 @@
 // 轮询兜底与 SSE 路由的接线在 useRosterStoreSync；消费方用 selector 订阅（useAgentRoster / ChannelRail 等）。
 import { create } from 'zustand';
 import { monitoringApi, type AgentCurrentWorkUnit, type AgentInfo, type AgentPmoRef } from '../api/monitoring';
-import { channelApi, type AgentProfile, type Channel } from '../api/channel';
+import { channelApi, type AgentProfile, type AgentProfileListItem, type Channel } from '../api/channel';
 import { isForbidden } from '../utils/http';
 import { isSystemRole } from '../utils/systemRole';
 import { workunitApi, type WorkUnit } from '../api/workunit';
@@ -49,13 +49,13 @@ export function workUnitToCurrentWorkUnit(wu: WorkUnit): AgentCurrentWorkUnit {
  * 看不到系统角色，切片必须一致，否则 mention/成员面板混入系统角色）。
  * #631: 身份判定走 isSystemRole（kind 直读 + 历史记录 name 兜底）。
  */
-export function activeAgentsOf(profiles: AgentProfile[], includeSystem = false): AgentProfile[] {
+export function activeAgentsOf<T extends AgentProfile>(profiles: T[], includeSystem = false): T[] {
   return profiles.filter((p) => p.status === 'active' && (includeSystem || !isSystemRole(p)));
 }
 
 interface RosterState {
-  /** /agent-profiles 全量角色档案（listAllAgents，含系统角色与 inactive） */
-  profiles: AgentProfile[];
+  /** /agent-profiles 全量角色档案（listAllAgents，含系统角色与 inactive；列表行含 isOnline/lastError 聚合键） */
+  profiles: AgentProfileListItem[];
   /** /monitoring/agents 运行实例摘要（按 startedAt 降序，含 terminated 历史实例；展示面自行过滤/去重） */
   agents: AgentInfo[];
   /** /channels 频道列表 */

@@ -53,7 +53,7 @@ describe('ChannelMemberManager', () => {
     mockListAgents.mockResolvedValue({ data: { data: mockAgentList } });
     mockChannelGet.mockResolvedValue({ data: { success: true, data: { id: 'ch-1', members: '[]' } } });
     mockUpdateMembers.mockResolvedValue({ data: { members: [] } });
-    mockCreateAgent.mockResolvedValue({ data: { id: 'new-a', name: 'new-agent', description: null, status: 'active' } });
+    mockCreateAgent.mockResolvedValue({ data: { data: { id: 'new-a', name: 'new-agent', description: null, status: 'active' } } });
     seedStores();
   });
 

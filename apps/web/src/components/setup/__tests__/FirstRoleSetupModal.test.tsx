@@ -36,7 +36,7 @@ describe('FirstRoleSetupModal (AC-2.3)', () => {
   beforeEach(() => {
     sessionStorage.clear();
     vi.clearAllMocks();
-    mockCreateAgent.mockResolvedValue({ data: { id: 'agent-1', name: 'dev-agent' } });
+    mockCreateAgent.mockResolvedValue({ data: { data: { id: 'agent-1', name: 'dev-agent' } } });
   });
 
   it('open=false 时不渲染', () => {

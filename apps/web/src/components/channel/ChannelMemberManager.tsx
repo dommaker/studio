@@ -123,7 +123,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
         provider: newAgentProvider,
         channels: [channelId],
       });
-      const newAgent = res.data;
+      const newAgent = res.data.data;
       // 创建即加入本频道（成员关系事实源 = channel.members）
       await channelApi.updateMembers(channelId, { add: [newAgent.id] });
       const cur = useChannelDataStore.getState().members[channelId] ?? [];

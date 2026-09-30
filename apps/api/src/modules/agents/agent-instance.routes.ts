@@ -1,6 +1,11 @@
 /**
  * RuntimeInstance API 路由 (AS-026 AC-1)
  *
+ * 契约驱动迁移（2026-10 批次 8/8）：全部端点走 core/http.ts defineRoute——
+ * roleId 必填收进 zod（原手写 400 INVALID_INPUT → 400 BAD_REQUEST）；
+ * INVALID_REFERENCE/Invalid status/not found 走错误映射表；裸实体响应统一
+ * `{ data }` 壳；500 code 'INTERNAL_ERROR' 归一 INTERNAL。
+ *
  * Endpoints:
  *   GET    /api/v1/agent-instances          — list
  *   POST   /api/v1/agent-instances          — create
@@ -9,117 +14,85 @@
  *   POST   /api/v1/agent-instances/:id/terminate — 强制停止：unclaim + WorkUnit 置 blocked 转人工 + 实例 terminated
  */
 
-import { Router, type Request, type Response } from 'express';
-import { AgentInstanceService } from './agent-instance.service.js';
-import { getErrorMessage } from '../../utils/errors.js';
-import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
+import { Router } from 'express';
+import {
+  agentInstanceListQuerySchema,
+  createAgentInstanceBodySchema,
+  updateAgentInstanceBodySchema,
+  agentInstanceIdParamsSchema,
+} from '@dommaker/studio-contract';
+import { AgentInstanceService, type CreateInstanceInput, type UpdateInstanceInput } from './agent-instance.service.js';
+import { parsePagination } from '../../utils/pagination.js';
 import { requireAuth, requireAdmin, requireNotGuest } from '../../middleware/auth.js';
+import { defineRoute, HttpError, paginated } from '../../core/http.js';
 
 const router = Router();
 const service = new AgentInstanceService();
 
 /** GET / — list RuntimeInstances */
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    const { status } = req.query;
-    const { page, limit } = parsePagination(req);
+router.get('/', defineRoute({ query: agentInstanceListQuerySchema }, async (req, _res, { query }) => {
+  const { page, limit } = parsePagination(req);
 
-    const result = await service.list({
-      status: status as string,
-      page,
-      limit,
-    });
+  const result = await service.list({
+    status: query.status,
+    page,
+    limit,
+  });
 
-    res.json(formatPaginatedResponse(result.data, result.total, page, limit));
-  } catch (error) {
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
-    });
-  }
-});
+  return paginated(result.data, {
+    page,
+    limit,
+    total: result.total,
+    totalPages: Math.ceil(result.total / limit),
+  });
+}));
 
 /** POST / — create RuntimeInstance */
-router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const { roleId, sessionId, metadata } = req.body;
-
-    if (!roleId || typeof roleId !== 'string') {
-      return res.status(400).json({
-        error: { code: 'INVALID_INPUT', message: 'roleId is required and must be a string' },
-      });
-    }
-
-    const instance = await service.create({ roleId, sessionId, metadata });
-    res.status(201).json(instance);
-  } catch (error) {
-    const msg = getErrorMessage(error);
-    if (msg.includes('Foreign key constraint') || msg.includes('P2003')) {
-      return res.status(400).json({
-        error: { code: 'INVALID_REFERENCE', message: `roleId "${req.body.roleId}" does not exist` },
-      });
-    }
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: msg },
-    });
-  }
-});
+router.post('/', requireAuth(), requireNotGuest(), defineRoute(
+  { body: createAgentInstanceBodySchema },
+  {
+    status: 201,
+    errors: [
+      { match: 'Foreign key constraint', status: 400, code: 'INVALID_REFERENCE' },
+      { match: 'P2003', status: 400, code: 'INVALID_REFERENCE' },
+    ],
+  },
+  async (_req, _res, { body }) => {
+    // z.infer 全字段退化可选（仓 strict:false），路由边界收回 service 必填入参
+    return service.create(body as CreateInstanceInput);
+  },
+));
 
 /** GET /:id — get RuntimeInstance by id */
-router.get('/:id', async (req: Request, res: Response) => {
-  try {
-    const instance = await service.getById(req.params.id as string);
-    if (!instance) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: `RuntimeInstance ${req.params.id as string} not found` },
-      });
-    }
-    res.json(instance);
-  } catch (error) {
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
-    });
+router.get('/:id', defineRoute({ params: agentInstanceIdParamsSchema }, async (_req, _res, { params }) => {
+  const instance = await service.getById(params.id);
+  if (!instance) {
+    throw new HttpError(404, 'NOT_FOUND', `RuntimeInstance ${params.id} not found`);
   }
-});
+  return instance;
+}));
 
 /** PATCH /:id — update RuntimeInstance */
-router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const instance = await service.update(req.params.id as string, req.body);
-    res.json(instance);
-  } catch (error) {
-    const msg = getErrorMessage(error);
-    if (msg.includes('Invalid status')) {
-      return res.status(400).json({
-        error: { code: 'INVALID_INPUT', message: msg },
-      });
-    }
-    if (msg.includes('not found') || msg.includes('Record to update not found')) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
-    }
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: msg },
-    });
-  }
-});
+router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
+  { params: agentInstanceIdParamsSchema, body: updateAgentInstanceBodySchema },
+  {
+    errors: [
+      { match: 'Invalid status', status: 400, code: 'INVALID_INPUT' },
+      { match: 'not found', status: 404, code: 'NOT_FOUND' },
+    ],
+  },
+  async (_req, _res, { params, body }) => {
+    return service.update(params.id, body as UpdateInstanceInput);
+  },
+));
 
 /** POST /:id/terminate — 强制停止实例：unclaim 当前 WorkUnit 并置 blocked 转人工（2026-07 §4 语义修正，活 loop 不会重新认领）+ 实例置 terminated */
-router.post('/:id/terminate', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
-  try {
-    const instance = await service.terminate(req.params.id as string);
-    res.json(instance);
-  } catch (error) {
-    const msg = getErrorMessage(error);
-    if (msg.includes('not found')) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
-    }
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: msg },
-    });
-  }
-});
+router.post('/:id/terminate', requireAuth(), requireAdmin(), defineRoute(
+  { params: agentInstanceIdParamsSchema },
+  { errors: [{ match: 'not found', status: 404, code: 'NOT_FOUND' }] },
+  async (_req, _res, { params }) => {
+    return service.terminate(params.id);
+  },
+));
 
 export default router;

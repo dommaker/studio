@@ -1,7 +1,9 @@
 // Channel API — B1-001 + Phase 2 (AC-B4/C3/E3)
 // 契约驱动迁移（2026-09 批次 1/7）：channels 域类型 import 自 @dommaker/studio-contract，
 // 响应壳统一 { data }（原 {success,data} 手抄声明删除）；消息分页 { data:{messages,total,hasMore} }。
-// agent-profiles / projects 域端点（listAgents/createAgent/discoverProjects 等）未迁移，保留本地类型。
+// 契约驱动迁移（2026-10 批次 8/8）：agent-profiles 域类型（AgentProfile/AgentProfileListItem/
+// RolePresetSummary）改 contract import（本地手抄 interface 删除）；createAgent/updateAgent
+// 响应统一 `{ data }` 壳（原裸实体），消费方解包 res.data → res.data.data。
 import type {
   Channel,
   ChannelRouting,
@@ -17,6 +19,9 @@ import type {
   SavedImage,
   SendIntent,
   LocalProject,
+  AgentProfile,
+  AgentProfileListItem,
+  RolePresetSummary,
 } from '@dommaker/studio-contract';
 import { api } from './index';
 
@@ -31,7 +36,7 @@ export type {
   MergeTargetPreview,
   ConvertSuggestion,
 };
-export type { ChannelSuggestion, SendIntent, LocalProject } from '@dommaker/studio-contract';
+export type { ChannelSuggestion, SendIntent, LocalProject, AgentProfile, AgentProfileListItem, RolePresetSummary } from '@dommaker/studio-contract';
 
 /** 频道消息 = 契约 wire 形状 + 客户端本地标记（#326 骨架降级 / #486 乐观回显，服务端不下发） */
 export interface ChannelMessage extends ContractChannelMessage {
@@ -39,21 +44,6 @@ export interface ChannelMessage extends ContractChannelMessage {
   degraded?: boolean;
   /** #486：乐观回显本地标记（仅客户端 pending 态；成功被本体替换、失败回滚） */
   pending?: boolean;
-}
-
-export interface AgentProfile {
-  id: string;
-  name: string;
-  description: string | null;
-  status: string;
-  provider?: string | null;
-  channels?: string | string[] | null; // JSON string of channel ID array（历史数据可能双重编码）
-  /** #631: 角色种类（system=系统内置 / user=用户）；历史无字段记录由 isSystemRole 按 name 兜底 */
-  kind?: 'system' | 'user';
-  /** #462: 显式 skill 声明（注入索引候选，与 WU +skill 点名同权） */
-  skills?: string[];
-  isOnline?: boolean;
-  lastError?: string | null;
 }
 
 export const channelApi = {
@@ -110,7 +100,7 @@ export const channelApi = {
     api.get<{ data: ChannelSuggestions }>(`/channels/${channelId}/suggestions`),
 
   listAgents: (channelId?: string, options?: { includeSystem?: boolean }) =>
-    api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {
+    api.get<{ data: AgentProfileListItem[]; pagination: { total: number } }>('/agent-profiles', {
       params: {
         status: 'active',
         ...(channelId ? { channelId } : {}),
@@ -120,7 +110,7 @@ export const channelApi = {
 
   /** 管理列表用：全量 profile（含 studio 系统角色与 inactive），不带 status 过滤 */
   listAllAgents: () =>
-    api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {
+    api.get<{ data: AgentProfileListItem[]; pagination: { total: number } }>('/agent-profiles', {
       params: { includeSystem: 'true', limit: 200 },
     }),
 
@@ -147,14 +137,14 @@ export const channelApi = {
     api.patch<{ data: { members: string[]; warning?: string } }>(`/channels/${channelId}/members`, ops),
 
   createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string; skills?: string[]; preset?: string }) =>
-    api.post<AgentProfile>('/agent-profiles', data),
+    api.post<{ data: AgentProfile }>('/agent-profiles', data),
 
   updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string; skills: string[]; persona: string | null; acceptedTypes: string[] }>) =>
-    api.patch<AgentProfile>(`/agent-profiles/${id}`, data),
+    api.patch<{ data: AgentProfile }>(`/agent-profiles/${id}`, data),
 
   /** #633（ADR 2026-09-23-role-preset-surface）：角色 preset 清单——RoleFormModal「从模板开始」数据源（服务端扫 .agents/roles/，不硬编码） */
   listRolePresets: () =>
-    api.get<{ data: { name: string; description?: string }[] }>('/agent-profiles/presets'),
+    api.get<{ data: RolePresetSummary[] }>('/agent-profiles/presets'),
 
   /** #630（ADR 2026-09-23 决策 5）：删除角色（204；服务端级联清频道成员与路由指名、卸载 loop，studio 角色服务端拒删） */
   deleteAgent: (id: string) =>

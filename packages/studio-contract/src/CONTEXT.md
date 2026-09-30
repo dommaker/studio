@@ -39,6 +39,8 @@ API 契约唯一正本（docs/architecture/target-architecture.md）：按域一
 - `executions.ts`：executions 域（LEGACY surface 标注）——ExecutionWithProgress（历史行稀疏 passthrough + 进度三键）+ 三端点请求/响应；GET / 分页壳形状不变；GET /:id 裸实体与 POST /events `{ received }` 进壳（无消费方）；500 code 'INTERNAL_ERROR' 归一 INTERNAL
 - `discord.ts` / `deploy.ts`：**协议面例外只声明出参**——discord interactions（express.raw Ed25519 签名）出参 = Discord 协议 `{ type, data?: { content } }`；deploy webhook（GitHub HMAC raw body）出参 = `{ accepted }` / `{ ignored }` / `{ error: string }`；raw body 无法预解析，zod 入参与 envelope 均不适用，路由保持原样
 - `lark.ts` / `dingtalk.ts`：回调为协议面例外（lark url_verification 回 challenge / ack `{ code: 0, msg }`；dingtalk /action 回 HTML 页），仅 GET /health 走统一 `{ data }` 壳
+- `agents.ts`：agents 域（批次 8/8）——legacy /api/v1/agents（LEGACY surface，无消费方）+ §10.5 token-usage 双挂面；LegacyAgentMetadata（studio-agent wire 重声明，register/update body passthrough 全透传归 registry 自持）/ AgentTokenUsage（z.infer 无手写）+ 端点请求/响应；POST/GET/:agentId/PUT 裸实体与 token-usage 裸聚合进 `{ data }` 壳；PUT/DELETE 的 version 必填保留 400 VERSION_REQUIRED（HttpError 不收 zod）
+- `agent-profiles.ts`：agent-profiles + agent-instances 域（批次 8/8）——AgentProfile（= AgentProfileData wire 重声明）/ AgentProfileListItem（+isOnline/lastError/lastErrorAt 聚合三键）/ RolePresetSummary / AgentInstance（= RuntimeStateData wire 重声明）四实体手写 interface + parity + 两路由线端点请求/响应；GET 列表分页壳形状不变（≡ paginated），POST/GET/:id/PATCH/terminate 裸实体进 `{ data }` 壳；name/roleId 必填手写 400 INVALID_INPUT 收 zod；409 DUPLICATE message 变 service 原始消息（含 'Unique constraint:' 前缀）
 - 批次 7/8 三无面域结论：**triage**（纯错误分类逻辑模块）、**distill** 与 **role-memory**（HTTP 面 = /review-proposals 通用端点，批次 4 已迁）无 REST 面可迁
 
 ## 注意事项
