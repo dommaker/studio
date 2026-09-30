@@ -95,8 +95,8 @@ describe('ChannelDetailPage — memory_proposal 审核分发', () => {
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-sys', name: '系统', type: 'system', members: '[]' } } });
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
-    mockApiPost.mockResolvedValue({ data: { success: true } });
-    mockMemoryApprove.mockResolvedValue({ data: { success: true } });
+    mockApiPost.mockResolvedValue({ data: { data: { success: true } } });
+    mockMemoryApprove.mockResolvedValue({ data: { data: { success: true } } });
     mockMemoryReject.mockResolvedValue({ data: { success: true } });
   });
 

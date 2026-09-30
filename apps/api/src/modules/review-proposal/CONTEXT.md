@@ -16,7 +16,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 - `card.ts` -- `postReviewProposalCard`：#系统 频道解析 + 发卡；失败静默 false 不抛
 - `registry.ts` -- adapter 注册表：`registerReviewProposalAdapter` / `getReviewProposalAdapter` / `listReviewProposalAdapters`（#591 审计聚合读面遍历用）/ `ApproveOutcome`（config.store 可选注入自定义存取——仅供存储形态例外域：#353 memory per-role draft.jsonl、#623 evolution EP-XXXX.json 单提案文件；缺省正本物化单文件）
 - `service.ts` -- 生命周期：`submitProposal`（建卡+card-failed 降级）/ `approveProposal` / `rejectProposal` / `getProposalStatus`
-- `routes.ts` -- 通用端点 `/api/v1/review-proposals/:kind/:id/{approve,reject,status}`，kind 走注册表分发
+- `routes.ts` -- 通用端点 `/api/v1/review-proposals/:kind/:id/{approve,reject,status}`，kind 走注册表分发。契约驱动迁移（2026-10 批次 4/7）：defineRoute 化——approve executed `{ success:true, ...adapterData }` / skipped 200 `{ success:false, skipped }` / reject `{ success:true }` 原平铺进 `{ data }` 壳；status 的 success 标志退役 → `{ data: { status } }`；错误统一 `{ error: { code, message } }`（unknown-kind 404 / not-found|not-pending 400 / failed|aborted 500 状态码不变，message 保留 `proposal-not-pending:<status>` 机器串——前端 notPendingAs 按 message 分类）。契约正本 = `packages/studio-contract/src/review-proposals.ts`
 
 ### 依赖关系
 

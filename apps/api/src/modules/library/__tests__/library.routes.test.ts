@@ -44,7 +44,6 @@ describe('library routes', () => {
 
     const { status, json } = await req('GET', '/?project=proj-a&search=foo');
     expect(status).toBe(200);
-    expect(json.success).toBe(true);
     expect(json.data).toEqual([{ id: 'proj-a:specs/a.md', title: 'A' }]);
     expect(mockListLibraryDocs).toHaveBeenCalledWith({ projectId: 'proj-a', search: 'foo' });
   });
@@ -63,7 +62,7 @@ describe('library routes', () => {
 
     const { status, json } = await req('GET', `/${encodeURIComponent('proj-x:specs/no.md')}`);
     expect(status).toBe(404);
-    expect(json.success).toBe(false);
+    expect(json.error.code).toBe('NOT_FOUND');
   });
 
   // 2026-09-10 回归：nginx proxy_pass 带 URI（/api/）会先解码 %2F→/ 再转发，

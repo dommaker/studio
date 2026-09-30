@@ -1,7 +1,14 @@
 // T5 #155: library 阅览室——跨项目 .studio/ 聚合只读层
+//
+// 契约驱动迁移（2026-10 批次 4/7）：全端点走 core/http.ts defineRoute——
+// 响应统一 `{ data }` 壳（原 `{ success: true, data }` 壳的 success 标志退役）；
+// 错误统一 `{ error: { code, message } }`（原 `{ success: false, error: string }`）。
+// 通配路由保持 Express 5 写法 `GET /*splat`——splat 段数组不进 zod params
+// （zod params 是对象形状），query 照常校验。
 import { Router } from 'express';
-import { logger } from '@dommaker/studio-shared';
+import { listLibraryDocsQuerySchema, ERROR_CODES } from '@dommaker/studio-contract';
 import { listLibraryDocs, getLibraryDoc } from './library.service.js';
+import { defineRoute, HttpError } from '../../core/http.js';
 
 export const libraryRoutes = Router();
 
@@ -9,19 +16,12 @@ export const libraryRoutes = Router();
  * GET /api/v1/library
  * 聚合列表：?project=<projectId> 收窄单项目，?search= 匹配 title/正文
  */
-libraryRoutes.get('/', async (req, res) => {
-  try {
-    const { project, search } = req.query;
-    const docs = await listLibraryDocs({
-      projectId: typeof project === 'string' ? project : undefined,
-      search: typeof search === 'string' ? search : undefined,
-    });
-    res.json({ success: true, data: docs });
-  } catch (error) {
-    logger.error('[Library] List failed', { error });
-    res.status(500).json({ success: false, error: 'Failed to list library documents' });
-  }
-});
+libraryRoutes.get('/', defineRoute({ query: listLibraryDocsQuerySchema }, async (_req, _res, { query }) => {
+  return listLibraryDocs({
+    projectId: query.project,
+    search: query.search,
+  });
+}));
 
 /**
  * GET /api/v1/library/:id
@@ -32,16 +32,11 @@ libraryRoutes.get('/', async (req, res) => {
  * req.params.splat 是已解码的段数组（v8 行为），join('/') 还原多段 id；
  * 禁止再手动 decodeURIComponent（双重解码）。
  */
-libraryRoutes.get('/*splat', async (req, res) => {
+libraryRoutes.get('/*splat', defineRoute({}, async (req) => {
   const id = (req.params.splat as unknown as string[]).join('/');
-  try {
-    const doc = await getLibraryDoc(id);
-    if (!doc) {
-      return res.status(404).json({ success: false, error: 'Document not found' });
-    }
-    res.json({ success: true, data: doc });
-  } catch (error) {
-    logger.error('[Library] Get doc failed', { error, id });
-    res.status(500).json({ success: false, error: 'Failed to get document' });
+  const doc = await getLibraryDoc(id);
+  if (!doc) {
+    throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Document not found');
   }
-});
+  return doc;
+}));

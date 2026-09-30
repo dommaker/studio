@@ -6,7 +6,14 @@
 // SSE 不再直接入列（pushSse 已删），只作失效触发由 NotificationBell 重拉。
 // #517：load 接 fetchDiscipline 底座（照 rosterStore 模式：TTL + single-flight + seq 守卫），
 // 触发侧防抖在 NotificationBell（#489 同款 500ms trailing）。
+// 契约驱动迁移（2026-10 批次 4/7）：StateItem/后端通知行/payload 类型改 contract
+// import；响应统一 `{ data }` 壳（原平铺），解包 res.data → res.data.data。
 import { create } from 'zustand';
+import type {
+  ActionCenterStateItem,
+  ActionCenterNotification,
+  ActionCenterPayloadWire,
+} from '@dommaker/studio-contract';
 import { api } from '../api';
 import { formatShortTime } from '../utils/datetime';
 import { createFetchGate, disciplinedFetch } from './fetchDiscipline';
@@ -15,20 +22,9 @@ import { createFetchGate, disciplinedFetch } from './fetchDiscipline';
  *  重复挂载 TTL 内零重拉；SSE 失效/断线重连由调用方传 maxAgeMs: 0 强拉 */
 export const NOTIFICATION_TTL_MS = 30000;
 
-/** 状态派生待办（reply=blocked+waitingForInput 待回复 / review=in_review 闸门类待验收 / confirm=pending 待确认） */
-export interface StateItem {
-  kind: 'reply' | 'review' | 'confirm';
-  wuId: string;
-  /** 展示口径 = metadata.title ?? scope（后端 parseWuTitle 单一出口） */
-  scope: string;
-  channelId: string | null;
-  waitingQuestion?: string;
-  /** D-2（reply 深链）/#533：触发 waitingForInput 的提问消息 id——「WU 当前提问消息」唯一派生点
-   *  = 后端 action-center；频道页回复区/提升/chip 定位全消费此字段（前端反推已删）；
-   *  缺省时各消费方 fail-closed（跳频道不拼 ?highlight=、不挂回复区） */
-  messageId?: string;
-  since: string;
-}
+/** 状态派生待办（reply=blocked+waitingForInput 待回复 / review=in_review 闸门类待验收 / confirm=pending 待确认）。
+ *  channelId 缺省 / messageId 缺省时各消费方 fail-closed（跳频道不拼 ?highlight=、不挂回复区） */
+export type StateItem = ActionCenterStateItem;
 
 /** #546：per-channel need-input 视图投影（四种消费形状单源，照 channelWorkStore.wuIdleOf 派生单源模式）——
  *  stateItems → 频道页 NEED_INPUT 面全部消费形状。口径变更（过滤规则 / fail-closed 语义）只落本函数，
@@ -87,28 +83,13 @@ export interface Notification {
   messageId: string | null;
 }
 
-/** 后端 GET /action-center 通知段返回项（NotificationService.getUserNotifications；#468 起带 wuId/channelId 结构化直链） */
-interface BackendNotification {
-  id: string;
-  userId: string;
-  type: string;
-  title: string;
-  content: string;
-  link: string | null;
-  /** #468 结构化直链（老数据行无此字段 → undefined，回退 link 正则解析） */
-  wuId?: string | null;
-  channelId?: string | null;
-  createdAt: string | Date;
-  read: boolean;
-  readAt: string | Date | null;
-}
+/** 后端 GET /action-center 通知段返回项（NotificationService.getUserNotifications；#468 起带 wuId/channelId 结构化直链）。
+ *  契约 ActionCenterNotification：createdAt/readAt wire 为 ISO 串或 null；
+ *  老数据行无 wuId/channelId → null（回退 link 正则解析） */
+type BackendNotification = ActionCenterNotification;
 
-/** GET /action-center 响应负载（apps/api action-center.service） */
-interface ActionCenterPayload {
-  stateItems: StateItem[];
-  notifications: BackendNotification[];
-  unreadCount: number;
-}
+/** GET /action-center 响应 data（apps/api action-center.service） */
+type ActionCenterPayload = ActionCenterPayloadWire;
 
 /** 通知 link 解析出的跳转目标（#439：频道 link 可带 ?highlight=<消息 id> 直达锚点） */
 export interface LinkTargets {
@@ -195,7 +176,8 @@ export const useNotificationStore = create<ActionCenterState>((set, get) => ({
           const res = await api.get('/action-center');
           // seq 守卫：晚到的旧 fetch（被强拉/后续拉取超越）不回写
           if (!notificationGate.isLatest(seq)) return;
-          const data = res.data as ActionCenterPayload;
+          // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
+          const data = res.data.data as ActionCenterPayload;
           set({
             stateItems: data.stateItems ?? [],
             notifications: (data.notifications ?? []).map(fromBackend),

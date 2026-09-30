@@ -9,53 +9,71 @@
 //
 // #149（2026-08-15）：document-store 退役——项目文档接口（listByProject/getDetail/archive）
 // 与冷启动导入（importScan/importExecute）已随后端 documents/import 路由一并摘除。
+//
+// 契约驱动迁移（2026-10 批次 4/7）：手抄 interface（KnowledgeEntryItem/
+// ResolutionItem/KnowledgeGapType/UnifiedEntry/KnowledgeSearchResult/提案状态词表）
+// 删除改 contract import；响应统一 `{ data }` 壳（原平铺），消费方解包
+// res.data → res.data.data。KnowledgePage 的 15 处直接调用只收口类型与解包，
+// 数据获取范式统一归 Phase 3。
+import type {
+  KnowledgeEntryItem,
+  Resolution,
+  KnowledgeGapType,
+  UnifiedKnowledgeEntry,
+  KnowledgeSearchResult,
+  KnowledgeGapsResult,
+  UnifiedKnowledgeListResult,
+  ResolutionListResult,
+  KnowledgeSearchListResult,
+  KnowledgeEntryListResult,
+  CreateUnifiedEntryResult,
+  ReviewProposalApproveResult,
+  ReviewProposalStatusResult,
+  KnowledgeSuccessResult,
+} from '@dommaker/studio-contract';
 import { api } from './index';
 
-export interface KnowledgeEntryItem {
-  id: string;
-  title: string;
-  type?: string;
-  maturity?: string;
-  created?: string;
-  tags?: string[];
-}
-
+export type { KnowledgeEntryItem, KnowledgeGapType, UnifiedKnowledgeEntry, KnowledgeSearchResult };
+/** 解法库条目（GET /knowledge/resolutions）——契约 Resolution（tags 可能双重编码为 JSON 串，消费方容错解析） */
+export type ResolutionItem = Resolution;
+/** 统一知识条目（GET /knowledge/unified 的 entries 元素） */
+export type UnifiedEntry = UnifiedKnowledgeEntry;
 /** 提案状态（与 review-proposal 正本状态词表对齐；unknown = 查无此提案） */
-export type KnowledgeProposalStatus = 'pending' | 'executed' | 'rejected' | 'failed' | 'card-failed' | 'unknown';
+export type KnowledgeProposalStatus = ReviewProposalStatusResult['status'];
 
 export const knowledgeApi = {
   /** proposal 待审列表（maturity=draft，按服务端默认排序） */
   listPendingReview: (limit = 50) =>
-    api.get<{ entries: KnowledgeEntryItem[]; total: number }>('/knowledge-service/entries', {
+    api.get<{ data: KnowledgeEntryListResult }>('/knowledge-service/entries', {
       params: { maturity: 'draft', limit },
     }),
-  promote: (entryId: string) => api.post('/knowledge-service/promote', { entryId }),
-  demote: (entryId: string) => api.post('/knowledge-service/demote', { entryId }),
+  promote: (entryId: string) =>
+    api.post<{ data: KnowledgeSuccessResult }>('/knowledge-service/promote', { entryId }),
+  demote: (entryId: string) =>
+    api.post<{ data: KnowledgeSuccessResult }>('/knowledge-service/demote', { entryId }),
   /** knowledge_proposal 卡审批（通用端点，proposalId 取自 cardData） */
   approveProposal: (proposalId: string) =>
-    api.post<{ success: boolean; promoted?: number; error?: string }>(
+    api.post<{ data: ReviewProposalApproveResult & { promoted?: number } }>(
       `/review-proposals/knowledge/${encodeURIComponent(proposalId)}/approve`,
     ),
   rejectProposal: (proposalId: string) =>
     api.post(`/review-proposals/knowledge/${encodeURIComponent(proposalId)}/reject`),
   proposalStatus: (proposalId: string) =>
-    api.get<{ success: boolean; status: KnowledgeProposalStatus }>(
+    api.get<{ data: ReviewProposalStatusResult }>(
       `/review-proposals/knowledge/${encodeURIComponent(proposalId)}/status`,
     ),
 
-  /** 解法库浏览（KnowledgePage 解法库 tab；pending + canonical 口径） */
+  /** 解法库浏览（KnowledgePage 解法库 tab；draft + proven 口径） */
   listResolutions: () =>
-    api.get<{ resolutions: ResolutionItem[]; total: number; byStatus: Record<string, number> }>(
-      '/knowledge/resolutions'
-    ),
+    api.get<{ data: ResolutionListResult }>('/knowledge/resolutions'),
 
   /** 五类知识缺口查询（KnowledgePage 偏好/规则/环境/决策链/交互 tab） */
   listGaps: (type: KnowledgeGapType) =>
-    api.get<{ type: string; data: unknown[]; total: number }>(`/knowledge/gaps/${type}`),
+    api.get<{ data: KnowledgeGapsResult }>(`/knowledge/gaps/${type}`),
 
   /** 统一知识浏览（AS-022，KnowledgePage 统一视图 tab；E5 起支持 maturity 过滤——后端 /knowledge/unified 原生参数） */
   listUnified: (params?: { limit?: number; offset?: number; consumptionMode?: string; maturity?: string }) =>
-    api.get<{ entries: UnifiedEntry[]; total: number }>('/knowledge/unified', { params }),
+    api.get<{ data: UnifiedKnowledgeListResult }>('/knowledge/unified', { params }),
 
   /** 手动创建知识条目（AS-022；requireAuth + requireNotGuest） */
   createUnifiedEntry: (data: {
@@ -65,53 +83,9 @@ export const knowledgeApi = {
     consumptionMode: string;
     tags?: string[];
     applicableAgents?: string[];
-  }) => api.post('/knowledge/unified', data),
+  }) => api.post<{ data: CreateUnifiedEntryResult }>('/knowledge/unified', data),
 
   /** 全局搜索（S11：resolution/pattern/knowledge 混合结果，按 score 倒序） */
   search: (q: string) =>
-    api.get<{ results: KnowledgeSearchResult[] }>('/knowledge/search', { params: { q } }),
+    api.get<{ data: KnowledgeSearchListResult }>('/knowledge/search', { params: { q } }),
 };
-
-/** 解法库条目（GET /knowledge/resolutions；只声明 ResolutionCard 消费字段） */
-export interface ResolutionItem {
-  id: string;
-  title: string;
-  status?: string;
-  layer?: string;
-  pattern?: string;
-  fix?: string;
-  /** 后端可能双重编码为 JSON 字符串，消费方容错解析 */
-  tags?: string[] | string;
-  errorClass?: string;
-  sourceGoalId?: string;
-  verifyCount?: number;
-}
-
-/** 知识缺口类型（/knowledge/gaps/:type 的合法值，服务端 400 校验） */
-export type KnowledgeGapType =
-  | 'preference'
-  | 'business_rule'
-  | 'environment'
-  | 'decision_chain'
-  | 'interaction';
-
-/** 统一知识条目（GET /knowledge/unified 的 entries 元素） */
-export interface UnifiedEntry {
-  id: string;
-  title: string;
-  content?: string;
-  consumptionMode?: string;
-  source?: string;
-  tags?: string[];
-  /** 成熟度（draft/verified/canonical/deprecated 等；E5 徽标与 draft 审批入口依赖本字段） */
-  maturity?: string;
-}
-
-/** 全局搜索结果条目（GET /knowledge/search 的 results 元素） */
-export interface KnowledgeSearchResult {
-  type: string;
-  id: string;
-  title: string;
-  snippet: string;
-  score: number;
-}

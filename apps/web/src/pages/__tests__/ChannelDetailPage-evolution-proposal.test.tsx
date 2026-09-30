@@ -90,7 +90,7 @@ describe('ChannelDetailPage — evolution_proposal 审核分发', () => {
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-sys', name: '系统', type: 'system', members: '[]' } } });
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
-    mockApiPost.mockResolvedValue({ data: { success: true } });
+    mockApiPost.mockResolvedValue({ data: { data: { success: true } } });
   });
 
   it('渲染卡面条目（目标约束 id + 白话动作标签）', async () => {

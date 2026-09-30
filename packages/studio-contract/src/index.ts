@@ -21,3 +21,7 @@ export * from './skills.js';
 export * from './specs.js';
 export * from './triggers.js';
 export * from './evolution.js';
+export * from './knowledge.js';
+export * from './review-proposals.js';
+export * from './action-center.js';
+export * from './library.js';

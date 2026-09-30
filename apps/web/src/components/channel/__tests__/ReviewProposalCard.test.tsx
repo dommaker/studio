@@ -373,7 +373,7 @@ const knowledgeMessage = msg('msg-kp-1', '知识提案 — 待人工审核', {
 describe('ReviewProposalCard — knowledge_proposal（原 KnowledgeProposalCard）', () => {
   beforeEach(() => {
     mockKnStatus.mockReset();
-    mockKnStatus.mockResolvedValue({ data: { success: true, status: 'pending' } });
+    mockKnStatus.mockResolvedValue({ data: { data: { status: 'pending' } } });
   });
 
   it('renders 条目标题/类型 + 通过/拒绝按钮', () => {
@@ -440,19 +440,19 @@ describe('ReviewProposalCard — knowledge_proposal（原 KnowledgeProposalCard�
   });
 
   it('提案状态派生（#355 通用端点）：executed → 刷新后显示已通过', async () => {
-    mockKnStatus.mockResolvedValue({ data: { success: true, status: 'executed' } });
+    mockKnStatus.mockResolvedValue({ data: { data: { status: 'executed' } } });
     renderCard(knowledgeMessage, vi.fn());
     expect(await screen.findByText(/已通过/)).toBeTruthy();
     expect(screen.queryByText('拒绝')).not.toBeTruthy();
   });
 
   it('提案状态派生：rejected → 已拒绝；pending → 保持待审', async () => {
-    mockKnStatus.mockResolvedValue({ data: { success: true, status: 'rejected' } });
+    mockKnStatus.mockResolvedValue({ data: { data: { status: 'rejected' } } });
     const { unmount } = renderCard(knowledgeMessage, vi.fn());
     expect(await screen.findByText(/已拒绝/)).toBeTruthy();
     unmount();
 
-    mockKnStatus.mockResolvedValue({ data: { success: true, status: 'pending' } });
+    mockKnStatus.mockResolvedValue({ data: { data: { status: 'pending' } } });
     renderCard(knowledgeMessage, vi.fn());
     await waitFor(() => expect(mockKnStatus).toHaveBeenCalledTimes(2));
     expect(screen.getByText('通过')).toBeTruthy();
@@ -464,7 +464,7 @@ describe('ReviewProposalCard — knowledge_proposal（原 KnowledgeProposalCard�
 describe('ReviewProposalCard — 审批失败内联错误（批次A 项2）', () => {
   beforeEach(() => {
     mockKnStatus.mockReset();
-    mockKnStatus.mockResolvedValue({ data: { success: true, status: 'pending' } });
+    mockKnStatus.mockResolvedValue({ data: { data: { status: 'pending' } } });
   });
 
   it('onAction 抛错（409 人话）→ 错误行进卡 + 保持待审可重试', async () => {

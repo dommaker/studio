@@ -8,14 +8,29 @@
  * - GET  /gaps        五类知识统计概览
  * - GET  /unified     AS-022: 统一知识浏览
  * - POST /unified     AS-022: 手动知识条目创建
+ *
+ * 契约驱动迁移（2026-10 批次 4/7）：全端点走 core/http.ts defineRoute——
+ * question/必填四件套/gaps type 词表 guard 收进 zod（原手写 400）；响应统一
+ * `{ data }` 壳（原平铺 `{ answer, sources }` / `{ type, data, total }` / 裸 stats /
+ * `{ entries, total }` / 201 `{ id, title, consumptionMode }`）；错误统一
+ * `{ error: { code, message } }`（500 文案由固定串变为实际错误消息）。
+ * GET /export 附件下载 handler 自写 res 不进壳（specs 先例）。
  */
 
 import { Router } from 'express';
-import { logger } from '@dommaker/studio-shared';
+import {
+  knowledgeExportQuerySchema,
+  knowledgeAskBodySchema,
+  knowledgeGapParamsSchema,
+  knowledgeGapQuerySchema,
+  unifiedKnowledgeQuerySchema,
+  createUnifiedEntryBodySchema,
+} from '@dommaker/studio-contract';
 import { sharedStore, publishKnowledgeEntryChanged } from './knowledge-singletons.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { parsePagination } from '../../utils/pagination.js';
+import { defineRoute } from '../../core/http.js';
 
 export const entriesRoutes = Router();
 
@@ -27,31 +42,27 @@ export const entriesRoutes = Router();
 /**
  * GET /api/v1/knowledge/export
  * Query: format=md|json, types=guideline,pitfall (comma-separated), limit（默认 20，上限 100 — #359 起统一 parsePagination，原缺省 100 无 clamp）
+ * 附件下载（md/json）：handler 自写 res 不进 `{ data }` 壳（specs export 先例）
  */
-entriesRoutes.get('/export', async (req, res) => {
-  try {
-    const { sharedStore } = await import('./knowledge-singletons.js');
-    const format = (req.query.format as string) === 'json' ? 'json' : 'md';
-    const types = req.query.types ? (req.query.types as string).split(',').filter(Boolean) : undefined;
-    const { limit } = parsePagination(req);
+entriesRoutes.get('/export', defineRoute({ query: knowledgeExportQuerySchema }, async (req, res, { query }) => {
+  const { sharedStore } = await import('./knowledge-singletons.js');
+  const format = query.format === 'json' ? 'json' : 'md';
+  const types = query.types ? query.types.split(',').filter(Boolean) : undefined;
+  const { limit } = parsePagination(req);
 
-    const entries = sharedStore.list({ types: types as any }).slice(0, limit);
-    const content = format === 'json'
-      ? JSON.stringify(entries, null, 2)
-      : entries.map((e: any) => `# ${e.title || e.id}\n\n${e.content}`).join('\n\n---\n\n');
+  const entries = sharedStore.list({ types: types as any }).slice(0, limit);
+  const content = format === 'json'
+    ? JSON.stringify(entries, null, 2)
+    : entries.map((e: any) => `# ${e.title || e.id}\n\n${e.content}`).join('\n\n---\n\n');
 
-    if (format === 'json') {
-      res.setHeader('Content-Type', 'application/json');
-    } else {
-      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-      res.setHeader('Content-Disposition', 'attachment; filename="knowledge-export.md"');
-    }
-    res.send(content);
-  } catch (error) {
-    logger.error('Failed to export knowledge');
-    res.status(500).json({ error: 'Failed to export knowledge' });
+  if (format === 'json') {
+    res.setHeader('Content-Type', 'application/json');
+  } else {
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="knowledge-export.md"');
   }
-});
+  res.send(content);
+}));
 
 // ============================================
 // §12.11b: 知识问答 API
@@ -62,14 +73,12 @@ entriesRoutes.get('/export', async (req, res) => {
  * 知识问答：检索相关知识条目 → LLM 生成回答
  *
  * Body: { question: string, types?: string[], limit?: number }
- * Returns: { answer: string, sources: Array<{ id, title, type }> }
+ * Returns: { data: { answer: string, sources: Array<{ id, title, type }> } }
  */
-entriesRoutes.post('/ask', requireAuth(), requireNotGuest(), async (req, res) => {
-  try {
-    const { question, types, limit = 10 } = req.body;
-    if (!question || typeof question !== 'string') {
-      return res.status(400).json({ error: 'question is required' });
-    }
+entriesRoutes.post('/ask', requireAuth(), requireNotGuest(), defineRoute(
+  { body: knowledgeAskBodySchema },
+  async (_req, _res, { body }) => {
+    const { question, types, limit = 10 } = body;
 
     // 1. Retrieve relevant entries from KnowledgeStore
     const allEntries = sharedStore.list({ types: types as any }).slice(0, 100);
@@ -86,7 +95,7 @@ entriesRoutes.post('/ask', requireAuth(), requireNotGuest(), async (req, res) =>
       .slice(0, limit);
 
     if (scored.length === 0) {
-      return res.json({ answer: '未找到相关知识条目。', sources: [] });
+      return { answer: '未找到相关知识条目。', sources: [] };
     }
 
     // 2. Format context for LLM
@@ -109,12 +118,9 @@ entriesRoutes.post('/ask', requireAuth(), requireNotGuest(), async (req, res) =>
       type: e.type,
     }));
 
-    res.json({ answer, sources });
-  } catch (error) {
-    logger.error('Knowledge ask failed');
-    res.status(500).json({ error: 'Knowledge ask failed' });
-  }
-});
+    return { answer, sources };
+  },
+));
 
 // ============================================
 // G-001~005: 五大知识缺口查询 API
@@ -123,44 +129,33 @@ entriesRoutes.post('/ask', requireAuth(), requireNotGuest(), async (req, res) =>
 /**
  * GET /api/v1/knowledge/gaps/:type
  * 查询五种知识类型: preference | business_rule | environment | decision_chain | interaction
+ * （非法 type 原手写 400 → zod enum 400，文案变 zod 格式）
  */
-entriesRoutes.get('/gaps/:type', async (req, res) => {
-  try {
-    const { type } = req.params;
-    const validTypes = ['preference', 'business_rule', 'environment', 'decision_chain', 'interaction'];
-    if (!validTypes.includes(type)) {
-      return res.status(400).json({ error: `Invalid type. Must be one of: ${validTypes.join(', ')}` });
-    }
+entriesRoutes.get('/gaps/:type', defineRoute(
+  { params: knowledgeGapParamsSchema, query: knowledgeGapQuerySchema },
+  async (req, _res, { params, query }) => {
+    const { type } = params;
 
     const { knowledgeQuery } = await import('./knowledge-query.service.js');
     const data = await knowledgeQuery.query({
       type: type as any,
-      topic: req.query.topic as string,
-      category: req.query.category as string,
+      topic: query.topic,
+      category: query.category,
       // #359：统一 parsePagination（clamp 1..100），缺省 20 与既有口径一致
       limit: parsePagination(req).limit,
     });
-    return res.json({ type, data, total: data.length });
-  } catch (error) {
-    logger.error('Failed to query knowledge gaps');
-    return res.status(500).json({ error: 'Failed to query knowledge gaps' });
-  }
-});
+    return { type, data, total: data.length };
+  },
+));
 
 /**
  * GET /api/v1/knowledge/gaps
  * 获取所有五种知识类型的统计概览
  */
-entriesRoutes.get('/gaps', async (req, res) => {
-  try {
-    const { knowledgeQuery } = await import('./knowledge-query.service.js');
-    const stats = await knowledgeQuery.getStats();
-    return res.json(stats);
-  } catch (error) {
-    logger.error('Failed to get knowledge gap stats');
-    return res.status(500).json({ error: 'Failed to get knowledge gap stats' });
-  }
-});
+entriesRoutes.get('/gaps', defineRoute({}, async () => {
+  const { knowledgeQuery } = await import('./knowledge-query.service.js');
+  return knowledgeQuery.getStats();
+}));
 
 // ── AS-022: Unified Knowledge API ─────────────────────────
 
@@ -178,39 +173,32 @@ async function getUnifiedQuery() {
  * GET /unified — unified knowledge browser
  * Query params: consumptionMode, tags, origin, maturity, limit（默认 20，上限 100 — #359 起统一 parsePagination，原缺省 50）, offset, sortBy
  */
-entriesRoutes.get('/unified', async (req, res) => {
-  try {
-    const uq = await getUnifiedQuery();
-    const filter = {
-      consumptionModes: req.query.consumptionMode ? String(req.query.consumptionMode).split(',') : undefined,
-      tags: req.query.tags ? String(req.query.tags).split(',') : undefined,
-      origins: req.query.origin ? String(req.query.origin).split(',') : undefined,
-      maturity: req.query.maturity ? String(req.query.maturity).split(',') : undefined,
-      excludeTags: ['low_quality'],
-      limit: parsePagination(req).limit,
-      offset: req.query.offset ? Number(req.query.offset) : 0,
-      sortBy: req.query.sortBy as any || 'lastReferenced',
-      sources: ['store' as const],
-    };
-    const result = await uq.listEntries(filter);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: 'Query failed', detail: String(error) });
-  }
-});
+entriesRoutes.get('/unified', defineRoute({ query: unifiedKnowledgeQuerySchema }, async (req, _res, { query }) => {
+  const uq = await getUnifiedQuery();
+  const filter = {
+    consumptionModes: query.consumptionMode ? query.consumptionMode.split(',') : undefined,
+    tags: query.tags ? query.tags.split(',') : undefined,
+    origins: query.origin ? query.origin.split(',') : undefined,
+    maturity: query.maturity ? query.maturity.split(',') : undefined,
+    excludeTags: ['low_quality'],
+    limit: parsePagination(req).limit,
+    offset: query.offset ? Number(query.offset) : 0,
+    sortBy: query.sortBy as any || 'lastReferenced',
+    sources: ['store' as const],
+  };
+  return uq.listEntries(filter);
+}));
 
 /**
  * POST /unified — manual knowledge entry creation
  * Body: { type, title, content, consumptionMode, applicableAgents?, tags? }
+ * （必填四件套原手写 400 → zod 400）
  */
-entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), async (req, res) => {
-  try {
-    const { type, title, content, consumptionMode, applicableAgents, tags } = req.body;
-
-    if (!type || !title || !content || !consumptionMode) {
-      res.status(400).json({ error: 'Missing required fields: type, title, content, consumptionMode' });
-      return;
-    }
+entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), defineRoute(
+  { body: createUnifiedEntryBodySchema },
+  { status: 201 },
+  async (req, _res, { body }) => {
+    const { type, title, content, consumptionMode, applicableAgents, tags } = body;
 
     const { sharedStore } = await import('./knowledge-singletons.js');
     const id = `manual-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -223,7 +211,8 @@ entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), async (req, res
 
     sharedStore.save({
       id,
-      type,
+      // zod 边界为自由 string（wire 词表比 harness KnowledgeSubsystem/ConsumptionMode 宽）→ 显式收回
+      type: type as any,
       title,
       content,
       maturity: 'draft',
@@ -237,15 +226,13 @@ entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), async (req, res
       sourceReferences: [{ source: `manual:${operator}`, timestamp: now }] as any,
       referencedBy: [],
       executionResults: [],
-      consumptionMode,
+      consumptionMode: consumptionMode as any,
       origin: 'human',
     });
 
     // Step 2：人工创建同样广播（他端开着的 KnowledgePage 实时刷新；本端提交后本就会 reload）
     publishKnowledgeEntryChanged('created', { entryId: id, entryType: type, title });
 
-    res.status(201).json({ id, title, consumptionMode });
-  } catch (error) {
-    res.status(500).json({ error: 'Creation failed', detail: String(error) });
-  }
-});
+    return { id, title, consumptionMode };
+  },
+));

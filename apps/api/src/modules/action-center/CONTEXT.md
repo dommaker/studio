@@ -9,7 +9,7 @@
 | 导出 | 文件 | 说明 |
 |------|------|------|
 | `ActionCenterService`, `ActionCenterStateItem`, `ActionCenterPayload` | `action-center.service.ts` | stateItems 派生 + 通知合并，无新存储 |
-| `actionCenterRoutes` | `routes.ts` | 挂载于 route-registry `/api/v1/action-center`（middleware: auth） |
+| `actionCenterRoutes` | `routes.ts` | 挂载于 route-registry `/api/v1/action-center`（middleware: auth）。契约驱动迁移（2026-10 批次 4/7）：defineRoute 化——响应统一 `{ data }` 壳（原平铺裸 payload），契约正本 = `packages/studio-contract/src/action-center.ts`（ActionCenterStateItem 手写 interface + parity） |
 
 ### 依赖关系
 

@@ -90,7 +90,7 @@ describe('ChannelDetailPage — constraint_proposal 审核分发', () => {
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-sys', name: '系统', type: 'system', members: '[]' } } });
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
-    mockApiPost.mockResolvedValue({ data: { success: true } });
+    mockApiPost.mockResolvedValue({ data: { data: { success: true } } });
   });
 
   it('渲染卡面条目（约束 id + 条文 + 来源知识）', async () => {

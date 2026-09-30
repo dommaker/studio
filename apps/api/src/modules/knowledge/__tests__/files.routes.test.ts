@@ -70,18 +70,20 @@ describe('files.routes', () => {
   it('GET /requirements scans md files, requirement docs first', async () => {
     const res = await api('GET', '/requirements');
     expect(res.status).toBe(200);
-    expect(res.json.total).toBe(2);
-    expect(res.json.docs[0].name).toBe('需求-登录.md');
-    expect(res.json.docs[0].isRequirement).toBe(true);
-    expect(res.json.docs[0].project).toBe('projA');
-    expect(res.json.docs[1].name).toBe('notes.md');
-    expect(res.json.docs[1].isRequirement).toBe(false);
+    // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
+    expect(res.json.data.total).toBe(2);
+    expect(res.json.data.docs[0].name).toBe('需求-登录.md');
+    expect(res.json.data.docs[0].isRequirement).toBe(true);
+    expect(res.json.data.docs[0].project).toBe('projA');
+    expect(res.json.data.docs[1].name).toBe('notes.md');
+    expect(res.json.data.docs[1].isRequirement).toBe(false);
   });
 
   it('POST /read-file 400 without filePath', async () => {
     const res = await api('POST', '/read-file', {});
     expect(res.status).toBe(400);
-    expect(res.json.error).toBe('Missing filePath');
+    // 必填 guard 收进 zod（原手写 400 'Missing filePath'）
+    expect(res.json.error.code).toBe('BAD_REQUEST');
   });
 
   it('POST /read-file 403 outside allowed dirs', async () => {
@@ -93,7 +95,7 @@ describe('files.routes', () => {
     fs.writeFileSync(path.join(allowedDir, 'x.exe'), 'bin');
     const res = await api('POST', '/read-file', { filePath: path.join(allowedDir, 'x.exe') });
     expect(res.status).toBe(400);
-    expect(res.json.error).toContain('只支持');
+    expect(res.json.error.message).toContain('只支持');
   });
 
   it('POST /read-file 404 for missing file', async () => {
@@ -104,9 +106,9 @@ describe('files.routes', () => {
   it('POST /read-file 200 reads file content (relative path resolved against first allowed dir)', async () => {
     const res = await api('POST', '/read-file', { filePath: 'ok.md' });
     expect(res.status).toBe(200);
-    expect(res.json.content).toBe('允许的内容');
-    expect(res.json.ext).toBe('.md');
-    expect(res.json.size).toBeGreaterThan(0);
+    expect(res.json.data.content).toBe('允许的内容');
+    expect(res.json.data.ext).toBe('.md');
+    expect(res.json.data.size).toBeGreaterThan(0);
   });
 
   it('GET /file 400 without path, 403 outside kb, 404 missing, 200 reads', async () => {
@@ -115,6 +117,6 @@ describe('files.routes', () => {
     expect((await api('GET', `/file?path=${encodeURIComponent(path.join(kbDir, 'nope.md'))}`)).status).toBe(404);
     const ok = await api('GET', `/file?path=${encodeURIComponent(path.join(kbDir, 'projA', 'notes.md'))}`);
     expect(ok.status).toBe(200);
-    expect(ok.json.content).toBe('# 笔记');
+    expect(ok.json.data.content).toBe('# 笔记');
   });
 });

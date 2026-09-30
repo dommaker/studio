@@ -4,7 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../index', () => ({
   api: {
     post: vi.fn().mockResolvedValue({ data: {} }),
-    get: vi.fn().mockResolvedValue({ data: { success: true, status: 'pending' } }),
+    // 契约驱动迁移（批次 4/7）：status 响应 `{ data: { status } }` 壳
+    get: vi.fn().mockResolvedValue({ data: { data: { status: 'pending' } } }),
   },
 }));
 

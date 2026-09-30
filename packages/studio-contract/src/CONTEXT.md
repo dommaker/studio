@@ -18,6 +18,10 @@ API 契约唯一正本（docs/architecture/target-architecture.md）：按域一
 - `specs.ts`：specs 域——SpecContent/AnalyzeChangeResult/ChangeRecord/GatePolicy/ValidateChangeResult 重声明（studio-spec 引 harness/Node 依赖，不 import）；ChangeRecord 的 Date 字段 wire 为 ISO 串；export 附件下载不进壳
 - `triggers.ts`：triggers 域——TriggerConfig（condition/action 判别联合）+ 派生读（withState/costs/status/logs/fire 结果）+ 端点请求/响应；原全平铺响应统一进 `{ data }` 壳
 - `evolution.ts`：evolution 域——EvolutionProposal（= EvolutionProposalData）/ ConstraintProposal / runScan 结果 + 端点请求/响应；`{ success, data }` 壳的 success 标志退役；通用提案卡端点 /review-proposals/evolution/* 归批次 4 不在此
+- `knowledge.ts`：knowledge 域（批次 4/7；三套路由全迁——/api/v1/knowledge、/api/v1/knowledge-service、/api/knowledge 内部回环限定）——KnowledgeEntry（harness 条目 wire 重声明）/ UnifiedKnowledgeEntry / KnowledgeEntryItem / Resolution（studio-shared wire 重声明；tags 可能双重编码为 JSON 串，union 声明）/ KnowledgeSearchResult / KnowledgeMaintenanceResult 实体 + density/cross-session/sync-status/upsert 结果 + 端点请求/响应；GET /export 附件下载与 /knowledge-service/events 301 跳转 handler 自写 res 不进壳
+- `review-proposals.ts`：review-proposal 域——状态词表（正本 + stale；status 响应值域另含 unknown）+ approve/reject/status 端点；approve 响应 data = `{ success, skipped? } + adapter data 透传`（per-kind 扩展键：productIds/archivedIds/promoted/workUnitId 等）→ schema `.passthrough()` + 手写 interface（index signature 兜扩展键）；status 的 success 标志退役；错误 `{ error: string }` 统一进壳，message 保留 `proposal-not-pending:<status>` 机器串（前端 notPendingAs 按 message 分类）
+- `action-center.ts`：action-center 域——ActionCenterStateItem / ActionCenterNotification（studio-notification wire 重声明；createdAt/readAt wire 为 ISO 串或 null）+ 三段 payload；原平铺裸对象进 `{ data }` 壳
+- `library.ts`：library 域——LibraryListItem / LibraryDocDetail 实体 + list query；`{ success, data }` 壳的 success 标志退役；`GET /*splat` 的 splat 段数组不进 zod params（Express 5 通配必须命名、zod params 是对象形状），query 照常校验
 
 ## 注意事项
 

@@ -97,8 +97,8 @@ describe('ChannelDetailPage — distill_proposal 审核分发', () => {
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
     mockProposalStatus.mockResolvedValue({ data: { success: true, statuses: { 'dp-1': 'pending' } } });
-    mockDistillApprove.mockResolvedValue({ data: { success: true, productIds: ['p-1'] } });
-    mockDistillReject.mockResolvedValue({ data: { success: true } });
+    mockDistillApprove.mockResolvedValue({ data: { data: { success: true, productIds: ['p-1'] } } });
+    mockDistillReject.mockResolvedValue({ data: { data: { success: true } } });
   });
 
   it('approve → distillApi.approve(proposalId)，卡片显示已执行', async () => {
@@ -114,7 +114,7 @@ describe('ChannelDetailPage — distill_proposal 审核分发', () => {
   });
 
   it('approve 预算熔断（success:false + skipped）→ 卡片保持待审', async () => {
-    mockDistillApprove.mockResolvedValue({ data: { success: false, skipped: 'budget-exhausted' } });
+    mockDistillApprove.mockResolvedValue({ data: { data: { success: false, skipped: 'budget-exhausted' } } });
     renderPage();
     const btn = await screen.findByText('确认提炼');
     fireEvent.click(btn);

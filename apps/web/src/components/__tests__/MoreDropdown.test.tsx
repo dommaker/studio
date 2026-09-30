@@ -24,7 +24,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // #517：store 单例跨用例重置，含取数纪律锚点（loadedAt/inflight）——否则前一用例成功 load 后 TTL 门禁拦截本用例
   useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0, loadedAt: null, inflight: null });
-  mockApi.get.mockResolvedValue({ data: { stateItems: [], notifications: [], unreadCount: 0 } });
+  // 契约驱动迁移（批次 4/7）：/action-center 响应统一 `{ data }` 壳
+  mockApi.get.mockResolvedValue({ data: { data: { stateItems: [], notifications: [], unreadCount: 0 } } });
 });
 
 describe('MoreDropdown — header 更多菜单', () => {

@@ -49,19 +49,21 @@ describe('search.routes', () => {
   it('GET /search 400 without q', async () => {
     const res = await api('GET', '/search');
     expect(res.status).toBe(400);
-    expect(res.json.error).toBe('q (search query) is required');
+    // q 必填原手写 400 → zod 400
+    expect(res.json.error.code).toBe('BAD_REQUEST');
   });
 
   it('GET /search 200 empty results on empty store; apiCache HIT on repeat', async () => {
     const first = await api('GET', '/search?q=anything');
     expect(first.status).toBe(200);
-    expect(first.json).toEqual({ results: [], total: 0 });
+    // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
+    expect(first.json).toEqual({ data: { results: [], total: 0 } });
     expect(first.headers.get('x-cache')).toBe('MISS');
 
     const second = await api('GET', '/search?q=anything');
     expect(second.status).toBe(200);
     expect(second.headers.get('x-cache')).toBe('HIT');
-    expect(second.json).toEqual({ results: [], total: 0 });
+    expect(second.json).toEqual({ data: { results: [], total: 0 } });
   });
 
   // 防回归（2026-09-10 生产 500）：tag 'pattern' 是自由命名空间，guideline 条目
@@ -96,7 +98,7 @@ describe('search.routes', () => {
 
     const res = await api('GET', '/search?q=deploy');
     expect(res.status).toBe(200);
-    const ids = res.json.results.map((r: any) => r.id);
+    const ids = res.json.data.results.map((r: any) => r.id);
     expect(ids).toContain('pat-test-good');
     expect(ids).not.toContain('gui-test-md');
     expect(ids).not.toContain('pat-test-corrupt');
@@ -105,18 +107,18 @@ describe('search.routes', () => {
   it('GET /resolutions 200 with empty list and byStatus', async () => {
     const res = await api('GET', '/resolutions');
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ resolutions: [], total: 0, byStatus: {} });
+    expect(res.json).toEqual({ data: { resolutions: [], total: 0, byStatus: {} } });
   });
 
   it('GET /resolution/density 200 returns density score object', async () => {
     const res = await api('GET', '/resolution/density');
     expect(res.status).toBe(200);
-    expect(typeof res.json).toBe('object');
+    expect(typeof res.json.data).toBe('object');
   });
 
   it('GET /resolution/cross-session 200 returns stats object', async () => {
     const res = await api('GET', '/resolution/cross-session');
     expect(res.status).toBe(200);
-    expect(typeof res.json).toBe('object');
+    expect(typeof res.json.data).toBe('object');
   });
 });

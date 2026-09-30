@@ -100,7 +100,8 @@ const DOMAINS: readonly DomainSearch[] = [
     group: 'knowledge',
     search: async (q) => {
       const res = await knowledgeApi.search(q);
-      return (res.data?.results ?? []).slice(0, LIMIT).map((r) => ({
+      // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳，res.data.results → res.data.data.results
+      return (res.data?.data?.results ?? []).slice(0, LIMIT).map((r) => ({
         key: `kn:${r.type}:${r.id}`,
         group: 'knowledge' as const,
         title: r.title,

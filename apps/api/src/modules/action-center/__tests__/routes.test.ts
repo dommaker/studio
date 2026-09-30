@@ -32,7 +32,9 @@ interface ActionCenterBody {
 
 async function get(): Promise<{ status: number; body: ActionCenterBody }> {
   const res = await fetch(`${base}/`);
-  return { status: res.status, body: (await res.json()) as ActionCenterBody };
+  // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
+  const json = (await res.json()) as { data: ActionCenterBody };
+  return { status: res.status, body: json.data };
 }
 
 beforeAll(async () => {

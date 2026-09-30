@@ -32,7 +32,8 @@ export function MonitoringPage() {
   const overheadQ = useAsyncData(() => monitoringApi.getOverhead().then(r => r.data), []);
   const efficiencyQ = useAsyncData(() => monitoringApi.getEfficiency().then(r => r.data), []);
   // 审核闭环：proposal 待审列表（maturity=draft，与 proposalsPendingReview 计数同库口径）
-  const proposalsQ = useAsyncData(() => knowledgeApi.listPendingReview().then(r => r.data.entries), []);
+  // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳，r.data.entries → r.data.data.entries
+  const proposalsQ = useAsyncData(() => knowledgeApi.listPendingReview().then(r => r.data.data.entries), []);
   // 批次A 项8：通过/拒绝共用 pending 锁存（防连点）+ 失败 toast（原 catch 静默）
   const [actingIds, setActingIds] = useState<Set<string>>(new Set());
   // #473：审批前可见详情（点击标题展开）+ 通过两步确认

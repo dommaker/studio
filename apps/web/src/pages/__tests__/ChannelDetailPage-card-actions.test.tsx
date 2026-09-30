@@ -95,7 +95,8 @@ describe('ChannelDetailPage — auditor_suggestion（#356 通用端点）/ retra
   beforeEach(() => {
     vi.clearAllMocks();
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-sys', name: '系统', type: 'system', members: '[]' } } });
-    mockApiPost.mockResolvedValue({ data: { success: true, data: { status: 'confirmed' } } });
+    // 契约驱动迁移（批次 4/7）：review-proposals approve 响应进 `{ data }` 壳
+    mockApiPost.mockResolvedValue({ data: { data: { success: true, status: 'confirmed' } } });
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
   });

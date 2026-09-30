@@ -134,13 +134,13 @@ describe('MonitoringPage', () => {
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
     mockListPendingReview.mockResolvedValue({
-      data: {
+      data: { data: {
         entries: [
           { id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall', maturity: 'draft', created: new Date(Date.now() - 2 * 3600_000).toISOString() },
           { id: 'k-2', title: '登录流程统一走 auth-service', type: 'guideline', maturity: 'draft', created: new Date(Date.now() - 26 * 3600_000).toISOString() },
         ],
         total: 2,
-      },
+      } },
     });
     mockPromote.mockResolvedValue({ data: { success: true } });
     mockDemote.mockResolvedValue({ data: { success: true } });
@@ -506,7 +506,7 @@ describe('MonitoringPage — 告警下钻（E4）', () => {
     vi.clearAllMocks();
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
-    mockListPendingReview.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockListPendingReview.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
     mockEventSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
   });
 
@@ -550,7 +550,7 @@ describe('MonitoringPage — 子拉取失败错误行（web-ux-optional-fixes St
     vi.clearAllMocks();
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
-    mockListPendingReview.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockListPendingReview.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
     mockEventSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
   });
 
@@ -558,10 +558,10 @@ describe('MonitoringPage — 子拉取失败错误行（web-ux-optional-fixes St
     mockListPendingReview
       .mockRejectedValueOnce(new Error('proposals boom'))
       .mockResolvedValue({
-        data: {
+        data: { data: {
           entries: [{ id: 'k-9', title: '恢复后的提案', type: 'pitfall', maturity: 'draft', created: new Date().toISOString() }],
           total: 1,
-        },
+        } },
       });
     render(<MonitoringPage />);
 
