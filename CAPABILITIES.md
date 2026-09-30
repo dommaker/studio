@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-29
+> 最后更新: 2026-09-30
 
 ---
 
@@ -51,7 +51,6 @@
 | hooks | apps/web/src/hooks/ | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
 | stores | apps/web/src/stores/ | agentStore |
 | setup | apps/web/src/test/setup.ts | setup |
-| types | apps/web/src/types.ts | types.ts - Agent Studio 类型定义 |
 | utils | apps/web/src/utils/ | Lightweight toast notification system (zero dependencies) |
 | services | packages/studio-agent/src/services/ | Output Capture — 进度读取 + 输出文件收集 + session 指标记录 |
 | workspaces | apps/api/src/modules/workspaces/ | Local Workspace Registration — AS-020 P2-04 |
@@ -238,4 +237,18 @@
 | proposal-source | apps/api/src/modules/audit-logs/proposal-source.ts | audit-logs/proposal-source (#591 A 类) — review-proposal 正本的聚合读面 |
 | DeleteRoleDialog | apps/web/src/components/monitoring/DeleteRoleDialog.tsx | 删除角色确认框（#630，ADR 2026-09-23 决策 5）：删除能力服务端早已完整（清频道成员与路由指名、 |
 | RoleFormModal | apps/web/src/components/monitoring/RoleFormModal.tsx | 角色表单唯一正本（#630，ADR 2026-09-23-role-form-module 决策 1/2/3）： |
+| config | packages/studio-shared/src/cli/config.ts | 配置加载器 |
+| seed | packages/studio-skill/src/seed.ts | seed — 内置 skill 库首启播种与升级（#223） |
+| agent-loop | apps/api/src/bootstrap/agent-loop.ts | ── AS-026: AgentLoop per AgentProfile ── |
+| bridges | apps/api/src/bootstrap/bridges.ts | ── 事件订阅初始化（workunit.status_changed 等 → 各域消费者）── |
+| channels | apps/api/src/bootstrap/channels.ts | ── Channel 初始化（Goal 管线需要）── |
+| config | apps/api/src/bootstrap/config.ts | ── 配置加载（无论怎么启动都会执行）── |
+| handlers | apps/api/src/bootstrap/handlers.ts | ── Trigger EXECUTE handler 注册（周期扫描类）── |
+| lifecycle | apps/api/src/bootstrap/lifecycle.ts | ── HTTP 服务生命周期：错误兜底 + listen + 优雅关闭 ── |
+| migrations | apps/api/src/bootstrap/migrations.ts | ── 数据区迁移 + 启动对账 ── |
+| seed | apps/api/src/bootstrap/seed.ts | ── 内置数据播种 ── |
+| services | apps/api/src/bootstrap/services.ts | ── 核心服务启动（监控/审计/rollup/巡检/进化调度）── |
+| tunnel | apps/api/src/bootstrap/tunnel.ts | ── Cloudflared Tunnel — 自动重启守护 + URL 变化通知 ── |
+| warmup | apps/api/src/bootstrap/warmup.ts | ── 冷启动异步任务（全部 fire-and-forget，不阻塞启动）── |
+| agent-loop | apps/api/src/modules/agents/loop/agent-loop.ts | agent.instance.status_changed 负载唯一构造出口（#312 契约 + #318 additive pmo/startedAt）—— |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

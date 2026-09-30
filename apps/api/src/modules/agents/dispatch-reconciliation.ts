@@ -22,7 +22,7 @@
  *   记尝试数。type=review/analysis/decision/spec 不参与（验收闸是人工 L3，同路径 A 口径）。
  *
  * 挂 5min 触发器（default-triggers.ts `dispatch-reconciliation`，timeout-scan 同类）；
- * 从 apps/api/src/index.ts 注册 handler，便于服务级测试。
+ * 从 apps/api/src/bootstrap/handlers.ts 注册 handler，便于服务级测试。
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/workunit.service.js';

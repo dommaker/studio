@@ -16,7 +16,7 @@
  * 再把幸存者 append 回热文件（与并发追加安全交错），超期信号进 gz，最后删暂存。
  * 损坏行与无时间事件无法分类计龄 → 保守保留在热文件（宁可留，不静默丢数据）。
  *
- * 调度：apps/api/src/index.ts 启动后跑一次 + 每 24h（见该文件 #173 挂载点）。
+ * 调度：apps/api/src/bootstrap/warmup.ts 启动后跑一次 + 每 24h（见该文件 #173 挂载点）。
  */
 import {
   resolveStudioEventsFile,

@@ -17,7 +17,7 @@
 | `dist-npm/` | — |
 | `docs/` | 项目文档 |
 | `node-compile-cache/` | — |
-| `packages/` | monorepo 共享包：studio-agent、studio-audit、studio-notification、studio-shared、studio-skill、studio-spec |
+| `packages/` | monorepo 共享包：studio-agent、studio-audit、studio-contract、studio-notification、studio-shared、studio-skill、studio-spec |
 | `scripts/` | 工具脚本 |
 | `tests/` | 测试 |
 
@@ -40,7 +40,7 @@ pnpm start  # 启动生产服务
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 43 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 44 个），改动代码时同步更新
 
 <!-- PRESERVE:governance -->
 ## 治理契约

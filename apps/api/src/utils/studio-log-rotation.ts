@@ -14,7 +14,7 @@
  *   + 残留 ~/.studio/events/incidents.jsonl（2026-05 后无写入）：一次性
  *   gzip 归档（archive/*-legacy.jsonl.gz）后删除原文件。
  *
- * 调度：apps/api/src/index.ts 与 #173 同一挂载点，启动后跑一次 + 每 24h 一轮。
+ * 调度：apps/api/src/bootstrap/warmup.ts 与 #173 同一挂载点，启动后跑一次 + 每 24h 一轮。
  */
 import fs from 'node:fs';
 import path from 'node:path';

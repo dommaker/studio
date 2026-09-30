@@ -88,7 +88,7 @@ interface WuRollupEventData {
 
 /**
  * 挂载进度回写订阅，返回解绑函数（测试用）。
- * 生产环境在 API 启动时调用一次（见 apps/api/src/index.ts）。
+ * 生产环境在 API 启动时调用一次（见 apps/api/src/bootstrap/services.ts）。
  */
 export function initPmoProgressRollup(fileStore?: FileStore): () => void {
   const statusHandler = (payload: { workunit?: WuRollupEventData }) => {

@@ -13,6 +13,7 @@ governance:
       - packages/studio-shared/src
       - packages/studio-skill/src
       - packages/studio-spec/src
+      - apps/api/src/bootstrap
       - apps/api/src/modules/action-center
       - apps/api/src/modules/admin
       - apps/api/src/modules/agents
