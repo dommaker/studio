@@ -66,11 +66,6 @@ app.get('/metrics', async (req: any, res: any) => {
   }
 });
 
-// API 文档
-app.get('/api/docs', (req: any, res: any) => {
-  res.redirect('/docs/openapi.yaml');
-});
-
 /**
  * 注册所有 API 路由（异步，启动时调用一次）
  */
@@ -126,28 +121,6 @@ export async function registerRoutes(): Promise<void> {
     }
   }
 
-  // 静态资源服务（前端）- 必须在 API 路由之后注册
-  // no-cache 防止 Cloudflare/CDN 缓存旧版本前端
-  const frontendPath = path.join(__dirname, '../frontend/dist');
-  app.use(express.static(frontendPath, {
-    index: false,
-    setHeaders: (res: any, filePath: string) => {
-      if (filePath.endsWith('.js') || filePath.endsWith('.css') || filePath.endsWith('.html')) {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      }
-    },
-  }));
-
-  // SPA 回退 - 所有非 API 路由返回 index.html
-  app.get('*', (req: any, res: any, next: any) => {
-    if (req.path.startsWith('/api/') || req.path.startsWith('/docs/') || req.path.includes('.')) {
-      return next();
-    }
-    // Prevent Cloudflare/CDN from caching stale SPA HTML
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(frontendPath, 'index.html'));
-  });
-
   // 404 处理 - 必须在所有路由之后
   app.use((req: any, res: any) => {
     res.status(404).json({
@@ -161,9 +134,3 @@ export async function registerRoutes(): Promise<void> {
   // 错误处理
   app.use(errorHandler);
 }
-
-// 静态资源路径需要延迟加载
-import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);

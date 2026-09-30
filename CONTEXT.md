@@ -28,6 +28,10 @@ _Avoid_: 三件事并列、监控当目的层
 studio 能力边界面的表述（#201，2026-08-16）：与分层塔互补、各管一面——塔答「为什么存在」（价值分层，存在理由锚飞轮/进化），薄答「做多厚」：只做任务级编排，不复刻 agent CLI 能力（@文件/代码级交互/diff 预览等不做），不堆全功能平台。宪法落点 = vision-2026.md §2 能力边界（「Studio 不是什么」并入，随 §1 重写一并落）；§9 决策摘要 D1 行改为「塔定存在理由 + 薄定能力边界」两面表述，编号不动。
 _Avoid_: 用薄替代塔、三件事并列、功能堆叠
 
+**契约正本**:
+前后端 API 契约的唯一真源 = `packages/studio-contract` 的 zod schema（docs/architecture/target-architecture.md，2026-09-30 架构重构批准）：一份 schema 同时出运行时校验（后端 `core/http.ts` defineRoute）、TS 类型（前后端 import）、OpenAPI 文档（派生物）。统一响应壳 = `{ data }` / `{ error: { code, message } }`（分页 `{ data, pagination }`）。配套硬规则：跨模块只 import 对方 `index.ts`；`new FileStore()` 只在 `core/store.ts`；routes.ts 只做 HTTP 翻译；前端禁手抄 API 响应类型。
+_Avoid_: 前端手抄 interface、yaml 当契约正本、响应格式第三种形状、模块级 FileStore 单例
+
 **上下文边界**:
 单份会话上下文的生命周期边界 = 指称连续性的容器（「上次/改一下这里」能解析到的工作范围），不绑定某个实现概念。当前实现中 = WU（含其线程讨论）；跨边界连续性由角色记忆文件与知识库承载，不由会话续用承载（#79，2026-08-10）。
 _Avoid_: 会话边界、续用链
