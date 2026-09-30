@@ -18,6 +18,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `memoryApi` / `distillApi` | `api/*.ts` | 角色记忆 / 蒸馏人审闸口（均走 review-proposal 通用端点 `/review-proposals/:kind/:id/*`，#351/#353） |
 | `constraintApi` | `api/constraint.ts` | 约束提案卡审批（kind='constraint'，ADR-0033 子项 7/8：新约束 / 升级提案，通用端点 approve/reject/status） |
 | `evolutionApi` | `api/evolution.ts` | 约束进化提案卡审批（kind='evolution'，#623；断点 3 遗留补丁——api 侧发卡已久，web 封装与卡配置 2026-09-23 补） |
+| `skillsApi` / `maintenanceApi` | `api/skills.ts` / `api/maintenance.ts` | skills/triggers 域 REST 类型正本 = `@dommaker/studio-contract`（契约驱动迁移 2026-10 批次 3/7）：SkillManifestEntry/FireTriggerResult/TriggerCosts 手抄删除改 contract import；triggers fire/costs 响应统一 `{ data }` 壳（原平铺，解包 res.data → res.data.data）；skills manifest/retract-decide 壳原已带，解包不变。evolutionApi 走 review-proposal 通用端点归批次 4 未动；specs 域无前端消费方 |
 | `companyApi` / `okrApi` / `harnessApi` | `api/*.ts` | 公司 / PMO OKR / 质量门 |
 | `projectApi` / `workspaceApi` | `api/index.ts` | PMO 项目 CRUD + 交付（台账/deliver/mark-delivered/publish）/ workspace 只读；pmo/companies/projects/workspaces 四域 REST 类型正本 = `@dommaker/studio-contract`（契约驱动迁移 2026-10 批次 2/7），全部端点 envelope `{ data }`（单体/交付/发布原裸对象、projects/workspaces 原 `{success,data}`/平铺壳统一进壳）；`components/pmo/types.ts` 手抄 interface 删除改 re-export 契约类型（worktreePath/OKR 等前端历史遗留字段不入契约，页面本地扩展） |
 | `transcriptsApi` / `eventsApi` | `api/*.ts` | WU transcript 只读 / 事件检索 |

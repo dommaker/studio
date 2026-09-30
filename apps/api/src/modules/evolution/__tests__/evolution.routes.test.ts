@@ -99,7 +99,6 @@ describe('Evolution API (E1)', () => {
 
     const all = await api('GET', '/proposals');
     expect(all.status).toBe(200);
-    expect(all.json.success).toBe(true);
     expect(all.json.data.length).toBe(2);
 
     const pending = await api('GET', '/proposals?status=pending');
@@ -118,7 +117,7 @@ describe('Evolution API (E1)', () => {
 
     const missing = await api('GET', '/proposals/EP-9999');
     expect(missing.status).toBe(404);
-    expect(missing.json.success).toBe(false);
+    expect(missing.json.error.code).toBe('NOT_FOUND');
   });
 
   it('POST /proposals/:id/approve applies (override file written) and second approve → 409', async () => {
@@ -176,7 +175,6 @@ describe('Evolution API (E1)', () => {
 
     const run = await api('POST', '/run');
     expect(run.status).toBe(200);
-    expect(run.json.success).toBe(true);
     expect(run.json.data.created.length).toBe(1);
     expect(run.json.data.created[0].targetType).toBe('prompt-template');
     expect(run.json.data.scanned.outcomes).toBe(8);

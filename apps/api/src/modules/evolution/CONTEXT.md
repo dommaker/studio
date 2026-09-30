@@ -103,3 +103,4 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - 信号面无外部输入口：`loadWindowSignals` 只读三个固定文件源（traces.log + studio-events.jsonl 的 tool:call / knowledge:outcome:*），外部语义信号（如 distill 判出的「疑似过时约束」）要进飞轮须新建摄入机制，不是接线（#622 查实，2026-09-22）
 - 提案必须经人确认后才由 applier 生效，不做自动落地
 - **鉴权（2026-07-24 收紧）**：`/api/v1/evolution` 挂载级 `requireAuth()+requireAdmin()` —— approve/reject/run 直接让约束变更生效，此前仅 requireAuth。
+- **契约驱动（2026-10 批次 3/7）**：evolution.routes.ts 全端点走 core/http.ts defineRoute（契约 packages/studio-contract/src/evolution.ts）。wire 变化：`{ success: true, data }` 壳的 success 标志退役（`{ data }`）；`{ success: false, error: string }` 统一 `{ error: { code, message } }`，EvolutionError code 即 envelope code（NOT_FOUND→404 / CONFLICT→409 / APPLY_FAILED→500 保持）；decide body 的 reason/decidedBy 非字符串原静默忽略现 zod 400。通用提案卡审批端点 /api/v1/review-proposals/evolution/:id/* 归批次 4 未动。

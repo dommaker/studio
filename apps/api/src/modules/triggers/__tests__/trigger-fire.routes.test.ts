@@ -107,9 +107,9 @@ describe('trigger manual fire + costs', () => {
     const res = await fetch(`${base}/disabled-yaml/fire`, { method: 'POST' });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.fired).toBe(true);
-    expect(body.wasDisabled).toBe(true);
-    expect(body.workUnit.id).toBe('wu-1');
+    expect(body.data.fired).toBe(true);
+    expect(body.data.wasDisabled).toBe(true);
+    expect(body.data.workUnit.id).toBe('wu-1');
     // 手动触发不做同分钟去重：第三参不带 dedupeWithinMinute（#591 起带 traceId 贯穿埋点与 WU metadata）
     expect(mockExecuteCreateAction).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'CREATE' }),
@@ -137,9 +137,9 @@ describe('trigger manual fire + costs', () => {
     const res = await fetch(`${base}/knowledge-synthesis/fire`, { method: 'POST' });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.fired).toBe(true);
-    expect(body.wasDisabled).toBe(true);
-    expect(body.workUnit.id).toBe('wu-2');
+    expect(body.data.fired).toBe(true);
+    expect(body.data.wasDisabled).toBe(true);
+    expect(body.data.workUnit.id).toBe('wu-2');
   });
 
   it('同分钟连续 fire 两次：两次都创建 WU（手动路径不去重）', async () => {
@@ -150,8 +150,8 @@ describe('trigger manual fire + costs', () => {
 
     const r1 = await fetch(`${base}/twice/fire`, { method: 'POST' });
     const r2 = await fetch(`${base}/twice/fire`, { method: 'POST' });
-    expect((await r1.json()).workUnit.id).toBe('wu-a');
-    expect((await r2.json()).workUnit.id).toBe('wu-b');
+    expect((await r1.json()).data.workUnit.id).toBe('wu-a');
+    expect((await r2.json()).data.workUnit.id).toBe('wu-b');
     expect(mockExecuteCreateAction).toHaveBeenCalledTimes(2);
   });
 
@@ -161,8 +161,8 @@ describe('trigger manual fire + costs', () => {
     const res = await fetch(`${base}/exec-trigger/fire`, { method: 'POST' });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.fired).toBe(true);
-    expect(body.wasDisabled).toBe(false);
+    expect(body.data.fired).toBe(true);
+    expect(body.data.wasDisabled).toBe(false);
     expect(mockExecuteExecuteAction).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'EXECUTE' }),
       expect.objectContaining({ manual: true }),
@@ -197,9 +197,9 @@ describe('trigger manual fire + costs', () => {
     const res = await fetch(`${base}/inspection-scan/fire`, { method: 'POST' });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.fired).toBe(true);
+    expect(body.data.fired).toBe(true);
     // 建单落 pending（#162 人闸手动 fire 继承，由 executeCreateAction 统一落地）
-    expect(body.workUnit.status).toBe('pending');
+    expect(body.data.workUnit.status).toBe('pending');
     expect(mockExecuteCreateAction).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'CREATE' }),
       'inspection-scan',
@@ -230,8 +230,8 @@ describe('trigger manual fire + costs', () => {
     const res = await fetch(`${base}/costs?days=30`);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.byTrigger['doc-semantic-review']).toBe(1050);
-    expect(body.callsBySource['knowledge-maintenance']).toBe(2);
-    expect(body.bySource['knowledge-maintenance']).toBe(15);
+    expect(body.data.byTrigger['doc-semantic-review']).toBe(1050);
+    expect(body.data.callsBySource['knowledge-maintenance']).toBe(2);
+    expect(body.data.bySource['knowledge-maintenance']).toBe(15);
   });
 });
