@@ -349,7 +349,7 @@ export interface QualityGateIngestInput {
  *   1. Triage 业务门（studio 规则）：source/entryType 为 triage 的条目必须含
  *      root_cause + fix_action，否则跳过并发 knowledge:quality_gate 事件。
  *   2. Harness ingest 门（被维护方）：KnowledgeIngest.ingestEntry 内置
- *      KnowledgeAudit —— reject 级问题不入库（返回 __rejected 标记），
+ *      KnowledgeAudit —— reject 级问题不入库（返回 { status: 'rejected', reasons }），
  *      flag 级问题入库后自动打 low_quality 标签。studio 侧不再另起 linter 预检。
  *   3. 成功入库 → scheduleVectorDbSync + knowledge:entry_created 事件。
  *
@@ -373,7 +373,7 @@ export function ingestWithQualityGate(
     }
   }
 
-  // 2. Harness ingest 门（KnowledgeAudit：reject → __rejected；flag → low_quality 标签）
+  // 2. Harness ingest 门（KnowledgeAudit：reject → status 'rejected'；flag → low_quality 标签）
   const saved = deps.ingest.ingestEntry(
     { type: input.type, title: input.title, content: input.content, tags },
     {
@@ -386,9 +386,8 @@ export function ingestWithQualityGate(
     },
   );
 
-  if ((saved as any)?.__rejected) {
-    const reasons: string[] = (saved as any).__rejectReasons || [];
-    const reason = reasons.join('; ') || 'rejected by harness ingest audit';
+  if (saved.status === 'rejected') {
+    const reason = saved.reasons.join('; ') || 'rejected by harness ingest audit';
     logger.warn('[Knowledge] Entry rejected by ingest quality gate', { title: input.title, reason });
     appendKnowledgeEvent('knowledge:quality_gate', { skipped: true, reason, entryType });
     return null;
@@ -397,8 +396,8 @@ export function ingestWithQualityGate(
   // 3. 成功：同步向量库 + entry_created 事件 + SSE 广播
   scheduleVectorDbSync();
   appendKnowledgeEvent('knowledge:entry_created', { entryType, title: input.title });
-  publishKnowledgeEntryChanged('created', { entryId: saved?.id, entryType, title: input.title });
-  return saved;
+  publishKnowledgeEntryChanged('created', { entryId: saved.entry.id, entryType, title: input.title });
+  return saved.entry;
 }
 
 /** 知识事件写入（best-effort，不阻塞主流程）。source 保持 'knowledge-bus' 以兼容既有指标查询。 */

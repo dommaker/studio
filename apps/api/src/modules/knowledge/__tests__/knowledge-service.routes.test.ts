@@ -44,7 +44,7 @@ function seed(title: string, maturity: string): { id: string } {
     { type: 'guideline', title, content: `${title} — 足够长的内容以通过形态与质量门禁检查。`, tags: ['test'] },
     { source: 'test:routes', layer: 'project', maturity, tags: ['test'], consumptionMode: 'signal' },
   );
-  return { id: saved.id };
+  return { id: saved.entry.id };
 }
 
 beforeAll(async () => {

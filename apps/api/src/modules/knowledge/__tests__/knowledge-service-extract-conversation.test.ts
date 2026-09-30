@@ -93,11 +93,14 @@ function createMockIngest() {
   let seq = 0;
   return {
     ingestEntry: vi.fn((entry: any, opts: any) => ({
-      id: `ingested-${++seq}`,
-      ...entry,
-      ...opts,
-      lastReferenced: new Date().toISOString(),
-      contributors: ['test'],
+      status: 'accepted',
+      entry: {
+        id: `ingested-${++seq}`,
+        ...entry,
+        ...opts,
+        lastReferenced: new Date().toISOString(),
+        contributors: ['test'],
+      },
     })),
   };
 }

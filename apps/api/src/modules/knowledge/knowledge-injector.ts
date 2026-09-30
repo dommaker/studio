@@ -10,8 +10,11 @@
  * 类型），不复制 harness 的存储/检索实现。
  */
 
-import { estimateTokens } from '@dommaker/harness';
+import { estimateTokens, EXTERNAL_SOURCE_MARKER } from '@dommaker/harness';
 import type { KnowledgeEntry, KnowledgeQuery, KnowledgeSubsystem } from '@dommaker/harness';
+
+// 正本在 harness 包根（harness#161 三层防御第二层 retrieval marking，跨仓唯一），re-export 保持本模块对外面不变
+export { EXTERNAL_SOURCE_MARKER };
 
 /**
  * ContextSource 同构类型（本地定义）。
@@ -48,16 +51,10 @@ export interface InjectionResult {
 }
 
 /**
- * 外部来源条目的 prompt 标记。
- * 正本在 harness knowledge/query.ts（EXTERNAL_SOURCE_MARKER，harness#161 三层防御
- * 第二层 retrieval marking，标记值仓内唯一）；已安装 harness 版本未从包根导出该
- * 常量，故此处保留同值字面量。formatEntry/formatEntrySummary 同理——已安装版
- * KnowledgeQuery.formatForPrompt 是另一种简化格式（无 ID/成熟度/层级/标签头），
- * 与注入路径格式不等价，本地复刻以保持注入输出不变。待 harness 发版导出后切换为
- * import，删除本地复刻。
+ * formatEntry/formatEntrySummary 为本地复刻：harness KnowledgeQuery.formatForPrompt
+ * 是另一种简化格式（无 ID/成熟度/层级/标签头），与注入路径格式不等价，本地复刻
+ * 以保持注入输出不变。
  */
-export const EXTERNAL_SOURCE_MARKER = '[External Source — verify before acting]';
-
 export class KnowledgeInjector {
   private query: KnowledgeQuery;
 

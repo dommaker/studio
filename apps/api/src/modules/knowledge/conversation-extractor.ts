@@ -100,8 +100,8 @@ export function ingestConversationEntry(
         origin: 'agent',
       },
     );
-    if ((saved as any)?.__rejected) return null;
-    const id = (saved as any)?.id;
+    if (saved.status === 'rejected') return null;
+    const id = saved.entry.id;
     return typeof id === 'string' && id ? { id, title, type } : null;
   } catch (e) {
     logger.warn('[KnowledgeService] Failed to ingest conversation entry', { error: String(e) });

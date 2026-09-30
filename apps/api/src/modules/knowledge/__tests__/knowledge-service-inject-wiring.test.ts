@@ -69,11 +69,11 @@ function seedEntries() {
   const active = sharedIngest.ingestEntry(
     { type: 'guideline', title: 'Alpha wiring probe guideline', content: ACTIVE_MARKER, tags: ['pattern'] },
     { source: 'pattern:wiring-test', layer: 'project', maturity: 'active', tags: ['pattern'], consumptionMode: 'signal' },
-  );
+  ).entry;
   const draft = sharedIngest.ingestEntry(
     { type: 'guideline', title: 'Zeta proposal draft pitfall', content: DRAFT_MARKER, tags: ['pattern'] },
     { source: 'pattern:wiring-test', layer: 'project', maturity: 'draft', tags: ['pattern'], consumptionMode: 'signal' },
-  );
+  ).entry;
   return { active, draft };
 }
 

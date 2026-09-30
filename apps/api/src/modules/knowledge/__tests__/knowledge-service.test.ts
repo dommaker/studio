@@ -64,11 +64,14 @@ function createMockLifecycle() {
 function createMockIngest() {
   return {
     ingestEntry: vi.fn((entry: any, opts: any) => ({
-      id: `ingested-${Date.now()}`,
-      ...entry,
-      ...opts,
-      lastReferenced: new Date().toISOString(),
-      contributors: ['test'],
+      status: 'accepted',
+      entry: {
+        id: `ingested-${Date.now()}`,
+        ...entry,
+        ...opts,
+        lastReferenced: new Date().toISOString(),
+        contributors: ['test'],
+      },
     })),
   };
 }
@@ -194,10 +197,10 @@ describe('KnowledgeService Phase 1A: Produce', () => {
       expect(ingest.ingestEntry).toHaveBeenCalled();
     });
 
-    it('delegates quality gate to harness ingest (__rejected → skip, no throw)', async () => {
+    it('delegates quality gate to harness ingest (status rejected → skip, no throw)', async () => {
       const { ks, ingest } = createKS();
-      // R4: 单一质量门 — harness KnowledgeIngest 内置 audit 拒绝时返回 __rejected
-      ingest.ingestEntry.mockReturnValue({ __rejected: true, __rejectReasons: ['content too short'] });
+      // R4: 单一质量门 — harness KnowledgeIngest 内置 audit 拒绝时返回 { status: 'rejected', reasons }
+      ingest.ingestEntry.mockReturnValue({ status: 'rejected', entry: { id: 'rej-1' }, reasons: ['content too short'] });
       const entry: PatternEntry = {
         type: 'review',
         title: 'Bad',
