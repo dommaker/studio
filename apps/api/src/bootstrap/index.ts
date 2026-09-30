@@ -8,6 +8,7 @@
 //   - 优雅关闭的逆序清理由 lifecycle.registerShutdown 承载。
 import { logger, bootstrapHarness } from '@dommaker/studio-shared';
 import { app, registerRoutes } from '../app.js';
+import { initStore } from '../core/store.js';
 import { initConfig, getPort, getHost } from './config.js';
 import { runDataMigrations, reconcileWorkUnitIndex } from './migrations.js';
 import { seedBuiltinSkillsStep } from './seed.js';
@@ -21,6 +22,9 @@ import { startTunnelIfEnabled } from './tunnel.js';
 
 export async function bootstrap(): Promise<void> {
   initConfig();
+  // P2-b：钉定进程级 FileStore（core/store.ts）——必须先于一切消费（迁移/路由/service），
+  // 此后 apps/api 与 packages 共享同一实例；消费方一律函数内 getStore()，禁 import 期捕获。
+  initStore();
   try {
     await runDataMigrations();
     await reconcileWorkUnitIndex();

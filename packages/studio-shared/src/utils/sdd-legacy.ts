@@ -8,9 +8,8 @@
  * 写侧已死——本模块不提供任何写入能力，也不接受新功能。
  */
 
-import { FileStore, parseFrontmatter } from '../file-store';
-
-const store = new FileStore();
+import { parseFrontmatter } from '../file-store';
+import { getDefaultFileStore } from '../file-store-default';
 
 // ── Types ──
 
@@ -165,7 +164,7 @@ export function stringifySddFrontmatter(fm: Partial<SddFrontmatter>): string {
 export async function listLegacySddDocs(baseDir: string): Promise<string[]> {
   requireBaseDir(baseDir);
   try {
-    const entries = await store.readdir(baseDir);
+    const entries = await getDefaultFileStore().readdir(baseDir);
     return entries.filter(e => e.isDirectory()).map(e => e.name);
   } catch {
     return [];
@@ -177,7 +176,7 @@ export async function listLegacySddDocs(baseDir: string): Promise<string[]> {
  */
 export async function readLegacySddDoc(baseDir: string, slug: string, layer: LegacySddLayer): Promise<{ meta: Partial<SddFrontmatter>; body: string } | null> {
   requireBaseDir(baseDir);
-  const doc = await store.readDoc(baseDir, `${slug}/${layer}`);
+  const doc = await getDefaultFileStore().readDoc(baseDir, `${slug}/${layer}`);
   if (!doc) return null;
   return { meta: doc.meta as Partial<SddFrontmatter>, body: doc.body };
 }

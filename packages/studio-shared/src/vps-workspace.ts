@@ -15,7 +15,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { FileStore } from './file-store.js';
+import { getDefaultFileStore } from './file-store-default';
 import { studioPath } from './config/studio-dir';
 
 /** workspace 记录中与本判定相关的字段（记录其余字段经索引签名原样保留） */
@@ -27,8 +27,6 @@ export interface VpsWorkspaceRecord {
   updatedAt?: string;
   [key: string]: unknown;
 }
-
-const fileStore = new FileStore();
 
 /** workspaces 存储目录（~/.studio/workspaces） */
 export function resolveWorkspacesDir(): string {
@@ -48,7 +46,7 @@ export async function resolveVpsWorkspace(opts?: { workspacesDir?: string }): Pr
     let best: VpsWorkspaceRecord | null = null;
     for (const e of entries) {
       if (!e.isFile() || !e.name.endsWith('.json')) continue;
-      const data = await fileStore.readJson<VpsWorkspaceRecord>(path.join(dir, e.name));
+      const data = await getDefaultFileStore().readJson<VpsWorkspaceRecord>(path.join(dir, e.name));
       if (data && data.name === 'VPS' && !data.tokenId) {
         if (!best || mtime(data) > mtime(best)) best = data;
       }

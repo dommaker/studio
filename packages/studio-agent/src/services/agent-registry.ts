@@ -1,5 +1,5 @@
 // Agent Registry - Agent 注册中心
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, getDefaultFileStore, logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -41,8 +41,8 @@ export class AgentRegistry {
   private cachePrefix = 'agent:';
   private cacheTTL = 3600; // 1 hour
 
-  constructor(store: CacheStore) {
-    this.fileStore = new FileStore();
+  constructor(store: CacheStore, fileStore?: FileStore) {
+    this.fileStore = fileStore ?? getDefaultFileStore();
     this.store = store;
   }
 

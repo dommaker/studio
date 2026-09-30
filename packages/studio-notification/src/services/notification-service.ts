@@ -2,7 +2,7 @@
  * 通知服务
  */
 
-import { FileStore, foldJsonlById, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
+import { FileStore, foldJsonlById, getDefaultFileStore, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import fs from 'node:fs';
 
@@ -226,5 +226,5 @@ export class NotificationService {
   }
 }
 
-// 单例实例
-export const notificationService = new NotificationService(new FileStore());
+// 单例实例（P2-b：默认实例经持有器获取，不再自行 new；测试请自行 new NotificationService(显式 root)）
+export const notificationService = new NotificationService(getDefaultFileStore());

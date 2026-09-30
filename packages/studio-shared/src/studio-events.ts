@@ -34,11 +34,9 @@
  * 30 天 → 月度 gzip 冷包永久保留；噪声 level=debug 7 天滚动删除），index.ts 启动
  * 挂载每 24h 一轮。
  */
-import { FileStore } from './file-store';
+import { getDefaultFileStore } from './file-store-default';
 import { logger } from './utils/logger';
 import { resolveStudioLogFile } from './log-path';
-
-const fileStore = new FileStore();
 
 /**
  * 统一事件文件路径（~/.studio/logs/studio-events.jsonl；测试期走隔离目录）。
@@ -110,7 +108,7 @@ export async function writeStudioEvent(
   }
   try {
     const level = opts?.level ?? defaultStudioEventLevel(type);
-    await fileStore.appendJsonl(opts?.file ?? resolveStudioEventsFile(), {
+    await getDefaultFileStore().appendJsonl(opts?.file ?? resolveStudioEventsFile(), {
       type,
       ...(opts?.source ? { source: opts.source } : {}),
       // #172: level 为可选字段，缺省 info 不落字段（读取侧缺省即 info）。
@@ -131,7 +129,7 @@ export async function writeStudioEvent(
 /** 统一读 API：读取事件文件全部行（损坏行跳过；文件不存在 → []，不抛出） */
 export async function readStudioEvents(opts?: { file?: string }): Promise<Array<Record<string, unknown>>> {
   try {
-    return await fileStore.readJsonl<Record<string, unknown>>(opts?.file ?? resolveStudioEventsFile());
+    return await getDefaultFileStore().readJsonl<Record<string, unknown>>(opts?.file ?? resolveStudioEventsFile());
   } catch {
     return [];
   }

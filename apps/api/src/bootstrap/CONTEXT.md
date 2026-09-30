@@ -6,7 +6,7 @@
 
 ### 核心导出
 
-- `index.ts` — `bootstrap()` 装配入口：按原 index.ts start() 逐行顺序调用各步；catch 兜底 = 拒启（logger.error + process.exit(1)）
+- `index.ts` — `bootstrap()` 装配入口：按原 index.ts start() 逐行顺序调用各步；catch 兜底 = 拒启（logger.error + process.exit(1)）。P2-b 起首步为 `initConfig()` → `initStore()`（钉定进程级 FileStore，必须先于迁移等一切 store 消费，见 `../core/CONTEXT.md`）
 - `config.ts` — `initConfig()`（PORT/HOST 解析 → warnIfNonProdUsesProdRoot → loadConfig 注入 STUDIO_CONFIG_DIR .env）+ `getPort()/getHost()`
 - `migrations.ts` — `runDataMigrations()`（数据区 schema 迁移，失败抛 MigrationError = 拒启）+ `reconcileWorkUnitIndex()`（#170 启动对账，失败不阻断）
 - `seed.ts` — `seedBuiltinSkillsStep()`（#223 内置 skill 播种，best-effort）

@@ -44,6 +44,8 @@ export { memoryStore } from './memory-store';
 // 导出 FileStore (AN 运行时数据文件存储)
 export { FileStore, LockTimeoutError, parseChannels, stringifyChannels, parseFrontmatter, serializeFrontmatter, formatRequirementId, formatEvolutionId, parseWorkUnitIndexContent } from './file-store';
 export type { FileStoreOptions } from './file-store';
+// 进程级默认 FileStore 持有器（P2-b：全仓唯一无参构造出处，消费方经访问口获取）
+export { getDefaultFileStore, setDefaultFileStore, resetDefaultFileStoreForTesting } from './file-store-default';
 // 导出 JSONL append-only 折叠（#360：byId 分组 + 业务侧墓碑判据）
 export { foldJsonlById } from './jsonl-fold';
 export type { JsonlFoldGroup } from './jsonl-fold';
