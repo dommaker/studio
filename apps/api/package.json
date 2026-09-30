@@ -13,6 +13,8 @@
     "@dommaker/harness": "^2.0.0",
     "@dommaker/studio-agent": "workspace:*",
     "@dommaker/studio-audit": "workspace:*",
+    "@dommaker/studio-contract": "workspace:*",
+    "zod": "^3.22.0",
     "@dommaker/studio-notification": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "@dommaker/studio-skill": "workspace:*",

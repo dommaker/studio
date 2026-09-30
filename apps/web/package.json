@@ -14,6 +14,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@dommaker/studio-contract": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "@tailwindcss/postcss": "^4.2.2",
     "@tanstack/react-virtual": "^3.14.10",
