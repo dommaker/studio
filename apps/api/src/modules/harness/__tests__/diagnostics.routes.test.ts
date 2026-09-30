@@ -76,7 +76,9 @@ describe('diagnostics.routes', () => {
   it('POST /classify 400 without message / 200 classifies with level', async () => {
     const bad = await api('POST', '/classify', {});
     expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('message is required');
+    // 必填收 zod（批次 6/7）：错误统一 { error: { code, message } }
+    expect(bad.json.error.code).toBe('BAD_REQUEST');
+    expect(bad.json.error.message).toContain('message');
 
     const ok = await api('POST', '/classify', { message: 'something broke', name: 'TypeError' });
     expect(ok.status).toBe(200);
@@ -91,7 +93,8 @@ describe('diagnostics.routes', () => {
   it('POST /failures 400 without message / 200 records with defaults', async () => {
     const bad = await api('POST', '/failures', {});
     expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('message is required');
+    expect(bad.json.error.code).toBe('BAD_REQUEST');
+    expect(bad.json.error.message).toContain('message');
 
     const ok = await api('POST', '/failures', { message: 'boom' });
     expect(ok.status).toBe(200);

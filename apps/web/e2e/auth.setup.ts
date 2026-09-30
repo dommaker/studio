@@ -9,7 +9,8 @@ setup('authenticate via guest endpoint', async ({ request }) => {
     data: { name: 'e2e-test-user' },
   });
   const data = await res.json();
-  const body = data as { session?: { token?: string }; token?: string };
+  // { data } 壳（契约驱动批次 6/7）
+  const body = (data as { data?: { session?: { token?: string }; token?: string } }).data ?? {};
   const token = body.session?.token || body.token;
   if (!token) throw new Error('Failed to get guest token: ' + JSON.stringify(data));
 

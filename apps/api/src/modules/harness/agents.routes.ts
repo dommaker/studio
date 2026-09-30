@@ -10,14 +10,27 @@
  * - GET  /agents/:id          agent 状态
  *
  * AgentLifecycle 单例仅本文件使用。
+ *
+ * 契约驱动迁移（2026-10 批次 6/7）：走 core/http.ts defineRoute——
+ * 注册 id 必填收进 zod（原手写 400 退役）；列表壳内层 data 键改名词键
+ * `{ data: { agents, total } }`（无消费方）；错误统一 `{ error: { code, message } }`
+ * （503 SERVICE_UNAVAILABLE；500 message 由固定串变为实际错误消息）。
  */
 
-import { Router, Request, Response } from 'express';
-import { logger } from '@dommaker/studio-shared';
+import { Router } from 'express';
+import { defineRoute, HttpError } from '../../core/http.js';
+import {
+  harnessAgentRegisterBodySchema,
+  harnessAgentFailBodySchema,
+  harnessAgentCompleteBodySchema,
+  harnessIdParamsSchema,
+} from '@dommaker/studio-contract';
 import type { AgentLifecycle as AgentLifecycleType } from '@dommaker/harness';
 import { loadHarness, harnessModule } from './runtime.js';
 
 export const agentsRoutes = Router();
+
+const HARNESS_UNAVAILABLE = () => new HttpError(503, 'SERVICE_UNAVAILABLE', 'Harness not available');
 
 // ─── Agent Lifecycle (T-014) ───
 
@@ -37,108 +50,95 @@ async function getAgentLifecycle(): Promise<AgentLifecycleType | null> {
  * POST /api/v1/harness/agents
  * Register an agent
  */
-agentsRoutes.post('/agents', async (req: Request, res: Response) => {
-  try {
+agentsRoutes.post('/agents', defineRoute(
+  { body: harnessAgentRegisterBodySchema },
+  async (_req, _res, { body }) => {
     const lifecycle = await getAgentLifecycle();
-    if (!lifecycle) return res.status(503).json({ error: 'Harness not available' });
+    if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
-    const { id, type, name, capabilities, config } = req.body;
-    if (!id) return res.status(400).json({ error: 'id is required' });
-
-    const state = lifecycle.register({ id, type, name, capabilities, ...config });
-    return res.json({ data: state });
-  } catch (error) {
-    logger.error('Failed to register agent', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to register agent' });
-  }
-});
+    const state = lifecycle.register({
+      id: body.id,
+      type: body.type,
+      name: body.name,
+      capabilities: body.capabilities,
+      ...body.config,
+    } as unknown as Parameters<AgentLifecycleType['register']>[0]);
+    return state as unknown as Record<string, unknown>;
+  },
+));
 
 /**
  * POST /api/v1/harness/agents/:id/start
  * Mark agent as started
  */
-agentsRoutes.post('/agents/:id/start', async (req: Request, res: Response) => {
-  try {
+agentsRoutes.post('/agents/:id/start', defineRoute(
+  { params: harnessIdParamsSchema },
+  async (_req, _res, { params }) => {
     const lifecycle = await getAgentLifecycle();
-    if (!lifecycle) return res.status(503).json({ error: 'Harness not available' });
+    if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
-    const state = lifecycle.start(req.params.id as string);
-    if (!state) return res.status(404).json({ error: 'Agent not found' });
-    return res.json({ data: state });
-  } catch (error) {
-    logger.error('Failed to start agent', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to start agent' });
-  }
-});
+    const state = lifecycle.start(params.id);
+    if (!state) throw new HttpError(404, 'NOT_FOUND', 'Agent not found');
+    return state as unknown as Record<string, unknown>;
+  },
+));
 
 /**
  * POST /api/v1/harness/agents/:id/complete
  * Mark agent as completed
  */
-agentsRoutes.post('/agents/:id/complete', async (req: Request, res: Response) => {
-  try {
+agentsRoutes.post('/agents/:id/complete', defineRoute(
+  { params: harnessIdParamsSchema, body: harnessAgentCompleteBodySchema },
+  async (_req, _res, { params, body }) => {
     const lifecycle = await getAgentLifecycle();
-    if (!lifecycle) return res.status(503).json({ error: 'Harness not available' });
+    if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
-    const state = lifecycle.complete(req.params.id as string, req.body.metadata);
-    if (!state) return res.status(404).json({ error: 'Agent not found' });
-    return res.json({ data: state });
-  } catch (error) {
-    logger.error('Failed to complete agent', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to complete agent' });
-  }
-});
+    const state = lifecycle.complete(params.id, body.metadata as Parameters<AgentLifecycleType['complete']>[1]);
+    if (!state) throw new HttpError(404, 'NOT_FOUND', 'Agent not found');
+    return state as unknown as Record<string, unknown>;
+  },
+));
 
 /**
  * POST /api/v1/harness/agents/:id/fail
  * Mark agent as failed
  */
-agentsRoutes.post('/agents/:id/fail', async (req: Request, res: Response) => {
-  try {
+agentsRoutes.post('/agents/:id/fail', defineRoute(
+  { params: harnessIdParamsSchema, body: harnessAgentFailBodySchema },
+  async (_req, _res, { params, body }) => {
     const lifecycle = await getAgentLifecycle();
-    if (!lifecycle) return res.status(503).json({ error: 'Harness not available' });
+    if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
-    const { error: errorMsg } = req.body;
-    const state = lifecycle.fail(req.params.id as string, errorMsg || 'Unknown error');
-    if (!state) return res.status(404).json({ error: 'Agent not found' });
-    return res.json({ data: state });
-  } catch (error) {
-    logger.error('Failed to mark agent as failed', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to mark agent as failed' });
-  }
-});
+    const state = lifecycle.fail(params.id, body.error || 'Unknown error');
+    if (!state) throw new HttpError(404, 'NOT_FOUND', 'Agent not found');
+    return state as unknown as Record<string, unknown>;
+  },
+));
 
 /**
  * GET /api/v1/harness/agents
  * List all agents
  */
-agentsRoutes.get('/agents', async (_req: Request, res: Response) => {
-  try {
-    const lifecycle = await getAgentLifecycle();
-    if (!lifecycle) return res.status(503).json({ error: 'Harness not available' });
+agentsRoutes.get('/agents', defineRoute({}, async () => {
+  const lifecycle = await getAgentLifecycle();
+  if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
-    const agents = lifecycle.getAllStates();
-    return res.json({ data: agents, total: agents.length });
-  } catch (error) {
-    logger.error('Failed to list agents', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to list agents' });
-  }
-});
+  const agents = lifecycle.getAllStates();
+  return { agents, total: agents.length };
+}));
 
 /**
  * GET /api/v1/harness/agents/:id
  * Get agent state
  */
-agentsRoutes.get('/agents/:id', async (req: Request, res: Response) => {
-  try {
+agentsRoutes.get('/agents/:id', defineRoute(
+  { params: harnessIdParamsSchema },
+  async (_req, _res, { params }) => {
     const lifecycle = await getAgentLifecycle();
-    if (!lifecycle) return res.status(503).json({ error: 'Harness not available' });
+    if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
-    const state = lifecycle.getState(req.params.id as string);
-    if (!state) return res.status(404).json({ error: 'Agent not found' });
-    return res.json({ data: state });
-  } catch (error) {
-    logger.error('Failed to get agent', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to get agent' });
-  }
-});
+    const state = lifecycle.getState(params.id);
+    if (!state) throw new HttpError(404, 'NOT_FOUND', 'Agent not found');
+    return state as unknown as Record<string, unknown>;
+  },
+));

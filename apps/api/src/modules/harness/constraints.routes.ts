@@ -23,17 +23,31 @@
  * `constraints reactivate` CLI（spawn，同 constraint-adapter 解析纪律）；
  * retired 墓碑读取暂无 harness 公共面，直读记豁免，待 dommaker/harness#188
  * （listRetiredConstraints）发布升级后切换并清除本豁免。
+ *
+ * 契约驱动迁移（2026-10 批次 6/7）：走 core/http.ts defineRoute——
+ * propose-upgrade constraintId 合法字符集与 check-constraints operation 必填收进 zod
+ * （原手写 400 退役）；列表壳内层 data 键改名词键进 `{ data }` 壳
+ * （constraints/retired；stats 内层 data 剥掉直进壳形状不变）；propose-upgrade
+ * `{ success, data }` success 标志退役；rollback `{ data, rolledBack }` 兄弟键与
+ * check-constraints 标注键（strippedEvidenceFlags/violationPartialView）收进 data 内；
+ * 错误统一 `{ error: { code, message } }`（503 SERVICE_UNAVAILABLE；
+ * 500 message 由固定串变为实际错误消息）。
  */
 
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import { buildConstraintsUsageReport, ConstraintViolationError } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared';
+import { defineRoute, HttpError } from '../../core/http.js';
+import {
+  constraintIdParamsSchema,
+  proposeUpgradeBodySchema,
+  checkConstraintsBodySchema,
+} from '@dommaker/studio-contract';
 import { loadHarness, harnessModule } from './runtime.js';
 import { sanitizeConstraintContext, downgradeAnnotation, violationAsPartialView, VIOLATION_PARTIAL_VIEW } from './sanitize-context.js';
-import type { SanitizedContext } from './sanitize-context.js';
 import {
   getConstraintReviewAdapter,
   submitConstraintUpgradeProposal,
@@ -43,6 +57,8 @@ import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge/knowledge-singletons.js';
 import { formatConstraintStats } from '../evolution/format-constraint-stats.js';
 
 export const constraintsRoutes = Router();
+
+const HARNESS_UNAVAILABLE = () => new HttpError(503, 'SERVICE_UNAVAILABLE', 'Harness not available');
 
 /** 项目根（harness 配置 .harness/ 所在目录）：与 harness CLI 一致，缺省 process.cwd() */
 function projectRoot(): string {
@@ -68,90 +84,73 @@ function readConfigConstraints(root: string): Record<string, Record<string, unkn
  * GET /api/v1/harness/constraints
  * 列出当前生效约束集（内置 → preset → config.yml 禁用，带 kind/severity）
  */
-constraintsRoutes.get('/constraints', async (_req: Request, res: Response) => {
-  try {
-    const loaded = await loadHarness();
-    if (!loaded || !harnessModule) return res.status(503).json({ error: 'Harness not available' });
+constraintsRoutes.get('/constraints', defineRoute({}, async () => {
+  const loaded = await loadHarness();
+  if (!loaded || !harnessModule) throw HARNESS_UNAVAILABLE();
 
-    const constraints = harnessModule.getEffectiveConstraints(projectRoot()).map(c => ({
-      id: c.id,
-      kind: c.kind,
-      severity: c.severity,
-      trigger: c.trigger,
-      rule: c.rule,
-      message: c.message,
-      enforcement: c.enforcement,
-    }));
-    return res.json({ data: constraints, total: constraints.length });
-  } catch (error) {
-    logger.error('Failed to list constraints', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to list constraints' });
-  }
-});
+  const constraints = harnessModule.getEffectiveConstraints(projectRoot()).map(c => ({
+    id: c.id,
+    kind: c.kind,
+    severity: c.severity,
+    trigger: c.trigger,
+    rule: c.rule,
+    message: c.message,
+    enforcement: c.enforcement,
+  }));
+  return { constraints, total: constraints.length };
+}));
 
 /**
  * GET /api/v1/harness/constraints/stats
  * 生效集统计。0.17.0 语义变化：原按 layer（safety/quality）聚合 → 现按 kind/severity 聚合
  */
-constraintsRoutes.get('/constraints/stats', async (_req: Request, res: Response) => {
-  try {
-    const loaded = await loadHarness();
-    if (!loaded || !harnessModule) return res.status(503).json({ error: 'Harness not available' });
+constraintsRoutes.get('/constraints/stats', defineRoute({}, async () => {
+  const loaded = await loadHarness();
+  if (!loaded || !harnessModule) throw HARNESS_UNAVAILABLE();
 
-    const constraints = harnessModule.getEffectiveConstraints(projectRoot());
-    const byKind: Record<string, number> = {};
-    const bySeverity: Record<string, number> = {};
-    for (const c of constraints) {
-      byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
-      bySeverity[c.severity] = (bySeverity[c.severity] ?? 0) + 1;
-    }
-    return res.json({ data: { total: constraints.length, byKind, bySeverity } });
-  } catch (error) {
-    logger.error('Failed to get constraint stats', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to get constraint stats' });
+  const constraints = harnessModule.getEffectiveConstraints(projectRoot());
+  const byKind: Record<string, number> = {};
+  const bySeverity: Record<string, number> = {};
+  for (const c of constraints) {
+    byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
+    bySeverity[c.severity] = (bySeverity[c.severity] ?? 0) + 1;
   }
-});
+  return { total: constraints.length, byKind, bySeverity };
+}));
 
 /**
  * GET /api/v1/harness/constraints/retired
  * 已退役约束元数据：config.yml constraints.<id>.retired（唯一落点）。
  */
-constraintsRoutes.get('/constraints/retired', async (_req: Request, res: Response) => {
-  try {
-    const retired: Array<{ id: string; enabled: boolean; source: 'config'; retired: unknown }> = [];
+constraintsRoutes.get('/constraints/retired', defineRoute({}, async () => {
+  const retired: Array<{ id: string; enabled: boolean; source: 'config'; retired: unknown }> = [];
 
-    const configured = readConfigConstraints(projectRoot());
-    for (const [id, v] of Object.entries(configured)) {
-      if (v && typeof v === 'object' && v.retired) {
-        retired.push({ id, enabled: v.enabled === true, source: 'config', retired: v.retired });
-      }
+  const configured = readConfigConstraints(projectRoot());
+  for (const [id, v] of Object.entries(configured)) {
+    if (v && typeof v === 'object' && v.retired) {
+      retired.push({ id, enabled: v.enabled === true, source: 'config', retired: v.retired });
     }
-
-    return res.json({ data: retired, total: retired.length });
-  } catch (error) {
-    logger.error('Failed to list retired constraints', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to list retired constraints' });
   }
-});
+
+  return { retired, total: retired.length };
+}));
 
 /**
  * GET /api/v1/harness/constraints/:id
  * 约束详情（生效集内查找）
  */
-constraintsRoutes.get('/constraints/:id', async (req: Request, res: Response) => {
-  try {
+constraintsRoutes.get('/constraints/:id', defineRoute(
+  { params: constraintIdParamsSchema },
+  async (_req, _res, { params }) => {
     const loaded = await loadHarness();
-    if (!loaded || !harnessModule) return res.status(503).json({ error: 'Harness not available' });
+    if (!loaded || !harnessModule) throw HARNESS_UNAVAILABLE();
 
     const constraint = harnessModule.getEffectiveConstraints(projectRoot())
-      .find(c => c.id === req.params.id as string);
-    if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
-    return res.json({ data: constraint });
-  } catch (error) {
-    logger.error('Failed to get constraint', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to get constraint' });
-  }
-});
+      .find(c => c.id === params.id);
+    if (!constraint) throw new HttpError(404, 'NOT_FOUND', 'Constraint not found');
+    return constraint;
+  },
+));
 
 /**
  * POST /api/v1/harness/constraints/propose-upgrade
@@ -161,15 +160,13 @@ constraintsRoutes.get('/constraints/:id', async (req: Request, res: Response) =>
  * kind 提案卡（action='upgrade'，卡面带条文 + checker 配置 + traces 统计白话）发 #系统。
  * approve 后的 pack-proposal 落点归 constraint-adapter；本端点只发起。不自动开 issue。
  */
-constraintsRoutes.post('/constraints/propose-upgrade', async (req: Request, res: Response) => {
-  try {
-    const { constraintId, repoRoot: rawRoot } = (req.body ?? {}) as { constraintId?: unknown; repoRoot?: unknown };
-    if (typeof constraintId !== 'string' || !/^[a-z0-9][a-z0-9_-]*$/i.test(constraintId)) {
-      return res.status(400).json({ error: 'constraintId is required (合法约束 id 字符集)' });
-    }
-    const repoRoot = typeof rawRoot === 'string' && rawRoot ? rawRoot : projectRoot();
+constraintsRoutes.post('/constraints/propose-upgrade', defineRoute(
+  { body: proposeUpgradeBodySchema },
+  async (_req, _res, { body }) => {
+    const constraintId = body.constraintId!;
+    const repoRoot = body.repoRoot ? body.repoRoot : projectRoot();
     if (!path.isAbsolute(repoRoot) || !fs.existsSync(repoRoot) || !fs.statSync(repoRoot).isDirectory()) {
-      return res.status(400).json({ error: `invalid repoRoot: ${repoRoot}（必须是存在的绝对路径目录）` });
+      throw new HttpError(400, 'BAD_REQUEST', `invalid repoRoot: ${repoRoot}（必须是存在的绝对路径目录）`);
     }
 
     // 校验是应用层约束（constraints.yml 定义正本，id 强制 app_ 前缀由 harness 加载期保证）
@@ -179,7 +176,7 @@ constraintsRoutes.post('/constraints/propose-upgrade', async (req: Request, res:
       : {};
     const entry = (raw.constraints ?? []).find(e => e?.id === constraintId);
     if (!entry || typeof entry.rule !== 'string') {
-      return res.status(404).json({ error: `not-an-app-constraint: ${constraintId}（.harness/constraints.yml 无此条目；内置约束升级请直接联系 harness 仓）` });
+      throw new HttpError(404, 'NOT_FOUND', `not-an-app-constraint: ${constraintId}（.harness/constraints.yml 无此条目；内置约束升级请直接联系 harness 仓）`);
     }
 
     // traces 统计白话（report 读不到 = 零记录口径，不阻断发起；子项 9：统一过 formatConstraintStats）
@@ -197,7 +194,7 @@ constraintsRoutes.post('/constraints/propose-upgrade', async (req: Request, res:
     try {
       adapter = getConstraintReviewAdapter();
     } catch {
-      return res.status(503).json({ error: 'constraint review adapter not registered（EvolutionService 未装配）' });
+      throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'constraint review adapter not registered（EvolutionService 未装配）');
     }
     const { proposalId, posted } = await submitConstraintUpgradeProposal(adapter, {
       repoRoot,
@@ -211,12 +208,9 @@ constraintsRoutes.post('/constraints/propose-upgrade', async (req: Request, res:
       },
       statsText,
     });
-    return res.json({ success: true, data: { proposalId, posted } });
-  } catch (error) {
-    logger.error('Failed to propose constraint upgrade', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to propose constraint upgrade' });
-  }
-});
+    return { proposalId, posted };
+  },
+));
 
 /**
  * POST /api/v1/harness/constraints/:id/rollback
@@ -229,28 +223,29 @@ constraintsRoutes.post('/constraints/propose-upgrade', async (req: Request, res:
  * 判定不依赖 CLI stdout 文案（skip 与成功退出码同为 0）：前置墓碑检查定 404，
  * 写后复查墓碑已摘除定成功，CLI 非零退出 → 500。
  */
-constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Response) => {
-  try {
+constraintsRoutes.post('/constraints/:id/rollback', defineRoute(
+  { params: constraintIdParamsSchema },
+  async (_req, _res, { params }) => {
     const root = projectRoot();
     const before = readConfigConstraints(root);
-    const entry = before[req.params.id as string];
+    const entry = before[params.id];
     if (!(entry && typeof entry === 'object' && entry.retired && entry.enabled === false)) {
-      return res.status(404).json({ error: `No retired entry for constraint: ${req.params.id as string}` });
+      throw new HttpError(404, 'NOT_FOUND', `No retired entry for constraint: ${params.id}`);
     }
 
     const spawned = await runCmd(process.execPath, [
-      resolveHarnessBin(), 'constraints', 'reactivate', req.params.id as string, '--yes', '-p', root,
+      resolveHarnessBin(), 'constraints', 'reactivate', params.id, '--yes', '-p', root,
     ], { KNOWLEDGE_BASE_DIR: UNIFIED_KNOWLEDGE_DIR });
     if (spawned.code !== 0) {
-      logger.error('harness constraints reactivate failed', { id: req.params.id as string, code: spawned.code, stderr: spawned.stderr.slice(0, 400) });
-      return res.status(500).json({ error: 'Failed to rollback constraint (harness CLI error)' });
+      logger.error('harness constraints reactivate failed', { id: params.id, code: spawned.code, stderr: spawned.stderr.slice(0, 400) });
+      throw new HttpError(500, 'INTERNAL', 'Failed to rollback constraint (harness CLI error)');
     }
 
     // 写后复查：墓碑仍在 = CLI skip（如 unknown_id），不冒报成功
     const after = readConfigConstraints(root);
-    if (req.params.id as string in after) {
-      logger.error('harness constraints reactivate skipped (tombstone still present)', { id: req.params.id as string, stdout: spawned.stdout.slice(0, 400) });
-      return res.status(500).json({ error: `Failed to rollback constraint: ${req.params.id as string}（reactivate 未生效）` });
+    if (params.id in after) {
+      logger.error('harness constraints reactivate skipped (tombstone still present)', { id: params.id, stdout: spawned.stdout.slice(0, 400) });
+      throw new HttpError(500, 'INTERNAL', `Failed to rollback constraint: ${params.id}（reactivate 未生效）`);
     }
 
     // 回滚后若重新进入生效集，返回其定义
@@ -258,14 +253,11 @@ constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Re
     const loaded = await loadHarness();
     if (loaded && harnessModule) {
       restored = harnessModule.getEffectiveConstraints(root)
-        .find(c => c.id === req.params.id as string) ?? null;
+        .find(c => c.id === params.id) ?? null;
     }
-    return res.json({ data: restored, rolledBack: true });
-  } catch (error) {
-    logger.error('Failed to rollback constraint', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to rollback constraint' });
-  }
-});
+    return { restored, rolledBack: true };
+  },
+));
 
 // ─── Quality Gate (M2) ───
 
@@ -273,33 +265,35 @@ constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Re
  * POST /api/v1/harness/check-constraints
  * M2: RequirementsDoc quality gate — run non-throwing constraint check for UI
  */
-constraintsRoutes.post('/check-constraints', async (req: Request, res: Response) => {
-  let sanitized: SanitizedContext | undefined;
-  try {
+constraintsRoutes.post('/check-constraints', defineRoute(
+  { body: checkConstraintsBodySchema },
+  async (_req, _res, { body }) => {
     const loaded = await loadHarness();
-    if (!loaded) return res.status(503).json({ error: 'Harness not available' });
-
-    const { operation, taskDescription, projectPath, hasRequirement } = req.body;
-    if (!operation) return res.status(400).json({ error: 'operation is required' });
+    if (!loaded) throw HARNESS_UNAVAILABLE();
 
     // Use checkConstraints (checkConstraintsSafe removed in harness 0.13.0)
     // #641：证据标志不可由调用方自报——hasRequirement 剥离，依赖项降级 skip
-    sanitized = sanitizeConstraintContext({ operation: operation as string, taskDescription, projectPath, hasRequirement });
-    const result = await harnessModule!.checkConstraints(sanitized.context);
-
-    return res.json({ data: result, ...downgradeAnnotation(sanitized.strippedFlags) });
-  } catch (error) {
-    // block 模式首个 error 级违规即抛（ConstraintViolationError 只带该条结果）：
-    // 违规是判定数据不是服务故障——转部分视图数据返回，500 只留给真实调不通 harness
-    if (error instanceof ConstraintViolationError) {
-      logger.warn('[Harness] check-constraints violation (partial view)', { id: error.result.id });
-      return res.json({
-        data: violationAsPartialView(error),
-        ...downgradeAnnotation(sanitized?.strippedFlags ?? []),
-        violationPartialView: VIOLATION_PARTIAL_VIEW,
-      });
+    const sanitized = sanitizeConstraintContext({
+      operation: body.operation!,
+      taskDescription: body.taskDescription,
+      projectPath: body.projectPath,
+      hasRequirement: body.hasRequirement,
+    });
+    try {
+      const result = await harnessModule!.checkConstraints(sanitized.context);
+      return { ...result, ...downgradeAnnotation(sanitized.strippedFlags) };
+    } catch (error) {
+      // block 模式首个 error 级违规即抛（ConstraintViolationError 只带该条结果）：
+      // 违规是判定数据不是服务故障——转部分视图数据返回，500 只留给真实调不通 harness
+      if (error instanceof ConstraintViolationError) {
+        logger.warn('[Harness] check-constraints violation (partial view)', { id: error.result.id });
+        return {
+          ...violationAsPartialView(error),
+          ...downgradeAnnotation(sanitized.strippedFlags),
+          violationPartialView: VIOLATION_PARTIAL_VIEW,
+        };
+      }
+      throw error;
     }
-    logger.error('Failed to check constraints', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to check constraints' });
-  }
-});
+  },
+));

@@ -58,14 +58,17 @@ describe('GET /', () => {
     const { req, res } = mockReqRes();
     await routeHandler.value!(req, res);
 
+    // 契约驱动（批次 6/7）：裸结果进 { data } 壳
     expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        harnessCheck: expect.objectContaining({
-          details: expect.arrayContaining([
-            expect.objectContaining({ id: 'capability_sync' }),
-          ]),
+      {
+        data: expect.objectContaining({
+          harnessCheck: expect.objectContaining({
+            details: expect.arrayContaining([
+              expect.objectContaining({ id: 'capability_sync' }),
+            ]),
+          }),
         }),
-      }),
+      },
     );
   });
 
@@ -87,7 +90,7 @@ describe('GET /', () => {
     const { req: req1, res: res1 } = mockReqRes();
     await routeHandler.value!(req1, res1);
     const jsonArg1 = (res1.json as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    const cs1 = jsonArg1.harnessCheck.details.find((d: { id: string }) => d.id === 'capability_sync');
+    const cs1 = jsonArg1.data.harnessCheck.details.find((d: { id: string }) => d.id === 'capability_sync');
     expect(cs1.passed).toBe(true);
 
     // Test: satisfied=false => passed=false
@@ -105,7 +108,7 @@ describe('GET /', () => {
     const { req: req2, res: res2 } = mockReqRes();
     await routeHandler.value!(req2, res2);
     const jsonArg2 = (res2.json as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    const cs2 = jsonArg2.harnessCheck.details.find((d: { id: string }) => d.id === 'capability_sync');
+    const cs2 = jsonArg2.data.harnessCheck.details.find((d: { id: string }) => d.id === 'capability_sync');
     expect(cs2.passed).toBe(false);
   });
 });

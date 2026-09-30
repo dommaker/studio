@@ -52,6 +52,7 @@ describe('dashboard.routes', () => {
   it('GET /health returns lightweight ok status', async () => {
     const res = await api('GET', '/health');
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ status: 'ok', harness: 'connected', constraintsActive: true });
+    // 裸对象进 { data } 壳（批次 6/7）
+    expect(res.json).toEqual({ data: { status: 'ok', harness: 'connected', constraintsActive: true } });
   });
 });

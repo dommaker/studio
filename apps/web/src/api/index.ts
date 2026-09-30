@@ -12,6 +12,9 @@ import type {
   Workspace,
   LibraryListItem,
   LibraryDocDetail,
+  AuthResult,
+  AuthMeResult,
+  AuthRefreshResult,
 } from '@dommaker/studio-contract';
 
 // 🆕 PMO-b: 交付台账类型（GET /pmo/project/:id/delivery 响应形状）——
@@ -80,8 +83,9 @@ function flushQueue(error: unknown, token: string | null) {
 
 /** Refresh access token using a refresh token. Uses standalone axios — no interceptor recursion. */
 export async function refreshToken(refreshTokenValue: string): Promise<{ accessToken: string; refreshToken: string }> {
-  const { data } = await axios.post(`${API_BASE}/auth/refresh`, { refreshToken: refreshTokenValue });
-  return { accessToken: data.accessToken, refreshToken: data.refreshToken };
+  // 契约驱动迁移（2026-10 批次 6/7）：响应统一 { data } 壳
+  const { data } = await axios.post<{ data: AuthRefreshResult }>(`${API_BASE}/auth/refresh`, { refreshToken: refreshTokenValue });
+  return { accessToken: data.data.accessToken, refreshToken: data.data.refreshToken };
 }
 
 // Response interceptor: catch 401 → refresh → retry
@@ -148,16 +152,19 @@ api.interceptors.response.use(
 );
 
 // Auth API - 认证系统
+// 契约驱动迁移（2026-10 批次 6/7）：响应统一 { data } 壳并补泛型（原无泛型），
+// 类型 import 自 @dommaker/studio-contract。
+// getOAuthUrl/forgotPassword/resetPassword 后端无对应路由（死面），保持原样不补类型。
 export const authApi = {
   createGuestSession: (guestId: string) =>
-    api.post('/auth/guest-session', { guestId }),
-  checkAuth: () => api.get('/auth/me'),
+    api.post<{ data: AuthResult }>('/auth/guest-session', { guestId }),
+  checkAuth: () => api.get<{ data: AuthMeResult }>('/auth/me'),
   login: (email: string, password: string) =>
-    api.post('/auth/login', { email, password }),
+    api.post<{ data: AuthResult }>('/auth/login', { email, password }),
   register: (email: string, password: string, name?: string) =>
-    api.post('/auth/register', { email, password, name }),
-  logout: () => api.post('/auth/logout'),
-  fetchMe: () => api.get('/auth/me'),
+    api.post<{ data: AuthResult }>('/auth/register', { email, password, name }),
+  logout: () => api.post<{ data: { success: boolean } }>('/auth/logout'),
+  fetchMe: () => api.get<{ data: AuthMeResult }>('/auth/me'),
   /** Returns the OAuth authorization URL for the given provider */
   getOAuthUrl: (provider: 'google' | 'github'): string =>
     `${API_BASE}/auth/${provider}`,

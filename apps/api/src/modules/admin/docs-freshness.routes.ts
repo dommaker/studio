@@ -3,13 +3,18 @@
  *
  * GET /api/v1/admin/docs-freshness — checks both CLAUDE.md staleness
  * and CAPABILITIES.md sync via harness's checkDocsFreshness.
+ *
+ * 契约驱动迁移（2026-10 批次 6/7）：走 core/http.ts defineRoute——裸结果进
+ * `{ data }` 壳（schema 见 studio-contract admin.ts）；500 `{ error: string }`
+ * 退役为 `{ error: { code, message } }`（message 由固定串变为实际错误消息）。
  */
 
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
 import { logger } from '@dommaker/studio-shared';
 import { checkConstraints } from '@dommaker/harness';
+import { defineRoute } from '../../core/http.js';
 
 const router = Router();
 
@@ -30,35 +35,30 @@ interface FreshnessResult {
   };
 }
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', defineRoute({}, async () => {
+  const result = await checkDocsFreshness();
+
+  // T-059: run harness checkDocsFreshness (checks CAPABILITIES.md sync)
   try {
-    const result = await checkDocsFreshness();
+    const harnessResult = await checkConstraints(
+      { operation: 'module_modification', projectPath: PROJECT_ROOT },
+    );
+    const relevantIds = ['docs_freshness', 'capability_sync'];
+    const relevantResults = [
+      ...harnessResult.warnings,
+      ...harnessResult.errors,
+    ].filter(r => relevantIds.includes(r.id));
 
-    // T-059: run harness checkDocsFreshness (checks CAPABILITIES.md sync)
-    try {
-      const harnessResult = await checkConstraints(
-        { operation: 'module_modification', projectPath: PROJECT_ROOT },
-      );
-      const relevantIds = ['docs_freshness', 'capability_sync'];
-      const relevantResults = [
-        ...harnessResult.warnings,
-        ...harnessResult.errors,
-      ].filter(r => relevantIds.includes(r.id));
-
-      result.harnessCheck = {
-        passed: relevantResults.every(r => r.satisfied),
-        details: relevantResults.map(r => ({ id: r.id, passed: r.satisfied, message: r.message })),
-      };
-    } catch {
-      logger.warn('Harness docs freshness check unavailable');
-    }
-
-    res.json(result);
-  } catch (error) {
-    logger.error('Docs freshness check failed', { error: String(error) });
-    res.status(500).json({ error: 'Freshness check failed' });
+    result.harnessCheck = {
+      passed: relevantResults.every(r => r.satisfied),
+      details: relevantResults.map(r => ({ id: r.id, passed: r.satisfied, message: r.message })),
+    };
+  } catch {
+    logger.warn('Harness docs freshness check unavailable');
   }
-});
+
+  return result;
+}));
 
 async function checkDocsFreshness(): Promise<FreshnessResult> {
   const recommendations: string[] = [];

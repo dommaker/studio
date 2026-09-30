@@ -10,14 +10,29 @@
  * POST /diagnose 已随 harness 1.2.0 删除（ADR-0003 孤儿子系统断链，
  * 诊断器无替代，前端零消费）；result=bypassed 随 bypass 记录 API
  * 删除改为 400。
+ *
+ * 契约驱动迁移（2026-10 批次 6/7）：走 core/http.ts defineRoute——
+ * constraintId/severity/result 必填收进 zod（原手写 400 退役，文案变 zod 格式；
+ * result=bypassed 的专属 400 文案保留 handler 显式判）；列表壳内层 data 键
+ * 改名词键进 `{ data }` 壳（`{ data, total }` → `{ data: { traces, total } }`，
+ * 避免 data.data 双包，无消费方）；错误统一 `{ error: { code, message } }`
+ * （503 code SERVICE_UNAVAILABLE；500 message 由固定串变为实际错误消息）。
  */
 
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
+import { defineRoute, HttpError } from '../../core/http.js';
+import {
+  tracesQuerySchema,
+  traceRecordBodySchema,
+  traceAnalysisQuerySchema,
+} from '@dommaker/studio-contract';
 import type { ExecutionTrace, TraceFilter } from '@dommaker/harness';
 import { getCollector, getAnalyzer } from './runtime.js';
 
 export const tracesRoutes = Router();
+
+const HARNESS_UNAVAILABLE = () => new HttpError(503, 'SERVICE_UNAVAILABLE', 'Harness not available');
 
 /**
  * traces.log 坏行计数 > 0 时打 warn（harness#82 后读入口不再抛错，
@@ -34,113 +49,104 @@ function warnSkippedLines(skippedLines: number, endpoint: string): void {
  * GET /api/v1/harness/traces
  * Query execution traces
  */
-tracesRoutes.get('/traces', async (req: Request, res: Response) => {
-  try {
+tracesRoutes.get('/traces', defineRoute(
+  { query: tracesQuerySchema },
+  async (_req, _res, { query }) => {
     const c = await getCollector();
-    if (!c) return res.status(503).json({ error: 'Harness not available' });
+    if (!c) throw HARNESS_UNAVAILABLE();
 
-    const { constraintId, severity, result, hours, limit } = req.query;
     const filter: TraceFilter = {};
-    if (constraintId) filter.constraintId = constraintId as string;
-    if (severity) filter.severity = severity as ExecutionTrace['severity'];
-    if (result) filter.result = result as ExecutionTrace['result'];
-    if (hours) {
-      const h = Number(hours);
+    if (query.constraintId) filter.constraintId = query.constraintId;
+    if (query.severity) filter.severity = query.severity as ExecutionTrace['severity'];
+    if (query.result) filter.result = query.result as ExecutionTrace['result'];
+    if (query.hours) {
+      const h = Number(query.hours);
       filter.timeRange = { start: Date.now() - h * 3600_000, end: Date.now() };
     }
 
     const traces = c.read(filter);
-    const limited = traces.slice(0, Number(limit) || 100);
-    return res.json({ data: limited, total: traces.length });
-  } catch (error) {
-    logger.error('Failed to query traces', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to query traces' });
-  }
-});
+    const limited = traces.slice(0, Number(query.limit) || 100);
+    return { traces: limited, total: traces.length };
+  },
+));
 
 /**
  * POST /api/v1/harness/traces
  * Record an execution trace
  */
-tracesRoutes.post('/traces', async (req: Request, res: Response) => {
-  try {
+tracesRoutes.post('/traces', defineRoute(
+  { body: traceRecordBodySchema },
+  async (_req, _res, { body }) => {
     const c = await getCollector();
-    if (!c) return res.status(503).json({ error: 'Harness not available' });
+    if (!c) throw HARNESS_UNAVAILABLE();
 
-    const { constraintId, severity, result, operation, projectPath, sessionId, userAction } = req.body;
-    if (!constraintId || !severity || !result) {
-      return res.status(400).json({ error: 'constraintId, severity, and result are required' });
+    // bypass 记录 API 已随 harness 1.2.0 删除（专属文案保留，不进 zod 词表拒绝）
+    if (body.result === 'bypassed') {
+      throw new HttpError(400, 'BAD_REQUEST', 'bypassed traces are no longer supported (harness 1.2.0 removed recordBypass)');
     }
 
+    // severity wire 为 string，ExecutionTrace/collector 词表类型边界收回
+    // （userAction 非 ExecutionTrace 字段但历史随 trace 落盘，as 保留运行时形状）
+    const severity = body.severity as 'error' | 'warning';
     const trace = {
-      constraintId,
-      severity,
+      constraintId: body.constraintId,
+      severity: body.severity as ExecutionTrace['severity'],
       timestamp: Date.now(),
-      result,
-      operation,
-      projectPath,
-      sessionId,
-      userAction,
-    };
+      result: body.result,
+      operation: body.operation,
+      projectPath: body.projectPath,
+      sessionId: body.sessionId,
+      userAction: body.userAction,
+    } as Partial<ExecutionTrace>;
 
-    if (result === 'pass') c.recordPass(constraintId, severity, trace);
-    else if (result === 'fail') c.recordFail(constraintId, severity, trace);
-    else if (result === 'bypassed') {
-      return res.status(400).json({ error: 'bypassed traces are no longer supported (harness 1.2.0 removed recordBypass)' });
-    }
+    if (body.result === 'pass') c.recordPass(body.constraintId, severity, trace);
+    else if (body.result === 'fail') c.recordFail(body.constraintId, severity, trace);
 
-    return res.json({ recorded: true });
-  } catch (error) {
-    logger.error('Failed to record trace', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to record trace' });
-  }
-});
+    return { recorded: true };
+  },
+));
 
 /**
  * GET /api/v1/harness/analysis
  * Get trace summaries and anomalies
  */
-tracesRoutes.get('/analysis', async (req: Request, res: Response) => {
-  try {
+tracesRoutes.get('/analysis', defineRoute(
+  { query: traceAnalysisQuerySchema },
+  async (_req, _res, { query }) => {
     const a = await getAnalyzer();
-    if (!a) return res.status(503).json({ error: 'Harness not available' });
+    if (!a) throw HARNESS_UNAVAILABLE();
 
-    const hours = Number(req.query.hours) || 24;
+    const hours = Number(query.hours) || 24;
     // harness#100 报告入口：带坏行计数（兼容签名 analyzeRecent 会丢计数）
     const { summaries, skippedLines } = a.analyzeRecentReport(hours);
     warnSkippedLines(skippedLines, '/analysis');
     const anomalies = a.detectAnomalies(summaries);
 
-    return res.json({
+    return {
       summaries,
       anomalies,
       totalSummaries: summaries.length,
       totalAnomalies: anomalies.length,
       skippedLines,
-    });
-  } catch (error) {
-    logger.error('Failed to analyze traces', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to analyze traces' });
-  }
-});
+    };
+  },
+));
 
 /**
  * GET /api/v1/harness/analysis/anomalies
  * List detected anomalies
  */
-tracesRoutes.get('/analysis/anomalies', async (req: Request, res: Response) => {
-  try {
+tracesRoutes.get('/analysis/anomalies', defineRoute(
+  { query: traceAnalysisQuerySchema },
+  async (_req, _res, { query }) => {
     const a = await getAnalyzer();
-    if (!a) return res.status(503).json({ error: 'Harness not available' });
+    if (!a) throw HARNESS_UNAVAILABLE();
 
-    const hours = Number(req.query.hours) || 24;
+    const hours = Number(query.hours) || 24;
     const { summaries, skippedLines } = a.analyzeRecentReport(hours);
     warnSkippedLines(skippedLines, '/analysis/anomalies');
     const anomalies = a.detectAnomalies(summaries);
 
-    return res.json({ data: anomalies, total: anomalies.length, skippedLines });
-  } catch (error) {
-    logger.error('Failed to get anomalies', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to get anomalies' });
-  }
-});
+    return { anomalies, total: anomalies.length, skippedLines };
+  },
+));

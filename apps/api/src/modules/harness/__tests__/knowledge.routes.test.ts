@@ -94,7 +94,9 @@ describe('knowledge.routes', () => {
   it('POST /knowledge/query 400 without budget / 200 with', async () => {
     const bad = await api('POST', '/knowledge/query', {});
     expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('budget is required');
+    // 契约驱动（批次 6/7）：必填收 zod，错误统一 { error: { code, message } }
+    expect(bad.json.error.code).toBe('BAD_REQUEST');
+    expect(bad.json.error.message).toContain('budget');
 
     const ok = await api('POST', '/knowledge/query', { budget: 100 });
     expect(ok.status).toBe(200);
@@ -104,21 +106,23 @@ describe('knowledge.routes', () => {
   it('GET /knowledge returns list (empty store, cached)', async () => {
     const res = await api('GET', '/knowledge');
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ data: [], total: 0 });
+    // 列表壳内层 data 键改名词键 entries（批次 6/7）
+    expect(res.json).toEqual({ data: { entries: [], total: 0 } });
     // 第二次命中缓存，响应一致
     const again = await api('GET', '/knowledge?type=pattern&limit=5');
     expect(again.status).toBe(200);
-    expect(again.json).toEqual({ data: [], total: 0 });
+    expect(again.json).toEqual({ data: { entries: [], total: 0 } });
   });
 
   it('POST /knowledge 400 without required fields / 200 saves', async () => {
     const bad = await api('POST', '/knowledge', { id: 'k1' });
     expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('id, title, and content are required');
+    expect(bad.json.error.code).toBe('BAD_REQUEST');
+    expect(bad.json.error.message).toContain('title');
 
     const ok = await api('POST', '/knowledge', { id: 'k1', title: 'T', content: 'C', type: 'pattern' });
     expect(ok.status).toBe(200);
-    expect(ok.json).toEqual({ saved: true, id: 'k1' });
+    expect(ok.json).toEqual({ data: { saved: true, id: 'k1' } });
   });
 
   it('GET /knowledge/:id 200 / 404', async () => {
@@ -129,23 +133,23 @@ describe('knowledge.routes', () => {
 
     const miss = await api('GET', '/knowledge/nope');
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Knowledge entry not found');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Knowledge entry not found' });
   });
 
   it('POST /knowledge/lint returns issues', async () => {
     const res = await api('POST', '/knowledge/lint', {});
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ data: [{ rule: 'no-refs', entryId: 'k-lint' }], total: 1 });
+    expect(res.json).toEqual({ data: { issues: [{ rule: 'no-refs', entryId: 'k-lint' }], total: 1 } });
   });
 
   it('DELETE /knowledge/:id 404 / 200', async () => {
     const miss = await api('DELETE', '/knowledge/nope');
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Knowledge entry not found');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Knowledge entry not found' });
 
     const ok = await api('DELETE', '/knowledge/k1');
     expect(ok.status).toBe(200);
-    expect(ok.json).toEqual({ deleted: true });
+    expect(ok.json).toEqual({ data: { deleted: true } });
 
     const gone = await api('GET', '/knowledge/k1');
     expect(gone.status).toBe(404);

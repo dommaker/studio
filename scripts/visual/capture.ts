@@ -283,7 +283,8 @@ async function exchangeToken(apiUrl: string, refreshToken: string): Promise<Auth
     body: JSON.stringify({ refreshToken }),
   });
   if (!res.ok) throw new Error(`refresh 换 token 失败：HTTP ${res.status}`);
-  const data = await res.json() as { accessToken?: string; refreshToken?: string };
+  // { data } 壳（契约驱动批次 6/7）
+  const data = (await res.json() as { data?: { accessToken?: string; refreshToken?: string } }).data ?? {};
   if (!data.accessToken || !data.refreshToken) throw new Error('refresh 响应缺 token 字段');
   return { token: data.accessToken, refreshToken: data.refreshToken };
 }

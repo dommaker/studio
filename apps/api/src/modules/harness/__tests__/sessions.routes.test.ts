@@ -81,18 +81,20 @@ describe('sessions.routes', () => {
   it('POST /estimate-tokens 400 without text/object', async () => {
     const res = await api('POST', '/estimate-tokens', {});
     expect(res.status).toBe(400);
-    expect(res.json.error).toBe('text or object is required');
+    // 契约驱动（批次 6/7）：必填收 zod，错误统一 { error: { code, message } }
+    expect(res.json.error.code).toBe('BAD_REQUEST');
+    expect(res.json.error.message).toContain('text or object is required');
   });
 
   it('POST /estimate-tokens estimates text and object', async () => {
     const text = await api('POST', '/estimate-tokens', { text: 'hello' });
     expect(text.status).toBe(200);
-    expect(text.json).toEqual({ tokens: 5, method: 'character-based-estimate' });
+    expect(text.json).toEqual({ data: { tokens: 5, method: 'character-based-estimate' } });
 
     const obj = await api('POST', '/estimate-tokens', { object: { a: 1 } });
     expect(obj.status).toBe(200);
-    expect(obj.json.tokens).toBe(JSON.stringify({ a: 1 }).length);
-    expect(obj.json.method).toBe('character-based-estimate');
+    expect(obj.json.data.tokens).toBe(JSON.stringify({ a: 1 }).length);
+    expect(obj.json.data.method).toBe('character-based-estimate');
   });
 
   it('POST /estimate-tokens 循环引用 object 不抛：兜底 tokens 记 0（旧 estimateObject 兜底语义）', async () => {
@@ -116,7 +118,7 @@ describe('sessions.routes', () => {
         body: '{}',
       });
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ tokens: 0, method: 'character-based-estimate' });
+      expect(await res.json()).toEqual({ data: { tokens: 0, method: 'character-based-estimate' } });
     } finally {
       await new Promise<void>(resolve => srv.close(() => resolve()));
     }
@@ -125,7 +127,8 @@ describe('sessions.routes', () => {
   it('POST /sessions 400 without id / 200 creates', async () => {
     const bad = await api('POST', '/sessions', {});
     expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('id is required');
+    expect(bad.json.error.code).toBe('BAD_REQUEST');
+    expect(bad.json.error.message).toContain('id');
 
     const ok = await api('POST', '/sessions', { id: 's1' });
     expect(ok.status).toBe(200);
@@ -135,15 +138,16 @@ describe('sessions.routes', () => {
   it('POST /sessions/:id/events 400 without event / 404 unknown / 200 appends', async () => {
     const bad = await api('POST', '/sessions/s1/events', {});
     expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('event is required');
+    expect(bad.json.error.code).toBe('BAD_REQUEST');
+    expect(bad.json.error.message).toContain('event');
 
     const miss = await api('POST', '/sessions/s2/events', { event: { type: 'x' } });
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Session not found: s2');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Session not found: s2' });
 
     const ok = await api('POST', '/sessions/s1/events', { event: { type: 'x' } });
     expect(ok.status).toBe(200);
-    expect(ok.json).toEqual({ recorded: true });
+    expect(ok.json).toEqual({ data: { recorded: true } });
   });
 
   it('GET /sessions/:id 200 with info / 404 unknown', async () => {
@@ -153,7 +157,7 @@ describe('sessions.routes', () => {
 
     const miss = await api('GET', '/sessions/s2');
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Session not found: s2');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Session not found: s2' });
   });
 
   it('POST /sessions/:id/checkpoint 200 / 404 unknown', async () => {
@@ -163,6 +167,6 @@ describe('sessions.routes', () => {
 
     const miss = await api('POST', '/sessions/s2/checkpoint', {});
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Session not found: s2');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Session not found: s2' });
   });
 });

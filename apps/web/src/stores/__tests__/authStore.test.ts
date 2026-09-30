@@ -103,12 +103,12 @@ describe('authStore', () => {
   describe('login', () => {
     it('sets token, refreshToken, user, session on success', async () => {
       vi.mocked(authApi.login).mockResolvedValueOnce({
-        data: {
+        data: { data: {
           token: 'jwt-token',
           refreshToken: 'refresh-token',
           user: { id: 'u1', email: 'a@b.com', role: 'User' },
           session: { id: 's1', expiresAt: '2026-07-01T00:00:00Z' },
-        },
+        } },
       });
 
       const result = await useAuthStore.getState().login('a@b.com', 'pass');
@@ -121,18 +121,6 @@ describe('authStore', () => {
       expect(s.session).toEqual({ id: 's1', expiresAt: '2026-07-01T00:00:00Z' });
       expect(s.isLoading).toBe(false);
       expect(s.error).toBeNull();
-    });
-
-    it('returns false and sets error when data.error is present', async () => {
-      vi.mocked(authApi.login).mockResolvedValueOnce({
-        data: { error: 'Invalid credentials' },
-      });
-
-      const result = await useAuthStore.getState().login('a@b.com', 'wrong');
-
-      expect(result).toBe(false);
-      expect(useAuthStore.getState().error).toBe('Invalid credentials');
-      expect(useAuthStore.getState().isLoading).toBe(false);
     });
 
     it('returns false and sets error on API exception', async () => {
@@ -164,12 +152,12 @@ describe('authStore', () => {
   describe('register', () => {
     it('sets token, user, session on success', async () => {
       vi.mocked(authApi.register).mockResolvedValueOnce({
-        data: {
+        data: { data: {
           token: 'jwt-reg',
           refreshToken: 'rt-reg',
           user: { id: 'u2', email: 'new@b.com', role: 'User' },
           session: { id: 's2', expiresAt: '2026-08-01T00:00:00Z' },
-        },
+        } },
       });
 
       const result = await useAuthStore.getState().register('new@b.com', 'pass', 'New User');
@@ -179,17 +167,6 @@ describe('authStore', () => {
       expect(s.token).toBe('jwt-reg');
       expect(s.user?.email).toBe('new@b.com');
       expect(s.isLoading).toBe(false);
-    });
-
-    it('returns false when data.error is present', async () => {
-      vi.mocked(authApi.register).mockResolvedValueOnce({
-        data: { error: 'Email already registered' },
-      });
-
-      const result = await useAuthStore.getState().register('existing@b.com', 'pass');
-
-      expect(result).toBe(false);
-      expect(useAuthStore.getState().error).toBe('Email already registered');
     });
 
     it('returns false on API exception', async () => {
@@ -203,11 +180,11 @@ describe('authStore', () => {
 
     it('handles register without optional name', async () => {
       vi.mocked(authApi.register).mockResolvedValueOnce({
-        data: {
+        data: { data: {
           token: 't',
           user: { id: 'u', email: 'a@b.com', role: 'User' },
           session: { id: 's', expiresAt: '' },
-        },
+        } },
       });
 
       const result = await useAuthStore.getState().register('a@b.com', 'pass');
@@ -227,11 +204,11 @@ describe('authStore', () => {
         refreshToken: 'rt',
       });
       vi.mocked(authApi.createGuestSession).mockResolvedValueOnce({
-        data: {
+        data: { data: {
           token: 'guest-token',
           user: { id: 'guest1', email: '', role: 'Guest' },
           session: { id: 'sg', expiresAt: '' },
-        },
+        } },
       });
 
       await useAuthStore.getState().logout();
@@ -246,11 +223,11 @@ describe('authStore', () => {
     it('creates guest session after logout even when authApi.logout fails', async () => {
       vi.mocked(authApi.logout).mockRejectedValueOnce(new Error('Logout fail'));
       vi.mocked(authApi.createGuestSession).mockResolvedValueOnce({
-        data: {
+        data: { data: {
           token: 'guest-token',
           user: { id: 'g1', email: '', role: 'Guest' },
           session: { id: 'sg', expiresAt: '' },
-        },
+        } },
       });
 
       await useAuthStore.getState().logout();
@@ -266,10 +243,10 @@ describe('authStore', () => {
   describe('fetchMe', () => {
     it('updates user and session on success', async () => {
       vi.mocked(authApi.fetchMe).mockResolvedValueOnce({
-        data: {
+        data: { data: {
           user: { id: 'u1', email: 'a@b.com', role: 'User', name: 'Alice' },
           session: { id: 's1', expiresAt: '2026-09-01T00:00:00Z' },
-        },
+        } },
       });
 
       await useAuthStore.getState().fetchMe();
@@ -343,7 +320,7 @@ describe('authStore', () => {
     it('calls checkAuth when token exists', async () => {
       useAuthStore.setState({ token: 'existing-token' });
       vi.mocked(authApi.checkAuth).mockResolvedValueOnce({
-        data: { user: { id: 'u1', email: 'a@b.com', role: 'User' } },
+        data: { data: { user: { id: 'u1', email: 'a@b.com', role: 'User' } } },
       });
 
       await useAuthStore.getState().init();
@@ -353,11 +330,11 @@ describe('authStore', () => {
 
     it('calls createGuestSession when no token', async () => {
       vi.mocked(authApi.createGuestSession).mockResolvedValueOnce({
-        data: {
+        data: { data: {
           token: 'guest-token',
           user: { id: 'g1', email: '', role: 'Guest' },
           session: { id: 'sg', expiresAt: '' },
-        },
+        } },
       });
 
       await useAuthStore.getState().init();
@@ -377,7 +354,7 @@ describe('authStore', () => {
     it('updates user when API returns user', async () => {
       useAuthStore.setState({ token: 'valid-token' });
       vi.mocked(authApi.checkAuth).mockResolvedValueOnce({
-        data: { user: { id: 'u1', email: 'a@b.com', role: 'User' } },
+        data: { data: { user: { id: 'u1', email: 'a@b.com', role: 'User' } } },
       });
 
       await useAuthStore.getState().checkAuth();
@@ -388,13 +365,13 @@ describe('authStore', () => {
 
     it('creates guest session when API returns no user', async () => {
       useAuthStore.setState({ token: 'token-no-user' });
-      vi.mocked(authApi.checkAuth).mockResolvedValueOnce({ data: {} });
+      vi.mocked(authApi.checkAuth).mockResolvedValueOnce({ data: { data: {} } });
       vi.mocked(authApi.createGuestSession).mockResolvedValueOnce({
-        data: {
+        data: { data: {
           token: 'guest-token',
           user: { id: 'g1', email: '', role: 'Guest' },
           session: { id: 'sg', expiresAt: '' },
-        },
+        } },
       });
 
       await useAuthStore.getState().checkAuth();
@@ -406,11 +383,11 @@ describe('authStore', () => {
       useAuthStore.setState({ token: 'bad-token' });
       vi.mocked(authApi.checkAuth).mockRejectedValueOnce(new Error('Auth failed'));
       vi.mocked(authApi.createGuestSession).mockResolvedValueOnce({
-        data: {
+        data: { data: {
           token: 'guest-token',
           user: { id: 'g1', email: '', role: 'Guest' },
           session: { id: 'sg', expiresAt: '' },
-        },
+        } },
       });
 
       await useAuthStore.getState().checkAuth();

@@ -28,6 +28,12 @@ API 契约唯一正本（docs/architecture/target-architecture.md）：按域一
 - `notifications.ts`：notifications 域——通知行与 action-center.ts 的 actionCenterNotificationSchema 同源（import 复用不重复声明）+ 四端点请求/响应
 - `notify-channels.ts`：notify-channels 域——WecomChannelState / ClawbotChannelState（脱敏后形状）/ NotifyChannelsState / ClawbotBindStatus 状态机词表 + 端点请求/响应；`{ success, data }` 壳的 success 标志退役；502 上游失败 code = BAD_GATEWAY（errcode 透传在 message）
 - `outbound-notify.ts`：outbound-notify 域——NotifyMessageType 词表（notify.service 联合类型 wire 正本）+ /send 请求/响应；type/priority 词表外值由透传收紧为 400（无消费方）
+- `auth.ts`：auth 域（批次 6/7；敏感域）——AuthUser（SafeUser wire）/ AuthSession（SessionData wire，refreshToken 响应面恒 null）/ AuthResult / AuthMeResult / AuthRefreshResult 手写 interface + parity + 八端点请求/响应；register/login email+password 与 refreshToken 必填收进 zod；前端 authApi 的 getOAuthUrl/forgotPassword/resetPassword 无后端路由（死面，不声明）
+- `audit-logs.ts`：audit-logs 域——auditLogRowSchema（操作轨 ⊕ 提案聚合行同形；历史行稀疏 passthrough；details/changes 落盘 JSON 串 → union 双形态声明）+ AuditLog（前端归一后消费形状手写）/ AuditLogStats 手写 + 七端点请求/响应；list 分页壳原已同形（formatPaginatedResponse ≡ paginated）；actorType/source 收紧词表、POST action/resource 收紧必填；GET /export 附件下载不进壳
+- `admin.ts`：admin 域——DocsFreshnessResult（status 三态 + harnessCheck 可选段）+ GET /docs-freshness 响应；无前端消费方 z.infer 不手写
+- `harness.ts`：harness 域——@dommaker/harness 类型不可 import，ConstraintResult/ConstraintCheckResult/生效约束/ExecutionTrace/知识条目/AgentState wire 重声明（passthrough 宽声明）+ 八子路由全端点请求/响应；列表壳内层 data 键改名词键（traces/constraints/retired/entries/issues/agents，避免 data.data 双包）；#641 sanitize 依赖 check-constraints hasRequirement 声明保留（zod 剥未知键坑）
+- `cso.ts`：cso 域——GET /validate 响应（恒 200 降级三形态：正常/validator 不可用 note/异常 skipped note）
+- `iron-laws.ts`：iron-laws 域——IronLaw passthrough 宽声明 + 四端点请求/响应；`{ success, data, count, source }` 壳退役；context 用 record 保 has* 键供 #641 sanitize 剥离；constraintResultItem/ConstraintCheckResult/violationPartialView 与 harness.ts 同源（import 复用）
 
 ## 注意事项
 

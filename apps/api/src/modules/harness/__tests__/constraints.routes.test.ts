@@ -129,9 +129,10 @@ describe('constraints.routes', () => {
   it('GET /constraints lists effective set with kind', async () => {
     const res = await api('GET', '/constraints');
     expect(res.status).toBe(200);
-    expect(res.json.total).toBe(2);
-    expect(res.json.data.map((c: any) => c.id).sort()).toEqual(['c-quality', 'c-safe']);
-    expect(res.json.data[0]).toHaveProperty('kind');
+    // 列表壳内层 data 键改名词键 constraints（批次 6/7）
+    expect(res.json.data.total).toBe(2);
+    expect(res.json.data.constraints.map((c: any) => c.id).sort()).toEqual(['c-quality', 'c-safe']);
+    expect(res.json.data.constraints[0]).toHaveProperty('kind');
   });
 
   it('GET /constraints/stats aggregates by kind/severity (not shadowed by /:id)', async () => {
@@ -147,7 +148,7 @@ describe('constraints.routes', () => {
   it('GET /constraints/retired returns [] without config.yml', async () => {
     const res = await api('GET', '/constraints/retired');
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ data: [], total: 0 });
+    expect(res.json).toEqual({ data: { retired: [], total: 0 } });
   });
 
   it('GET /constraints/retired lists retired metadata from config.yml', async () => {
@@ -165,10 +166,10 @@ describe('constraints.routes', () => {
     ].join('\n'));
     const res = await api('GET', '/constraints/retired');
     expect(res.status).toBe(200);
-    expect(res.json.total).toBe(1);
-    expect(res.json.data[0].id).toBe('c-old');
-    expect(res.json.data[0].source).toBe('config');
-    expect(res.json.data[0].retired.reason).toBe('zero trigger');
+    expect(res.json.data.total).toBe(1);
+    expect(res.json.data.retired[0].id).toBe('c-old');
+    expect(res.json.data.retired[0].source).toBe('config');
+    expect(res.json.data.retired[0].retired.reason).toBe('zero trigger');
     fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
   });
 
@@ -178,7 +179,7 @@ describe('constraints.routes', () => {
     expect(ok.json.data.id).toBe('c-quality');
     const miss = await api('GET', '/constraints/nope');
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Constraint not found');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Constraint not found' });
   });
 
   it('POST /constraints/:id/rollback 404 without config.yml entry', async () => {
@@ -217,9 +218,10 @@ describe('constraints.routes', () => {
     ].join('\n'));
     const ok = await api('POST', '/constraints/app_rb_target/rollback', {});
     expect(ok.status).toBe(200);
-    expect(ok.json.rolledBack).toBe(true);
-    // app_rb_target 不在 mock 生效集中 → data 为 null
-    expect(ok.json.data).toBeNull();
+    // 兄弟键 rolledBack 收进 data 内（批次 6/7）
+    expect(ok.json.data.rolledBack).toBe(true);
+    // app_rb_target 不在 mock 生效集中 → restored 为 null
+    expect(ok.json.data.restored).toBeNull();
     // 复活沉淀钉统一知识库正本（ADR-0034，与 retire 路径同纪律；code-review 回归钉）
     const { UNIFIED_KNOWLEDGE_DIR } = await import('../../knowledge/knowledge-singletons.js');
     expect(mockRunCmd).toHaveBeenCalledWith(
@@ -259,7 +261,9 @@ describe('constraints.routes', () => {
   it('POST /check-constraints 400 without operation / 200 with', async () => {
     const bad = await api('POST', '/check-constraints', {});
     expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('operation is required');
+    // 必填收 zod（批次 6/7）：错误统一 { error: { code, message } }
+    expect(bad.json.error.code).toBe('BAD_REQUEST');
+    expect(bad.json.error.message).toContain('operation');
 
     const ok = await api('POST', '/check-constraints', { operation: 'create-requirement' });
     expect(ok.status).toBe(200);
@@ -272,7 +276,8 @@ describe('constraints.routes', () => {
     const received = checkConstraintsCalls.at(-1) ?? {};
     expect(received.hasRequirement).toBeUndefined();
     expect(received.operation).toBe('create-requirement');
-    expect(res.json.strippedEvidenceFlags).toEqual(['hasRequirement']);
+    // 标注键收进 data 内（批次 6/7）
+    expect(res.json.data.strippedEvidenceFlags).toEqual(['hasRequirement']);
   });
 
   // block 模式即抛即停（harness 1.15.0 证据源重构后违规常态化触发）：
@@ -285,13 +290,13 @@ describe('constraints.routes', () => {
     expect(res.json.data.errors[0].id).toBe('no_completion_without_verification');
     expect(res.json.data.errors[0].message).toContain('禁止无验证声明完成');
     expect(res.json.data.errors[0].evidence).toEqual(['未运行验证：.harness/evidence 无测试输出记录']);
-    expect(res.json.violationPartialView).toMatchObject({ truncated: true });
+    expect(res.json.data.violationPartialView).toMatchObject({ truncated: true });
   });
 
   it('POST /check-constraints：违规路径保留 #641 strippedEvidenceFlags 标注', async () => {
     const res = await api('POST', '/check-constraints', { operation: 'simulate-violation', hasRequirement: true });
     expect(res.status).toBe(200);
-    expect(res.json.strippedEvidenceFlags).toEqual(['hasRequirement']);
+    expect(res.json.data.strippedEvidenceFlags).toEqual(['hasRequirement']);
   });
 
   it('POST /check-constraints：非违规异常（真实调不通）仍 500', async () => {
@@ -311,13 +316,13 @@ describe('constraints.routes', () => {
         constraintId: 'app_x', repoRoot: '/no/such/dir',
       });
       expect(badRoot.status).toBe(400);
-      expect(badRoot.json.error).toContain('invalid repoRoot');
+      expect(badRoot.json.error.message).toContain('invalid repoRoot');
     });
 
     it('404：constraints.yml 无该条目（非应用层约束）', async () => {
       const res = await api('POST', '/constraints/propose-upgrade', { constraintId: 'app_nope' });
       expect(res.status).toBe(404);
-      expect(res.json.error).toContain('not-an-app-constraint');
+      expect(res.json.error.message).toContain('not-an-app-constraint');
     });
 
     it('200：校验通过 → 建 constraint 卡（action=upgrade，带统计白话）并发 #系统', async () => {
@@ -331,7 +336,7 @@ describe('constraints.routes', () => {
 
       const res = await api('POST', '/constraints/propose-upgrade', { constraintId: 'app_no_internal_url' });
       expect(res.status).toBe(200);
-      expect(res.json.success).toBe(true);
+      // success 标志退役（批次 6/7）
       expect(res.json.data.proposalId).toBeTruthy();
       expect(res.json.data.posted).toBe(true);
 

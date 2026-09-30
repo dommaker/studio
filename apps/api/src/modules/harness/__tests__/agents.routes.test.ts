@@ -93,7 +93,9 @@ describe('agents.routes', () => {
   it('POST /agents 400 without id / 200 registers', async () => {
     const bad = await api('POST', '/agents', { type: 'coder' });
     expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('id is required');
+    // 契约驱动（批次 6/7）：必填收 zod，错误统一 { error: { code, message } }
+    expect(bad.json.error.code).toBe('BAD_REQUEST');
+    expect(bad.json.error.message).toContain('id');
 
     const ok = await api('POST', '/agents', { id: 'a1', type: 'coder', name: 'Agent 1', config: { role: 'dev' } });
     expect(ok.status).toBe(200);
@@ -109,7 +111,7 @@ describe('agents.routes', () => {
 
     const miss = await api('POST', '/agents/nope/start', {});
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Agent not found');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Agent not found' });
   });
 
   it('POST /agents/:id/complete 200 with metadata / 404', async () => {
@@ -132,11 +134,11 @@ describe('agents.routes', () => {
     expect(miss.status).toBe(404);
   });
 
-  it('GET /agents lists all states', async () => {
+  it('GET /agents lists all states（列表壳内层 data 键改名词键 agents）', async () => {
     const res = await api('GET', '/agents');
     expect(res.status).toBe(200);
-    expect(res.json.total).toBe(1);
-    expect(res.json.data[0].id).toBe('a1');
+    expect(res.json.data.total).toBe(1);
+    expect(res.json.data.agents[0].id).toBe('a1');
   });
 
   it('GET /agents/:id 200 / 404', async () => {
@@ -146,6 +148,6 @@ describe('agents.routes', () => {
 
     const miss = await api('GET', '/agents/nope');
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Agent not found');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Agent not found' });
   });
 });

@@ -39,13 +39,15 @@ export async function getAdminToken(baseUrl: string): Promise<string> {
       console.error(`  Warning: Admin login failed (${resp.status}), harness tests may fail auth`);
       return '';
     }
-    const data = await resp.json() as { token?: string };
-    if (data.token) {
-      _cachedAdminToken = data.token;
+    // { data } 壳（契约驱动批次 6/7）：token 在 body.data.token
+    const body = await resp.json() as { data?: { token?: string } };
+    const token = body.data?.token;
+    if (token) {
+      _cachedAdminToken = token;
       // Persist for next run
       try {
         ensureDir(path.join(STUDIO_DIR, '.daemon'));
-        fs.writeFileSync(tokenFile, data.token, 'utf-8');
+        fs.writeFileSync(tokenFile, token, 'utf-8');
       } catch { /* ignore write errors */ }
       return _cachedAdminToken;
     }

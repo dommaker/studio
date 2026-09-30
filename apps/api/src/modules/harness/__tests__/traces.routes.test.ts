@@ -88,56 +88,60 @@ afterEach(() => {
 });
 
 describe('traces.routes', () => {
-  it('GET /traces returns data + total', async () => {
+  it('GET /traces returns traces + total（列表壳内层 data 键改名词键，批次 6/7）', async () => {
     const res = await api('GET', '/traces');
     expect(res.status).toBe(200);
-    expect(res.json.total).toBe(1);
-    expect(res.json.data).toHaveLength(1);
+    expect(res.json.data.total).toBe(1);
+    expect(res.json.data.traces).toHaveLength(1);
   });
 
   it('GET /traces accepts filter query params', async () => {
     const res = await api('GET', '/traces?constraintId=c1&severity=error&result=pass&hours=12&limit=10');
     expect(res.status).toBe(200);
-    expect(res.json.total).toBe(1);
+    expect(res.json.data.total).toBe(1);
   });
 
   it('POST /traces 400 without required fields', async () => {
     const res = await api('POST', '/traces', { constraintId: 'c1' });
     expect(res.status).toBe(400);
-    expect(res.json.error).toBe('constraintId, severity, and result are required');
+    // 必填收 zod（批次 6/7）：错误统一 { error: { code, message } }
+    expect(res.json.error.code).toBe('BAD_REQUEST');
+    expect(res.json.error.message).toContain('severity');
   });
 
   it('POST /traces records pass/fail', async () => {
     for (const result of ['pass', 'fail']) {
       const res = await api('POST', '/traces', { constraintId: 'c1', severity: 'error', result });
       expect(res.status).toBe(200);
-      expect(res.json).toEqual({ recorded: true });
+      expect(res.json).toEqual({ data: { recorded: true } });
     }
   });
 
   it('POST /traces rejects bypassed (harness 1.2.0 removed bypass recording)', async () => {
     const res = await api('POST', '/traces', { constraintId: 'c1', severity: 'error', result: 'bypassed' });
     expect(res.status).toBe(400);
-    expect(res.json.error).toContain('no longer supported');
+    expect(res.json.error.message).toContain('no longer supported');
   });
 
   it('GET /analysis returns summaries + anomalies + skippedLines', async () => {
     const res = await api('GET', '/analysis?hours=1');
     expect(res.status).toBe(200);
-    expect(res.json.totalSummaries).toBe(1);
-    expect(res.json.totalAnomalies).toBe(1);
-    expect(res.json.summaries).toHaveLength(1);
-    expect(res.json.anomalies).toHaveLength(1);
-    expect(res.json.skippedLines).toBe(0);
+    expect(res.json.data.totalSummaries).toBe(1);
+    expect(res.json.data.totalAnomalies).toBe(1);
+    expect(res.json.data.summaries).toHaveLength(1);
+    expect(res.json.data.anomalies).toHaveLength(1);
+    expect(res.json.data.skippedLines).toBe(0);
   });
 
   it('GET /analysis/anomalies returns anomaly list + skippedLines', async () => {
     const res = await api('GET', '/analysis/anomalies');
     expect(res.status).toBe(200);
     expect(res.json).toEqual({
-      data: [{ constraintId: 'c1', type: 'high-failure-rate' }],
-      total: 1,
-      skippedLines: 0,
+      data: {
+        anomalies: [{ constraintId: 'c1', type: 'high-failure-rate' }],
+        total: 1,
+        skippedLines: 0,
+      },
     });
   });
 
@@ -148,8 +152,8 @@ describe('traces.routes', () => {
 
       const res = await api('GET', '/analysis?hours=1');
       expect(res.status).toBe(200);
-      expect(res.json.summaries).toEqual([{ constraintId: 'c1', passCount: 1, failCount: 0 }]);
-      expect(res.json.skippedLines).toBe(1);
+      expect(res.json.data.summaries).toEqual([{ constraintId: 'c1', passCount: 1, failCount: 0 }]);
+      expect(res.json.data.skippedLines).toBe(1);
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining('skipped'),
         expect.objectContaining({ skippedLines: 1 }),
@@ -162,9 +166,9 @@ describe('traces.routes', () => {
 
       const res = await api('GET', '/analysis/anomalies');
       expect(res.status).toBe(200);
-      expect(res.json.data).toEqual([{ constraintId: 'c1', type: 'high-failure-rate' }]);
-      expect(res.json.total).toBe(1);
-      expect(res.json.skippedLines).toBe(2);
+      expect(res.json.data.anomalies).toEqual([{ constraintId: 'c1', type: 'high-failure-rate' }]);
+      expect(res.json.data.total).toBe(1);
+      expect(res.json.data.skippedLines).toBe(2);
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining('skipped'),
         expect.objectContaining({ skippedLines: 2 }),

@@ -82,7 +82,8 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
     expect(received.hasTest).toBeUndefined();
     expect(received.operation).toBe('commit');
     expect(received.taskDescription).toBe('x');
-    expect(json.strippedEvidenceFlags).toEqual(['hasPlanApproval', 'hasTest']);
+    // 标注键收进 data 内（批次 6/7）
+    expect(json.data.strippedEvidenceFlags).toEqual(['hasPlanApproval', 'hasTest']);
   });
 
   it('POST /check-all：无证据标志时响应不带 strippedEvidenceFlags', async () => {
@@ -93,7 +94,7 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
     expect(status).toBe(200);
     const received = mockCheckConstraints.mock.calls.at(-1)?.[0] ?? {};
     expect(received).toEqual({ operation: 'commit', projectPath: '/tmp/x' });
-    expect(json.strippedEvidenceFlags).toBeUndefined();
+    expect(json.data.strippedEvidenceFlags).toBeUndefined();
   });
 
   it('POST /check-all：skip 的检查项在响应顶层 degradedChecks 显式标注（AC2 三态不可混淆）', async () => {
@@ -110,10 +111,10 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
       context: { operation: 'commit' },
     });
     expect(status).toBe(200);
-    expect(json.degradedChecks).toEqual([
+    expect(json.data.degradedChecks).toEqual([
       { id: 'no_completion_without_verification', skipReason: '变更清单未接线（context.changedFiles 缺失），无法判定证据新鲜度，本次未评估' },
     ]);
-    expect(json.strippedEvidenceFlags).toBeUndefined();
+    expect(json.data.strippedEvidenceFlags).toBeUndefined();
   });
 
   it('POST /check-all：无 skip 项时响应不带 degradedChecks', async () => {
@@ -124,7 +125,7 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
       warningCount: 0,
     });
     const { json } = await api('POST', '/api/v1/iron-laws/check-all', { context: { operation: 'commit' } });
-    expect(json.degradedChecks).toBeUndefined();
+    expect(json.data.degradedChecks).toBeUndefined();
   });
 
   it('POST /check：单约束与批量路径同样剥离证据标志', async () => {
@@ -136,7 +137,7 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
     expect(single.status).toBe(200);
     const singleCtx = mockCheckConstraint.mock.calls.at(-1)?.[1] ?? {};
     expect(singleCtx.hasTest).toBeUndefined();
-    expect(single.json.strippedEvidenceFlags).toEqual(['hasTest']);
+    expect(single.json.data.strippedEvidenceFlags).toEqual(['hasTest']);
 
     const batch = await api('POST', '/api/v1/iron-laws/check', {
       lawId: ['a', 'b'],
@@ -145,7 +146,7 @@ describe('iron-laws 路由证据标志信任边界（#641）', () => {
     expect(batch.status).toBe(200);
     const batchCtx = mockCheckConstraint.mock.calls.at(-1)?.[1] ?? {};
     expect(batchCtx.hasPlanApproval).toBeUndefined();
-    expect(batch.json.strippedEvidenceFlags).toEqual(['hasPlanApproval']);
+    expect(batch.json.data.strippedEvidenceFlags).toEqual(['hasPlanApproval']);
   });
 });
 
@@ -161,10 +162,10 @@ describe('iron-laws 路由 block 模式违规返回部分视图数据', () => {
       context: { operation: 'code_implementation', projectPath: '/tmp/p' },
     });
     expect(status).toBe(200);
-    expect(json.success).toBe(true);
-    expect(json.data.passed).toBe(false);
-    expect(json.data.errors).toHaveLength(1);
-    expect(json.data.errors[0]).toMatchObject({
+    // success 标志退役、results/标注键收进 data 内（批次 6/7）
+    expect(json.data.results.passed).toBe(false);
+    expect(json.data.results.errors).toHaveLength(1);
+    expect(json.data.results.errors[0]).toMatchObject({
       id: 'no_completion_without_verification',
       severity: 'error',
       satisfied: false,
@@ -172,8 +173,8 @@ describe('iron-laws 路由 block 模式违规返回部分视图数据', () => {
       evidence: violationResult.evidence,
     });
     // 部分视图标注：即抛即停 = 仅首个违规，后续 error/warning 未执行
-    expect(json.violationPartialView).toMatchObject({ truncated: true });
-    expect(json.violationPartialView.reason).toBeTruthy();
+    expect(json.data.violationPartialView).toMatchObject({ truncated: true });
+    expect(json.data.violationPartialView.reason).toBeTruthy();
   });
 
   it('POST /check-all：违规路径保留 #641 strippedEvidenceFlags 标注', async () => {
@@ -182,7 +183,7 @@ describe('iron-laws 路由 block 模式违规返回部分视图数据', () => {
       context: { operation: 'code_implementation', hasTest: true },
     });
     expect(status).toBe(200);
-    expect(json.strippedEvidenceFlags).toEqual(['hasTest']);
+    expect(json.data.strippedEvidenceFlags).toEqual(['hasTest']);
     const received = mockCheckConstraints.mock.calls.at(-1)?.[0] ?? {};
     expect(received.hasTest).toBeUndefined();
   });
@@ -202,7 +203,7 @@ describe('iron-laws 路由 block 模式违规返回部分视图数据', () => {
       context: { operation: 'code_implementation' },
     });
     expect(status).toBe(200);
-    expect(json.data.satisfied).toBe(false);
-    expect(json.data.id).toBe('no_completion_without_verification');
+    expect(json.data.result.satisfied).toBe(false);
+    expect(json.data.result.id).toBe('no_completion_without_verification');
   });
 });
