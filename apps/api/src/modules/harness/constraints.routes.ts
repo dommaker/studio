@@ -144,7 +144,7 @@ constraintsRoutes.get('/constraints/:id', async (req: Request, res: Response) =>
     if (!loaded || !harnessModule) return res.status(503).json({ error: 'Harness not available' });
 
     const constraint = harnessModule.getEffectiveConstraints(projectRoot())
-      .find(c => c.id === req.params.id);
+      .find(c => c.id === req.params.id as string);
     if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
     return res.json({ data: constraint });
   } catch (error) {
@@ -233,24 +233,24 @@ constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Re
   try {
     const root = projectRoot();
     const before = readConfigConstraints(root);
-    const entry = before[req.params.id];
+    const entry = before[req.params.id as string];
     if (!(entry && typeof entry === 'object' && entry.retired && entry.enabled === false)) {
-      return res.status(404).json({ error: `No retired entry for constraint: ${req.params.id}` });
+      return res.status(404).json({ error: `No retired entry for constraint: ${req.params.id as string}` });
     }
 
     const spawned = await runCmd(process.execPath, [
-      resolveHarnessBin(), 'constraints', 'reactivate', req.params.id, '--yes', '-p', root,
+      resolveHarnessBin(), 'constraints', 'reactivate', req.params.id as string, '--yes', '-p', root,
     ], { KNOWLEDGE_BASE_DIR: UNIFIED_KNOWLEDGE_DIR });
     if (spawned.code !== 0) {
-      logger.error('harness constraints reactivate failed', { id: req.params.id, code: spawned.code, stderr: spawned.stderr.slice(0, 400) });
+      logger.error('harness constraints reactivate failed', { id: req.params.id as string, code: spawned.code, stderr: spawned.stderr.slice(0, 400) });
       return res.status(500).json({ error: 'Failed to rollback constraint (harness CLI error)' });
     }
 
     // 写后复查：墓碑仍在 = CLI skip（如 unknown_id），不冒报成功
     const after = readConfigConstraints(root);
-    if (req.params.id in after) {
-      logger.error('harness constraints reactivate skipped (tombstone still present)', { id: req.params.id, stdout: spawned.stdout.slice(0, 400) });
-      return res.status(500).json({ error: `Failed to rollback constraint: ${req.params.id}（reactivate 未生效）` });
+    if (req.params.id as string in after) {
+      logger.error('harness constraints reactivate skipped (tombstone still present)', { id: req.params.id as string, stdout: spawned.stdout.slice(0, 400) });
+      return res.status(500).json({ error: `Failed to rollback constraint: ${req.params.id as string}（reactivate 未生效）` });
     }
 
     // 回滚后若重新进入生效集，返回其定义
@@ -258,7 +258,7 @@ constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Re
     const loaded = await loadHarness();
     if (loaded && harnessModule) {
       restored = harnessModule.getEffectiveConstraints(root)
-        .find(c => c.id === req.params.id) ?? null;
+        .find(c => c.id === req.params.id as string) ?? null;
     }
     return res.json({ data: restored, rolledBack: true });
   } catch (error) {

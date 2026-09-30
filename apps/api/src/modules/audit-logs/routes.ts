@@ -177,8 +177,8 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     const service = getAuditService();
     // #591：操作轨未命中时回查 review-proposal 聚合源（提案行 id = 提案 id）
-    const log = await service.getById(req.params.id)
-      ?? await getProposalDecisionRowById(req.params.id);
+    const log = await service.getById(req.params.id as string)
+      ?? await getProposalDecisionRowById(req.params.id as string);
 
     if (!log) {
       return res.status(404).json({

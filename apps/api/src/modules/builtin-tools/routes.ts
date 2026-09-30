@@ -195,7 +195,7 @@ router.get('/', async (req: Request, res: Response) => {
 // GET /api/v1/builtin-tools/:name — 单个工具详情
 router.get('/:name', async (req: Request, res: Response) => {
   try {
-    const tool = BUILTIN_TOOLS.find(t => t.name === req.params.name);
+    const tool = BUILTIN_TOOLS.find(t => t.name === req.params.name as string);
     if (!tool) return res.status(404).json({ error: 'Tool not found' });
     res.json(tool);
   } catch (error) {
@@ -207,7 +207,7 @@ router.get('/:name', async (req: Request, res: Response) => {
 // PATCH /api/v1/builtin-tools/:name — 启用/禁用工具
 router.patch('/:name', async (req: Request, res: Response) => {
   try {
-    const tool = BUILTIN_TOOLS.find(t => t.name === req.params.name);
+    const tool = BUILTIN_TOOLS.find(t => t.name === req.params.name as string);
     if (!tool) return res.status(404).json({ error: 'Tool not found' });
 
     const { enabled } = req.body;

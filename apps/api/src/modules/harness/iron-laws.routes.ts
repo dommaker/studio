@@ -19,11 +19,11 @@ router.get('/', async (_req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const law = getConstraint(req.params.id);
-    if (!law) return res.status(404).json({ success: false, error: { code: 'IRON_LAW_NOT_FOUND', message: `铁律 ${req.params.id} 不存在` } });
+    const law = getConstraint(req.params.id as string);
+    if (!law) return res.status(404).json({ success: false, error: { code: 'IRON_LAW_NOT_FOUND', message: `铁律 ${req.params.id as string} 不存在` } });
     res.json({ success: true, data: law, source: 'harness' });
   } catch (error) {
-    logger.error(`[IronLaws] Failed to get ${req.params.id}`, { error: String(error) });
+    logger.error(`[IronLaws] Failed to get ${req.params.id as string}`, { error: String(error) });
     res.status(500).json({ success: false, error: { code: 'IRON_LAW_ERROR', message: '获取铁律失败' } });
   }
 });

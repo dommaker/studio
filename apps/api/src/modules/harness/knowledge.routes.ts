@@ -86,7 +86,7 @@ knowledgeRoutes.get('/knowledge/:id', async (req: Request, res: Response) => {
     const store = await getKnowledgeStore();
     if (!store) return res.status(503).json({ error: 'Harness not available' });
 
-    const entry = store.get(req.params.id);
+    const entry = store.get(req.params.id as string);
     if (!entry) return res.status(404).json({ error: 'Knowledge entry not found' });
     return res.json({ data: entry });
   } catch (error) {
@@ -126,7 +126,7 @@ knowledgeRoutes.delete('/knowledge/:id', async (req: Request, res: Response) => 
     const store = await getKnowledgeStore();
     if (!store) return res.status(503).json({ error: 'Harness not available' });
 
-    const deleted = store.delete(req.params.id);
+    const deleted = store.delete(req.params.id as string);
     if (!deleted) return res.status(404).json({ error: 'Knowledge entry not found' });
     return res.json({ deleted: true });
   } catch (error) {

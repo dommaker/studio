@@ -19,7 +19,7 @@ const router = Router();
 
 router.post('/:kind/:id/approve', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
-    const result = await approveProposal(req.params.kind, req.params.id);
+    const result = await approveProposal(req.params.kind as string, req.params.id as string);
     if (result.kind === 'executed') return res.json({ success: true, ...result.data });
     // 预算熔断不是错误：提案保持 pending，人可次日重试
     if (result.kind === 'skipped') return res.json({ success: false, skipped: result.skipped });
@@ -36,7 +36,7 @@ router.post('/:kind/:id/approve', requireAuth(), requireNotGuest(), async (req, 
 
 router.post('/:kind/:id/reject', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
-    const result = await rejectProposal(req.params.kind, req.params.id);
+    const result = await rejectProposal(req.params.kind as string, req.params.id as string);
     if (result.ok) return res.json({ success: true });
     if (result.error?.startsWith('unknown-kind')) return res.status(404).json({ error: result.error });
     return res.status(400).json({ error: result.error });
@@ -48,7 +48,7 @@ router.post('/:kind/:id/reject', requireAuth(), requireNotGuest(), async (req, r
 /** GET /:kind/:id/status → { success:true, status }（unknown = 查无此提案）；只读不要求 requireNotGuest */
 router.get('/:kind/:id/status', requireAuth(), async (req, res) => {
   try {
-    const result = await getProposalStatus(req.params.kind, req.params.id);
+    const result = await getProposalStatus(req.params.kind as string, req.params.id as string);
     if (!result.ok) return res.status(404).json({ error: result.error });
     res.json({ success: true, status: result.status });
   } catch (e) {

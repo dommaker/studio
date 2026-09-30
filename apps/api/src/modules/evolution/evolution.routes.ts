@@ -35,8 +35,8 @@ export function createEvolutionRoutes(service?: EvolutionService): Router {
   });
 
   router.get('/proposals/:id', async (req: Request, res: Response) => {
-    const data = await svc().get(req.params.id);
-    if (!data) return res.status(404).json({ success: false, error: `Evolution proposal not found: ${req.params.id}` });
+    const data = await svc().get(req.params.id as string);
+    if (!data) return res.status(404).json({ success: false, error: `Evolution proposal not found: ${req.params.id as string}` });
     res.json({ success: true, data });
   });
 
@@ -45,7 +45,7 @@ export function createEvolutionRoutes(service?: EvolutionService): Router {
       const decidedBy = typeof req.body?.decidedBy === 'string' && req.body.decidedBy
         ? req.body.decidedBy
         : `api:${(req as Request & { user?: { name?: string } }).user?.name ?? 'local'}`;
-      const data = await svc().decide(req.params.id, 'approve', {
+      const data = await svc().decide(req.params.id as string, 'approve', {
         decidedBy,
         reason: typeof req.body?.reason === 'string' ? req.body.reason : undefined,
       });
@@ -57,7 +57,7 @@ export function createEvolutionRoutes(service?: EvolutionService): Router {
 
   router.post('/proposals/:id/reject', async (req: Request, res: Response) => {
     try {
-      const data = await svc().decide(req.params.id, 'reject', {
+      const data = await svc().decide(req.params.id as string, 'reject', {
         decidedBy: `api:${(req as Request & { user?: { name?: string } }).user?.name ?? 'local'}`,
         reason: typeof req.body?.reason === 'string' ? req.body.reason : undefined,
       });

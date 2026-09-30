@@ -76,7 +76,7 @@ router.post('/scan', requireAuth(), requireNotGuest(), async (req: Request, res:
  */
 router.post('/extract/:executionId', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { executionId } = req.params;
+    const { executionId } = req.params as Record<string, string>;
     const proposal = await skillExtractionService.extractFromWorkUnit(executionId);
 
     if (!proposal) {
@@ -99,7 +99,7 @@ router.post('/extract/:executionId', requireAuth(), requireNotGuest(), async (re
  */
 router.post('/:id/retract', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const skill = skillStore.get(id);
     if (!skill) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Skill not found' } });

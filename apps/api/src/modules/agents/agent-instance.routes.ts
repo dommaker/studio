@@ -67,10 +67,10 @@ router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Res
 /** GET /:id — get RuntimeInstance by id */
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const instance = await service.getById(req.params.id);
+    const instance = await service.getById(req.params.id as string);
     if (!instance) {
       return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: `RuntimeInstance ${req.params.id} not found` },
+        error: { code: 'NOT_FOUND', message: `RuntimeInstance ${req.params.id as string} not found` },
       });
     }
     res.json(instance);
@@ -84,7 +84,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 /** PATCH /:id — update RuntimeInstance */
 router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const instance = await service.update(req.params.id, req.body);
+    const instance = await service.update(req.params.id as string, req.body);
     res.json(instance);
   } catch (error) {
     const msg = getErrorMessage(error);
@@ -107,7 +107,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res:
 /** POST /:id/terminate — 强制停止实例：unclaim 当前 WorkUnit 并置 blocked 转人工（2026-07 §4 语义修正，活 loop 不会重新认领）+ 实例置 terminated */
 router.post('/:id/terminate', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
-    const instance = await service.terminate(req.params.id);
+    const instance = await service.terminate(req.params.id as string);
     res.json(instance);
   } catch (error) {
     const msg = getErrorMessage(error);

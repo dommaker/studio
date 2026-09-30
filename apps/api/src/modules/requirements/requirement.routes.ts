@@ -89,8 +89,8 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
 
   /** GET /:id — get requirement by id */
   router.get('/:id', async (req: Request, res: Response) => {
-    const data = await service.get(req.params.id);
-    if (!data) return res.status(404).json({ success: false, error: `Requirement not found: ${req.params.id}` });
+    const data = await service.get(req.params.id as string);
+    if (!data) return res.status(404).json({ success: false, error: `Requirement not found: ${req.params.id as string}` });
     res.json({ success: true, data });
   });
 
@@ -111,7 +111,7 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
       return res.status(400).json({ success: false, error: 'projectId must be a string or null' });
     }
     try {
-      const data = await service.update(req.params.id, {
+      const data = await service.update(req.params.id as string, {
         title: typeof title === 'string' ? title.trim() : undefined,
         status,
         description,
@@ -133,8 +133,8 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
 
   /** GET /:id/chain — 全链路数据（需求 + WorkUnit id/title/status/assignee） */
   router.get('/:id/chain', async (req: Request, res: Response) => {
-    const chain = await service.getChain(req.params.id);
-    if (!chain) return res.status(404).json({ success: false, error: `Requirement not found: ${req.params.id}` });
+    const chain = await service.getChain(req.params.id as string);
+    if (!chain) return res.status(404).json({ success: false, error: `Requirement not found: ${req.params.id as string}` });
     res.json({ success: true, data: chain });
   });
 

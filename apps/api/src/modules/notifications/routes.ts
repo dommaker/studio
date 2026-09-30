@@ -76,7 +76,7 @@ router.post('/:id/read', requireAuth(), requireNotGuest(), async (req: Request, 
     const userId = resolveUserId(req, res);
     if (!userId) return;
 
-    await getNotificationService().markAsRead(req.params.id, userId);
+    await getNotificationService().markAsRead(req.params.id as string, userId);
 
     res.json({ success: true });
   } catch (error) {

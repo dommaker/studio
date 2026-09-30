@@ -26,7 +26,7 @@ function isValidWorkUnitId(id: string): boolean {
  */
 router.get('/:workUnitId', requireAuth(), async (req: Request, res: Response) => {
   try {
-    const workUnitId = req.params.workUnitId;
+    const workUnitId = req.params.workUnitId as string;
     if (!isValidWorkUnitId(workUnitId)) {
       return res.status(400).json({ error: 'invalid workUnitId' });
     }

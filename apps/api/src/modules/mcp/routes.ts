@@ -161,7 +161,7 @@ router.get('/tools', async (_req: Request, res: Response) => {
  */
 router.post('/tools/:name', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
-    const { name } = req.params;
+    const { name } = req.params as Record<string, string>;
     const roleId = req.body?.roleId || req.headers['x-role-id'] as string;
     const result = await executeTool(name, req.body, roleId);
 

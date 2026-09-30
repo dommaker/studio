@@ -96,7 +96,7 @@ router.get('/', requireAuth(), requireAdmin(), async (_req: Request, res: Respon
 
 router.delete('/:id', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     const workspace = await readWorkspace(id);
     if (!workspace) {
@@ -123,7 +123,7 @@ router.delete('/:id', requireAuth(), requireAdmin(), async (req: Request, res: R
 
 router.get('/:id/runtimes', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     const workspace = await readWorkspace(id);
     if (!workspace) {
@@ -194,7 +194,7 @@ router.get('/runtimes', requireAuth(), requireAdmin(), apiCache(60), async (_req
 
 router.get('/:id', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
-    const workspace = await readWorkspace(req.params.id);
+    const workspace = await readWorkspace(req.params.id as string);
 
     if (!workspace) {
       return res.status(404).json({ error: 'Workspace not found' });

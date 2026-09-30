@@ -152,9 +152,9 @@ router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, r
 router.get('/project/:id', async (req: Request, res: Response) => {
   try {
     // 读取时重算进度（best-effort）：analysis 派生链无 Requirement 归属，事件入口此前接不上，存量项目进度滞留
-    await syncProjectProgress(req.params.id).catch(err =>
-      logger.warn({ projectId: req.params.id, error: String(err) }, '[PMO] Progress resync on read failed (non-blocking)'));
-    const project = await projectService.get(req.params.id);
+    await syncProjectProgress(req.params.id as string).catch(err =>
+      logger.warn({ projectId: req.params.id as string, error: String(err) }, '[PMO] Progress resync on read failed (non-blocking)'));
+    const project = await projectService.get(req.params.id as string);
 
     if (!project) {
       return res.status(404).json({
@@ -177,7 +177,7 @@ router.get('/project/:id', async (req: Request, res: Response) => {
  */
 router.get('/project/:id/delivery', async (req: Request, res: Response) => {
   try {
-    const status = await getDeliveryStatus(req.params.id);
+    const status = await getDeliveryStatus(req.params.id as string);
     if (!status) {
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'Project not found' },
@@ -205,7 +205,7 @@ router.post('/project/:id/deliver', requireAuth(), requireNotGuest(), async (req
       });
     }
     const user = (req as AuthRequest).user;
-    const outcome = await deliverProject(req.params.id, user?.name ?? user?.email ?? user?.id ?? 'human');
+    const outcome = await deliverProject(req.params.id as string, user?.name ?? user?.email ?? user?.id ?? 'human');
     // 注：本包 tsconfig 未开 strict，可辨识联合须用 === 字面量比较收窄（merge-on-review-pass 同款）
     if (outcome.delivered === true) {
       return res.json(outcome);
@@ -249,7 +249,7 @@ router.post('/project/:id/mark-delivered', requireAuth(), requireNotGuest(), asy
       });
     }
     const user = (req as AuthRequest).user;
-    const outcome = await markProjectDelivered(req.params.id, user?.name ?? user?.email ?? user?.id ?? 'human', commit);
+    const outcome = await markProjectDelivered(req.params.id as string, user?.name ?? user?.email ?? user?.id ?? 'human', commit);
     // 注：本包 tsconfig 未开 strict，可辨识联合须用 === 字面量比较收窄（deliver 路由同款）
     if (outcome.marked === true) {
       return res.json({ delivered: true, deliverCommit: outcome.deliverCommit, deliveredAt: outcome.deliveredAt });
@@ -277,7 +277,7 @@ router.post('/project/:id/mark-delivered', requireAuth(), requireNotGuest(), asy
  */
 router.get('/project/by-pmo/:pmoNumber', async (req: Request, res: Response) => {
   try {
-    const pmoNumber = req.params.pmoNumber;
+    const pmoNumber = req.params.pmoNumber as string;
 
     const project = await projectService.getByPmoNumber(pmoNumber);
 
@@ -311,7 +311,7 @@ router.put('/project/:id', requireAuth(), requireNotGuest(), async (req: Request
         });
       }
     }
-    const project = await projectService.update(req.params.id, req.body);
+    const project = await projectService.update(req.params.id as string, req.body);
     res.json(project);
   } catch (error) {
     logger.error({ error }, 'Failed to update project');
@@ -335,7 +335,7 @@ router.put('/project/:id/status', requireAuth(), requireNotGuest(), async (req: 
       });
     }
 
-    const project = await projectService.updateStatus(req.params.id, status);
+    const project = await projectService.updateStatus(req.params.id as string, status);
     res.json(project);
   } catch (error) {
     logger.error({ error }, 'Failed to update project status');
@@ -352,7 +352,7 @@ router.put('/project/:id/status', requireAuth(), requireNotGuest(), async (req: 
  */
 router.delete('/project/:id', requireRole('Admin'), async (req: Request, res: Response) => {
   try {
-    const result = await projectService.delete(req.params.id);
+    const result = await projectService.delete(req.params.id as string);
     res.json(result);
   } catch (error) {
     logger.error({ error }, 'Failed to delete project');
@@ -376,7 +376,7 @@ router.post('/project/:id/publish', requireAuth(), requireNotGuest(), async (req
     }
 
     const result = await projectService.publish({
-      projectId: req.params.id,
+      projectId: req.params.id as string,
       channelId,
       // #177：可选 assigneeId（profile id）落 analysis WU；留空 = 回池涌现
       ...(typeof assigneeId === 'string' && assigneeId.trim() ? { assigneeId: assigneeId.trim() } : {}),
@@ -385,7 +385,7 @@ router.post('/project/:id/publish', requireAuth(), requireNotGuest(), async (req
   } catch (error) {
     const message = (error as Error).message;
     const status = message.includes('not found') || message.includes('pending') ? 400 : 500;
-    logger.error({ error: message, projectId: req.params.id }, 'Failed to publish project');
+    logger.error({ error: message, projectId: req.params.id as string }, 'Failed to publish project');
     res.status(status).json({
       error: { code: status === 400 ? 'BAD_REQUEST' : 'INTERNAL_ERROR', message },
     });
@@ -398,14 +398,14 @@ router.post('/project/:id/publish', requireAuth(), requireNotGuest(), async (req
  */
 router.get('/project/:id/sdd', async (req: Request, res: Response) => {
   try {
-    const result = await projectService.getLinkedSDDs(req.params.id);
+    const result = await projectService.getLinkedSDDs(req.params.id as string);
     res.json(result);
   } catch (error) {
     const message = (error as Error).message;
     if (message.includes('not found')) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message } });
     }
-    logger.error({ error: message, projectId: req.params.id }, 'Failed to query linked SDDs');
+    logger.error({ error: message, projectId: req.params.id as string }, 'Failed to query linked SDDs');
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message },
     });
@@ -502,7 +502,7 @@ router.post('/okr', requireAuth(), requireNotGuest(), async (req: Request, res: 
  */
 router.get('/okr/:id', async (req: Request, res: Response) => {
   try {
-    const okr = await okrService.get(req.params.id);
+    const okr = await okrService.get(req.params.id as string);
     res.json(okr);
   } catch (error) {
     logger.error({ error }, 'Failed to get OKR');
@@ -519,7 +519,7 @@ router.get('/okr/:id', async (req: Request, res: Response) => {
 router.put('/okr/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const updates = req.body;
-    const okrId = req.params.id;
+    const okrId = req.params.id as string;
 
     const updated = await okrService.update(okrId, updates);
     // #448 问题1：写后失效 OKR 列表缓存（30s apiCache）
@@ -540,7 +540,7 @@ router.put('/okr/:id', requireAuth(), requireNotGuest(), async (req: Request, re
  */
 router.delete('/okr/:id', requireRole('Admin'), async (req: Request, res: Response) => {
   try {
-    const okrId = req.params.id;
+    const okrId = req.params.id as string;
 
     const result = await okrService.delete(okrId);
     // #448 问题1：写后失效 OKR 列表缓存（30s apiCache）

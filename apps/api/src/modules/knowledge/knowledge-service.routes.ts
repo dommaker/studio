@@ -65,7 +65,7 @@ knowledgeServiceRoutes.get('/entries', async (req, res) => {
 
 knowledgeServiceRoutes.get('/entries/:id', async (req, res) => {
   try {
-    const entry = await knowledgeService.get(req.params.id);
+    const entry = await knowledgeService.get(req.params.id as string);
     if (!entry) return res.status(404).json({ error: 'Not found' });
     res.json(entry);
   } catch (e: any) {
@@ -90,7 +90,7 @@ knowledgeServiceRoutes.post('/entries', requireAuth(), requireNotGuest(), async 
 
 knowledgeServiceRoutes.put('/entries/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
-    const updated = await knowledgeService.update(req.params.id, req.body);
+    const updated = await knowledgeService.update(req.params.id as string, req.body);
     if (!updated) return res.status(404).json({ error: 'Not found' });
     res.json(updated);
   } catch (e: any) {
@@ -101,7 +101,7 @@ knowledgeServiceRoutes.put('/entries/:id', requireAuth(), requireNotGuest(), asy
 
 knowledgeServiceRoutes.delete('/entries/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
-    const deleted = await knowledgeService.delete(req.params.id);
+    const deleted = await knowledgeService.delete(req.params.id as string);
     if (!deleted) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true });
   } catch (e: any) {

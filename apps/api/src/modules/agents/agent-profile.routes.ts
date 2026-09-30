@@ -85,10 +85,10 @@ router.get('/presets', (_req: Request, res: Response) => {
 /** GET /:id — get AgentProfile by id */
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const profile = await service.getById(req.params.id);
+    const profile = await service.getById(req.params.id as string);
     if (!profile) {
       return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: `AgentProfile ${req.params.id} not found` },
+        error: { code: 'NOT_FOUND', message: `AgentProfile ${req.params.id as string} not found` },
       });
     }
     res.json(profile);
@@ -102,7 +102,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 /** PATCH /:id — update AgentProfile */
 router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const profile = await service.update(req.params.id, req.body);
+    const profile = await service.update(req.params.id as string, req.body);
     res.json(profile);
   } catch (error) {
     const msg = getErrorMessage(error);
@@ -126,7 +126,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res:
 /** DELETE /:id — delete AgentProfile */
 router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    await service.delete(req.params.id);
+    await service.delete(req.params.id as string);
     res.status(204).send();
   } catch (error) {
     const msg = getErrorMessage(error);

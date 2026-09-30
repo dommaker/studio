@@ -113,7 +113,7 @@ router.get('/manifest', async (_req: Request, res: Response) => {
  */
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const skill = skillStore.get(req.params.id);
+    const skill = skillStore.get(req.params.id as string);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
     // #354：提案存取归 review-proposal 正本（append-only 词表 pending|executed|rejected|failed|card-failed）；
@@ -166,7 +166,7 @@ router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Res
 router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { name, category, description, metadata, roleId } = req.body;
-    const skill = skillStore.update(req.params.id, {
+    const skill = skillStore.update(req.params.id as string, {
       name, category, description, roleId,
       metadata: metadata ? JSON.stringify(metadata) : undefined,
     });
@@ -183,7 +183,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res:
  */
 router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const deleted = skillStore.delete(req.params.id);
+    const deleted = skillStore.delete(req.params.id as string);
     if (!deleted) return res.status(404).json({ error: 'Skill not found' });
     res.json({ success: true });
   } catch (error) {
@@ -201,7 +201,7 @@ router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res
  */
 router.post('/:id/publish', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const skill = skillStore.get(req.params.id);
+    const skill = skillStore.get(req.params.id as string);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
     if (skill.status !== 'draft' && skill.status !== 'testing') {
       return res.status(400).json({ error: `Cannot publish skill with status '${skill.status}'` });
@@ -212,7 +212,7 @@ router.post('/:id/publish', requireAuth(), requireNotGuest(), async (req: Reques
       return res.status(400).json({ error: 'Promote gate rejected', reasons: result.errors });
     }
 
-    const updated = skillStore.get(req.params.id);
+    const updated = skillStore.get(req.params.id as string);
     res.json({ data: updated });
   } catch (error) {
     logger.error({ error }, 'Failed to publish skill');
@@ -226,13 +226,13 @@ router.post('/:id/publish', requireAuth(), requireNotGuest(), async (req: Reques
  */
 router.post('/:id/deprecate', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const skill = skillStore.get(req.params.id);
+    const skill = skillStore.get(req.params.id as string);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
     if (skill.status !== 'published') {
       return res.status(400).json({ error: `Cannot deprecate skill with status '${skill.status}'` });
     }
 
-    const updated = skillStore.update(req.params.id, { status: 'deprecated' });
+    const updated = skillStore.update(req.params.id as string, { status: 'deprecated' });
     res.json({ data: updated });
   } catch (error) {
     logger.error({ error }, 'Failed to deprecate skill');
@@ -253,14 +253,14 @@ router.post('/:id/retract/decide', requireAuth(), requireNotGuest(), async (req:
     if (decision !== 'confirm' && decision !== 'reject') {
       return res.status(400).json({ error: "decision must be 'confirm' or 'reject'" });
     }
-    const skill = skillStore.get(req.params.id);
+    const skill = skillStore.get(req.params.id as string);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
     if (skill.status !== 'under_review') {
       return res.status(400).json({ error: `Cannot decide retract for skill with status '${skill.status}'` });
     }
 
     const nextStatus = decision === 'confirm' ? 'deprecated' : 'published';
-    const updated = skillStore.update(req.params.id, { status: nextStatus });
+    const updated = skillStore.update(req.params.id as string, { status: nextStatus });
 
     if (typeof messageId === 'string' && messageId) {
       try {
@@ -274,7 +274,7 @@ router.post('/:id/retract/decide', requireAuth(), requireNotGuest(), async (req:
       }
     }
 
-    logger.info({ skillId: req.params.id, decision, status: nextStatus }, '[Skill] Retract decided');
+    logger.info({ skillId: req.params.id as string, decision, status: nextStatus }, '[Skill] Retract decided');
     res.json({ data: updated });
   } catch (error) {
     logger.error({ error }, 'Failed to decide skill retract');
@@ -288,13 +288,13 @@ router.post('/:id/retract/decide', requireAuth(), requireNotGuest(), async (req:
  */
 router.post('/:id/restore', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const skill = skillStore.get(req.params.id);
+    const skill = skillStore.get(req.params.id as string);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
     if (skill.status !== 'deprecated') {
       return res.status(400).json({ error: `Cannot restore skill with status '${skill.status}'` });
     }
 
-    const updated = skillStore.update(req.params.id, {
+    const updated = skillStore.update(req.params.id as string, {
       status: 'draft',
       version: { increment: 1 },
     });
@@ -314,7 +314,7 @@ router.post('/:id/restore', requireAuth(), requireNotGuest(), async (req: Reques
 router.post('/:id/usage', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { success, durationMs } = req.body;
-    const skill = skillStore.get(req.params.id);
+    const skill = skillStore.get(req.params.id as string);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
     const newCount = skill.usageCount + 1;
@@ -325,7 +325,7 @@ router.post('/:id/usage', requireAuth(), requireNotGuest(), async (req: Request,
       ? ((skill.avgDuration * skill.usageCount) + durationMs) / newCount
       : skill.avgDuration;
 
-    const updated = skillStore.update(req.params.id, {
+    const updated = skillStore.update(req.params.id as string, {
       usageCount: newCount,
       successRate: Math.round(newSuccessRate * 100) / 100,
       avgDuration: Math.round(newAvgDuration),

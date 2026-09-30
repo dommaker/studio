@@ -445,22 +445,8 @@ async function start() {
 
     // ── meeting 路径服务已摘除 ──
 
-    // Express 4 不自动捕获 async route 异常 → monkey-patch Layer.handle_request
-    // (express-async-errors 的等价实现，避免新增依赖)
-    try {
-      const Layer = require('express/lib/router/layer');
-      const origHandle = Layer.prototype.handle_request;
-      Layer.prototype.handle_request = function (req: any, res: any, next: any) {
-        const fn = this.handle;
-        if (fn instanceof Promise || fn?.constructor?.name === 'AsyncFunction') {
-          Promise.resolve(fn(req, res, next)).catch(next);
-        } else {
-          origHandle.call(this, req, res, next);
-        }
-      };
-    } catch (e) {
-      logger.warn('express-async-errors patch failed, async route errors may crash HTTP');
-    }
+    // Express 5 原生兜 async route 异常（promise rejection → error handler），
+    // 原 Express 4 的 Layer.handle_request monkey-patch 已随升级删除。
 
     process.on('unhandledRejection', (reason: any) => {
       logger.error('Unhandled rejection (logged, not restarting HTTP)', { message: reason?.message, stack: reason?.stack });

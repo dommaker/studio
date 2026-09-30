@@ -90,7 +90,7 @@ router.get('/costs', async (req, res) => {
 
 /** GET /api/triggers/:id — get single trigger */
 router.get('/:id', (req, res) => {
-  const trigger = store.get(req.params.id);
+  const trigger = store.get(req.params.id as string);
   if (!trigger) {
     res.status(404).json({ error: 'Trigger not found' });
     return;
@@ -118,7 +118,7 @@ router.post('/', (req, res) => {
  */
 router.post('/:id/fire', async (req, res) => {
   try {
-    const id = req.params.id;
+    const id = req.params.id as string;
     const config = store.get(id) ?? scheduler.getStates().find(s => s.config.id === id)?.config;
     if (!config) {
       res.status(404).json({ error: { message: `Trigger not found: ${id}` } });
@@ -169,7 +169,7 @@ router.post('/:id/fire', async (req, res) => {
 
 /** DELETE /api/triggers/:id — delete trigger */
 router.delete('/:id', (req, res) => {
-  const deleted = store.delete(req.params.id);
+  const deleted = store.delete(req.params.id as string);
   if (!deleted) {
     res.status(404).json({ error: 'Trigger not found' });
     return;
@@ -180,7 +180,7 @@ router.delete('/:id', (req, res) => {
 
 /** GET /api/triggers/:id/logs — get scheduler logs for a trigger */
 router.get('/:id/logs', (req, res) => {
-  const logs = scheduler.getLogs().filter(l => l.triggerId === req.params.id);
+  const logs = scheduler.getLogs().filter(l => l.triggerId === req.params.id as string);
   res.json({ logs });
 });
 

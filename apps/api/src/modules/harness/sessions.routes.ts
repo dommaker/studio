@@ -90,7 +90,7 @@ sessionsRoutes.post('/sessions/:id/events', async (req: Request, res: Response) 
     const loaded = await loadHarness();
     if (!loaded) return res.status(503).json({ error: 'Harness not available' });
 
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const { event } = req.body;
     if (!event) return res.status(400).json({ error: 'event is required' });
 
@@ -115,7 +115,7 @@ sessionsRoutes.get('/sessions/:id', async (req: Request, res: Response) => {
     const loaded = await loadHarness();
     if (!loaded) return res.status(503).json({ error: 'Harness not available' });
 
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     // S2 修复：复用已创建的 SessionManager
     const entry = sessions.get(id);
@@ -142,7 +142,7 @@ sessionsRoutes.post('/sessions/:id/checkpoint', async (req: Request, res: Respon
     const loaded = await loadHarness();
     if (!loaded) return res.status(503).json({ error: 'Harness not available' });
 
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     // S2 修复：复用已创建的 SessionManager
     const entry = sessions.get(id);

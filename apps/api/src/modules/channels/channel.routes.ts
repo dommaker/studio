@@ -71,7 +71,7 @@ router.post('/', requireAuth(), requireNotGuest(), handle(async (req, res) => {
 // B8（2026-09-16 channel 性能审计）：去掉 prisma 时代遗留的 `_count.ChannelMessage`
 // （全仓无消费方，每请求 O(热文件行数) 全量计数纯浪费；计数方法已随 B4 清扫删除）
 router.get('/:id', requireAuth(), handle(async (req, res) => {
-  const channel = await channelService.getOrThrow(req.params.id);
+  const channel = await channelService.getOrThrow(req.params.id as string);
   res.json({ success: true, data: channel });
 }));
 
@@ -79,8 +79,8 @@ router.get('/:id', requireAuth(), handle(async (req, res) => {
 // 派生概念不落库：最近挂接 REQ 所属 PMO → 杂务 PMO 反推 → null（见 current-pmo.ts）。
 // B7：派生链为 N+1 全量读取，挂短 TTL apiCache（5s 档，同 GET / 列表先例）。
 router.get('/:id/current-pmo', requireAuth(), apiCache(CACHE_CONFIG.short), handle(async (req, res) => {
-  await channelService.getOrThrow(req.params.id);
-  const pmo = await deriveChannelCurrentPmo(req.params.id);
+  await channelService.getOrThrow(req.params.id as string);
+  const pmo = await deriveChannelCurrentPmo(req.params.id as string);
   res.json({ success: true, data: pmo });
 }));
 
@@ -88,8 +88,8 @@ router.get('/:id/current-pmo', requireAuth(), apiCache(CACHE_CONFIG.short), hand
 // 当前 PMO 置顶 + 挂接 REQ 所属 PMO（seq 降序去重，pmoNumber 为空过滤）；派生不落库，
 // 与 current-pmo 同为 N+1 全量读取挂短 TTL apiCache；派生内部容错绝不抛出（无来源 → []）。
 router.get('/:id/pmo-candidates', requireAuth(), apiCache(CACHE_CONFIG.short), handle(async (req, res) => {
-  await channelService.getOrThrow(req.params.id);
-  const candidates = await deriveChannelPmoCandidates(req.params.id);
+  await channelService.getOrThrow(req.params.id as string);
+  const candidates = await deriveChannelPmoCandidates(req.params.id as string);
   res.json({ success: true, data: candidates });
 }));
 
@@ -98,8 +98,8 @@ router.get('/:id/pmo-candidates', requireAuth(), apiCache(CACHE_CONFIG.short), h
 // 只读状态说明形态（自动评审在途）；action/prompt 形态见 #444/#445/#446（见 suggestions.ts）。
 // B2：前端每条 agent 消息都重拉、每次全量 WU 派生，挂短 TTL apiCache（5s 档，同 current-pmo 先例）。
 router.get('/:id/suggestions', requireAuth(), apiCache(CACHE_CONFIG.short), handle(async (req, res) => {
-  await channelService.getOrThrow(req.params.id);
-  const data = await deriveChannelSuggestions(req.params.id, { fileStore });
+  await channelService.getOrThrow(req.params.id as string);
+  const data = await deriveChannelSuggestions(req.params.id as string, { fileStore });
   res.json({ success: true, data });
 }));
 
@@ -107,9 +107,9 @@ router.get('/:id/suggestions', requireAuth(), apiCache(CACHE_CONFIG.short), hand
 // 与 routeMessage 无地址路径共用 resolveMergeTarget 判定，保证「预览所见 = 实际路由」：
 // unique 附 workUnit{id,title}（标题 = WU scope）；ambiguous 不暴露并入目标。
 router.get('/:id/merge-target', requireAuth(), handle(async (req, res) => {
-  await channelService.getOrThrow(req.params.id);
+  await channelService.getOrThrow(req.params.id as string);
   const wuService = new WorkUnitService(fileStore);
-  const resolution = await resolveMergeTarget(req.params.id, fileStore, wuService);
+  const resolution = await resolveMergeTarget(req.params.id as string, fileStore, wuService);
   if (resolution.kind !== 'unique') {
     return res.json({ success: true, data: { status: resolution.kind } });
   }
@@ -126,7 +126,7 @@ router.get('/:id/messages', requireAuth(), handle(async (req, res) => {
   const { before, limit = '50' } = req.query;
   const take = Math.min(Number(limit), 100);
 
-  const page = await fileStore.queryMessagesPage(req.params.id, {
+  const page = await fileStore.queryMessagesPage(req.params.id as string, {
     before: typeof before === 'string' && before ? before : undefined,
     limit: take,
     // #525 P2-4：total 默认跳过（countColdLines 逐冷月字节扫纯浪费，前端不消费）；
@@ -149,13 +149,13 @@ router.get('/:id/messages', requireAuth(), handle(async (req, res) => {
 // 各仓 git ls-files + 内存缓存（见 file-ref-vocabulary.ts）。
 // B7：挂短 TTL apiCache（5s 档）——词表进程缓存之外再挡一层 HTTP 级重复派生。
 router.get('/:id/file-vocabulary', requireAuth(), apiCache(CACHE_CONFIG.short), handle(async (req, res) => {
-  await channelService.getOrThrow(req.params.id);
+  await channelService.getOrThrow(req.params.id as string);
   try {
-    const vocabulary = await getChannelFileVocabulary(req.params.id);
+    const vocabulary = await getChannelFileVocabulary(req.params.id as string);
     res.json({ success: true, data: vocabulary });
   } catch (e: unknown) {
     const msg = getErrorMessage(e);
-    logger.warn('[Channel] file vocabulary failed', { channelId: req.params.id, error: msg });
+    logger.warn('[Channel] file vocabulary failed', { channelId: req.params.id as string, error: msg });
     res.status(500).json({ success: false, error: msg });
   }
 }));
@@ -179,7 +179,7 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), handle(async (req
     return res.status(400).json({ success: false, error: 'files must be an array of {repo, path} strings' });
   }
 
-  const channelId = req.params.id;
+  const channelId = req.params.id as string;
   const trimmedContent = content.trim();
 
   const channel = await channelService.getOrThrow(channelId);
@@ -213,8 +213,8 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), handle(async (req
 // JSON base64 体（不引 multipart 依赖）；该路由单独放大 json limit（8mb，全局 2mb 不动）——
 // app.ts 在全局 parser 前对同路径预解析，此处路由级再挂保直挂测试自足（已解析请求自动跳过）。
 router.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), requireAuth(), requireNotGuest(), handle(async (req, res) => {
-  await channelService.getOrThrow(req.params.id);
-  const result = await saveChannelImage(req.params.id, req.body ?? {});
+  await channelService.getOrThrow(req.params.id as string);
+  const result = await saveChannelImage(req.params.id as string, req.body ?? {});
   if (!result.ok) return res.status(result.status).json({ success: false, error: result.error });
   res.status(201).json({ success: true, data: result.value });
 }));
@@ -223,7 +223,7 @@ router.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), requireA
 // <img> 无法带 Authorization 头：?token= 携带 JWT（SSE /events/stream 同款），
 // 映射进 header 后复用 requireAuth 语义；id 白名单校验防路径穿越（attachments.ts）。
 router.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), handle(async (req, res) => {
-  const resolved = await resolveChannelImage(req.params.id, req.params.attachmentId);
+  const resolved = await resolveChannelImage(req.params.id as string, req.params.attachmentId as string);
   if (!resolved.ok) return res.status(resolved.status).json({ success: false, error: resolved.error });
   res.setHeader('Content-Type', resolved.value.mime);
   res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
@@ -232,25 +232,25 @@ router.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), 
 
 // DELETE /api/v1/channels/:id — delete channel (B2-012: Goal fallback to #研发)
 router.delete('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) => {
-  const { fallbackChannelId } = await channelService.deleteWithFallback(req.params.id);
+  const { fallbackChannelId } = await channelService.deleteWithFallback(req.params.id as string);
   res.json({ success: true, data: { deleted: true, fallbackChannelId } });
 }));
 
 // PUT /api/v1/channels/:id/archive — archive a channel (B1-011)
 router.put('/:id/archive', requireAuth(), requireNotGuest(), handle(async (req, res) => {
-  const newName = await channelService.archive(req.params.id);
+  const newName = await channelService.archive(req.params.id as string);
   res.json({ success: true, data: { archived: true, newName } });
 }));
 
 // PUT /api/v1/channels/:id/restore — restore an archived channel (B1-011)
 router.put('/:id/restore', requireAuth(), requireNotGuest(), handle(async (req, res) => {
-  const name = await channelService.restore(req.params.id);
+  const name = await channelService.restore(req.params.id as string);
   res.json({ success: true, data: { restored: true, name } });
 }));
 
 // PATCH /api/v1/channels/:id — update channel settings
 router.patch('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) => {
-  const { id } = req.params;
+  const { id } = req.params as Record<string, string>;
   // #632：defaultProfileId（决策12 频道默认角色）已退役——不再接受该字段
   if ('defaultProfileId' in (req.body ?? {})) {
     return res.status(400).json({ success: false, error: 'defaultProfileId 已随 #632 退役：无 @ 消息归宿 = 合并窗口 / 纯存储，频道不再配置默认角色' });
@@ -285,13 +285,13 @@ router.patch('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) =
 // PATCH /api/v1/channels/:id/members — update channel members (AC-B2)
 router.patch('/:id/members', requireAuth(), requireNotGuest(), handle(async (req, res) => {
   const { add, remove } = req.body;
-  const members = await channelService.updateMembers(req.params.id, { add, remove });
+  const members = await channelService.updateMembers(req.params.id as string, { add, remove });
   // #497: 移出被指名角色（routing 档/入口角色）→ 响应附 warning 提示漂移（不阻断，
   // 与现有校验严格度对齐——指名静默退化为涌现前给人一次知情机会）
   const removed: string[] = Array.isArray(remove) ? remove.filter((x): x is string => typeof x === 'string') : [];
   let warning: string | undefined;
   if (removed.length > 0) {
-    const channel = await channelService.getOrThrow(req.params.id);
+    const channel = await channelService.getOrThrow(req.params.id as string);
     warning = buildMemberRemovalWarning(channel, removed);
   }
   res.json({ success: true, data: { members, ...(warning ? { warning } : {}) } });
@@ -299,7 +299,7 @@ router.patch('/:id/members', requireAuth(), requireNotGuest(), handle(async (req
 
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task (AC-E1)
 router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNotGuest(), async (req, res) => {
-  const { id: channelId, messageId } = req.params;
+  const { id: channelId, messageId } = req.params as Record<string, string>;
   const { title, description, assigneeId, projectPath, reqId } = req.body;
 
   try {
@@ -325,11 +325,11 @@ router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNo
 
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task/suggest (AC-E2)
 router.post('/:id/messages/:messageId/convert-to-task/suggest', requireAuth(), requireNotGuest(), async (req, res) => {
-  const { messageId } = req.params;
+  const { messageId } = req.params as Record<string, string>;
 
   try {
     // 1. Get message content（#524 P1-1：路径参数 :id 即频道，按频道直查免全频道扇出）
-    const found = await fileStore.getMessageById(messageId, req.params.id);
+    const found = await fileStore.getMessageById(messageId, req.params.id as string);
     if (!found) {
       return res.status(404).json({ success: false, error: 'Message not found' });
     }

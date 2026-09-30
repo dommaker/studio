@@ -16,7 +16,7 @@ const router = Router();
 /** GET /:id/token-usage — profile 级 token 聚合（空数据返回全零，不抛错） */
 router.get('/:id/token-usage', async (req: Request, res: Response) => {
   try {
-    const usage = await getAgentTokenUsage(req.params.id);
+    const usage = await getAgentTokenUsage(req.params.id as string);
     res.json(usage);
   } catch (error) {
     // 服务层已保证不抛；这里兜底防御

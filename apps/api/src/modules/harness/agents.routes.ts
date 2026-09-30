@@ -62,7 +62,7 @@ agentsRoutes.post('/agents/:id/start', async (req: Request, res: Response) => {
     const lifecycle = await getAgentLifecycle();
     if (!lifecycle) return res.status(503).json({ error: 'Harness not available' });
 
-    const state = lifecycle.start(req.params.id);
+    const state = lifecycle.start(req.params.id as string);
     if (!state) return res.status(404).json({ error: 'Agent not found' });
     return res.json({ data: state });
   } catch (error) {
@@ -80,7 +80,7 @@ agentsRoutes.post('/agents/:id/complete', async (req: Request, res: Response) =>
     const lifecycle = await getAgentLifecycle();
     if (!lifecycle) return res.status(503).json({ error: 'Harness not available' });
 
-    const state = lifecycle.complete(req.params.id, req.body.metadata);
+    const state = lifecycle.complete(req.params.id as string, req.body.metadata);
     if (!state) return res.status(404).json({ error: 'Agent not found' });
     return res.json({ data: state });
   } catch (error) {
@@ -99,7 +99,7 @@ agentsRoutes.post('/agents/:id/fail', async (req: Request, res: Response) => {
     if (!lifecycle) return res.status(503).json({ error: 'Harness not available' });
 
     const { error: errorMsg } = req.body;
-    const state = lifecycle.fail(req.params.id, errorMsg || 'Unknown error');
+    const state = lifecycle.fail(req.params.id as string, errorMsg || 'Unknown error');
     if (!state) return res.status(404).json({ error: 'Agent not found' });
     return res.json({ data: state });
   } catch (error) {
@@ -134,7 +134,7 @@ agentsRoutes.get('/agents/:id', async (req: Request, res: Response) => {
     const lifecycle = await getAgentLifecycle();
     if (!lifecycle) return res.status(503).json({ error: 'Harness not available' });
 
-    const state = lifecycle.getState(req.params.id);
+    const state = lifecycle.getState(req.params.id as string);
     if (!state) return res.status(404).json({ error: 'Agent not found' });
     return res.json({ data: state });
   } catch (error) {

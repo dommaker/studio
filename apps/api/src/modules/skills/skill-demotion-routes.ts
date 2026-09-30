@@ -38,7 +38,7 @@ router.get('/', async (req: Request, res: Response) => {
  */
 router.post('/:id/approve', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const success = await approveDemotion(req.params.id);
+    const success = await approveDemotion(req.params.id as string);
     if (!success) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Proposal not found or already reviewed' } });
     }
@@ -54,7 +54,7 @@ router.post('/:id/approve', requireAuth(), requireNotGuest(), async (req: Reques
  */
 router.post('/:id/reject', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const success = await rejectDemotion(req.params.id);
+    const success = await rejectDemotion(req.params.id as string);
     if (!success) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Proposal not found or already reviewed' } });
     }

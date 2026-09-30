@@ -74,7 +74,7 @@ router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Res
 router.get('/:agentId', async (req: Request, res: Response) => {
   try {
     const reg = await initRegistry();
-    const { agentId } = req.params;
+    const { agentId } = req.params as Record<string, string>;
     const { version } = req.query;
 
     const agent = await reg.get(agentId, version as string);
@@ -98,7 +98,7 @@ router.get('/:agentId', async (req: Request, res: Response) => {
 router.put('/:agentId', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const reg = await initRegistry();
-    const { agentId } = req.params;
+    const { agentId } = req.params as Record<string, string>;
     const { version } = req.query;
 
     if (!version) {
@@ -122,7 +122,7 @@ router.put('/:agentId', requireAuth(), requireNotGuest(), async (req: Request, r
 router.delete('/:agentId', requireRole('Admin'), async (req: Request, res: Response) => {
   try {
     const reg = await initRegistry();
-    const { agentId } = req.params;
+    const { agentId } = req.params as Record<string, string>;
     const { version } = req.query;
 
     if (!version) {

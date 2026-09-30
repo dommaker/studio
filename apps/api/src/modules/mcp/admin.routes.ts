@@ -41,7 +41,7 @@ router.get('/tools', async (_req: Request, res: Response) => {
  */
 router.patch('/tools/:name', async (req: Request, res: Response) => {
   try {
-    const { name } = req.params;
+    const { name } = req.params as Record<string, string>;
     const { enabled } = req.body;
 
     if (typeof enabled !== 'boolean') {

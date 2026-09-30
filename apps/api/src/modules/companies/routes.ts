@@ -118,7 +118,7 @@ router.post('/', async (req: Request, res: Response) => {
  */
 router.patch('/:companyId', async (req: Request, res: Response) => {
   try {
-    const { companyId } = req.params;
+    const { companyId } = req.params as Record<string, string>;
     const { name } = req.body;
 
     const existing = await fileStore.readJson<CompanyRecord>(companyPath(companyId));
@@ -143,7 +143,7 @@ router.patch('/:companyId', async (req: Request, res: Response) => {
  */
 router.get('/:companyId', async (req: Request, res: Response) => {
   try {
-    const { companyId } = req.params;
+    const { companyId } = req.params as Record<string, string>;
 
     const company = await fileStore.readJson<CompanyRecord>(companyPath(companyId));
 
@@ -176,7 +176,7 @@ router.get('/sizes/config', (req: Request, res: Response) => {
  */
 router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
   try {
-    const { companyId } = req.params;
+    const { companyId } = req.params as Record<string, string>;
 
     // 并行查询多个数据源
     const [company, executions] = await Promise.all([
