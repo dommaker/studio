@@ -31,7 +31,8 @@ describe('TranscriptViewer (#174)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockTranscriptGet.mockResolvedValue({
-      data: { workUnitId: 'wu-1', total: 2, offset: 0, limit: 20, entries: [entry(1), entry(2)] },
+      // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+      data: { data: { workUnitId: 'wu-1', total: 2, offset: 0, limit: 20, entries: [entry(1), entry(2)] } },
     });
   });
 
@@ -54,14 +55,16 @@ describe('TranscriptViewer (#174)', () => {
 
   it('「加载更多」带 offset=已加载数再调，到底后隐藏', async () => {
     mockTranscriptGet.mockResolvedValue({
-      data: { workUnitId: 'wu-1', total: 25, offset: 0, limit: 20, entries: Array.from({ length: 20 }, (_, i) => entry(i + 1)) },
+      // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+      data: { data: { workUnitId: 'wu-1', total: 25, offset: 0, limit: 20, entries: Array.from({ length: 20 }, (_, i) => entry(i + 1)) } },
     });
     render(<TranscriptViewer workUnitId="wu-1" />);
     fireEvent.click(screen.getByRole('button'));
     await waitFor(() => expect(screen.getByText(/step-1 raw output/)).toBeTruthy());
 
     mockTranscriptGet.mockResolvedValue({
-      data: { workUnitId: 'wu-1', total: 25, offset: 20, limit: 20, entries: [entry(21), entry(22), entry(23), entry(24), entry(25)] },
+      // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+      data: { data: { workUnitId: 'wu-1', total: 25, offset: 20, limit: 20, entries: [entry(21), entry(22), entry(23), entry(24), entry(25)] } },
     });
     fireEvent.click(screen.getByText('加载更多'));
     await waitFor(() => expect(screen.getByText(/step-21 raw output/)).toBeTruthy());
@@ -72,7 +75,8 @@ describe('TranscriptViewer (#174)', () => {
 
   it('空结果：显示「暂无 transcript」', async () => {
     mockTranscriptGet.mockResolvedValue({
-      data: { workUnitId: 'wu-1', total: 0, offset: 0, limit: 20, entries: [] },
+      // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+      data: { data: { workUnitId: 'wu-1', total: 0, offset: 0, limit: 20, entries: [] } },
     });
     render(<TranscriptViewer workUnitId="wu-1" />);
     fireEvent.click(screen.getByRole('button'));

@@ -145,7 +145,8 @@ export const useRosterStore = create<RosterState>((set, get) => ({
           }
 
           if (summaryRes.status === 'fulfilled') {
-            patch.agents = summaryRes.value.data?.agents ?? [];
+            // 契约驱动迁移（批次 5/7）：monitoring 响应统一 `{ data }` 壳
+            patch.agents = summaryRes.value.data?.data?.agents ?? [];
             patch.agentsLoadedOnce = true;
             patch.forbidden = false;
             anyFulfilled = true;
@@ -225,6 +226,8 @@ export const useRosterStore = create<RosterState>((set, get) => ({
         currentWorkUnitId: d.currentWorkUnitId ?? null,
         currentWorkUnit: d.currentWorkUnit ?? null,
         channelId: d.channelId ?? null,
+        // 契约 AgentInfo.pmo 必填可空（前端旧手抄为可选键——合成条目补齐 null）
+        pmo: d.pmo ?? null,
         startedAt: new Date().toISOString(),
         lastError: d.lastError ?? null,
         lastErrorAt: d.lastErrorAt ?? null,

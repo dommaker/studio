@@ -84,7 +84,7 @@ describe('ChannelRail', () => {
       clearUnread: vi.fn(),
       createChannel: vi.fn().mockResolvedValue({ id: 'ch-9', name: 'new', type: 'rnd' }),
     });
-    mockGetAgentSummary.mockResolvedValue({ data: AGENT_SUMMARY });
+    mockGetAgentSummary.mockResolvedValue({ data: { data: AGENT_SUMMARY } });
   });
 
   it('renders channel list with active highlight and unread badge', () => {

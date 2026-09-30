@@ -230,14 +230,14 @@ describe('WorkUnitDrawer', () => {
     mockReviewRejected.mockResolvedValue({ ...WU, status: 'active' });
     mockResume.mockResolvedValue({ ...WU, status: 'active' });
     mockClose.mockResolvedValue({ ...WU, status: 'closed' });
-    mockGetOverhead.mockResolvedValue({ data: OVERHEAD });
+    mockGetOverhead.mockResolvedValue({ data: { data: OVERHEAD } });
     mockGetChain.mockResolvedValue({ data: { data: CHAIN } });
     mockStreamChunks.mockReturnValue([]);
     mockChannelGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: '研发', type: 'dev' } } });
     // #290（清单 #24）：负责人解析默认「查无」——摘要空、profile 列表空
     // （实例档案点查段 2026-09-10 已删除，getAgentInstance mock 仅作绑定占位，正常不应被调用）
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } } },
     });
     mockGetAgentInstance.mockRejectedValue(new Error('404'));
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
@@ -245,7 +245,7 @@ describe('WorkUnitDrawer', () => {
     mockListAgents.mockResolvedValue({ data: { data: [{ id: 'p-coder', name: 'Coder', description: null }] } });
     // E2-2：会话原文默认一条
     mockTranscriptGet.mockResolvedValue({
-      data: { entries: [{ step: 1, action: 'run', rawOutput: 'raw 输出内容', createdAt: '2026-07-19T09:35:00Z' }], total: 1 },
+      data: { data: { entries: [{ step: 1, action: 'run', rawOutput: 'raw 输出内容', createdAt: '2026-07-19T09:35:00Z' }], total: 1 } },
     });
   });
 
@@ -300,10 +300,10 @@ describe('WorkUnitDrawer', () => {
   // #290（清单 #24）：负责人行三级解析口径（与 WU 详情页同一 hook）
   it('#290 负责人解析到角色名：显示 @角色名 并链到 /agents/:roleId', async () => {
     mockGetAgentSummary.mockResolvedValue({
-      data: {
+      data: { data: {
         agents: [{ id: 'coder-1', roleId: 'role-coder', name: 'Coder', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-19T08:00:00Z' }],
         summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
-      },
+      } },
     });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     const link = await screen.findByText('@Coder');
@@ -348,7 +348,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('honestly reports insufficient overhead data instead of fabricating', async () => {
-    mockGetOverhead.mockResolvedValue({ data: { ...OVERHEAD, source: 'insufficient-data' } });
+    mockGetOverhead.mockResolvedValue({ data: { data: { ...OVERHEAD, source: 'insufficient-data' } } });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('窗口内度量数据不足')).toBeTruthy());
     expect(screen.queryByText(/封装开销 0\.20x/)).toBeNull();

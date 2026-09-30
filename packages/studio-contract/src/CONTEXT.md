@@ -22,6 +22,12 @@ API 契约唯一正本（docs/architecture/target-architecture.md）：按域一
 - `review-proposals.ts`：review-proposal 域——状态词表（正本 + stale；status 响应值域另含 unknown）+ approve/reject/status 端点；approve 响应 data = `{ success, skipped? } + adapter data 透传`（per-kind 扩展键：productIds/archivedIds/promoted/workUnitId 等）→ schema `.passthrough()` + 手写 interface（index signature 兜扩展键）；status 的 success 标志退役；错误 `{ error: string }` 统一进壳，message 保留 `proposal-not-pending:<status>` 机器串（前端 notPendingAs 按 message 分类）
 - `action-center.ts`：action-center 域——ActionCenterStateItem / ActionCenterNotification（studio-notification wire 重声明；createdAt/readAt wire 为 ISO 串或 null）+ 三段 payload；原平铺裸对象进 `{ data }` 壳
 - `library.ts`：library 域——LibraryListItem / LibraryDocDetail 实体 + list query；`{ success, data }` 壳的 success 标志退役；`GET /*splat` 的 splat 段数组不进 zod params（Express 5 通配必须命名、zod params 是对象形状），query 照常校验
+- `events.ts`：events 域（批次 5/7；只迁 REST CRUD——SSE /events/stream 不是 REST 契约范围，事件流 payload 保留前端本地解析器）——StudioEventItem（历史行稀疏、passthrough 放行扩展键）/ EventSearchResult（游标壳）实体 + agent-events 批量写入词表 + 端点请求/响应；D18 空 payload 拒绝保留 handler 显式判（isEmptyEventPayload 唯一口径，schema 只兜 type/source 必填）
+- `transcripts.ts`：transcripts 域——TranscriptEntry / TranscriptResult 实体 + params 防路径穿越（原手写 400 收进 zod refine）
+- `monitoring.ts`：monitoring 域——六端点只读聚合全形状：AgentInfo/AgentSummary（current-wu-context 的 AgentCurrentWorkUnit/AgentPmoSummary）/ MonitoringStats / FlywheelStats / OverheadStats / OverviewMetrics（D16 九组 + #456 stuck/failure24h + F6 evidence 全段声明，前端只消费六段不裁剪）/ EfficiencyMetrics（#120 缓存命中 + 段 trim）；16 个实体手写 interface + parity（前端 api/monitoring.ts 手抄全删改 import）；错误 code 由 'INTERNAL_ERROR' 归一为 INTERNAL
+- `notifications.ts`：notifications 域——通知行与 action-center.ts 的 actionCenterNotificationSchema 同源（import 复用不重复声明）+ 四端点请求/响应
+- `notify-channels.ts`：notify-channels 域——WecomChannelState / ClawbotChannelState（脱敏后形状）/ NotifyChannelsState / ClawbotBindStatus 状态机词表 + 端点请求/响应；`{ success, data }` 壳的 success 标志退役；502 上游失败 code = BAD_GATEWAY（errcode 透传在 message）
+- `outbound-notify.ts`：outbound-notify 域——NotifyMessageType 词表（notify.service 联合类型 wire 正本）+ /send 请求/响应；type/priority 词表外值由透传收紧为 400（无消费方）
 
 ## 注意事项
 

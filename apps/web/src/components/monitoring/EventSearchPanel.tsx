@@ -54,8 +54,9 @@ export function EventSearchPanel({ initialFilters }: { initialFilters?: EventSea
     setError(null);
     eventsApi.search(buildParams())
       .then((r) => {
-        setEvents(r.data.events);
-        setNextCursor(r.data.nextCursor);
+        // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+        setEvents(r.data.data.events);
+        setNextCursor(r.data.data.nextCursor);
       })
       .catch(() => setError('查询失败，请重试'))
       .finally(() => setLoading(false));
@@ -77,8 +78,8 @@ export function EventSearchPanel({ initialFilters }: { initialFilters?: EventSea
     setError(null);
     eventsApi.search(buildParams(nextCursor))
       .then((r) => {
-        setEvents((prev) => [...(prev ?? []), ...r.data.events]);
-        setNextCursor(r.data.nextCursor);
+        setEvents((prev) => [...(prev ?? []), ...r.data.data.events]);
+        setNextCursor(r.data.data.nextCursor);
       })
       .catch(() => setError('查询失败，请重试'))
       .finally(() => setLoading(false));

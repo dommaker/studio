@@ -124,7 +124,7 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
       data: { data: { requirement: { id: 'REQ-0011', title: '驾驶舱' }, workunits: chainWorkunits } },
     });
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: mockAgents, summary: { total: 2, idle: 1, active: 1, error: 0, terminated: 0 } },
+      data: { data: { agents: mockAgents, summary: { total: 2, idle: 1, active: 1, error: 0, terminated: 0 } } },
     });
   });
 

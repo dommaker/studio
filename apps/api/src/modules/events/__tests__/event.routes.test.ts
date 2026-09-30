@@ -117,7 +117,8 @@ describe('POST / (create event)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(201);
-    expect(res.json).toHaveBeenCalledWith(
+    // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+    expect(res.json.mock.calls[0][0].data).toEqual(
       expect.objectContaining({ type: 'test.event', source: 'test-suite' })
     );
     const rows = await writtenRows();
@@ -133,7 +134,9 @@ describe('POST / (create event)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: 'type and source are required' });
+    // 手写 guard 收进 zod：错误统一 `{ error: { code, message } }`，文案变 zod 格式
+    expect(res.json.mock.calls[0][0].error.code).toBe('BAD_REQUEST');
+    expect(res.json.mock.calls[0][0].error.message).toContain('type');
   });
 
   it('returns 400 when source missing', async () => {
@@ -142,7 +145,8 @@ describe('POST / (create event)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: 'type and source are required' });
+    expect(res.json.mock.calls[0][0].error.code).toBe('BAD_REQUEST');
+    expect(res.json.mock.calls[0][0].error.message).toContain('source');
   });
 
   it('keeps string payload as-is', async () => {
@@ -163,7 +167,10 @@ describe('POST / (create event)', () => {
       });
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: 'payload must be a non-empty object' });
+      // D18 语义保留 handler 显式拒绝（HttpError），文案不变
+      expect(res.json).toHaveBeenCalledWith({
+        error: { code: 'BAD_REQUEST', message: 'payload must be a non-empty object' },
+      });
     }
   });
 
@@ -186,7 +193,10 @@ describe('POST / (create event)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Failed to create event' });
+    // 写盘被拒保留 HttpError 显式文案
+    expect(res.json).toHaveBeenCalledWith({
+      error: { code: 'INTERNAL', message: 'Failed to create event' },
+    });
   });
 });
 
@@ -225,7 +235,7 @@ describe('GET / (query events)', () => {
     await seed(baseLines());
     const { res } = await invokeRoute(routes, 'get', '/');
 
-    const { events, total, nextCursor } = res.json.mock.calls[0][0];
+    const { events, total, nextCursor } = res.json.mock.calls[0][0].data;
     expect(total).toBe(3);
     expect(events[0].createdAt).toBe('2026-07-18T12:00:00.000Z');
     expect(events[2].createdAt).toBe('2026-07-18T10:00:00.000Z');
@@ -238,7 +248,7 @@ describe('GET / (query events)', () => {
       query: { type: 'a' },
     });
 
-    const { events } = res.json.mock.calls[0][0];
+    const { events } = res.json.mock.calls[0][0].data;
     expect(events).toHaveLength(2);
     expect(events.every((e: any) => e.type === 'a')).toBe(true);
   });
@@ -249,7 +259,7 @@ describe('GET / (query events)', () => {
       query: { since: '2026-07-18T11:30:00.000Z' },
     });
 
-    const { events } = res.json.mock.calls[0][0];
+    const { events } = res.json.mock.calls[0][0].data;
     expect(events).toHaveLength(1);
     expect(events[0].createdAt).toBe('2026-07-18T12:00:00.000Z');
   });
@@ -260,7 +270,7 @@ describe('GET / (query events)', () => {
       query: { until: '2026-07-18T11:30:00.000Z' },
     });
 
-    const { events } = res.json.mock.calls[0][0];
+    const { events } = res.json.mock.calls[0][0].data;
     expect(events).toHaveLength(2);
     expect(events[0].createdAt).toBe('2026-07-18T11:00:00.000Z');
   });
@@ -273,12 +283,12 @@ describe('GET / (query events)', () => {
     ]);
 
     const def = await invokeRoute(routes, 'get', '/');
-    const defEvents = def.res.json.mock.calls[0][0].events;
+    const defEvents = def.res.json.mock.calls[0][0].data.events;
     expect(defEvents).toHaveLength(2);
     expect(defEvents.every((e: any) => e.type !== 'knowledge:skill_used')).toBe(true);
 
     const dbg = await invokeRoute(routes, 'get', '/', { query: { level: 'debug' } });
-    expect(dbg.res.json.mock.calls[0][0].events).toHaveLength(3);
+    expect(dbg.res.json.mock.calls[0][0].data.events).toHaveLength(3);
   });
 
   it('#180: level=warning 只返回 warning/critical（无 level 字段的 info 被滤掉）', async () => {
@@ -289,7 +299,7 @@ describe('GET / (query events)', () => {
     ]);
 
     const { res } = await invokeRoute(routes, 'get', '/', { query: { level: 'warning' } });
-    const { events } = res.json.mock.calls[0][0];
+    const { events } = res.json.mock.calls[0][0].data;
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('workunit:failed');
   });
@@ -302,14 +312,14 @@ describe('GET / (query events)', () => {
     ]);
 
     const byPayload = await invokeRoute(routes, 'get', '/', { query: { keyword: 'verify failed' } });
-    expect(byPayload.res.json.mock.calls[0][0].events).toHaveLength(1);
-    expect(byPayload.res.json.mock.calls[0][0].events[0].type).toBe('workunit:failed');
+    expect(byPayload.res.json.mock.calls[0][0].data.events).toHaveLength(1);
+    expect(byPayload.res.json.mock.calls[0][0].data.events[0].type).toBe('workunit:failed');
 
     const byType = await invokeRoute(routes, 'get', '/', { query: { keyword: 'monitor' } });
-    expect(byType.res.json.mock.calls[0][0].events).toHaveLength(1);
+    expect(byType.res.json.mock.calls[0][0].data.events).toHaveLength(1);
 
     const noHit = await invokeRoute(routes, 'get', '/', { query: { keyword: 'nonexistent-keyword' } });
-    expect(noHit.res.json.mock.calls[0][0].events).toHaveLength(0);
+    expect(noHit.res.json.mock.calls[0][0].data.events).toHaveLength(0);
   });
 
   it('#180: 游标分页替代 200 硬顶 —— 三页扫完无重叠，末页 nextCursor null', async () => {
@@ -319,17 +329,17 @@ describe('GET / (query events)', () => {
     })));
 
     const p1 = await invokeRoute(routes, 'get', '/', { query: { limit: '2' } });
-    const b1 = p1.res.json.mock.calls[0][0];
+    const b1 = p1.res.json.mock.calls[0][0].data;
     expect(b1.events).toHaveLength(2);
     expect(b1.nextCursor).not.toBeNull();
 
     const p2 = await invokeRoute(routes, 'get', '/', { query: { limit: '2', cursor: b1.nextCursor } });
-    const b2 = p2.res.json.mock.calls[0][0];
+    const b2 = p2.res.json.mock.calls[0][0].data;
     expect(b2.events).toHaveLength(2);
     expect(b2.nextCursor).not.toBeNull();
 
     const p3 = await invokeRoute(routes, 'get', '/', { query: { limit: '2', cursor: b2.nextCursor } });
-    const b3 = p3.res.json.mock.calls[0][0];
+    const b3 = p3.res.json.mock.calls[0][0].data;
     expect(b3.events).toHaveLength(1);
     expect(b3.nextCursor).toBeNull();
 
@@ -343,7 +353,7 @@ describe('GET / (query events)', () => {
       query: { limit: '1' },
     });
 
-    const { events } = res.json.mock.calls[0][0];
+    const { events } = res.json.mock.calls[0][0].data;
     expect(events).toHaveLength(1);
   });
 
@@ -355,7 +365,7 @@ describe('GET / (query events)', () => {
 
     const { res } = await invokeRoute(routes, 'get', '/');
 
-    const { events, nextCursor } = res.json.mock.calls[0][0];
+    const { events, nextCursor } = res.json.mock.calls[0][0].data;
     expect(events).toHaveLength(50);
     expect(nextCursor).not.toBeNull(); // 还有 20 条更旧的
   });
@@ -366,7 +376,7 @@ describe('GET / (query events)', () => {
       query: { type: 'nonexistent' },
     });
 
-    const { events, total } = res.json.mock.calls[0][0];
+    const { events, total } = res.json.mock.calls[0][0].data;
     expect(events).toHaveLength(0);
     expect(total).toBe(0);
   });
@@ -383,7 +393,7 @@ describe('GET / (query events)', () => {
       query: { type: 'workunit:execution_step', workUnitId: 'wu-1' },
     });
 
-    const { events } = res.json.mock.calls[0][0];
+    const { events } = res.json.mock.calls[0][0].data;
     expect(events).toHaveLength(2);
     expect(events.every((e: any) => JSON.parse(e.payload).workUnitId === 'wu-1')).toBe(true);
   });
@@ -394,7 +404,8 @@ describe('GET / (query events)', () => {
     const { res } = await invokeRoute(routes, 'get', '/');
 
     expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Failed to query events' });
+    // 错误壳统一：500 文案由固定串变为实际错误消息
+    expect(res.json.mock.calls[0][0].error.code).toBe('INTERNAL');
   });
 });
 
@@ -428,7 +439,7 @@ describe('POST /agent-events (batch ingest)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(201);
-    expect(res.json).toHaveBeenCalledWith({ ingested: 2 });
+    expect(res.json).toHaveBeenCalledWith({ data: { ingested: 2 } });
     const rows = await writtenRows();
     expect(rows.map((r) => r.type)).toEqual(['session:start', 'tool:call']);
   });
@@ -439,7 +450,8 @@ describe('POST /agent-events (batch ingest)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Body must be a non-empty AgentEvent[]' });
+    // 手写 guard 收进 zod：错误统一 `{ error: { code, message } }`，文案变 zod 格式
+    expect(res.json.mock.calls[0][0].error.code).toBe('BAD_REQUEST');
   });
 
   it('returns 400 when body is empty array', async () => {
@@ -448,7 +460,7 @@ describe('POST /agent-events (batch ingest)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Body must be a non-empty AgentEvent[]' });
+    expect(res.json.mock.calls[0][0].error.code).toBe('BAD_REQUEST');
   });
 
   it('returns 400 when batch exceeds 500', async () => {
@@ -461,7 +473,7 @@ describe('POST /agent-events (batch ingest)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Max 500 events per batch' });
+    expect(res.json.mock.calls[0][0].error.code).toBe('BAD_REQUEST');
   });
 
   it('validates required fields on each event', async () => {
@@ -476,17 +488,9 @@ describe('POST /agent-events (batch ingest)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        error: 'Validation failed',
-        details: expect.arrayContaining([
-          expect.stringContaining('type required'),
-          expect.stringContaining('agentId required'),
-          expect.stringContaining('sessionId required'),
-          expect.stringContaining('timestamp (number) required'),
-        ]),
-      })
-    );
+    // 「Validation failed + details[]」聚合错误体退役为 zod 首错格式（首条缺 type）
+    expect(res.json.mock.calls[0][0].error.code).toBe('BAD_REQUEST');
+    expect(res.json.mock.calls[0][0].error.message).toContain('type');
   });
 
   it('merges agent payload with sessionId', async () => {
@@ -533,6 +537,7 @@ describe('POST /agent-events (batch ingest)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Failed to ingest agent events' });
+    // 错误壳统一：500 文案由固定串变为实际错误消息
+    expect(res.json.mock.calls[0][0].error.code).toBe('INTERNAL');
   });
 });

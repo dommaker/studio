@@ -26,9 +26,10 @@ async function searchAll(params: Parameters<typeof eventsApi.search>[0]): Promis
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
     const res = await eventsApi.search({ ...params, cursor });
-    out.push(...res.data.events);
-    if (!res.data.nextCursor) break;
-    cursor = res.data.nextCursor;
+    // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+    out.push(...res.data.data.events);
+    if (!res.data.data.nextCursor) break;
+    cursor = res.data.data.nextCursor;
   }
   return out;
 }
@@ -61,7 +62,8 @@ export function NeedsAttentionSection({ onAlertClick }: { onAlertClick?: (group:
   // #350 useAsyncData 收一次性拉取样板：两部分独立取数，各自 data/error/loading，互不阻塞
   const alerts = useAsyncData(() => loadAlerts(new Date(Date.now() - 24 * HOUR).toISOString()), []);
   // #456：stuck/failure 服务端单源（60s 服务端缓存；与 MonitoringPage 头部概览调用同端点）
-  const overview = useAsyncData(async () => (await monitoringApi.getOverview()).data, []);
+  // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+  const overview = useAsyncData(async () => (await monitoringApi.getOverview()).data.data, []);
   const [showAllGroups, setShowAllGroups] = useState(false);
 
   const stuck = overview.data?.stuck;

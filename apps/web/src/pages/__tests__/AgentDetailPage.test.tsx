@@ -105,7 +105,7 @@ const busyInstance = {
 function mockApis({ agents = [busyInstance], profiles = [profile] }: { agents?: unknown[]; profiles?: unknown[] } = {}) {
   mockListAllAgents.mockResolvedValue({ data: { data: profiles } });
   mockGetAgentSummary.mockResolvedValue({
-    data: { agents, summary: { total: agents.length, idle: 0, active: 1, error: 0, terminated: 0 } },
+    data: { data: { agents, summary: { total: agents.length, idle: 0, active: 1, error: 0, terminated: 0 } } },
   });
 }
 

@@ -76,7 +76,7 @@ describe('useAgentRoster', () => {
     mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handlers.push(h); return () => {}; });
     mockListAllAgents.mockResolvedValue({ data: { data: [profile()] } });
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } },
+      data: { data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } } },
     });
     mockListChannels.mockResolvedValue({ data: { data: [{ id: 'ch1', name: 'backend' }] } });
     mockWuList.mockResolvedValue({ data: { data: [], total: 0, page: 1, limit: 20 } });
@@ -104,13 +104,13 @@ describe('useAgentRoster', () => {
   it('空闲角色：批量端点一次拉最近完成；聚合字段暂缺时 fillWorkUnit 补查', async () => {
     mockListAllAgents.mockResolvedValue({ data: { data: [profile(), profile({ id: 'p2', name: 'ops-agent' })] } });
     mockGetAgentSummary.mockResolvedValue({
-      data: {
+      data: { data: {
         agents: [
           instance({ id: 'i1', status: 'idle', currentWorkUnitId: null, currentWorkUnit: null }),
           instance({ id: 'i2', roleId: 'p2', name: 'ops-agent', currentWorkUnitId: 'wu-9', currentWorkUnit: null }),
         ],
         summary: { total: 2, idle: 1, active: 1, error: 0, terminated: 0 },
-      },
+      } },
     });
     // #387：单请求批量返回（按 instance.id 键）
     mockWuLastDone.mockResolvedValue({
@@ -132,13 +132,13 @@ describe('useAgentRoster', () => {
   it('#387 批量最近完成失败：空闲卡全部置 null（卡面无最近完成）', async () => {
     mockListAllAgents.mockResolvedValue({ data: { data: [profile(), profile({ id: 'p2', name: 'ops-agent' })] } });
     mockGetAgentSummary.mockResolvedValue({
-      data: {
+      data: { data: {
         agents: [
           instance({ id: 'i1', status: 'idle', currentWorkUnitId: null, currentWorkUnit: null }),
           instance({ id: 'i2', roleId: 'p2', name: 'ops-agent', status: 'idle', currentWorkUnitId: null, currentWorkUnit: null }),
         ],
         summary: { total: 2, idle: 2, active: 0, error: 0, terminated: 0 },
-      },
+      } },
     });
     mockWuLastDone.mockRejectedValue(new Error('boom'));
     const { result } = renderHook(() => useAgentRoster());
@@ -167,7 +167,7 @@ describe('useAgentRoster', () => {
 
   it('SSE agent.instance.status_changed：乐观更新卡片并增量补查 WU 详情', async () => {
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } } },
     });
     const { result } = renderHook(() => useAgentRoster());
     await flush();
@@ -184,7 +184,7 @@ describe('useAgentRoster', () => {
   // #312：负载带摘要快照 → 就地写入，fillWorkUnit 补查退役为兜底
   it('#312：负载带 currentWorkUnit 快照 → 就地写入，不再发起 WU 详情补查', async () => {
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } } },
     });
     const { result } = renderHook(() => useAgentRoster());
     await flush();
@@ -206,7 +206,7 @@ describe('useAgentRoster', () => {
 
   it('#312：负载带悬空 null 快照（WU 已删除）→ 不补查，裸 id 保留展示', async () => {
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } } },
     });
     const { result } = renderHook(() => useAgentRoster());
     await flush();

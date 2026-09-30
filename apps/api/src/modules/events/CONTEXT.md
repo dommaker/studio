@@ -44,6 +44,7 @@
 
 ### 注意事项
 
+- **契约驱动迁移（2026-10 批次 5/7）**：event.routes.ts 三个 REST 端点 defineRoute 化——响应统一 `{ data }` 壳（原裸对象/平铺进壳），错误统一 `{ error: { code, message } }`（原 `{ error: string }` 与 agent-events 的 `{ error, details }` 退役；手写 guard 收进 zod，500 文案由固定串变为实际错误消息）；契约正本 = `packages/studio-contract/src/events.ts`。**SSE /events/stream 不在 REST 契约范围**（headersSent 长连接不被 defineRoute 包死），事件流 payload 契约保留前端本地解析器（workunit/channels 批次同例）
 - StudioEvent 用 jsonl 文件存储（D18 起统一经 `../../utils/studio-events.js` 的 writeStudioEvent 写入；空 payload 拒绝落盘）
 - POST /api/v1/events 的 payload 为空（{} / null / 缺失 / '{}'）→ 400（D18：空事件不产信号只产噪音，调用方自查）
 - SSE 使用 EventBus pub/sub (B0-002)，不依赖数据库

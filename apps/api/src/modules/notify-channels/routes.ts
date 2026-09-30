@@ -15,8 +15,15 @@
  *
  * 脱敏：任何响应不得出现完整 webhookUrl / botToken / ilinkUserId（走 maskValue）。
  * 写操作敏感，整模块挂 admin（route-registry 注册处）。
+ *
+ * 契约驱动迁移（2026-10 批次 5/7）：走 core/http.ts defineRoute——webhookUrl/qrcode
+ * 必填收进 zod；`{ success, data }` 壳的 success 标志退役（响应统一 `{ data }`，
+ * 原裸 `{ success: true }` → `{ data: { success } }`）；错误统一
+ * `{ error: { code, message } }`（原 `{ success: false, error: string }` 退役；
+ * 400 未配置/未绑定与前缀校验文案保留，502 上游失败 code = BAD_GATEWAY、文案保留
+ * 实际错误消息含 errcode 透传）。
  */
-import { Router, type Request, type Response } from 'express';
+import { Router } from 'express';
 import {
   loadNotifyChannelsConfig,
   saveNotifyChannelsConfig,
@@ -25,8 +32,26 @@ import {
 import { getBotQrcode, getQrcodeStatus, sendText } from './clawbot-client.js';
 import { postWeComMarkdown } from './wecom-client.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { defineRoute, HttpError } from '../../core/http.js';
+import {
+  ERROR_CODES,
+  putWecomBodySchema,
+  clawbotBindStatusQuerySchema,
+} from '@dommaker/studio-contract';
 
 const WECOM_URL_PREFIX = 'https://qyapi.weixin.qq.com/';
+/** 上游（企微 webhook / iLink）失败 → 502（errcode 透传在 message 里，如 -14 = 会话过期需重扫） */
+const BAD_GATEWAY = 'BAD_GATEWAY';
+
+/** 上游调用兜底：非 HttpError（网络/超时/上游错误）一律转 502，文案保留实际错误消息 */
+async function withUpstream<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(502, BAD_GATEWAY, getErrorMessage(error));
+  }
+}
 
 /** 与 CLI config.ts 同款脱敏（不跨域 import CLI）：length<=8 → '****'，否则 first4...last4 */
 function maskValue(value: string): string {
@@ -56,64 +81,52 @@ function clawbotSegment() {
 const router = Router();
 
 /** GET / — 双段状态总览 */
-router.get('/', (_req: Request, res: Response) => {
-  res.json({ success: true, data: { wecom: wecomSegment(), clawbot: clawbotSegment() } });
-});
+router.get('/', defineRoute({}, async () => ({
+  wecom: wecomSegment(),
+  clawbot: clawbotSegment(),
+})));
 
 /** PUT /wecom — 保存 webhook（空串清除）；非企微前缀 400 */
-router.put('/wecom', (req: Request, res: Response) => {
-  const webhookUrl = (req.body as { webhookUrl?: unknown })?.webhookUrl;
-  if (typeof webhookUrl !== 'string') {
-    return res.status(400).json({ success: false, error: 'webhookUrl must be a string' });
-  }
-  const trimmed = webhookUrl.trim();
-  if (trimmed && !trimmed.startsWith(WECOM_URL_PREFIX)) {
-    return res.status(400).json({ success: false, error: `webhookUrl must start with ${WECOM_URL_PREFIX}` });
-  }
-  const config = loadNotifyChannelsConfig();
-  config.wecom = trimmed ? { webhookUrl: trimmed } : null;
-  saveNotifyChannelsConfig(config);
-  res.json({ success: true, data: wecomSegment() });
-});
+router.put('/wecom', defineRoute(
+  { body: putWecomBodySchema },
+  async (_req, _res, { body }) => {
+    const trimmed = body.webhookUrl.trim();
+    if (trimmed && !trimmed.startsWith(WECOM_URL_PREFIX)) {
+      throw new HttpError(400, ERROR_CODES.BAD_REQUEST, `webhookUrl must start with ${WECOM_URL_PREFIX}`);
+    }
+    const config = loadNotifyChannelsConfig();
+    config.wecom = trimmed ? { webhookUrl: trimmed } : null;
+    saveNotifyChannelsConfig(config);
+    return wecomSegment();
+  },
+));
 
 /** POST /wecom/test — 经同一解析（配置存储优先、env 兜底）发一条测试 markdown */
-router.post('/wecom/test', async (_req: Request, res: Response) => {
+router.post('/wecom/test', defineRoute({}, async () => {
   const { url } = resolveWeComWebhookUrl();
   if (!url) {
-    return res.status(400).json({ success: false, error: 'WeCom webhook not configured' });
+    throw new HttpError(400, ERROR_CODES.BAD_REQUEST, 'WeCom webhook not configured');
   }
-  try {
+  return withUpstream(async () => {
     const { ok, status } = await postWeComMarkdown(
       url,
       '[INFO] **Studio 通知渠道测试**\n企业微信 webhook 配置生效。',
     );
     if (!ok) {
-      return res.status(502).json({ success: false, error: `WeCom webhook returned HTTP ${status}` });
+      throw new HttpError(502, BAD_GATEWAY, `WeCom webhook returned HTTP ${status}`);
     }
-    res.json({ success: true });
-  } catch (error) {
-    res.status(502).json({ success: false, error: getErrorMessage(error) });
-  }
-});
+    return { success: true };
+  });
+}));
 
 /** POST /clawbot/bind/start — 取扫码二维码（qrcodeUrl = qrcode_img_content） */
-router.post('/clawbot/bind/start', async (_req: Request, res: Response) => {
-  try {
-    const data = await getBotQrcode();
-    res.json({ success: true, data });
-  } catch (error) {
-    res.status(502).json({ success: false, error: getErrorMessage(error) });
-  }
-});
+router.post('/clawbot/bind/start', defineRoute({}, async () => withUpstream(() => getBotQrcode())));
 
 /** GET /clawbot/bind/status?qrcode= — 轮询；confirmed 时凭据持久化后返回 bound:true */
-router.get('/clawbot/bind/status', async (req: Request, res: Response) => {
-  const qrcode = req.query.qrcode;
-  if (typeof qrcode !== 'string' || !qrcode) {
-    return res.status(400).json({ success: false, error: 'qrcode query param is required' });
-  }
-  try {
-    const { status, credentials } = await getQrcodeStatus(qrcode);
+router.get('/clawbot/bind/status', defineRoute(
+  { query: clawbotBindStatusQuerySchema },
+  async (_req, _res, { query }) => withUpstream(async () => {
+    const { status, credentials } = await getQrcodeStatus(query.qrcode);
     if (status === 'confirmed' && credentials) {
       const config = loadNotifyChannelsConfig();
       config.clawbot = {
@@ -125,37 +138,33 @@ router.get('/clawbot/bind/status', async (req: Request, res: Response) => {
       };
       saveNotifyChannelsConfig(config);
     }
-    res.json({ success: true, data: { status, bound: status === 'confirmed' } });
-  } catch (error) {
-    res.status(502).json({ success: false, error: getErrorMessage(error) });
-  }
-});
+    return { status, bound: status === 'confirmed' };
+  }),
+));
 
 /** POST /clawbot/unbind — 清除 ClawBot 绑定 */
-router.post('/clawbot/unbind', (_req: Request, res: Response) => {
+router.post('/clawbot/unbind', defineRoute({}, async () => {
   const config = loadNotifyChannelsConfig();
   config.clawbot = null;
   saveNotifyChannelsConfig(config);
-  res.json({ success: true });
-});
+  return { success: true };
+}));
 
 /** POST /clawbot/test — 向已绑定用户发测试文本（失败 502，errcode 透传，如 -14 = 会话过期需重扫） */
-router.post('/clawbot/test', async (_req: Request, res: Response) => {
+router.post('/clawbot/test', defineRoute({}, async () => {
   const clawbot = loadNotifyChannelsConfig().clawbot;
   if (!clawbot?.botToken) {
-    return res.status(400).json({ success: false, error: 'ClawBot not bound' });
+    throw new HttpError(400, ERROR_CODES.BAD_REQUEST, 'ClawBot not bound');
   }
-  try {
+  return withUpstream(async () => {
     await sendText({
       botToken: clawbot.botToken,
       baseUrl: clawbot.baseUrl,
       toUserId: clawbot.ilinkUserId,
       text: '[INFO] Studio 通知渠道测试：ClawBot 绑定生效。',
     });
-    res.json({ success: true });
-  } catch (error) {
-    res.status(502).json({ success: false, error: getErrorMessage(error) });
-  }
-});
+    return { success: true };
+  });
+}));
 
 export default router;

@@ -27,10 +27,11 @@ export function MonitoringPage() {
   const [metricsOpen, setMetricsOpen] = useState(false);
   // #350 useAsyncData 收一次性拉取样板：各区块独立加载；失败不再静默落 null（2026-09 web-ux-optional-fixes
   // Step 1）——error 由 hook 承接，区块内渲染最小错误行（SectionError）+ 重试，区分「没数据」与「加载失败」
-  const overviewQ = useAsyncData(() => monitoringApi.getOverview().then(r => r.data), []);
-  const flywheelQ = useAsyncData(() => monitoringApi.getFlywheel().then(r => r.data), []);
-  const overheadQ = useAsyncData(() => monitoringApi.getOverhead().then(r => r.data), []);
-  const efficiencyQ = useAsyncData(() => monitoringApi.getEfficiency().then(r => r.data), []);
+  // 契约驱动迁移（批次 5/7）：monitoring 响应统一 `{ data }` 壳，r.data → r.data.data
+  const overviewQ = useAsyncData(() => monitoringApi.getOverview().then(r => r.data.data), []);
+  const flywheelQ = useAsyncData(() => monitoringApi.getFlywheel().then(r => r.data.data), []);
+  const overheadQ = useAsyncData(() => monitoringApi.getOverhead().then(r => r.data.data), []);
+  const efficiencyQ = useAsyncData(() => monitoringApi.getEfficiency().then(r => r.data.data), []);
   // 审核闭环：proposal 待审列表（maturity=draft，与 proposalsPendingReview 计数同库口径）
   // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳，r.data.entries → r.data.data.entries
   const proposalsQ = useAsyncData(() => knowledgeApi.listPendingReview().then(r => r.data.data.entries), []);

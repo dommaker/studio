@@ -58,7 +58,7 @@ describe('rosterStore ensureFresh — 三端点拉取与去重', () => {
     resetStore();
     mockListAllAgents.mockResolvedValue({ data: { data: [profile()] } });
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } },
+      data: { data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } } },
     });
     mockListChannels.mockResolvedValue({ data: { data: [{ id: 'ch1', name: 'backend' }] } });
   });
@@ -102,7 +102,7 @@ describe('rosterStore ensureFresh — 三端点拉取与去重', () => {
     mockGetAgentSummary.mockReturnValue(new Promise((r) => { resolveSummary = r; }));
     const p1 = useRosterStore.getState().ensureFresh();
     const p2 = useRosterStore.getState().ensureFresh();
-    resolveSummary({ data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } } });
+    resolveSummary({ data: { data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } } } });
     await Promise.all([p1, p2]);
     expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
     expect(mockListAllAgents).toHaveBeenCalledTimes(1);
@@ -114,9 +114,9 @@ describe('rosterStore ensureFresh — 三端点拉取与去重', () => {
     mockGetAgentSummary.mockReturnValueOnce(new Promise((r) => { resolveStale = r; }));
     const stale = useRosterStore.getState().ensureFresh();
     // terminate 完成 → 强拉（新负载：i2 idle），随后旧 fetch 才落地（旧负载：i1 active）
-    mockGetAgentSummary.mockResolvedValue({ data: { agents: [instance({ id: 'i2', status: 'idle' })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } } });
+    mockGetAgentSummary.mockResolvedValue({ data: { data: { agents: [instance({ id: 'i2', status: 'idle' })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } } } });
     const p2 = useRosterStore.getState().ensureFresh({ maxAgeMs: 0 });
-    resolveStale({ data: { agents: [instance({ status: 'active' })], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } } });
+    resolveStale({ data: { data: { agents: [instance({ status: 'active' })], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } } } });
     await Promise.all([stale, p2]);
     const s = useRosterStore.getState();
     // 强拉结果落地，被超越的旧 fetch 不回写
@@ -164,7 +164,7 @@ describe('rosterStore ensureFresh — 403 终态与登录态切换', () => {
     expect(useRosterStore.getState().forbidden).toBe(true);
 
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } },
+      data: { data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } } },
     });
     useAuthStore.setState({ token: 'new-token' });
     await useRosterStore.getState().ensureFresh();
@@ -181,7 +181,7 @@ describe('rosterStore applyInstanceStatusEvent — 就地更新唯一一份（#3
     resetStore();
     mockListAllAgents.mockResolvedValue({ data: { data: [profile()] } });
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } },
+      data: { data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } } },
     });
     mockListChannels.mockResolvedValue({ data: { data: [] } });
     mockWuGet.mockResolvedValue({ data: { data: { id: 'wu-9', scope: '补查的任务', type: 'DEV', status: 'active', claimedAt: null } } });
@@ -255,7 +255,7 @@ describe('rosterStore applyWorkunitStatusEvent / patchAgentCurrentWorkUnit', () 
     resetStore();
     mockListAllAgents.mockResolvedValue({ data: { data: [profile()] } });
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } },
+      data: { data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } } },
     });
     mockListChannels.mockResolvedValue({ data: { data: [] } });
   });

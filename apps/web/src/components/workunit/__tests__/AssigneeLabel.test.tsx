@@ -38,7 +38,7 @@ describe('AssigneeLabel — #290 负责人标签渲染', () => {
       inflight: null, lastToken: null,
     });
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } } },
     });
     mockGetAgentInstance.mockRejectedValue(new Error('404'));
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
@@ -46,10 +46,10 @@ describe('AssigneeLabel — #290 负责人标签渲染', () => {
 
   it('解析到角色名 → 渲染 @名字 并链到 /agents/:roleId', async () => {
     mockGetAgentSummary.mockResolvedValue({
-      data: {
+      data: { data: {
         agents: [{ id: 'inst-1', roleId: 'role-1', name: 'Analyst', status: 'idle', currentWorkUnitId: null, startedAt: '2026-08-24T00:00:00Z' }],
         summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
-      },
+      } },
     });
     renderLabel('inst-1');
     const link = await screen.findByText('@Analyst');

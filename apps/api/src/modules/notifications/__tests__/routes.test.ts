@@ -147,19 +147,20 @@ describe('#274 身份取 JWT claims（req.user.id），不再读 x-user-id', () 
   it('GET /unread-count 用 req.user.id', async () => {
     const { res } = await invoke('get', '/unread-count', { headers: { 'x-user-id': 'spoofed' } });
     expect(service.getUnreadCount).toHaveBeenCalledWith('user-a');
-    expect(res.json).toHaveBeenCalledWith({ count: 3 });
+    // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+    expect(res.json).toHaveBeenCalledWith({ data: { count: 3 } });
   });
 
   it('POST /:id/read 用 req.user.id 标记已读', async () => {
     const { res } = await invoke('post', '/n1/read', { params: { id: 'n1' }, headers: { 'x-user-id': 'spoofed' } });
     expect(service.markAsRead).toHaveBeenCalledWith('n1', 'user-a');
-    expect(res.json).toHaveBeenCalledWith({ success: true });
+    expect(res.json).toHaveBeenCalledWith({ data: { success: true } });
   });
 
   it('POST /read-all 用 req.user.id 全部已读', async () => {
     const { res } = await invoke('post', '/read-all', { headers: { 'x-user-id': 'spoofed' } });
     expect(service.markAllAsRead).toHaveBeenCalledWith('user-a');
-    expect(res.json).toHaveBeenCalledWith({ success: true });
+    expect(res.json).toHaveBeenCalledWith({ data: { success: true } });
   });
 
   it('鉴权放行但 user 缺失（防御）→ 500，不落到 default-user', async () => {

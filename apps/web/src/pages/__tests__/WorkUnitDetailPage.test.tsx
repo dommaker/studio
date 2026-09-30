@@ -150,10 +150,10 @@ describe('WorkUnitDetailPage', () => {
     mockReqGet.mockResolvedValue({ data: { success: true, data: { id: 'REQ-0042', projectId: 'proj-2' } } });
     mockChannelList.mockResolvedValue({ data: { success: true, data: [{ id: 'ch-1', name: '主频道' }] } });
     mockAgentSummary.mockResolvedValue({
-      data: {
+      data: { data: {
         agents: [{ id: 'inst-abcdefgh1234', roleId: 'role-1', name: 'coder-01', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-30T08:00:00Z' }],
         summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
-      },
+      } },
     });
     mockReqGetChain.mockResolvedValue({
       data: { success: true, data: { requirement: { id: 'REQ-0042', seq: 42, title: '登录需求', status: 'in-progress', createdAt: '2026-07-29T09:00:00Z', createdBy: 'manual' }, workunits: [] } },
@@ -292,7 +292,7 @@ describe('WorkUnitDetailPage', () => {
 
   it('认领 agent 匹配不到：显示 instance id 前 8 位且不可点', async () => {
     mockAgentSummary.mockResolvedValue({
-      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } } },
     });
     render(<WorkUnitDetailPage />);
     // #440：meta strip 与事实卡各渲染一份短 id，取其一断不可点
@@ -305,7 +305,7 @@ describe('WorkUnitDetailPage', () => {
     // 2026-09-10：离线实例档案点查段已删除（被回收实例点查必 404）；认领快照接管该场景
     mockWuGet.mockResolvedValue({ ...baseWu, assigneeRoleId: 'role-9' });
     mockAgentSummary.mockResolvedValue({
-      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } } },
     });
     mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-9', name: 'Analyst' }] } });
     render(<WorkUnitDetailPage />);
@@ -531,10 +531,10 @@ describe('WorkUnitDetailPage — #440 meta strip', () => {
     mockReqGet.mockResolvedValue({ data: { success: true, data: { id: 'REQ-0042', projectId: 'proj-2' } } });
     mockChannelList.mockResolvedValue({ data: { success: true, data: [{ id: 'ch-1', name: '主频道' }] } });
     mockAgentSummary.mockResolvedValue({
-      data: {
+      data: { data: {
         agents: [{ id: 'inst-abcdefgh1234', roleId: 'role-1', name: 'coder-01', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-30T08:00:00Z' }],
         summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
-      },
+      } },
     });
     mockReqGetChain.mockResolvedValue({
       data: { success: true, data: { requirement: { id: 'REQ-0042', seq: 42, title: '登录需求', status: 'in-progress', createdAt: '2026-07-29T09:00:00Z', createdBy: 'manual' }, workunits: [] } },

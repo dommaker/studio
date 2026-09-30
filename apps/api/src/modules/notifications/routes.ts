@@ -4,25 +4,37 @@
  * #274: 身份源从 x-user-id header 切换为登录态 JWT claims（req.user.id），
  * 读写端点鉴权行为一致（requireAuth + requireNotGuest）。
  * 挂载层（route-registry /api/v1/notifications）另有 requireAuth，此处为端点级自持。
+ *
+ * 契约驱动迁移（2026-10 批次 5/7）：走 core/http.ts defineRoute——响应统一
+ * `{ data }` 壳（GET / 裸数组、GET /unread-count 与写端点平铺全进壳）；错误统一
+ * `{ error: { code, message } }`（code 由 'INTERNAL_ERROR' 归一为
+ * ERROR_CODES.INTERNAL；service 错误文案由固定串变为实际错误消息，
+ * 「Authenticated user missing」显式拒绝保留原文案）。
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request } from 'express';
 import { NotificationService } from '@dommaker/studio-notification';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { createLazyService } from '../../utils/services.js';
 import { requireAuth, requireNotGuest, AuthRequest } from '../../middleware/auth.js';
+import { defineRoute, HttpError } from '../../core/http.js';
+import {
+  ERROR_CODES,
+  listNotificationsQuerySchema,
+  notificationIdParamsSchema,
+} from '@dommaker/studio-contract';
 
 const router = Router();
 
 const getNotificationService = createLazyService(() => new NotificationService(new FileStore()));
 
 /**
- * 取登录态用户 id；缺失（鉴权放行但 user 未挂）回 500 并返回 null
+ * 取登录态用户 id；缺失（鉴权放行但 user 未挂）抛 500（不回退 default-user）
  */
-function resolveUserId(req: Request, res: Response): string | null {
+function resolveUserId(req: Request): string {
   const userId = (req as AuthRequest).user?.id ?? null;
   if (!userId) {
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Authenticated user missing' } });
+    throw new HttpError(500, ERROR_CODES.INTERNAL, 'Authenticated user missing');
   }
   return userId;
 }
@@ -31,76 +43,48 @@ function resolveUserId(req: Request, res: Response): string | null {
  * GET /api/v1/notifications
  * 获取通知列表
  */
-router.get('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const userId = resolveUserId(req, res);
-    if (!userId) return;
-    const unreadOnly = req.query.unreadOnly === 'true';
-
-    const notifications = await getNotificationService().getUserNotifications(userId, {
-      unreadOnly,
+router.get('/', requireAuth(), requireNotGuest(), defineRoute(
+  { query: listNotificationsQuerySchema },
+  async (req, _res, { query }) => {
+    const userId = resolveUserId(req);
+    return getNotificationService().getUserNotifications(userId, {
+      unreadOnly: query.unreadOnly === 'true',
       limit: 50,
     });
-
-    res.json(notifications);
-  } catch (error) {
-    logger.error('Failed to get notifications', { error: String(error) });
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to get notifications' } });
-  }
-});
+  },
+));
 
 /**
  * GET /api/v1/notifications/unread-count
  * 获取未读数量
  */
-router.get('/unread-count', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const userId = resolveUserId(req, res);
-    if (!userId) return;
-
-    const count = await getNotificationService().getUnreadCount(userId);
-
-    res.json({ count });
-  } catch (error) {
-    logger.error('Failed to get unread count', { error: String(error) });
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to get unread count' } });
-  }
-});
+router.get('/unread-count', requireAuth(), requireNotGuest(), defineRoute({}, async (req) => {
+  const userId = resolveUserId(req);
+  const count = await getNotificationService().getUnreadCount(userId);
+  return { count };
+}));
 
 /**
  * POST /api/v1/notifications/:id/read
  * 标记已读
  */
-router.post('/:id/read', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const userId = resolveUserId(req, res);
-    if (!userId) return;
-
-    await getNotificationService().markAsRead(req.params.id as string, userId);
-
-    res.json({ success: true });
-  } catch (error) {
-    logger.error('Failed to mark as read', { error: String(error) });
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to mark as read' } });
-  }
-});
+router.post('/:id/read', requireAuth(), requireNotGuest(), defineRoute(
+  { params: notificationIdParamsSchema },
+  async (req, _res, { params }) => {
+    const userId = resolveUserId(req);
+    await getNotificationService().markAsRead(params.id, userId);
+    return { success: true };
+  },
+));
 
 /**
  * POST /api/v1/notifications/read-all
  * 标记全部已读
  */
-router.post('/read-all', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const userId = resolveUserId(req, res);
-    if (!userId) return;
-
-    await getNotificationService().markAllAsRead(userId);
-
-    res.json({ success: true });
-  } catch (error) {
-    logger.error('Failed to mark all as read', { error: String(error) });
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to mark all as read' } });
-  }
-});
+router.post('/read-all', requireAuth(), requireNotGuest(), defineRoute({}, async (req) => {
+  const userId = resolveUserId(req);
+  await getNotificationService().markAllAsRead(userId);
+  return { success: true };
+}));
 
 export { router as notificationRoutes };

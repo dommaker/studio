@@ -13,7 +13,7 @@ import { EventSearchPanel } from '../EventSearchPanel';
 describe('EventSearchPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
+    mockSearch.mockResolvedValue({ data: { data: { events: [], total: 0, nextCursor: null } } });
   });
 
   it('渲染检索表单：级别/类型/关键词/截止时间/查询', () => {
@@ -33,12 +33,15 @@ describe('EventSearchPanel', () => {
 
   it('查询透传 level/keyword 参数；结果渲染级别徽标与 payload 摘要', async () => {
     mockSearch.mockResolvedValue({
+      // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
       data: {
-        events: [
-          { type: 'workunit:failed', source: 'agent-loop', level: 'critical', payload: '{"blockReason":"boom"}', createdAt: '2026-08-15T10:00:00.000Z' },
-        ],
-        total: 1,
-        nextCursor: null,
+        data: {
+          events: [
+            { type: 'workunit:failed', source: 'agent-loop', level: 'critical', payload: '{"blockReason":"boom"}', createdAt: '2026-08-15T10:00:00.000Z' },
+          ],
+          total: 1,
+          nextCursor: null,
+        },
       },
     });
     render(<EventSearchPanel />);
@@ -72,7 +75,7 @@ describe('EventSearchPanel', () => {
 describe('EventSearchPanel — initialFilters（E4 告警下钻预填）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
+    mockSearch.mockResolvedValue({ data: { data: { events: [], total: 0, nextCursor: null } } });
   });
 
   it('预填 type/keyword/level 到表单，挂载即自动检索一次', async () => {

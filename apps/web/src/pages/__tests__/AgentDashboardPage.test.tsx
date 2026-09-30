@@ -86,7 +86,7 @@ const instance = (overrides: Record<string, unknown> = {}) => ({
 function mockApis({ profiles = [profile()], agents = [instance()] }: { profiles?: unknown[]; agents?: unknown[] } = {}) {
   mockListAllAgents.mockResolvedValue({ data: { data: profiles } });
   mockGetAgentSummary.mockResolvedValue({
-    data: { agents, summary: { total: agents.length, idle: 0, active: 1, error: 0, terminated: 0 } },
+    data: { data: { agents, summary: { total: agents.length, idle: 0, active: 1, error: 0, terminated: 0 } } },
   });
 }
 
@@ -105,7 +105,7 @@ describe('AgentDashboardPage', () => {
     mockCreateAgent.mockResolvedValue({ data: {} });
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } } },
     });
     mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
     mockWuList.mockResolvedValue({ data: { data: [], total: 0, page: 1, limit: 20 } });

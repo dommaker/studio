@@ -33,7 +33,7 @@
 
 ### 注意事项
 
-- 所有路由处理函数使用 `async/await`，异常统一捕获并返回 `{ error: { code: 'INTERNAL_ERROR', message } }` 格式。
+- 所有路由走 `core/http.ts` defineRoute（契约驱动迁移 2026-10 批次 5/7）：响应统一 `{ data }` 壳（原裸对象进壳），错误统一 `{ error: { code, message } }`（code 由 'INTERNAL_ERROR' 归一为 ERROR_CODES.INTERNAL，message = 实际错误消息不变）；契约正本 = `packages/studio-contract/src/monitoring.ts`（16 个实体手写 interface + parity，前端 api/monitoring.ts 手抄全删改 contract import）
 - 成本红线常量 (`INJECTED_TOKEN_BUDGET`、`OVERHEAD_RATIO_BUDGET`) 与 vision §3 对齐，修改需同步文档。
 - `KnowledgeMetricsSource` 接口设计为 DI 注入，默认 lazy 获取生产单例，避免模块加载期副作用。
 - 监控数据窗口默认 30 天，由 `KnowledgeMetricsSource` 的 `windowDays` 参数控制。

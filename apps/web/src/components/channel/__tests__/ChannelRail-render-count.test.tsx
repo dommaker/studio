@@ -21,7 +21,7 @@ vi.mock('../../../api/websocketHooks', () => ({
 }));
 
 vi.mock('../../../api/monitoring', () => ({
-  monitoringApi: { getAgentSummary: vi.fn().mockResolvedValue({ data: { agents: [], summary: {} } }) },
+  monitoringApi: { getAgentSummary: vi.fn().mockResolvedValue({ data: { data: { agents: [], summary: {} } } }) },
 }));
 
 // CreateChannelForm 加载本地工程发现候选——单测置空；rosterStore 其余端点本套件不关心
