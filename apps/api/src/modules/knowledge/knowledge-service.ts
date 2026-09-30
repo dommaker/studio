@@ -35,7 +35,7 @@ import type {
   KnowledgeOrigin,
 } from '@dommaker/harness';
 import { estimateTokens } from '@dommaker/harness';
-import { FileStore, logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
+import { logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import type { CreateResolutionInput } from '@dommaker/studio-shared';
@@ -93,7 +93,6 @@ const ENTRY_TYPE_MAP: Record<string, KnowledgeSubsystem> = {
 // ── Data layer: trends directory ──
 
 // #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
-const fileStore = new FileStore();
 
 // ── Stop words for keyword extraction ──
 
@@ -322,7 +321,7 @@ export class KnowledgeService {
 
     // B59-002: persist to StudioEvent for OKR queryKnowledgeQualityGatePassRate
     try {
-      await fileStore.appendJsonl(resolveStudioEventsFile(), {
+      await getStore().appendJsonl(resolveStudioEventsFile(), {
         type: 'extractFromExecution',
         payload: JSON.stringify({ agentType: result.agentType, success: result.success }),
         createdAt: new Date().toISOString(),
@@ -411,7 +410,7 @@ export class KnowledgeService {
       };
       this.eventEmitter.emit('knowledge', { type: 'extractFromConversation', data: eventData });
       try {
-        await fileStore.appendJsonl(resolveStudioEventsFile(), {
+        await getStore().appendJsonl(resolveStudioEventsFile(), {
           type: 'knowledge:extraction',
           source,
           payload: JSON.stringify(eventData),
@@ -635,7 +634,7 @@ export class KnowledgeService {
     // ③: 裁剪事件 — 沿用 studio-events.jsonl 事件写入路径（best-effort）
     if (trimmedIds.length > 0) {
       try {
-        await fileStore.appendJsonl(resolveStudioEventsFile(), {
+        await getStore().appendJsonl(resolveStudioEventsFile(), {
           type: 'knowledge:inject-trimmed',
           source: 'inject-context',
           payload: JSON.stringify({
@@ -891,7 +890,7 @@ export class KnowledgeService {
 
     // O2-KR1: 发射 consumption 事件供 OKR metric 采集
     if (entryIds.length > 0) {
-      fileStore.appendJsonl(resolveStudioEventsFile(), {
+      getStore().appendJsonl(resolveStudioEventsFile(), {
         type: 'knowledge:consumption',
         source: context,
         payload: JSON.stringify({ entryIds, count: entryIds.length }),
@@ -903,7 +902,7 @@ export class KnowledgeService {
   async recordOutcome(outcome: ExecutionOutcome): Promise<void> {
     // Close the feedback loop: record execution outcome as StudioEvent
     try {
-      await fileStore.appendJsonl(resolveStudioEventsFile(), {
+      await getStore().appendJsonl(resolveStudioEventsFile(), {
         type: `knowledge:outcome:${outcome.success ? 'success' : 'failure'}`,
         source: outcome.agentType,
         payload: JSON.stringify({
@@ -1203,6 +1202,8 @@ import {
   sharedLinter,
 } from './knowledge-singletons.js';
 import { UnifiedQuery } from './engine/unified-query.js';
+import { getStore } from '../../core/store.js';
+
 
 // R4 修复（生产接线 bug）：query 必须是 UnifiedQuery（injectContext/list 依赖
 // queryEntries/getIndexes/count/listEntries），此前误接 harness KnowledgeQuery

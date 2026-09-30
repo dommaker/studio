@@ -38,7 +38,7 @@
  */
 
 import { Router, type Request } from 'express';
-import { FileStore } from '@dommaker/studio-shared';
+
 import {
   listWorkUnitsQuerySchema,
   createWorkUnitBodySchema,
@@ -78,10 +78,11 @@ import { listWorkUnitsChangedFiles } from './wu-changed-files.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { requireAuth, requireNotGuest, type AuthRequest } from '../../middleware/auth.js';
 import { defineRoute, paginated, HttpError, requireHuman } from '../../core/http.js';
+import { getStore } from '../../core/store.js';
+
 
 const router = Router();
-const fileStore = new FileStore();
-const service = new WorkUnitService(fileStore);
+const service = new WorkUnitService(getStore());
 // #387: 单次批量 id 上限（调用方单页规模 ≤ 数十，留余量；超出静默截断）
 const MAX_BATCH_IDS = 100;
 
@@ -128,7 +129,7 @@ router.get('/', defineRoute(
     // blockedBy 依赖全了结才为 true；profile 无关（认领侧仍由 loop observe 判定）。
     // 仅当本页含 unassigned 行才读 index 做依赖判定（其余行 claimable 恒 false）
     const statusById = result.data.some(w => w.status === 'unassigned')
-      ? buildStatusById(await fileStore.getIndex())
+      ? buildStatusById(await getStore().getIndex())
       : new Map<string, string>();
     const data = result.data.map(w => ({ ...w, claimable: resolveClaimable(w, statusById) }));
 
@@ -242,7 +243,7 @@ router.get('/:id/tree-tokens', defineRoute(
     const wu = await mustGetWu(input.params.id);
     const meta = parseWuMetadata(wu.metadata);
     const rootId = meta.collab?.rootId ?? wu.id;
-    return aggregateTreeTokens(rootId, fileStore);
+    return aggregateTreeTokens(rootId, getStore());
   },
 ));
 
@@ -277,7 +278,7 @@ router.post('/:id/claim', requireAuth(), requireNotGuest(), defineRoute(
     // 发声署名：人工认领署用户显示名；显式 agentId 旧契约无法廉价解析角色名 → 退化为 id
     const claimerName = bodyAgentId ?? req.user?.name ?? req.user?.email ?? claimerId;
 
-    return claimWorkUnitAndAnnounce(input.params.id, claimerId, claimerName, { wuService: service, fileStore });
+    return claimWorkUnitAndAnnounce(input.params.id, claimerId, claimerName, { wuService: service, fileStore: getStore() });
   },
 ));
 
@@ -418,7 +419,7 @@ router.post('/:id/resume', requireAuth(), requireNotGuest(), defineRoute(
     if (wu.status !== 'blocked') {
       throw new HttpError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked 可继续执行`);
     }
-    const resumed = await resumeBlockedWorkUnitFromWeb(input.params.id, fileStore);
+    const resumed = await resumeBlockedWorkUnitFromWeb(input.params.id, getStore());
     if (!resumed) {
       throw new HttpError(409, 'RESUME_REJECTED', '复活未完成（等待工程归属的任务请在频道回复工程名或路径）');
     }
@@ -446,7 +447,7 @@ router.post('/:id/ruling', requireAuth(), requireNotGuest(), defineRoute(
       throw new HttpError(409, 'NO_PENDING_RULING', '该任务无待裁的裁决轮（planRulings 为空）');
     }
     const items = validateRulingItems(input.body.items);
-    return applyPlanRuling(input.params.id, items, fileStore);
+    return applyPlanRuling(input.params.id, items, getStore());
   },
 ));
 
@@ -470,7 +471,7 @@ router.post('/:id/direction', requireAuth(), requireNotGuest(), defineRoute(
       throw new HttpError(409, 'NO_PENDING_DIRECTION', '该任务无待选的方向锁定（planDirections 为空）');
     }
     const pick = validateDirectionPick(input.body, meta.planDirections);
-    return applyPlanDirection(input.params.id, pick, fileStore);
+    return applyPlanDirection(input.params.id, pick, getStore());
   },
 ));
 
@@ -486,7 +487,7 @@ router.post('/:id/close', requireAuth(), requireNotGuest(), defineRoute(
     if (wu.status !== 'blocked') {
       throw new HttpError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked 可关闭`);
     }
-    const outcome = await closeBlockedWorkUnitFromWeb(input.params.id, fileStore);
+    const outcome = await closeBlockedWorkUnitFromWeb(input.params.id, getStore());
     if (outcome === 'rejected-no-closed-state') {
       throw new HttpError(409, 'NO_CLOSED_STATE', `该类型（${wu.type}，人工验收类）无 closed 状态，不支持关闭；如需继续请回复指导意见`);
     }
@@ -555,7 +556,7 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), defineRoute(
     // Need a channelId — use WorkUnit's channelId or fallback to system channel
     let channelId = wu.channelId;
     if (!channelId) {
-      const rndChannels = await fileStore.listChannels({ type: 'rnd' });
+      const rndChannels = await getStore().listChannels({ type: 'rnd' });
       const sysChannel = rndChannels.length > 0 ? rndChannels[0] : null;
       if (!sysChannel) {
         throw new HttpError(400, 'NO_CHANNEL', 'No channel available for discussion messages');
@@ -590,7 +591,7 @@ router.patch('/:id/messages/:messageId', requireAuth(), requireNotGuest(), defin
     // B2（#529 同款口径）：从 WU 解析频道归属直查，消全频道扇出；
     // wu 不存在或无 channelId（legacy/手工单）→ undefined 走扇出 fallback
     const wu = await service.getById(input.params.id);
-    const found = await fileStore.getMessageById(input.params.messageId, wu?.channelId ?? undefined);
+    const found = await getStore().getMessageById(input.params.messageId, wu?.channelId ?? undefined);
     if (!found) {
       throw new HttpError(404, 'NOT_FOUND', `Message ${input.params.messageId} not found`);
     }

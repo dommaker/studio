@@ -23,10 +23,11 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'node:fs';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { defineRoute, HttpError } from '../../core/http.js';
+import { getStore } from '../../core/store.js';
+
 
 const COMPANIES_DIR = studioPath('data', 'companies');
 const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
-const fileStore = new FileStore();
 
 function companyPath(id: string): string {
   return path.join(COMPANIES_DIR, `${id}.json`);
@@ -42,7 +43,7 @@ async function listCompanies(): Promise<Company[]> {
     const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
     const companies: Company[] = [];
     for (const f of files) {
-      const data = await fileStore.readJson<Company>(path.join(COMPANIES_DIR, f.name));
+      const data = await getStore().readJson<Company>(path.join(COMPANIES_DIR, f.name));
       if (data) companies.push(data);
     }
     return companies;
@@ -66,7 +67,7 @@ async function createCompany(name: string): Promise<Company> {
   const now = new Date().toISOString();
   const company: Company = { id, name, size: 'custom', createdAt: now, updatedAt: now };
   await ensureDir(COMPANIES_DIR);
-  await fileStore.writeJson(companyPath(id), company);
+  await getStore().writeJson(companyPath(id), company);
 
   // 🆕 AS-016: 自动创建默认 OKR
   const { okrService } = await import('../pmo/okr.service.js');
@@ -119,10 +120,10 @@ router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema
   // 并行查询多个数据源
   const [company, executions] = await Promise.all([
     // 公司信息（FileStore）
-    fileStore.readJson<Company>(companyPath(companyId)),
+    getStore().readJson<Company>(companyPath(companyId)),
     // 执行中的任务数
     (async () => {
-      const execs = await fileStore.readJsonl<{ status?: string }>(EXECUTIONS_JSONL);
+      const execs = await getStore().readJsonl<{ status?: string }>(EXECUTIONS_JSONL);
       return execs.filter((e) => e.status === 'running').length;
     })(),
   ]);
@@ -132,7 +133,7 @@ router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema
   }
 
   // 今日完成任务数
-  const allExecs = await fileStore.readJsonl<{ status?: string; endTime?: string }>(EXECUTIONS_JSONL);
+  const allExecs = await getStore().readJsonl<{ status?: string; endTime?: string }>(EXECUTIONS_JSONL);
   const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
   const todayCompletedTasks = allExecs.filter((e) =>
     e.status === 'completed' && e.endTime && new Date(e.endTime) >= todayStart
@@ -154,7 +155,7 @@ router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema
  * 获取公司详情
  */
 router.get('/:companyId', defineRoute({ params: companyIdParamsSchema }, async (_req, _res, { params }) => {
-  const company = await fileStore.readJson<Company>(companyPath(params.companyId));
+  const company = await getStore().readJson<Company>(companyPath(params.companyId));
   if (!company) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Company ${params.companyId} not found`);
   }
@@ -168,12 +169,12 @@ router.get('/:companyId', defineRoute({ params: companyIdParamsSchema }, async (
 router.patch('/:companyId', defineRoute(
   { params: companyIdParamsSchema, body: updateCompanyBodySchema },
   async (_req, _res, { params, body }) => {
-    const existing = await fileStore.readJson<Company>(companyPath(params.companyId));
+    const existing = await getStore().readJson<Company>(companyPath(params.companyId));
     if (!existing) {
       throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Company ${params.companyId} not found`);
     }
     const company: Company = { ...existing, name: body.name, updatedAt: new Date().toISOString() };
-    await fileStore.writeJson(companyPath(params.companyId), company);
+    await getStore().writeJson(companyPath(params.companyId), company);
     return company;
   },
 ));

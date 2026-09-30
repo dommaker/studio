@@ -23,14 +23,15 @@ import {
   ERROR_CODES,
 } from '@dommaker/studio-contract';
 import { skillExtractionService } from './skill-extraction.service.js';
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { skillStore } from './skill-store.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError } from '../../core/http.js';
+import { getStore } from '../../core/store.js';
+
 
 const router = Router();
-const fileStore = new FileStore();
 
 /**
  * GET /api/v1/skills/proposals
@@ -103,7 +104,7 @@ router.post('/:id/retract', requireAuth(), requireNotGuest(), defineRoute(
     skillStore.update(params.id, { status: 'under_review' });
 
     // Push confirmation card to #系统
-    const sysChannels = await fileStore.listChannels({ name: '#系统' });
+    const sysChannels = await getStore().listChannels({ name: '#系统' });
     const sysChannel = sysChannels[0] ?? null;
     if (sysChannel) {
       await channelMessageService.createCardMessage(

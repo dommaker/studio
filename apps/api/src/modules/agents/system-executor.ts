@@ -18,6 +18,8 @@ import { execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@domma
 import { isSystemRole } from './system-role.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { getStore } from '../../core/store.js';
+
 
 export interface SystemExecutorOptions {
   /** 系统提示词（注入 CLI prompt 的 system 部分，通过 stdin prefix） */
@@ -229,7 +231,7 @@ export class SystemExecutor {
     promptSignature: string;
     eventSource?: string;
   }): Promise<void> {
-    const metricsFs = new FileStore();
+    const metricsFs = getStore();
     await metricsFs.appendJsonl(this.eventsFile, {
       type: 'system:tokens',
       source: args.eventSource ?? DEFAULT_EVENT_SOURCE,
@@ -258,7 +260,7 @@ function hashPrompt(prompt: string): string {
 // 单例（懒初始化，首次调用时读 FileStore）
 let _systemExecutor: SystemExecutor | null = null;
 export function getSystemExecutor(): SystemExecutor {
-  if (!_systemExecutor) _systemExecutor = new SystemExecutor(new FileStore());
+  if (!_systemExecutor) _systemExecutor = new SystemExecutor(getStore());
   return _systemExecutor;
 }
 

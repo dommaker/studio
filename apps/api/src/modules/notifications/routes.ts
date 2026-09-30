@@ -14,7 +14,7 @@
 
 import { Router, Request } from 'express';
 import { NotificationService } from '@dommaker/studio-notification';
-import { FileStore } from '@dommaker/studio-shared';
+
 import { createLazyService } from '../../utils/services.js';
 import { requireAuth, requireNotGuest, AuthRequest } from '../../middleware/auth.js';
 import { defineRoute, HttpError } from '../../core/http.js';
@@ -23,10 +23,12 @@ import {
   listNotificationsQuerySchema,
   notificationIdParamsSchema,
 } from '@dommaker/studio-contract';
+import { getStore } from '../../core/store.js';
+
 
 const router = Router();
 
-const getNotificationService = createLazyService(() => new NotificationService(new FileStore()));
+const getNotificationService = createLazyService(() => new NotificationService(getStore()));
 
 /**
  * 取登录态用户 id；缺失（鉴权放行但 user 未挂）抛 500（不回退 default-user）

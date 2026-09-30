@@ -11,7 +11,7 @@ import {
 } from "../../middleware/rate-limit.js";
 import * as authService from "./service.js";
 import { AuditService } from "@dommaker/studio-audit"; // 🆕 SEC-010
-import { FileStore, logger } from "@dommaker/studio-shared";
+import { logger } from "@dommaker/studio-shared";
 import { defineRoute, HttpError } from "../../core/http.js";
 import { ERROR_CODES } from "@dommaker/studio-contract";
 import {
@@ -20,9 +20,11 @@ import {
   loginBodySchema,
   refreshBodySchema,
 } from "@dommaker/studio-contract";
+import { getStore } from '../../core/store.js';
+
 
 const router = Router();
-const auditService = new AuditService(new FileStore()); // 🆕 SEC-010
+const auditService = new AuditService(getStore()); // 🆕 SEC-010
 
 /**
  * GET /api/v1/auth/status

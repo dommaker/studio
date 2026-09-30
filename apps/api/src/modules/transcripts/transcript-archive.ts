@@ -27,11 +27,12 @@
  * 无需在 WorkUnitMetadata 冗余存 archive 路径。
  */
 import * as path from 'node:path';
-import { FileStore } from '@dommaker/studio-shared';
+
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { testTmpRoot } from '../../utils/studio-log-path.js';
+import { getStore } from '../../core/store.js';
 
-const store = new FileStore();
+
 
 /** 归档根目录名（studioDir() 下单层目录名） */
 export const TRANSCRIPTS_DIR = 'transcripts';
@@ -92,12 +93,12 @@ export async function appendTranscriptStep(args: AppendTranscriptStepArgs): Prom
     ...(args.rawOutput ? { rawOutput: args.rawOutput } : {}),
     createdAt: args.createdAt ?? new Date().toISOString(),
   };
-  await store.appendJsonl(transcriptPath(args.workUnitId), entry);
+  await getStore().appendJsonl(transcriptPath(args.workUnitId), entry);
 }
 
 /**
  * 按任务（workUnitId）读取全文 transcript。文件不存在 → []（不抛出）。
  */
 export async function readTranscript(workUnitId: string): Promise<TranscriptEntry[]> {
-  return store.readJsonl<TranscriptEntry>(transcriptPath(workUnitId));
+  return getStore().readJsonl<TranscriptEntry>(transcriptPath(workUnitId));
 }

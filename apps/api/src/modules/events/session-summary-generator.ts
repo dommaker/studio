@@ -5,7 +5,7 @@
  * Aggregates same-session events → session:summary with filesChanged, toolsUsed, patternType.
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import * as os from 'os';
 import * as path from 'path';
 import { skillStore } from '../skills/skill-store.js';
@@ -13,10 +13,11 @@ import { skillStore } from '../skills/skill-store.js';
 // #654：file 缺省即 resolveStudioEventsFile()（调用时解析，认 STUDIO_EVENTS_FILE）
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { getStore } from '../../core/store.js';
+
 
 /** #342：事件读窗口 30d——session 跨度 ≪ 窗口；suggestSkillForPattern 本就按 30d 过滤 */
 const EVENTS_WINDOW_MS = 30 * 86_400_000;
-const fileStore = new FileStore();
 
 type PatternType =
   | 'ci_fix'
@@ -119,7 +120,7 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
     };
 
     // Store as StudioEvent
-    await fileStore.appendJsonl(resolveStudioEventsFile(), {
+    await getStore().appendJsonl(resolveStudioEventsFile(), {
       type: 'session:summary',
       source: agentId,
       payload: JSON.stringify(summary),

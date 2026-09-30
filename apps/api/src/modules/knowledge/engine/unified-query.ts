@@ -6,11 +6,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { FileStore } from '@dommaker/studio-shared';
+
 import { FileKnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeEntry as HarnessEntry, QueryFilter as HarnessFilter } from '@dommaker/harness';
 import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge-singletons.js';
+import { getStore } from '../../../core/store.js';
+
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -254,7 +256,7 @@ export class UnifiedQuery {
         const files = await fs.promises.readdir(snapshotsDir);
         const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse();
         if (jsonFiles.length > 0) {
-          const fileStore = new FileStore();
+          const fileStore = getStore();
           latestSnapshot = await fileStore.readJson<any>(path.join(snapshotsDir, jsonFiles[0]));
           latestSnapshotFile = jsonFiles[0];
         }

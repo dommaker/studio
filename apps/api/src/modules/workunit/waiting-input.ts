@@ -46,6 +46,8 @@ import { ProjectDiscoveryService, matchProjectByReply, type LocalProject } from 
 import { RequirementService } from '../requirements/requirement.service.js';
 import { projectService } from '../pmo/project.service.js';
 import type { MessageMeta } from '../channels/channel-message.service.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 提醒阈值（毫秒）。默认 30 分钟，可用 STUDIO_INPUT_REMINDER_MINUTES 覆盖 */
 export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -77,7 +79,7 @@ export async function resumeWaitingWorkUnit(
   fs?: FileStore,
   opts?: ResumeWaitingOptions,
 ): Promise<boolean> {
-  const fileStore = fs ?? new FileStore();
+  const fileStore = fs ?? getStore();
   const wuService = new WorkUnitService(fileStore);
   const wu = await wuService.getById(workUnitId);
   if (!wu) return false;
@@ -350,7 +352,7 @@ export async function resumeBlockedWorkUnitFromWeb(
   workUnitId: string,
   fs?: FileStore,
 ): Promise<boolean> {
-  const fileStore = fs ?? new FileStore();
+  const fileStore = fs ?? getStore();
   // #499：复活原语对 active WU 改为缓冲回复（入 pendingReplies，不再返回 false）——
   // 本通道契约保持 blocked-only（路由层同口径 409：仅 blocked 可「继续执行」），
   // active/其他状态直返 false，不注占位文案、不发里程碑
@@ -381,7 +383,7 @@ export async function closeBlockedWorkUnitFromWeb(
   workUnitId: string,
   fs?: FileStore,
 ): Promise<WebCloseOutcome> {
-  const fileStore = fs ?? new FileStore();
+  const fileStore = fs ?? getStore();
   const wu = await new WorkUnitService(fileStore).getById(workUnitId);
   if (!wu || wu.status !== 'blocked') return 'not-found-or-not-blocked';
   const metadata = parseWuMetadata(wu.metadata);
@@ -587,7 +589,7 @@ function projectOptions(projects: LocalProject[]): NonNullable<MessageMeta['opti
  * @returns 本次发送的提醒数
  */
 export async function scanWaitingForInputReminders(fs?: FileStore, now: Date = new Date()): Promise<number> {
-  const fileStore = fs ?? new FileStore();
+  const fileStore = fs ?? getStore();
   const wuService = new WorkUnitService(fileStore);
   const thresholdMs = getReminderThresholdMs();
 

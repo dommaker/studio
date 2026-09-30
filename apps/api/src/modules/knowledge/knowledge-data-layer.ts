@@ -2,21 +2,21 @@
  * knowledge-data-layer — KnowledgeService 的数据层（文件系统存取）
  *
  * 自 knowledge-service.ts 整块抽出（纯代码移动）：data/trends/ 趋势写入、
- * resolution 影子库 FileStore helpers、共享 FileStore 实例。
+ * resolution 影子库 FileStore helpers（实例经 core/store getStore() 获取）。
  * knowledge-service.ts 以 re-export 保持 writeTrendData 导出面不变。
  * （#654：本模块曾导出的事件文件路径常量已随加载期钉死纪律一并移除，
  *  事件路径一律调用时 resolveStudioEventsFile() 解析。）
  */
 
-import { FileStore } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { getStore } from '../../core/store.js';
+
 
 // ── Data layer: trends directory ──
 
 const DATA_TRENDS_DIR = studioPath('data', 'trends');
-const fileStore = new FileStore();
 
 /**
  * 写入趋势数据到 data/trends/ 目录。
@@ -48,7 +48,7 @@ async function listResolutions(): Promise<any[]> {
     const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
     const results: any[] = [];
     for (const f of files) {
-      const data = await fileStore.readJson<any>(path.join(RESOLUTIONS_DIR, f.name));
+      const data = await getStore().readJson<any>(path.join(RESOLUTIONS_DIR, f.name));
       if (data) results.push(data);
     }
     return results;
@@ -58,4 +58,4 @@ async function listResolutions(): Promise<any[]> {
   }
 }
 
-export { fileStore, RESOLUTIONS_DIR, listResolutions };
+export { RESOLUTIONS_DIR, listResolutions };

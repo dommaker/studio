@@ -13,6 +13,8 @@
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { projectService } from '../pmo/project.service.js';
+import { getStore } from '../../core/store.js';
+
 
 /** PMO 工程的最小形状（查询本身不读字段，仅作泛型约束） */
 export interface ProjectLike {
@@ -41,7 +43,7 @@ export async function listChannelReqPmoProjects<P extends ProjectLike>(
     getProject?: (projectId: string) => Promise<P | null>;
   } = {},
 ): Promise<ChannelReqPmoLink<P>[]> {
-  const fileStore = deps.fileStore ?? new FileStore();
+  const fileStore = deps.fileStore ?? getStore();
   const getProject = deps.getProject
     ?? (async (id: string) => (await projectService.get(id)) as unknown as P | null);
   const requirements = await fileStore.listRequirements({ channelId });
@@ -75,7 +77,7 @@ export async function deriveChannelReqPmo<P extends ProjectLike>(
     getProject?: (projectId: string) => Promise<P | null>;
   } = {},
 ): Promise<P | null> {
-  const fileStore = deps.fileStore ?? new FileStore();
+  const fileStore = deps.fileStore ?? getStore();
   const getProject = deps.getProject
     ?? (async (id: string) => (await projectService.get(id)) as unknown as P | null);
   let requirements: Awaited<ReturnType<FileStore['listRequirements']>>;

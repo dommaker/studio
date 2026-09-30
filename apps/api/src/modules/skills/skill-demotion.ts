@@ -29,6 +29,8 @@ import { randomUUID } from 'crypto';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { getStore } from '../../core/store.js';
+
 
 const SKILLS_DIR = process.env.SKILLS_DIR || studioPath('skills');
 const DEFAULT_STORE_FILE = studioPath('data', 'skills', 'demotion-proposals.json');
@@ -155,7 +157,7 @@ export interface AggregateOptions {
 export async function aggregateSkillUsage(opts?: AggregateOptions): Promise<Map<string, SkillUsageStats>> {
   // #654：调用时惰性解析（认 STUDIO_EVENTS_FILE），不做模块加载期钉死
   const eventsFile = opts?.eventsFile ?? resolveStudioEventsFile();
-  const fileStore = opts?.fileStore ?? new FileStore();
+  const fileStore = opts?.fileStore ?? getStore();
   const stats = new Map<string, SkillUsageStats>();
 
   const ensure = (name: string): SkillUsageStats => {

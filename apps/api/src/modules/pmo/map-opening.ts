@@ -36,6 +36,8 @@ import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
 import { projectService, type PmoMap, type ProjectData } from './project.service.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 开图 fog 条数上限（照 ANALYSIS_TASKS_MAX 先例防刷屏） */
 export const MAP_OPENING_FOG_MAX = 12;
@@ -174,7 +176,7 @@ export function initMapOpening(fileStore?: FileStore): MapOpening {
   if (!_mapOpening) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
     const { WorkUnitService } = require('../workunit/workunit.service.js') as typeof import('../workunit/workunit.service.js');
-    const fs = fileStore ?? new FileStore();
+    const fs = fileStore ?? getStore();
     _mapOpening = new MapOpening(fs, new WorkUnitService(fs));
   }
   _mapOpening.subscribeToEvents();

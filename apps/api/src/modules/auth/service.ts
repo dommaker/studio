@@ -11,6 +11,8 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import * as path from "node:path";
 import { studioDir } from "@dommaker/studio-shared/studio-dir";
+import { getStore } from '../../core/store.js';
+
 
 // ─── 本地类型（替代 Prisma model 类型） ───
 
@@ -79,7 +81,6 @@ export interface AuthResult {
 
 // ─── FileStore 实例 ───
 
-const fileStore = new FileStore();
 const STUDIO_DIR = studioDir();
 const USERS_FILE = path.join(STUDIO_DIR, "users.json");
 const SESSIONS_FILE = path.join(STUDIO_DIR, "sessions.json");
@@ -87,12 +88,12 @@ const SESSIONS_FILE = path.join(STUDIO_DIR, "sessions.json");
 // ─── FileStore 数据访问层 ───
 
 async function readUsers(): Promise<UserData[]> {
-  const data = await fileStore.readJson<UserData[]>(USERS_FILE);
+  const data = await getStore().readJson<UserData[]>(USERS_FILE);
   return data ?? [];
 }
 
 async function writeUsers(users: UserData[]): Promise<void> {
-  await fileStore.writeJson(USERS_FILE, users);
+  await getStore().writeJson(USERS_FILE, users);
 }
 
 async function findUserByEmail(email: string): Promise<UserData | null> {
@@ -115,7 +116,7 @@ async function updateUser(id: string, patch: Partial<UserData>): Promise<void> {
 }
 
 async function readSessions(): Promise<SessionData[]> {
-  const data = await fileStore.readJson<SessionData[]>(SESSIONS_FILE);
+  const data = await getStore().readJson<SessionData[]>(SESSIONS_FILE);
   return data ?? [];
 }
 
@@ -123,7 +124,7 @@ async function writeSessions(sessions: SessionData[]): Promise<void> {
   // #525 P2-3：写路径顺带 prune 过期条目，sessions.json 不随过期条目无限增长
   const now = new Date();
   const kept = sessions.filter((s) => new Date(s.expiresAt) >= now);
-  await fileStore.writeJson(SESSIONS_FILE, kept);
+  await getStore().writeJson(SESSIONS_FILE, kept);
 }
 
 async function appendSession(session: SessionData): Promise<void> {

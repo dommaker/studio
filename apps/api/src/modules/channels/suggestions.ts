@@ -24,6 +24,8 @@ import { summarizeRoleStates } from '../agents/agent-instance.service.js';
 import { MANUAL_GATE_TYPES } from '../workunit/workunit.types.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { summarizeBlockReason } from '../workunit/blocked-cta.js';
+import { getStore } from '../../core/store.js';
+
 
 /**
  * 宽限期阈值集中配置（#441 决议：断链/无接管判定带宽限期，阈值集中一处，
@@ -189,7 +191,7 @@ async function deriveChannelSuggestionsInner(
   channelId: string,
   deps: ChannelSuggestionsDeps,
 ): Promise<DeriveInner> {
-  const fileStore = deps.fileStore ?? new FileStore();
+  const fileStore = deps.fileStore ?? getStore();
   const now = deps.now ?? new Date();
   {
     const channel = await fileStore.getChannel(channelId);

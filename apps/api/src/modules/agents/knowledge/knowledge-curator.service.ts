@@ -13,6 +13,8 @@
 import { logger, FileStore } from '@dommaker/studio-shared';
 import * as coldStart from './knowledge-cold-start.js';
 import * as maintenance from './knowledge-maintenance.js';
+import { getStore } from '../../../core/store.js';
+
 
 /**
  * R3 单一 prompt 来源 + E1 文件覆盖 getter：实现迁至 knowledge-extraction.ts，
@@ -25,7 +27,7 @@ export class KnowledgeCurator {
   private fileStore: FileStore;
 
   constructor(fileStore?: FileStore) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
   }
 
   // ── 冷启动（knowledge-cold-start）──

@@ -27,6 +27,8 @@ import { logger, FileStore, stripTrailingSlashes } from '@dommaker/studio-shared
 import { projectService } from '../pmo/project.service.js';
 import { resolveWorkspaceRoot as defaultResolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 import { listChannelReqPmoProjects, type ChannelReqPmoLink, type ProjectLike } from '../requirements/channel-req-pmo.js';
+import { getStore } from '../../core/store.js';
+
 
 export { listChannelReqPmoProjects };
 export type { ChannelReqPmoLink, ProjectLike };
@@ -154,7 +156,7 @@ async function computeCandidateReposFresh(
   channelId: string,
   deps: FileRefVocabularyDeps = {},
 ): Promise<string[]> {
-  const fileStore = deps.fileStore ?? new FileStore();
+  const fileStore = deps.fileStore ?? getStore();
   const getProject = deps.getProject ?? (async (id: string) => projectService.get(id));
   const findChoreProject = deps.findChoreProject ?? (async (id: string) => projectService.findChoreProject(id));
   const resolveRoot = deps.resolveWorkspaceRoot ?? defaultResolveWorkspaceRoot;

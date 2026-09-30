@@ -13,6 +13,8 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import { projectService } from '../pmo/project.service.js';
 import { reposOfProject, type ProjectLike } from './file-ref-vocabulary.js';
 import { deriveChannelReqPmo } from '../requirements/channel-req-pmo.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 顶栏当前 PMO chip 的呈现形状（多仓 PMO 只显名称，gitRepos 走 tooltip） */
 export interface ChannelCurrentPmo {
@@ -51,7 +53,7 @@ export async function deriveChannelCurrentPmo(
   channelId: string,
   deps: CurrentPmoDeps = {},
 ): Promise<ChannelCurrentPmo | null> {
-  const fileStore = deps.fileStore ?? new FileStore();
+  const fileStore = deps.fileStore ?? getStore();
   const getProject = deps.getProject ?? (async (id: string) => projectService.get(id));
   const findChoreProject = deps.findChoreProject ?? (async (id: string) => projectService.findChoreProject(id));
 

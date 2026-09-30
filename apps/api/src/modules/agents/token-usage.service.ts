@@ -29,6 +29,8 @@ import { buildAssigneeProfileResolver } from '../workunit/assignee-resolver.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 // #342：窗口读口（尾部倒读 + 窗口外早停）——三个事件读点切到此读口
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
+import { getStore } from '../../core/store.js';
+
 
 /** #342：事件读窗口 30d——对齐 #173 事件热保留期（#335 先例：wu-changed-files 同款 30d） */
 const EVENTS_WINDOW_MS = 30 * 86_400_000;
@@ -135,7 +137,7 @@ async function computeAgentTokenUsage(
   fileStoreOpt: FileStore | undefined,
   now: number,
 ): Promise<AgentTokenUsage> {
-  const fileStore = fileStoreOpt ?? new FileStore();
+  const fileStore = fileStoreOpt ?? getStore();
   const usage = zeroUsage(profileId);
 
   // assigneeId 双语义解析（共享 helper，workunit/assignee-resolver.ts）：

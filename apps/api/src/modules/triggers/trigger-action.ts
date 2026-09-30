@@ -4,6 +4,8 @@ import { FileStore, logger } from '@dommaker/studio-shared';
 import type { TriggerAction, TriggerExecuteHandler } from './trigger.types.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import type { WorkUnitMetadata } from '../workunit/workunit.service.js';
+import { getStore } from '../../core/store.js';
+
 
 /** Handler registry for EXECUTE actions */
 const executeHandlers = new Map<string, TriggerExecuteHandler>();
@@ -66,7 +68,7 @@ export function unregisterExecuteHandler(target: string): void {
   executeHandlers.delete(target);
 }
 
-let fileStore = new FileStore();
+let fileStore = getStore();
 let workUnitService = new WorkUnitService();
 
 /** 测试用：替换 FileStore/WorkUnitService 实例（同 channelMessageService.setFileStore 模式） */

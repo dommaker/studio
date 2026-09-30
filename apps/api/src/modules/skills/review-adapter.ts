@@ -28,6 +28,8 @@ import {
 import { submitProposal } from '../review-proposal/service.js';
 import type { ReviewProposalBase } from '../review-proposal/store.js';
 import { skillStore } from './skill-store.js';
+import { getStore } from '../../core/store.js';
+
 
 /** skill 提案载荷（行形态：{ kind:'proposal', ... } 落 skill-proposals.jsonl） */
 export interface SkillReviewProposal extends ReviewProposalBase {
@@ -107,7 +109,7 @@ export function registerSkillReviewAdapter(deps?: {
   fileStore?: FileStore;
   dataDir?: string;
 }): ReviewProposalAdapter<SkillReviewProposal> {
-  const fileStore = deps?.fileStore ?? new FileStore();
+  const fileStore = deps?.fileStore ?? getStore();
   return registerReviewProposalAdapter<SkillReviewProposal>({
     kind: 'skill',
     cardType: 'skill_review_request',

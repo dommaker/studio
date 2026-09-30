@@ -18,6 +18,8 @@ import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { withBlockedCta } from './blocked-cta.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 同一 WU 的超时释放上限：达到后转 blocked，等待人工介入 */
 export const MAX_TIMEOUT_RELEASES = 3;
@@ -87,7 +89,7 @@ async function killOriginalHolder(fileStore: FileStore, assigneeId: string | nul
  * @returns 本次处理的超时 WU 数（释放回池 + 转 blocked）
  */
 export async function scanTimedOutWorkUnits(fs?: FileStore, now: Date = new Date()): Promise<number> {
-  const fileStore = fs ?? new FileStore();
+  const fileStore = fs ?? getStore();
   const wuService = new WorkUnitService(fileStore);
 
   const timedOut = await wuService.list({ status: 'active', timedOutBefore: now, limit: 1000 });

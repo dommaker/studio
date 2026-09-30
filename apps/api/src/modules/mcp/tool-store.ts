@@ -9,10 +9,16 @@
 import { FileStore } from '@dommaker/studio-shared';
 import * as path from 'node:path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { getStore } from '../../core/store.js';
+
 
 // ─── FileStore 存储路径 ───
 
-export const fileStore = new FileStore();
+// 导出的共享实例 = 测试 mock 锚点（channel.tools 等 6 个消费方的单测 vi.mock 本模块）。
+// 形态为例外保留的模块级捕获（P2-b 一般规则禁模块级捕获）；实例来自 getStore()，
+// 与调用时获取同一进程级单例，无第二实例。
+export const fileStore = getStore();
+
 export function getTasksDir(): string {
   return studioPath('data', 'tasks');
 }
@@ -29,13 +35,13 @@ export function getCompaniesDir(): string {
 // 不再自持 readdir + .json 过滤副本。writeJson 自带 ensureDir，无需本地建目录。
 
 export async function listJsonFiles<T>(dir: string): Promise<T[]> {
-  return fileStore.listJsonInDir<T>(dir);
+  return getStore().listJsonInDir<T>(dir);
 }
 
 export async function getEntity<T>(dir: string, id: string): Promise<T | null> {
-  return fileStore.readJson<T>(path.join(dir, `${id}.json`));
+  return getStore().readJson<T>(path.join(dir, `${id}.json`));
 }
 
 export async function writeEntity(dir: string, id: string, data: unknown): Promise<void> {
-  await fileStore.writeJson(path.join(dir, `${id}.json`), data);
+  await getStore().writeJson(path.join(dir, `${id}.json`), data);
 }

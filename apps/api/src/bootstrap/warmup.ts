@@ -2,6 +2,8 @@
 // P2-a：自 apps/api/src/index.ts 拆出。startWarmupTasks 在 registerRoutes 之前调用，
 // startPostRoutesWarmup 在 registerRoutes 之后调用——与原 index.ts 的相对位置一致。
 import { logger } from '@dommaker/studio-shared';
+import { getStore } from '../core/store.js';
+
 
 export function startWarmupTasks(): void {
   // GAP-16: 验证消费事件链完整性（异步，不阻塞启动）
@@ -46,7 +48,7 @@ export function startWarmupTasks(): void {
   // （FileStore.archiveChannelMessages，详见 studio-shared CONTEXT.md）。
   // 与 #173/#213 同一挂载机制：启动后跑一次 + 每 24h，独立 interval 句柄。
   import('@dommaker/studio-shared').then(({ FileStore }) => {
-    const archiveStore = new FileStore();
+    const archiveStore = getStore();
     const runMessageArchive = () => archiveStore.archiveChannelMessages()
       .then(({ archivedMessages }) => {
         if (archivedMessages > 0) {

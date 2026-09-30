@@ -27,6 +27,8 @@ import { postProjectMilestone } from './delivery-notify.js';
 import { sumTokensForWorkUnits } from '../agents/token-usage.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { getStore } from '../../core/store.js';
+
 
 const GIT_OP_TIMEOUT_MS = 15_000;
 const MERGE_TIMEOUT_MS = 60_000;
@@ -166,7 +168,7 @@ export async function getDeliveryStatus(
   const project = await getProject(projectId);
   if (!project) return null;
 
-  const fs = fileStore ?? new FileStore();
+  const fs = fileStore ?? getStore();
   const listRequirements = deps?.listRequirements
     ?? (async () => new RequirementService(fs).list());
   const getIndex = deps?.getIndex ?? (async () => fs.getIndex());

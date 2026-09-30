@@ -34,6 +34,8 @@ import { ReviewDispatcher } from './loop/review-dispatcher.js';
 import { dispatchMonitorAlerts } from './monitor/monitor-alerts.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
 import type { MonitorAlertSource } from './types.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 对账宽限：哨兵落档 / 转入 in_review ≥10min 才参与对账（避开在飞 spawn/建单） */
 export const RECONCILE_GRACE_MS = 10 * 60 * 1000;
@@ -243,7 +245,7 @@ async function reconcileReviewRedispatches(
  * 两侧各自容错：一侧异常不影响另一侧；单 WU 异常不影响其余。
  */
 export async function reconcileDispatchBreaks(fs?: FileStore, now: Date = new Date()): Promise<ReconciliationResult> {
-  const fileStore = fs ?? new FileStore();
+  const fileStore = fs ?? getStore();
   const wuService = new WorkUnitService(fileStore);
   const handoff = new AnalysisHandoff(fileStore, wuService);
   const dispatcher = new ReviewDispatcher(fileStore, wuService);

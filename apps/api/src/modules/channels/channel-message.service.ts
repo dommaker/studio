@@ -1,6 +1,8 @@
 // ChannelMessage Service — centralized message creation + event publishing
 import { eventBus, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
+import { getStore } from '../../core/store.js';
+
 
 export interface MessageMeta {
   status?: string;
@@ -61,7 +63,7 @@ export class ChannelMessageService {
   private fileStore: FileStore;
 
   constructor(fileStore?: FileStore) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
   }
 
   /** 测试用：替换 FileStore 实例 */

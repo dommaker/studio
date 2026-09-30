@@ -5,6 +5,8 @@
  * （deprecated，只读不删）。幂等：重复执行不会产生重复 members。
  */
 import { logger, FileStore, parseChannels } from '@dommaker/studio-shared';
+import { getStore } from '../../core/store.js';
+
 
 export interface MembersMigrationResult {
   /** 本次新并入 members 的 (profile, channel) 关系数 */
@@ -12,7 +14,7 @@ export interface MembersMigrationResult {
 }
 
 export async function migrateProfileChannelsToMembers(
-  fileStore: FileStore = new FileStore(),
+  fileStore: FileStore = getStore(),
 ): Promise<MembersMigrationResult> {
   const [profiles, channels] = await Promise.all([
     fileStore.listProfiles(),

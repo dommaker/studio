@@ -16,7 +16,7 @@
  */
 
 import { Router } from 'express';
-import { FileStore } from '@dommaker/studio-shared';
+
 import {
   agentProfileListQuerySchema,
   createAgentProfileBodySchema,
@@ -27,10 +27,11 @@ import { AgentProfileService, listRolePresets, type CreateAgentProfileInput, typ
 import { parsePagination } from '../../utils/pagination.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
+import { getStore } from '../../core/store.js';
+
 
 const router = Router();
-const fileStore = new FileStore();
-const service = new AgentProfileService(fileStore);
+const service = new AgentProfileService(getStore());
 
 /** GET / — list AgentProfiles */
 router.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (req, _res, { query }) => {

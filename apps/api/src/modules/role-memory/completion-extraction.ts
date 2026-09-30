@@ -28,6 +28,8 @@ import {
   resolveDailyTokenBudget,
   getDailyTokenUsage,
 } from '../agents/loop/daily-token-budget.js';
+import { getStore } from '../../core/store.js';
+
 
 /**
  * 角色记忆提取 prompt（单一来源，适配 appendDraft 产出）：只收 execution-knowledge /
@@ -279,7 +281,7 @@ let _extractor: WuCompletionExtractor | null = null;
 
 export function initWuCompletionExtraction(fileStore?: FileStore): WuCompletionExtractor {
   if (!_extractor) {
-    const fs = fileStore ?? new FileStore();
+    const fs = fileStore ?? getStore();
     _extractor = new WuCompletionExtractor(fs, new WorkUnitService(fs));
   }
   _extractor.subscribeToEvents();

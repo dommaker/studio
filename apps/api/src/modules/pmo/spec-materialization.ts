@@ -32,6 +32,8 @@ import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
 import { projectService, resolveDeliveries, type ProjectData } from './project.service.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 物化任务条数上限（照 MAP_OPENING_FOG_MAX 先例防刷屏） */
 export const SPEC_TASKS_MAX = 12;
@@ -234,7 +236,7 @@ export function initSpecMaterialization(fileStore?: FileStore): SpecMaterializat
   if (!_specMaterialization) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
     const { WorkUnitService } = require('../workunit/workunit.service.js') as typeof import('../workunit/workunit.service.js');
-    const fs = fileStore ?? new FileStore();
+    const fs = fileStore ?? getStore();
     _specMaterialization = new SpecMaterialization(fs, new WorkUnitService(fs));
   }
   _specMaterialization.subscribeToEvents();

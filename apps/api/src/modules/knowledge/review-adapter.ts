@@ -29,6 +29,8 @@ import {
 import { submitProposal } from '../review-proposal/service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import type { ReviewProposalBase, ReviewProposalRecord } from '../review-proposal/store.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 提案卡条目（γ 轨道契约：cardData.entries=[{id,title,type}]） */
 export interface KnowledgeProposalEntry {
@@ -98,7 +100,7 @@ export function registerKnowledgeReviewAdapter(deps?: {
   fileStore?: FileStore;
   dataDir?: string;
 }): ReviewProposalAdapter<KnowledgeReviewProposal> {
-  const fileStore = deps?.fileStore ?? new FileStore();
+  const fileStore = deps?.fileStore ?? getStore();
   return registerReviewProposalAdapter<KnowledgeReviewProposal>({
     kind: 'knowledge',
     cardType: 'knowledge_proposal',

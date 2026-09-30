@@ -7,10 +7,12 @@ import { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
 import { getAuthInfo } from './auth.js';
 import { AuditService, AuditLogInput } from '@dommaker/studio-audit';
-import { FileStore } from '@dommaker/studio-shared';
-import { logger } from '../utils/logger.js';
 
-const auditService = new AuditService(new FileStore());
+import { logger } from '../utils/logger.js';
+import { getStore } from '../core/store.js';
+
+
+const auditService = new AuditService(getStore());
 
 /**
  * 获取客户端 IP

@@ -20,7 +20,7 @@
 import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
 import { KnowledgeInjector } from './knowledge-injector.js';
-import { FileStore, logger, eventBus } from '@dommaker/studio-shared';
+import { logger, eventBus } from '@dommaker/studio-shared';
 import { wrapWithSegmentSpan } from '@dommaker/studio-shared/read-metrics';
 import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
@@ -29,9 +29,10 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { MtimeMemoKnowledgeStore } from './knowledge-store-memo.js';
+import { getStore } from '../../core/store.js';
+
 
 // #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
-const fileStore = new FileStore();
 
 // KE-002 P0: unified absolute path for knowledge storage
 export const UNIFIED_KNOWLEDGE_DIR = studioPath('knowledge');
@@ -119,7 +120,7 @@ export const sharedLinter = wrapWithSegmentSpan(
 // Cast needed: onReference added in harness 0.13.4+, npm version may lag
 let _consumptionCallbackRegistered = false;
 (sharedLifecycle as any).onReference?.((event: { entryId: string; contributor: string; timestamp: string }) => {
-  fileStore.appendJsonl(resolveStudioEventsFile(), {
+  getStore().appendJsonl(resolveStudioEventsFile(), {
     type: 'knowledge:consumption',
     source: event.contributor,
     payload: JSON.stringify({ entryId: event.entryId, timestamp: event.timestamp }),
@@ -402,7 +403,7 @@ export function ingestWithQualityGate(
 
 /** 知识事件写入（best-effort，不阻塞主流程）。source 保持 'knowledge-bus' 以兼容既有指标查询。 */
 export function appendKnowledgeEvent(type: string, payload: Record<string, unknown>): void {
-  fileStore.appendJsonl(resolveStudioEventsFile(), {
+  getStore().appendJsonl(resolveStudioEventsFile(), {
     type,
     source: 'knowledge-bus',
     payload: JSON.stringify(payload),

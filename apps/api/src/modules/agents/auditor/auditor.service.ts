@@ -17,6 +17,8 @@ import type { Suggestion } from './auditor-rules.js';
 import * as execution from './auditor-execution.js';
 import * as reports from './auditor-reports.js';
 import { registerAuditorReviewAdapter } from './review-adapter.js';
+import { getStore } from '../../../core/store.js';
+
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
 
@@ -25,7 +27,7 @@ export class AuditorService {
   private fileStore: FileStore;
 
   constructor(fileStore?: FileStore) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
   }
 
   start(): void {

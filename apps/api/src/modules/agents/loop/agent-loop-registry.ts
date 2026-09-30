@@ -7,6 +7,8 @@
 import { eventBus, logger, FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { AgentLoop } from './agent-loop.js';
 import { getErrorMessage } from '../../../utils/errors.js';
+import { getStore } from '../../../core/store.js';
+
 
 export interface MountedLoop {
   profileId: string;
@@ -157,7 +159,7 @@ export class AgentLoopRegistry {
       this.loops.delete(profileId);
       logger.info(`[AgentLoopRegistry] Unmounted loop for profile ${profileId} (provider remount)`);
     }
-    const fresh = await (this.fileStore ?? new FileStore()).getProfile(profileId);
+    const fresh = await (this.fileStore ?? getStore()).getProfile(profileId);
     if (!fresh || fresh.status !== 'active') return;
     await this.mount(fresh);
   }

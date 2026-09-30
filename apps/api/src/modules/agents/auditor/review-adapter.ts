@@ -30,6 +30,8 @@ import type { ReviewProposalBase, ReviewProposalRecord } from '../../review-prop
 import { parseMessageMeta } from '../../../utils/message-meta.js';
 import { getErrorMessage } from '../../../utils/errors.js';
 import type { Suggestion } from './auditor-rules.js';
+import { getStore } from '../../../core/store.js';
+
 
 /** 审核闭环：提案卡投放的目标频道（同旧 pushConfirmationCards / 正本 card.ts 口径） */
 const SYSTEM_CHANNEL_NAME = '#系统';
@@ -138,7 +140,7 @@ export function registerAuditorReviewAdapter(deps?: {
   fileStore?: FileStore;
   dataDir?: string;
 }): ReviewProposalAdapter<AuditorReviewProposal> {
-  const fileStore = deps?.fileStore ?? new FileStore();
+  const fileStore = deps?.fileStore ?? getStore();
   return registerReviewProposalAdapter<AuditorReviewProposal>({
     kind: 'auditor',
     cardType: 'auditor_suggestion',

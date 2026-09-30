@@ -27,6 +27,8 @@ import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../wo
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { projectService, type ProjectData, type PmoMap } from './project.service.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
+import { getStore } from '../../core/store.js';
+
 
 export class DecisionResolution {
   private subscribed = false;
@@ -163,7 +165,7 @@ export function initDecisionResolution(fileStore?: FileStore): DecisionResolutio
   if (!_decisionResolution) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
     const { WorkUnitService } = require('../workunit/workunit.service.js') as typeof import('../workunit/workunit.service.js');
-    const fs = fileStore ?? new FileStore();
+    const fs = fileStore ?? getStore();
     _decisionResolution = new DecisionResolution(fs, new WorkUnitService(fs));
   }
   _decisionResolution.subscribeToEvents();

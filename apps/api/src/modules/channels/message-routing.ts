@@ -28,8 +28,9 @@ import {
 } from './file-ref-vocabulary.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
 import { recordAgentDecision } from '../audit-logs/agent-decision.js';
+import { getStore } from '../../core/store.js';
 
-const fileStore = new FileStore();
+
 
 /**
  * Detect @mention in message content.
@@ -180,7 +181,7 @@ export async function routeMessage(
   replyToId?: string,
   ctx?: DispatchContext,
 ) {
-  const resolvedFs = ctx?.fs ?? fileStore;
+  const resolvedFs = ctx?.fs ?? getStore();
   // Use resolved FileStore for WorkUnitService (supports test injection)
   const wuService = new WorkUnitService(resolvedFs);
 

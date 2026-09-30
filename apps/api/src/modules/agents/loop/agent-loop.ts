@@ -63,6 +63,8 @@ import { shouldResumeSession } from './session-resume.js';
 import { runStepRetry, resetUnestablishedSessionBookkeeping, MAX_SESSIONS_PER_WU } from './step-retry-policy.js';
 import { WuLeaseTracker } from './wu-lease.js';
 import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcript-archive.js';
+import { getStore } from '../../../core/store.js';
+
 
 /** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流）。
  *  #654：路径解析归一到 resolveStudioEventsFile（认 STUDIO_EVENTS_FILE；缺省走
@@ -149,7 +151,7 @@ export class AgentLoop {
 
   constructor(role: AgentProfileData, fileStore?: FileStore) {
     this.role = role;
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
     this.workUnitService = new WorkUnitService(this.fileStore);
     // 决策 9: acceptedTypes 取 profile 显式字段（description 关键词解析已退役）
     this.acceptedTypes = role.acceptedTypes ?? [];

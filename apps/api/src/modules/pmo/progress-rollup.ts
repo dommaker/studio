@@ -73,6 +73,8 @@ import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { parseSpecTasks } from './spec-materialization.js';
 import { postProjectMilestone } from './delivery-notify.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
+import { getStore } from '../../core/store.js';
+
 
 // 兼容现有引用方（原定义已移至 evidence-summary.ts 共享口径）
 export { parseWuMetaPmoId };
@@ -219,7 +221,7 @@ async function handleWuStatusChanged(wu: WuRollupEventData, fileStore?: FileStor
  *  不做负载覆盖——真实事件的存储持久化先于 publish，回源读到的恒 ≥ payload（哨兵等后发
  *  metadata 也在内），直接以存储为准最新最准。 */
 async function resourceMemo(projectId: string, fileStore?: FileStore): Promise<ProjectRollupMemo> {
-  const fs = fileStore ?? new FileStore();
+  const fs = fileStore ?? getStore();
   const reqService = new RequirementService(fs);
   const requirements = await reqService.list();
   reqProjectByStore.set(storeKey(fs), buildReqProjectMap(requirements));

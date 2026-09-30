@@ -17,17 +17,18 @@ import {
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { requireLocalhost } from '../../middleware/auth.js';
+import { getStore } from '../../core/store.js';
+
 
 const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
 const TASKS_DIR = studioPath('data', 'tasks');
-const fileStore = new FileStore();
 
 async function findTaskByExecutionId(executionId: string): Promise<{ id: string; status: string } | null> {
   try {
     const entries = await fs.promises.readdir(TASKS_DIR, { withFileTypes: true });
     for (const e of entries) {
       if (!e.isFile() || !e.name.endsWith('.json')) continue;
-      const task = await fileStore.readJson<any>(path.join(TASKS_DIR, e.name));
+      const task = await getStore().readJson<any>(path.join(TASKS_DIR, e.name));
       if (task && task.executionId === executionId) return task;
     }
   } catch { /* dir may not exist */ }
@@ -69,7 +70,7 @@ function withProgress<T extends Record<string, unknown>>(exec: T) {
 router.get('/', defineRoute({ query: executionListQuerySchema }, async (_req, _res, { query }) => {
   const { status, page = '1', limit = '20' } = query;
 
-  const allRows = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+  const allRows = await getStore().readJsonl<any>(EXECUTIONS_JSONL);
   let filtered = allRows;
   if (status) filtered = filtered.filter((e: any) => e.status === status);
   filtered.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -109,7 +110,7 @@ router.post('/events', requireLocalhost(), defineRoute({ body: executionEventBod
       
       // 从 executionId（runtime UUID）查找对应的 Studio Execution
       // 由于 SQLite JSON 查询限制，改用内存过滤
-      const allRows = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+      const allRows = await getStore().readJsonl<any>(EXECUTIONS_JSONL);
       const studioExecution = allRows.find((e: any) => {
         const params = (typeof e.parameters === 'string' ? JSON.parse(e.parameters) : e.parameters) || {};
         return e.status === 'running' && params.runtimeExecutionId === executionId;
@@ -143,12 +144,12 @@ router.post('/events', requireLocalhost(), defineRoute({ body: executionEventBod
           const task = await findTaskByExecutionId(studioExecution.id);
 
           if (task) {
-            const fullTask = await fileStore.readJson<any>(path.join(TASKS_DIR, `${task.id}.json`));
+            const fullTask = await getStore().readJson<any>(path.join(TASKS_DIR, `${task.id}.json`));
             if (fullTask) {
               fullTask.status = newStatus === 'completed' ? 'completed' : 'failed';
               fullTask.completedAt = new Date().toISOString();
               fullTask.updatedAt = new Date().toISOString();
-              await fileStore.writeJson(path.join(TASKS_DIR, `${task.id}.json`), fullTask);
+              await getStore().writeJson(path.join(TASKS_DIR, `${task.id}.json`), fullTask);
             }
 
             logger.info(`[Task Sync] Updated task ${task.id} to ${newStatus}`);
@@ -166,7 +167,7 @@ router.post('/events', requireLocalhost(), defineRoute({ body: executionEventBod
 
 // 获取执行详情
 router.get('/:executionId', defineRoute({ params: executionDetailParamsSchema }, async (_req, _res, { params }) => {
-  const allExecutions = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+  const allExecutions = await getStore().readJsonl<any>(EXECUTIONS_JSONL);
   const execution = allExecutions.find((e: any) => e.id === params.executionId) || null;
 
   if (!execution) {

@@ -1,6 +1,8 @@
 // ── Trigger EXECUTE handler 注册（周期扫描类）──
 // P2-a：自 apps/api/src/index.ts 拆出。注册顺序与原 index.ts 逐行一致。
 import { logger } from '@dommaker/studio-shared';
+import { getStore } from '../core/store.js';
+
 
 export async function registerScanHandlers(): Promise<void> {
   const { registerExecuteHandler } = await import('../modules/triggers/trigger-action.js');
@@ -8,8 +10,7 @@ export async function registerScanHandlers(): Promise<void> {
   // ── Agent Timeout Scan（超时释放 handler）──
   registerExecuteHandler('agent-timeout-scan', async () => {
     const { scanStaleAgentInstances } = await import('../modules/agents/instance-timeout-scan.js');
-    const { FileStore } = await import('@dommaker/studio-shared');
-    const result = await scanStaleAgentInstances(new FileStore());
+    const result = await scanStaleAgentInstances(getStore());
     if (result.terminated > 0) logger.info(`[AgentTimeout] Terminated ${result.terminated} stale instances`);
   });
 

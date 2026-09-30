@@ -28,6 +28,8 @@ import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
 import { resolveStageRouting, resolveOrNotice } from '../channels/routing.js';
 import { dispatchMonitorAlerts } from '../agents/monitor/monitor-alerts.js';
+import { getStore } from '../../core/store.js';
+
 
 export class AnalysisHandoff {
   private subscribed = false;
@@ -367,7 +369,7 @@ export function initAnalysisHandoff(fileStore?: FileStore): AnalysisHandoff {
   if (!_analysisHandoff) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
     const { WorkUnitService } = require('../workunit/workunit.service.js') as typeof import('../workunit/workunit.service.js');
-    const fs = fileStore ?? new FileStore();
+    const fs = fileStore ?? getStore();
     _analysisHandoff = new AnalysisHandoff(fs, new WorkUnitService(fs));
   }
   _analysisHandoff.subscribeToEvents();

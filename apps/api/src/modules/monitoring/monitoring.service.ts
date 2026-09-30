@@ -13,6 +13,8 @@ import {
   type AgentCurrentWorkUnit,
   type AgentPmoSummary,
 } from './current-wu-context.js';
+import { getStore } from '../../core/store.js';
+
 
 export type { AgentCurrentWorkUnit, AgentPmoSummary };
 
@@ -141,7 +143,7 @@ export class MonitoringService {
   private deps: MonitoringServiceDeps | null;
 
   constructor(fileStore?: FileStore, knowledge?: KnowledgeMetricsSource, deps?: MonitoringServiceDeps) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
     this.knowledge = knowledge ?? null;
     this.deps = deps ?? null;
   }

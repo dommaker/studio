@@ -26,7 +26,7 @@ import {
   type Workspace,
   type WorkspaceRuntime,
 } from '@dommaker/studio-contract';
-import { FileStore } from '@dommaker/studio-shared';
+
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 import { apiCache } from '../../middleware/api-cache.js';
@@ -35,8 +35,9 @@ import * as fs from 'node:fs';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveVpsWorkspace } from '@dommaker/studio-shared/node';
 import { defineRoute, HttpError } from '../../core/http.js';
+import { getStore } from '../../core/store.js';
 
-const fileStore = new FileStore();
+
 const WORKSPACES_DIR = studioPath('workspaces');
 const router = Router();
 
@@ -51,7 +52,7 @@ function wsPath(id: string): string {
 }
 
 async function readWorkspace(id: string): Promise<Workspace | null> {
-  return fileStore.readJson<Workspace>(wsPath(id));
+  return getStore().readJson<Workspace>(wsPath(id));
 }
 
 async function listWorkspaces(): Promise<Workspace[]> {
@@ -60,7 +61,7 @@ async function listWorkspaces(): Promise<Workspace[]> {
   const results: Workspace[] = [];
   for (const e of entries) {
     if (!e.isFile() || !e.name.endsWith('.json')) continue;
-    const data = await fileStore.readJson<Workspace>(path.join(WORKSPACES_DIR, e.name));
+    const data = await getStore().readJson<Workspace>(path.join(WORKSPACES_DIR, e.name));
     if (data) results.push(data);
   }
   results.sort((a, b) => {

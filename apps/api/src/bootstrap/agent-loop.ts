@@ -4,16 +4,17 @@
 // → 事件订阅（bridges.initEventSubscriptions）→ 挂载 loop → assignee 自检。
 import { logger } from '@dommaker/studio-shared';
 import { initEventSubscriptions } from './bridges.js';
+import { getStore } from '../core/store.js';
+
 
 export async function startAgentLoops(): Promise<void> {
   try {
-    const { FileStore } = await import('@dommaker/studio-shared');
     const { agentLoopRegistry } = await import('../modules/agents/loop/agent-loop-registry.js');
     const { registerDefaultTriggers } = await import('../modules/agents/default-triggers.js');
     const { getTriggerScheduler } = await import('../modules/triggers/trigger-registry.js');
     const { ensureStudioProfile } = await import('../modules/agents/agent-profile.service.js');
 
-    const fileStore = new FileStore();
+    const fileStore = getStore();
     // AC-1.1: 启动时幂等创建内置 studio 角色（系统任务执行身份）
     try {
       await ensureStudioProfile(fileStore);
@@ -85,8 +86,7 @@ export async function sweepEmptyAgentDirs(): Promise<void> {
   // 历史死实例目录只删 state.json 不删目录 → 空目录无界累积；闭环后此处每启动
   // 重跑无副作用（无空目录时 removed=0）。
   try {
-    const { FileStore } = await import('@dommaker/studio-shared');
-    const swept = await new FileStore().sweepEmptyAgentDirs();
+    const swept = await getStore().sweepEmptyAgentDirs();
     if (swept.removed > 0) logger.info(`[Startup] Swept ${swept.removed} empty agent instance dir(s) (#363)`);
   } catch (e) { logger.warn('Empty agent dir sweep failed (non-blocking)', { error: String(e) }); }
 }

@@ -3,6 +3,8 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import { studioDir } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { getStore } from '../../core/store.js';
+
 
 // ─── 路径常量 ───
 const STUDIO_DIR = studioDir();
@@ -69,7 +71,7 @@ export class OKRService {
   private fileStore: FileStore;
 
   constructor(fileStore?: FileStore) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
   }
 
   // ─── FileStore 辅助方法 ───

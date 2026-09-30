@@ -9,7 +9,7 @@
 import { Router } from 'express';
 import { AuditService, AuditActions, AuditResources } from '@dommaker/studio-audit';
 import type { AuditLogInput } from '@dommaker/studio-audit';
-import { FileStore } from '@dommaker/studio-shared';
+
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
 import { ERROR_CODES } from '@dommaker/studio-contract';
 import {
@@ -25,10 +25,12 @@ import {
   queryProposalDecisionRows,
   getProposalDecisionRowById,
 } from './proposal-source.js';
+import { getStore } from '../../core/store.js';
+
 
 const router = Router();
 
-const getAuditService = createLazyService(() => new AuditService(new FileStore()));
+const getAuditService = createLazyService(() => new AuditService(getStore()));
 
 /** #591：合并操作轨 + 提案源行，统一按 createdAt 降序（list 分页与 export 共用） */
 function mergeDecisionRows<T extends { createdAt: string }>(...sources: T[][]): T[] {

@@ -8,8 +8,9 @@ import { FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { getStore } from '../core/store.js';
 
-const fileStore = new FileStore();
+
 const SKILLS_DIR = studioPath('data', 'skills');
 
 const BUILTIN_SKILLS = [
@@ -106,7 +107,7 @@ async function seedSkills() {
     const now = new Date().toISOString();
 
     let existing: any = null;
-    try { existing = await fileStore.readJson<any>(filePath); } catch { /* new file */ }
+    try { existing = await getStore().readJson<any>(filePath); } catch { /* new file */ }
 
     const record = {
       ...(existing || {}),
@@ -122,7 +123,7 @@ async function seedSkills() {
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
-    await fileStore.writeJson(filePath, record);
+    await getStore().writeJson(filePath, record);
     console.log(`  ✓ ${skill.name}`);
   }
 
@@ -132,7 +133,7 @@ async function seedSkills() {
     const entries = await fs.promises.readdir(SKILLS_DIR, { withFileTypes: true });
     for (const e of entries) {
       if (!e.isFile() || !e.name.endsWith('.json')) continue;
-      const s = await fileStore.readJson<any>(path.join(SKILLS_DIR, e.name));
+      const s = await getStore().readJson<any>(path.join(SKILLS_DIR, e.name));
       if (s && s.isBuiltin) count++;
     }
   } catch { /* no skills dir */ }

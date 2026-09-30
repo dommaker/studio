@@ -31,6 +31,8 @@ import { resumeWaitingWorkUnit } from '../workunit/waiting-input.js';
 import { postWuSystemMessage } from '../workunit/wu-messenger.js';
 import { projectService, type PmoMap } from './project.service.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 载荷校验失败（路由转 400） */
 export class PlanDirectionError extends Error {}
@@ -80,7 +82,7 @@ export async function applyPlanDirection(
   pick: PlanDirectionPickInput,
   fs?: FileStore,
 ): Promise<WorkUnitData> {
-  const fileStore = fs ?? new FileStore();
+  const fileStore = fs ?? getStore();
   const wuService = new WorkUnitService(fileStore);
   const wu = await wuService.getById(workUnitId);
   if (!wu) throw new Error(`WorkUnit ${workUnitId} not found`);

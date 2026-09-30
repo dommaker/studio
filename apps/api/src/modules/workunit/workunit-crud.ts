@@ -19,6 +19,8 @@ import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
 import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
 import type { WorkUnitMetadata } from './workunit.service.js';
+import { getStore } from '../../core/store.js';
+
 
 export interface CreateWorkUnitInput {
   type?: string;
@@ -179,7 +181,7 @@ export class WorkUnitCrudService {
   protected messageService: ChannelMessageService;
 
   constructor(fileStore?: FileStore, messageService?: ChannelMessageService) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
     // #333：关联 WU 走 ChannelMessageService 统一更新路径（自带 channel.message_updated 双发）；
     // 注入口径：可注入；缺省 fileStore 新建 ChannelMessageService，无 fileStore 用单例
     this.messageService = messageService ?? (fileStore ? new ChannelMessageService(fileStore) : channelMessageService);

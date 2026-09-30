@@ -25,9 +25,10 @@ import {
 } from '@dommaker/studio-shared';
 import { legacySddDir } from '@dommaker/studio-shared/studio-dir';
 import { projectService, type ProjectData } from '../pmo/project.service.js';
+import { getStore } from '../../core/store.js';
+
 
 // FileStore 读穿缓存为模块级（按绝对路径 key），实例 baseDir 无关
-const fileStore = new FileStore();
 
 // ── Types ──
 
@@ -87,7 +88,7 @@ interface ParsedDoc {
 async function readMarkdownDoc(absPath: string): Promise<ParsedDoc | null> {
   let doc: { meta: Record<string, unknown>; body: string; mtimeMs: number } | null;
   try {
-    doc = await fileStore.readDocWithMtime(path.dirname(absPath), path.basename(absPath, '.md'));
+    doc = await getStore().readDocWithMtime(path.dirname(absPath), path.basename(absPath, '.md'));
   } catch {
     return null;
   }
@@ -122,7 +123,7 @@ async function scanProjectDocs(project: LibraryProject): Promise<Array<{ item: L
     const absDir = path.join(root === 'repo' ? project.gitRepo : studioRoot, dir);
     let entries: import('node:fs').Dirent[];
     try {
-      entries = await fileStore.readdir(absDir);
+      entries = await getStore().readdir(absDir);
     } catch {
       continue; // 目录不存在 = 该仓无此面，不算失败
     }

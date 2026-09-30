@@ -10,6 +10,8 @@ import os from 'os';
 import path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { countProcessesByCmdline } from '../agents/ops/proc-probes.js';
+import { getStore } from '../../core/store.js';
+
 
 interface SnapshotData {
   hostname: string;
@@ -35,7 +37,7 @@ export class EnvSnapper {
   private fileStore: FileStore;
 
   constructor() {
-    this.fileStore = new FileStore();
+    this.fileStore = getStore();
   }
 
   /**

@@ -7,6 +7,8 @@
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { countZombieProcesses, readDiskUsage } from './proc-probes.js';
+import { getStore } from '../../../core/store.js';
+
 
 // ─── 类型 ───
 
@@ -102,8 +104,7 @@ async function collectDb(): Promise<SystemHealthSnapshot['db']> {
   try {
     // Storage health check — verify FileStore writable
     try {
-      const { FileStore } = await import('@dommaker/studio-shared');
-      const fs = new FileStore();
+      const fs = getStore();
       await fs.readJson('/tmp/_studio_health_check_.json');
       connected = true;
     } catch { /* probe file not expected to exist */ connected = true; }
@@ -126,8 +127,7 @@ async function collectWorkunitStats(): Promise<SystemHealthSnapshot['workunits']
   let failureRate = 0;
 
   try {
-    const { FileStore } = await import('@dommaker/studio-shared');
-    const fileStore = new FileStore();
+    const fileStore = getStore();
     const snapshots = await fileStore.getIndex();
     const now = Date.now();
 
@@ -302,11 +302,10 @@ export async function runGC(): Promise<GCResult> {
 
   // Clean completed WorkUnits older than 30 days
   try {
-    const { FileStore } = await import('@dommaker/studio-shared');
     // #538（ADR 2026-09-15 决策 3）：筛选逻辑留本调用方（done/closed 且 completedAt >30 天照旧），
     // 删除循环走 service.delete 单口——墓碑单点构造 + workunit:removed 出声
     const { WorkUnitService } = await import('../../workunit/workunit.service.js');
-    const fileStore = new FileStore();
+    const fileStore = getStore();
     const workUnitService = new WorkUnitService(fileStore);
     const snapshots = await fileStore.getIndex();
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();

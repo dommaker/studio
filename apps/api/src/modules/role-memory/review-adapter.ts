@@ -41,6 +41,8 @@ import {
   type MemoryDraftLine,
   type MemoryKind,
 } from './role-memory.js';
+import { getStore } from '../../core/store.js';
+
 
 /** kind → 人类可读标签（不暴露 execution-knowledge / preference 等内部分类词） */
 const KIND_LABELS: Record<MemoryKind, string> = {
@@ -170,7 +172,7 @@ export class MemoryProposalStore extends ReviewProposalStore<MemoryDraftEntry> {
 export function registerMemoryReviewAdapter(deps?: {
   fileStore?: FileStore;
 }): ReviewProposalAdapter<MemoryDraftEntry> {
-  const fileStore = deps?.fileStore ?? new FileStore();
+  const fileStore = deps?.fileStore ?? getStore();
   return registerReviewProposalAdapter<MemoryDraftEntry>({
     kind: 'memory',
     cardType: 'memory_proposal',

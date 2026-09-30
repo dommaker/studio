@@ -5,12 +5,13 @@
  * 飞轮：失败 → eval case → harness 改进 → 回归验证 → 标记饱和。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { listEvalCases, createEvalCase, updateEvalCase } from './eval-case-store.js';
+import { getStore } from '../../core/store.js';
+
 
 const SYSTEM_CHANNEL_NAME = '#系统';
-const fileStore = new FileStore();
 
 export type EvalTag =
   | 'tool_selection'
@@ -236,7 +237,7 @@ export class EvalCaseGenerator {
 
   private async pushToSystemChannel(created: number, total: number): Promise<void> {
     try {
-      const sysChannels = await fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME });
+      const sysChannels = await getStore().listChannels({ name: SYSTEM_CHANNEL_NAME });
       const channel = sysChannels[0] ?? null;
       if (!channel) return;
 

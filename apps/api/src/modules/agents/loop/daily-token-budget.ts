@@ -20,8 +20,10 @@
  * 靠进程重启/跨天重扫收敛（对 2M 量级的熔断足够）。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { notifyAlert } from '../../../utils/notifier.js';
+import { getStore } from '../../../core/store.js';
+
 
 /** 默认每日预算：2M token（billed 口径）——决策记录 #4 与用户确认的阈值 */
 export const DEFAULT_DAILY_TOKEN_BUDGET = 2_000_000;
@@ -29,7 +31,6 @@ export const DEFAULT_DAILY_TOKEN_BUDGET = 2_000_000;
 /** 熔断留痕事件类型（notified 持久化标记 + 事后审计） */
 export const BUDGET_TRIPPED_EVENT = 'studio:budget-tripped';
 
-const fileStore = new FileStore();
 
 /**
  * 熔断守卫开关：默认仅生产/开发进程启用；测试环境（NODE_ENV=test / VITEST）默认关闭
@@ -96,7 +97,7 @@ export async function getDailyTokenUsage(opts: { eventsFile: string; now?: numbe
   let usedTokens = 0;
   let notified = false;
   try {
-    const rows = await fileStore.readJsonl<Record<string, unknown>>(opts.eventsFile);
+    const rows = await getStore().readJsonl<Record<string, unknown>>(opts.eventsFile);
     for (const row of rows) {
       const tsRaw = (row.createdAt ?? row.timestamp) as string | undefined;
       const ts = tsRaw ? new Date(tsRaw).getTime() : NaN;
@@ -154,7 +155,7 @@ export async function notifyBudgetTripped(opts: {
     state.notified = true;
   }
   try {
-    await fileStore.appendJsonl(opts.eventsFile, {
+    await getStore().appendJsonl(opts.eventsFile, {
       type: BUDGET_TRIPPED_EVENT,
       source: 'agent-loop',
       payload: JSON.stringify({ dateKey, usedTokens: opts.usedTokens, budget: opts.budget }),

@@ -20,7 +20,7 @@ import {
   channelMessageParamsSchema,
   ERROR_CODES,
 } from '@dommaker/studio-contract';
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { channelService, ChannelError, validateDefaultWorkspaceId } from './channel.service.js';
 import { saveChannelImage, resolveChannelImage, ATTACHMENT_BODY_LIMIT } from './attachments.js';
 import { routeMessage, resolveMergeTarget } from './message-routing.js';
@@ -36,10 +36,11 @@ import { deriveChannelSuggestions } from './suggestions.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { validateRouting, buildMemberRemovalWarning } from './routing.js';
 import { defineRoute, HttpError } from '../../core/http.js';
+import { getStore } from '../../core/store.js';
+
 
 const router = Router();
-const fileStore = new FileStore();
-const convertToTaskService = new ConvertToTaskService(fileStore);
+const convertToTaskService = new ConvertToTaskService(getStore());
 const projectDiscoveryService = new ProjectDiscoveryService();
 
 /** ChannelError（status 自带 400/404/409）→ HttpError；其余错误原样上抛交 defineRoute 兜底 */
@@ -112,7 +113,7 @@ router.get('/:id/pmo-candidates', requireAuth(), apiCache(CACHE_CONFIG.short), d
 // B2：前端每条 agent 消息都重拉、每次全量 WU 派生，挂短 TTL apiCache（5s 档，同 current-pmo 先例）。
 router.get('/:id/suggestions', requireAuth(), apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   await translating(channelService.getOrThrow(params.id));
-  return deriveChannelSuggestions(params.id, { fileStore });
+  return deriveChannelSuggestions(params.id, { fileStore: getStore() });
 }));
 
 // GET /api/v1/channels/:id/merge-target — #632：发送前归属预览（只读）。
@@ -120,8 +121,8 @@ router.get('/:id/suggestions', requireAuth(), apiCache(CACHE_CONFIG.short), defi
 // unique 附 workUnit{id,title}（标题 = WU scope）；ambiguous 不暴露并入目标。
 router.get('/:id/merge-target', requireAuth(), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   await translating(channelService.getOrThrow(params.id));
-  const wuService = new WorkUnitService(fileStore);
-  const resolution = await resolveMergeTarget(params.id, fileStore, wuService);
+  const wuService = new WorkUnitService(getStore());
+  const resolution = await resolveMergeTarget(params.id, getStore(), wuService);
   if (resolution.kind !== 'unique') {
     return { status: resolution.kind };
   }
@@ -136,7 +137,7 @@ router.get('/:id/messages', requireAuth(), defineRoute(
   async (_req, _res, { params, query }) => {
     const take = Math.min(Number(query.limit ?? '50'), 100);
 
-    const page = await fileStore.queryMessagesPage(params.id, {
+    const page = await getStore().queryMessagesPage(params.id, {
       before: query.before || undefined,
       limit: take,
       // #525 P2-4：total 默认跳过（countColdLines 逐冷月字节扫纯浪费，前端不消费）；
@@ -277,7 +278,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
     if (body.defaultPath !== undefined) data.defaultPath = body.defaultPath;
     // #466: 阶段→角色路由表（吞并 defaultPipeline）；值须为 active profile id，'' / null 清除该档
     if (body.routing !== undefined) {
-      const validated = await validateRouting(fileStore, body.routing);
+      const validated = await validateRouting(getStore(), body.routing);
       if (!validated.ok) {
         throw new HttpError(400, ERROR_CODES.BAD_REQUEST, validated.error!);
       }
@@ -328,7 +329,7 @@ router.post('/:id/messages/:messageId/convert-to-task/suggest', requireAuth(), r
   async (_req, _res, { params }) => {
     try {
       // 1. Get message content（#524 P1-1：路径参数 :id 即频道，按频道直查免全频道扇出）
-      const found = await fileStore.getMessageById(params.messageId, params.id);
+      const found = await getStore().getMessageById(params.messageId, params.id);
       if (!found) {
         throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Message not found');
       }
@@ -336,7 +337,7 @@ router.post('/:id/messages/:messageId/convert-to-task/suggest', requireAuth(), r
 
       // 2/3. Get available agents + projects（互不依赖，并行拉取——B2）
       const [allProfiles, projects] = await Promise.all([
-        fileStore.listProfiles({ status: 'active' }),
+        getStore().listProfiles({ status: 'active' }),
         projectDiscoveryService.discover(),
       ]);
       const agents = allProfiles.map(p => ({ id: p.id, name: p.name, description: p.description }));

@@ -15,7 +15,7 @@
  * （Map<roleId, Promise> 链式锁，单进程模型，不引入 Redis）。
  *
  * 读路径（#404，缓存 seam 决策树第 1 问）：索引/topic 正文/目录清单全部走 FileStore
- * 读穿 seam（readDoc/mdCache + store.readdir/dirCache，mtime 校验），模块内无裸 fs 读；
+ * 读穿 seam（readDoc/mdCache + getStore().readdir/dirCache，mtime 校验），模块内无裸 fs 读；
  * 命中返回结构克隆（#343 语义基线，调用方原地改返回对象不污染缓存）。写路径不动
  * （mergeIntoTopic/rebuildIndex 裸 writeFile），失效靠 mtime 校验兜底。
  *
@@ -36,8 +36,9 @@ import { randomUUID } from 'node:crypto';
 import { FileStore, foldJsonlById, serializeFrontmatter } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { isTestEnv, testTmpRoot } from '../../utils/studio-log-path.js';
+import { getStore } from '../../core/store.js';
 
-const store = new FileStore();
+
 
 /** studioDir() 下的记忆根目录名（单层目录名） */
 export const ROLE_MEMORY_DIR = 'memory';
@@ -309,7 +310,7 @@ export class RoleMemoryStore {
    */
   async readIndex(roleId: string): Promise<string> {
     const rid = sanitizeRoleId(roleId);
-    const doc = await store.readDoc(roleMemoryDir(rid), 'MEMORY');
+    const doc = await getStore().readDoc(roleMemoryDir(rid), 'MEMORY');
     return doc?.body ?? '';
   }
 
@@ -324,7 +325,7 @@ export class RoleMemoryStore {
   async readTopic(roleId: string, slug: string): Promise<TopicDoc | null> {
     const rid = sanitizeRoleId(roleId);
     const safeSlug = sanitizeTopicSlug(slug);
-    const doc = await store.readDoc(this.topicsDir(rid), safeSlug);
+    const doc = await getStore().readDoc(this.topicsDir(rid), safeSlug);
     if (!doc) return null;
     const { meta } = doc;
     return {
@@ -343,7 +344,7 @@ export class RoleMemoryStore {
     let entries: fs.Dirent[];
     try {
       // #404：目录清单走 FileStore 读穿 seam（dirCache，目录 mtime 校验；ENOENT 语义不变）
-      entries = await store.readdir(dir);
+      entries = await getStore().readdir(dir);
     } catch (err: unknown) {
       if (isErrnoCode(err, 'ENOENT')) return [];
       throw err;
@@ -382,7 +383,7 @@ export class RoleMemoryStore {
       ...(input.sourceRefs && input.sourceRefs.length > 0 ? { sourceRefs: input.sourceRefs } : {}),
       createdAt: input.createdAt ?? new Date().toISOString(),
     };
-    await store.appendJsonl(this.draftPath(rid), entry);
+    await getStore().appendJsonl(this.draftPath(rid), entry);
     return entry;
   }
 
@@ -392,7 +393,7 @@ export class RoleMemoryStore {
    */
   async readDraft(roleId: string): Promise<MemoryDraftEntry[]> {
     const rid = sanitizeRoleId(roleId);
-    const rows = await store.readJsonl<MemoryDraftLine>(this.draftPath(rid));
+    const rows = await getStore().readJsonl<MemoryDraftLine>(this.draftPath(rid));
     return this.resolvePending(rows);
   }
 
@@ -414,7 +415,7 @@ export class RoleMemoryStore {
     const rid = sanitizeRoleId(roleId);
     const ids = new Set(entryIds);
     return this.withRoleLock(rid, async () => {
-      const rows = await store.readJsonl<MemoryDraftLine>(this.draftPath(rid));
+      const rows = await getStore().readJsonl<MemoryDraftLine>(this.draftPath(rid));
       const toPromote = this.resolvePending(rows).filter(r => ids.has(r.id));
       if (toPromote.length === 0) {
         return { roleId: rid, promoted: 0, topicsUpdated: [] };
@@ -440,7 +441,7 @@ export class RoleMemoryStore {
 
       const promotedAt = new Date().toISOString();
       for (const e of toPromote) {
-        await store.appendJsonl(this.draftPath(rid), { ...e, promoted: true, promotedAt });
+        await getStore().appendJsonl(this.draftPath(rid), { ...e, promoted: true, promotedAt });
       }
 
       return { roleId: rid, promoted: toPromote.length, topicsUpdated };
@@ -456,14 +457,14 @@ export class RoleMemoryStore {
     const rid = sanitizeRoleId(roleId);
     const ids = new Set(entryIds);
     return this.withRoleLock(rid, async () => {
-      const rows = await store.readJsonl<MemoryDraftLine>(this.draftPath(rid));
+      const rows = await getStore().readJsonl<MemoryDraftLine>(this.draftPath(rid));
       const toReject = this.resolvePending(rows).filter(r => ids.has(r.id));
       if (toReject.length === 0) {
         return { roleId: rid, demoted: 0 };
       }
       const rejectedAt = new Date().toISOString();
       for (const e of toReject) {
-        await store.appendJsonl(this.draftPath(rid), { ...e, rejected: true, rejectedAt });
+        await getStore().appendJsonl(this.draftPath(rid), { ...e, rejected: true, rejectedAt });
       }
       return { roleId: rid, demoted: toReject.length };
     });
@@ -480,7 +481,7 @@ export class RoleMemoryStore {
     // 但锁是模块自有 per-role 互斥（非 #314 D1 的 FileStore 锁内读例外场景）：读穿缓存
     // mtime 校验与同锁串行写兼容， miss/写后重读由 mtime 变化保证。
     // readDoc 命中返回结构克隆，meta 可直接原地改。
-    const doc = await store.readDoc(this.topicsDir(roleId), slug);
+    const doc = await getStore().readDoc(this.topicsDir(roleId), slug);
     const meta: Record<string, unknown> = doc?.meta ?? {};
     let body = doc?.body ?? '';
 

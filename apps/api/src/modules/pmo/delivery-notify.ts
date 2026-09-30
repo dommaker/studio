@@ -12,6 +12,8 @@
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 里程碑发声所需的最小项目字段（progress-rollup 的 ProjectData / delivery 的 DeliveryStatus 均可喂入） */
 export interface ProjectMilestoneRef {
@@ -25,7 +27,7 @@ export async function postProjectMilestone(
   msg: { title: string; content: string },
   opts?: { fileStore?: FileStore },
 ): Promise<void> {
-  const fileStore = opts?.fileStore ?? new FileStore();
+  const fileStore = opts?.fileStore ?? getStore();
 
   if (project.channelId) {
     try {

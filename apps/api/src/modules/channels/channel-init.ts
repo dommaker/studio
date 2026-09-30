@@ -1,8 +1,9 @@
 // Seed default channels on startup (B1-001)
 import { randomUUID } from 'crypto';
 import { logger, FileStore } from '@dommaker/studio-shared';
+import { getStore } from '../../core/store.js';
 
-const fileStore = new FileStore();
+
 
 const DEFAULT_CHANNELS: Array<{ name: string; type: string }> = [
   { name: '#研发', type: 'rnd' },
@@ -13,10 +14,10 @@ const DEFAULT_CHANNELS: Array<{ name: string; type: string }> = [
 export async function ensureDefaultChannels(): Promise<void> {
   for (const ch of DEFAULT_CHANNELS) {
     // Check if exists in FileStore
-    const existing = await fileStore.listChannels({ name: ch.name });
+    const existing = await getStore().listChannels({ name: ch.name });
     if (existing.length === 0) {
       const now = new Date().toISOString();
-      await fileStore.createChannel({
+      await getStore().createChannel({
         id: randomUUID(),
         name: ch.name,
         type: ch.type,

@@ -51,7 +51,7 @@ export class OpsService {
   constructor(port: number, fileStore?: FileStore) {
     this.port = port;
     this.rules = loadRules();
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
   }
 
   // ============================================
@@ -394,7 +394,7 @@ export class OpsService {
    */
   private async emitProxyRestartExhaustedAlert(synSentCount: number): Promise<void> {
     try {
-      const fs = new FileStore();
+      const fs = getStore();
       // #654：调用时惰性解析（认 STUDIO_EVENTS_FILE）
       await fs.appendJsonl(resolveStudioEventsFile(), {
         type: 'proxy_restart_exhausted',
@@ -515,6 +515,8 @@ export function createOpsService(port?: number): OpsService {
 
 // ── Health endpoint factory ──
 import { Router, Request, Response } from 'express';
+import { getStore } from '../../../core/store.js';
+
 export function createHealthRoutes(ops: OpsService): Router {
   const router = Router();
   router.get('/', async (_req: Request, res: Response) => {

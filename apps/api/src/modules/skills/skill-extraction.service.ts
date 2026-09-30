@@ -12,6 +12,8 @@ import { randomUUID } from 'crypto';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { skillStore } from './skill-store.js';
 import { getSkillReviewAdapter, submitSkillProposal } from './review-adapter.js';
+import { getStore } from '../../core/store.js';
+
 
 export interface ExtractedSkillProposal {
   id: string;
@@ -31,7 +33,7 @@ export class SkillExtractionService {
   private fileStore: FileStore;
 
   constructor() {
-    this.fileStore = new FileStore();
+    this.fileStore = getStore();
   }
 
   /** 从 WorkUnit 提取可复用模式 */

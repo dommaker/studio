@@ -10,6 +10,8 @@ import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 import { getErrorMessage } from '../../../utils/errors.js';
 import { countProcessesByCmdline, listZombieProcesses, readDiskUsage, readMemoryUsage } from '../ops/proc-probes.js';
 import { execAsync } from '../monitor/exec-async.js';
+import { getStore } from '../../../core/store.js';
+
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
 const MAX_FIX_ATTEMPTS = 3;
@@ -40,7 +42,7 @@ class TriageService {
   private fileStore: FileStore;
 
   constructor(fileStore?: FileStore) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
   }
 
   async handleAlert(input: TriageIncidentInput): Promise<{

@@ -29,6 +29,8 @@ import {
 import { projectService, type ProjectData } from '../pmo/project.service.js';
 import { parseWuPmoId } from './wu-pmo-attribution.js';
 import { deriveChannelReqPmo } from './channel-req-pmo.js';
+import { getStore } from '../../core/store.js';
+
 
 export const REQUIREMENT_STATUSES: RequirementStatus[] = ['open', 'in-progress', 'done', 'archived'];
 
@@ -150,7 +152,7 @@ export class RequirementService {
   private deriveChannelProject: (channelId: string) => Promise<ProjectData | null>;
 
   constructor(fileStore?: FileStore, deps?: RequirementServiceDeps) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
     this.projectExists = deps?.projectExists ?? (async id => (await projectService.get(id)) !== null);
     this.getProjectByAlias = deps?.getProjectByAlias ?? (async id => projectService.getByReqAlias(id));
     this.findChoreProject = deps?.findChoreProject ?? (async id => projectService.findChoreProject(id));

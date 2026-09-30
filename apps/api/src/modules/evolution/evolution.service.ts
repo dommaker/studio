@@ -38,6 +38,8 @@ import { sharedStore } from '../knowledge/knowledge-singletons.js';
 import type { KnowledgeEntry } from '@dommaker/harness';
 import { resolveEvolutionPaths, type EvolutionPaths } from './signals.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { getStore } from '../../core/store.js';
+
 
 export class EvolutionError extends Error {
   code: 'NOT_FOUND' | 'CONFLICT' | 'APPLY_FAILED';
@@ -76,7 +78,7 @@ export class EvolutionService {
   readonly constraintAdapter: ReviewProposalAdapter<ConstraintProposal>;
 
   constructor(options?: EvolutionServiceOptions) {
-    this.fileStore = options?.fileStore ?? new FileStore();
+    this.fileStore = options?.fileStore ?? getStore();
     this.paths = resolveEvolutionPaths(options?.paths);
     this.windowHours = options?.windowHours ?? (Number(process.env.EVOLUTION_WINDOW_HOURS) > 0 ? Number(process.env.EVOLUTION_WINDOW_HOURS) : 24);
     this.postCard = options?.postCard !== false;

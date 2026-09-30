@@ -5,13 +5,14 @@
  * 提取完整推理链：背景→候选方案→选择理由→权衡。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { randomUUID } from 'crypto';
 import { sharedStore } from './knowledge-singletons.js';
 import type { KnowledgeEntry } from '@dommaker/harness';
+import { getStore } from '../../core/store.js';
 
-const fileStore = new FileStore();
+
 
 const EXTRACT_SYSTEM_PROMPT = `你是一个决策分析师。从以下讨论记录中提取决策链。
 
@@ -134,7 +135,7 @@ ${(diff || '').substring(0, 3000)}
       if (count > 0) {
         try {
           const { channelMessageService } = await import('../channels/channel-message.service.js');
-          const sysChannels = await fileStore.listChannels({ name: '#系统' });
+          const sysChannels = await getStore().listChannels({ name: '#系统' });
           const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {
             const decisionSummary = result.decisions

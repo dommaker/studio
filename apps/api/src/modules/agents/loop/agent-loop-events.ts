@@ -10,9 +10,14 @@ import type { ExecutionResult } from '@dommaker/studio-agent';
 import { noteTokensWritten } from './daily-token-budget.js';
 import { noteTokenLedgerWritten } from '../../../utils/token-ledger.js';
 import { resolveStudioEventsFile } from '../../../utils/studio-events.js';
+import { getStore } from '../../../core/store.js';
 
-/** 事件落盘共享 FileStore（appendJsonl 写入用；agent-loop 的 skill 注入度量同用此实例） */
-export const metricsFileStore = new FileStore();
+
+
+/** 事件落盘共享 FileStore（appendJsonl 写入用；agent-loop 的 skill 注入度量同用此实例）。
+ * 导出形态 = 测试 mock 锚点（prompt-composer 单测 vi.mock 本模块）；P2-b 例外保留的
+ * 模块级捕获，实例来自 getStore() 进程级单例。 */
+export const metricsFileStore = getStore();
 
 export interface WorkunitTokenEventArgs {
   workUnitId: string;

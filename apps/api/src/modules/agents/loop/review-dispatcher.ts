@@ -29,6 +29,8 @@ import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/wu-meta
 import { resolveOrNotice } from '../../channels/routing.js';
 import { isSystemRole } from '../system-role.js';
 import type { ParsedReviewReport } from './review-contract.js';
+import { getStore } from '../../../core/store.js';
+
 
 /**
  * P7（2026-09-16 perf 实测）：自动评审总开关，默认开。无凭证/fake-provider 环境
@@ -500,7 +502,7 @@ export function getReviewDispatcher(): ReviewDispatcher {
   if (!_reviewDispatcher) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
     const { WorkUnitService } = require('../../workunit/workunit.service.js') as typeof import('../../workunit/workunit.service.js');
-    const fileStore = new FileStore();
+    const fileStore = getStore();
     const workUnitService = new WorkUnitService(fileStore);
     _reviewDispatcher = new ReviewDispatcher(fileStore, workUnitService);
   }
