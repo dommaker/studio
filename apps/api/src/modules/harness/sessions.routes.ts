@@ -36,8 +36,13 @@ sessionsRoutes.post('/estimate-tokens', async (req: Request, res: Response) => {
     if (text) {
       tokens = estimateTokens(text);
     } else if (object) {
-      // 旧 estimateObject 语义守恒：JSON.stringify 后走文本估算
-      tokens = estimateTokens(JSON.stringify(object));
+      // 对齐旧 estimateObject 的兜底语义：JSON.stringify 抛错（如循环引用）记 0 不抛；
+      // 尺子本体已换 harness 1.16.0 estimateTokens 逐码点口径，与旧按字符估算并非数值等价
+      try {
+        tokens = estimateTokens(JSON.stringify(object));
+      } catch {
+        tokens = 0;
+      }
     } else {
       return res.status(400).json({ error: 'text or object is required' });
     }

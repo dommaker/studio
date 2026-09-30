@@ -204,7 +204,8 @@ export interface InjectOpts {
  * 入口 = worktree `.claude/settings.json` 里注册的 local-rag MCP server
  * （studio-agent worktree-resolver propagateHarnessConfig 写入；agent CLI 以
  * worktree 为 cwd 启动，自动加载该配置），工具名 `mcp__local-rag__query_documents`。
- * 体量 ~3 行（约 80 tokens），计入注入红线（INJECT_TOKEN_BUDGET）内的固定小额开销。
+ * 体量实测 = 182 tokens（执法口径 estimateTokens(本段 + '\n\n')；内容 4 行），
+ * 占注入红线 INJECT_TOKEN_BUDGET=927 约两成（19.6%）——有注入时必附加，但不是小额开销。
  */
 export const KNOWLEDGE_QUERY_GUIDANCE = [
   '## 何时查知识库',
@@ -579,7 +580,7 @@ export class KnowledgeService {
     const sections: string[] = [];
     const trimmedIds: string[] = [];
     let usedTokens = 0;
-    // 预算内给检索指引预留（有注入时必附加，属红线内固定小额开销）
+    // 预算内给检索指引预留（有注入时必附加；实测 182 tokens，约占红线两成，见 KNOWLEDGE_QUERY_GUIDANCE 头注）
     const guidanceTokens = estimateTokens(KNOWLEDGE_QUERY_GUIDANCE + '\n\n');
 
     // #91: 未截断的原始尺寸（inject-trimmed / section_trimmed 埋点的尺寸字段，

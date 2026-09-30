@@ -7,7 +7,7 @@
  * HOME 指向临时目录隔离 knowledge-bus 链路。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import express from 'express';
+import express, { type Router } from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
@@ -45,6 +45,7 @@ let tmpHome: string;
 let prevHome: string | undefined;
 let server: Server;
 let base: string;
+let sessionsRoutes: Router;
 
 async function api(method: string, p: string, body?: unknown): Promise<{ status: number; json: any }> {
   const res = await fetch(`${base}${p}`, {
@@ -61,7 +62,7 @@ beforeAll(async () => {
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
 
-  const { sessionsRoutes } = await import('../sessions.routes.js');
+  sessionsRoutes = (await import('../sessions.routes.js')).sessionsRoutes;
   const app = express();
   app.use(express.json());
   app.use('/api/v1/harness', sessionsRoutes);
@@ -92,6 +93,33 @@ describe('sessions.routes', () => {
     expect(obj.status).toBe(200);
     expect(obj.json.tokens).toBe(JSON.stringify({ a: 1 }).length);
     expect(obj.json.method).toBe('character-based-estimate');
+  });
+
+  it('POST /estimate-tokens 循环引用 object 不抛：兜底 tokens 记 0（旧 estimateObject 兜底语义）', async () => {
+    const circular: Record<string, unknown> = { id: 'cyc' };
+    circular.self = circular; // JSON.stringify 必抛 TypeError
+    // 循环引用对象过不了 HTTP JSON 线（客户端序列化即抛），用中间件直接注入 req.body 走同一路由
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.body = { object: circular };
+      next();
+    });
+    app.use('/api/v1/harness', sessionsRoutes);
+    const srv = await new Promise<Server>(resolve => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    try {
+      const res = await fetch(`http://127.0.0.1:${(srv.address() as AddressInfo).port}/api/v1/harness/estimate-tokens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ tokens: 0, method: 'character-based-estimate' });
+    } finally {
+      await new Promise<void>(resolve => srv.close(() => resolve()));
+    }
   });
 
   it('POST /sessions 400 without id / 200 creates', async () => {

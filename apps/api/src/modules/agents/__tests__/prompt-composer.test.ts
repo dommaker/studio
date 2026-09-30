@@ -404,8 +404,15 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
   // 用真实渲染器 KnowledgeService.injectContext 产出的注入全文按同法反推。
   // 跨机可复现性：skill 指针/全文路径经 studioPath() 读 STUDIO_HOME，隔离根 mkdtemp 随机后缀会
   // 让渲染宽度逐机漂移；推导块把它钉成定长哨兵路径后可复现，afterEach 必还原，不污染同文件
-  // 其它用例（它们仍按真实隔离根断言路径）。
+  // 其它用例（它们仍按真实隔离根断言路径）。同款哨兵再钉两个会改渲染宽度的在场 env：
+  // STUDIO_COLLAB_MAX_DEPTH（roster 段尾「委派深度上限 N 跳」现读 process.env）钉成缺省值 2，
+  // STUDIO_PROMPT_OVERRIDES_DIR（在场且含 knowledge.rules-section.md 会改 knowledge 段头）钉到
+  // 哨兵根下不存在覆盖文件的路径（= 无覆盖回退内置模板，与反推时的口径一致）。
   const DERIVE_STUDIO_HOME = '/studio-home';
+  const DERIVE_COLLAB_MAX_DEPTH = '2';
+  const DERIVE_PROMPT_OVERRIDES_DIR = '/studio-home/prompt-overrides';
+  const prevCollabMaxDepth = process.env.STUDIO_COLLAB_MAX_DEPTH;
+  const prevPromptOverridesDir = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
   const OLD_QUOTAS = {
     persona: 300, roster: 400, skills: 600, map: 800, memory: 300,
     knowledge: 1000, files: 400, contract: 200, handoff: 800,
@@ -561,9 +568,15 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     mockReadIndex.mockResolvedValue('');
     mockProjectGet.mockResolvedValue(null);
     process.env.STUDIO_HOME = DERIVE_STUDIO_HOME;
+    process.env.STUDIO_COLLAB_MAX_DEPTH = DERIVE_COLLAB_MAX_DEPTH;
+    process.env.STUDIO_PROMPT_OVERRIDES_DIR = DERIVE_PROMPT_OVERRIDES_DIR;
   });
   afterEach(() => {
     process.env.STUDIO_HOME = studioHome;
+    if (prevCollabMaxDepth === undefined) delete process.env.STUDIO_COLLAB_MAX_DEPTH;
+    else process.env.STUDIO_COLLAB_MAX_DEPTH = prevCollabMaxDepth;
+    if (prevPromptOverridesDir === undefined) delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+    else process.env.STUDIO_PROMPT_OVERRIDES_DIR = prevPromptOverridesDir;
   });
 
   it('推导表：九段定额 + 两个 2K 线常量 = estimateTokens(旧窗口)，常量必须等于反推值', async () => {
