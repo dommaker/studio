@@ -319,7 +319,6 @@
 | confirm-payload | src/modules/workunit/confirm-payload.ts | #463：review-passed 结构化 confirm body 的校验与序列化（唯一正本）。 |
 | delegation-gate | src/modules/workunit/delegation-gate.ts | DelegationGate — A2A 协作委派闸门（2026-07-agent-to-agent-collab-design §4.1 机制 3 / §4.2） |
 | gate-escalation | src/modules/workunit/gate-escalation.ts | #523 P0-3 人闸催办与认领滞留（#516 决议③④，2026-09-12 定案）。 |
-| http-helpers | src/modules/workunit/http-helpers.ts | #551：workunit 路由层 HTTP 助手——错误契约收口唯一正本。 |
 | in-review-inbox | src/modules/workunit/in-review-inbox.ts | #464：无频道 in_review 统一进 Web「需要处理」收件箱。 |
 | inspection-opportunities | src/modules/workunit/inspection-opportunities.ts | #163（T8-E2，#130 决策 2/6）：巡检机会清单的采纳/忽略——机制消费入口。 |
 | merge-on-review-pass | src/modules/workunit/merge-on-review-pass.ts | B3b-ii 评审通过后自动合并（决策 D1/D3 后半） |

@@ -297,8 +297,8 @@ describe('REST claim 端点（认领即发声接入）', () => {
     expect(claimSpy.mock.calls[0][0]).toBe(wu.id);
     expect(claimSpy.mock.calls[0][1]).toBe('instance-rest');
     const body = await res.json();
-    expect(body.status).toBe('active');
-    expect(body.assigneeId).toBe('instance-rest');
+    expect(body.data.status).toBe('active');
+    expect(body.data.assigneeId).toBe('instance-rest');
     const msgs = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toMatch(/^『.+』已认领任务，开始执行$/);
@@ -311,8 +311,8 @@ describe('REST claim 端点（认领即发声接入）', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.status).toBe('active');
-    expect(body.assigneeId).toBe('local'); // STUDIO_AUTH=none 注入的本地用户
+    expect(body.data.status).toBe('active');
+    expect(body.data.assigneeId).toBe('local'); // STUDIO_AUTH=none 注入的本地用户
     const msgs = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toBe('『Local User』已认领任务，开始执行');

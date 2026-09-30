@@ -124,7 +124,9 @@ async function pollUntil<T>(label: string, timeoutMs: number, fn: () => Promise<
 }
 
 async function getWorkUnit(id: string): Promise<any> {
-  return apiJson(`/workunits/${id}`);
+  // workunit 域已契约化：单实体端点统一 `{ data }` 壳
+  const body = await apiJson<{ data: any }>(`/workunits/${id}`);
+  return body.data;
 }
 
 async function getChannelMessages(channelId: string): Promise<any[]> {

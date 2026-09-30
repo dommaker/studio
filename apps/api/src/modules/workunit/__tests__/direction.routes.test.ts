@@ -80,7 +80,7 @@ describe('#567 POST /workunits/:id/direction（方向锁定提交）', () => {
     expect(res.status).toBe(200);
     expect(mockApplyPlanDirection).toHaveBeenCalledWith('wu-1', { choice: '自研', note: '要可控' }, expect.anything());
     const body = await res.json();
-    expect(body.status).toBe('active');
+    expect(body.data.status).toBe('active');
   });
 
   it('404：WU 不存在', async () => {

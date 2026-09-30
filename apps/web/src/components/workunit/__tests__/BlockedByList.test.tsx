@@ -18,12 +18,15 @@ vi.mock('../../../api/workunit', () => ({
 import { BlockedByList } from '../BlockedByList';
 
 function depWu(id: string, status: string, title?: string) {
+  // envelope 壳：{ data: { data: 负载 } }（与真实 wire 同形）
   return {
     data: {
-      id,
-      status,
-      scope: `scope-of-${id}`,
-      metadata: title ? JSON.stringify({ title }) : null,
+      data: {
+        id,
+        status,
+        scope: `scope-of-${id}`,
+        metadata: title ? JSON.stringify({ title }) : null,
+      },
     },
   };
 }

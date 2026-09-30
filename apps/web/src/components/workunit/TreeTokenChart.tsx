@@ -132,7 +132,7 @@ export function TreeTokenEntry({ workUnitId }: { workUnitId: string }) {
   useEffect(() => {
     let alive = true;
     workunitApi.getTreeTokens(workUnitId)
-      .then(res => { if (alive) setReport(res.data); })
+      .then(res => { if (alive) setReport(res.data.data); })
       .catch(() => { /* best-effort：失败时行内显示 '-'，不阻塞页面 */ });
     return () => { alive = false; };
   }, [workUnitId]);

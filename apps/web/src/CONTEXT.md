@@ -12,7 +12,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `api` | `api/index.ts` | axios 实例，Bearer token + 401 自动刷新 |
 | `channelApi` | `api/channel.ts` | 频道 CRUD、消息、Agent 配置 |
 | `monitoringApi` | `api/monitoring.ts` | 监控/飞轮指标/开销 + terminateInstance；getOverview 声明 evidence+roles+humanIntervention 三段（#398）+ alerts.last24h（E4 顶栏 MoreDropdown 待处理徽标计数用）+ stuck/failure24h（#456 「需要处理」区计数服务端单源） |
-| `workunitApi` | `api/workunit.ts` | WU 全生命周期 + token/步事件解析 + 流式文案格式化；list 支持 projectId 服务端过滤（#456，归属口径同 PMO 台账） |
+| `workunitApi` | `api/workunit.ts` | WU 全生命周期 + token/步事件解析 + 流式文案格式化；list 支持 projectId 服务端过滤（#456，归属口径同 PMO 台账）；REST 类型正本 = `@dommaker/studio-contract` workunit 域（契约驱动迁移后本文件只留事件负载解析器），全部端点 envelope `{ data }` / 分页壳 |
 | `requirementApi` | `api/requirements.ts` | 需求 CRUD + 关联 WU 链 |
 | `knowledgeApi` | `api/knowledge.ts` | 知识审核 + 知识库浏览；knowledge_proposal 卡审批走 review-proposal 通用端点（kind='knowledge'，#355），promote/demote 为条目生命周期端点（非提案场景）；listUnified 支持 maturity 过滤（E5「待审」= maturity=draft，后端 /knowledge/unified 原生参数） |
 | `memoryApi` / `distillApi` | `api/*.ts` | 角色记忆 / 蒸馏人审闸口（均走 review-proposal 通用端点 `/review-proposals/:kind/:id/*`，#351/#353） |

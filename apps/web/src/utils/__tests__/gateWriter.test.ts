@@ -49,9 +49,9 @@ const updatedWu = { id: 'wu-1', status: 'done', channelId: 'ch-1' } as unknown a
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockReviewPassed.mockResolvedValue({ data: updatedWu });
-  mockReviewRejected.mockResolvedValue({ data: updatedWu });
-  mockTransitionStatus.mockResolvedValue({ data: updatedWu });
+  mockReviewPassed.mockResolvedValue({ data: { data: updatedWu } });
+  mockReviewRejected.mockResolvedValue({ data: { data: updatedWu } });
+  mockTransitionStatus.mockResolvedValue({ data: { data: updatedWu } });
 });
 
 describe('createGateWriter — 一次 API 调用 + 快照双写落点（ADR 决策 2 冻结契约）', () => {
@@ -89,7 +89,7 @@ describe('createGateWriter — 一次 API 调用 + 快照双写落点（ADR 决�
 
   it('channelId 缺省（未归属 WU）：跳过频道侧落点，workunitStore upsert 仍执行', async () => {
     const noChannelWu = { id: 'wu-2', status: 'done', channelId: null } as unknown as WorkUnit;
-    mockReviewPassed.mockResolvedValue({ data: noChannelWu });
+    mockReviewPassed.mockResolvedValue({ data: { data: noChannelWu } });
     const writer = createGateWriter();
     await writer.reviewPassed('wu-2');
     expect(mockApplyWorkunitSnapshot).not.toHaveBeenCalled();

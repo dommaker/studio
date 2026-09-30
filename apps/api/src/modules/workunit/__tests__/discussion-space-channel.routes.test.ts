@@ -105,7 +105,7 @@ describe('GET /:id/messages 频道归属解析（#529）', () => {
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.success).toBe(true);
+    expect(body.data).toEqual({ messages: [], total: 0, hasMore: false });
     const [wuId, opts] = mockListByWu.mock.calls[0];
     expect(wuId).toBe('wu-none');
     expect(opts.channelId).toBeUndefined();

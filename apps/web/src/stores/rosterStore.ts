@@ -271,7 +271,7 @@ export const useRosterStore = create<RosterState>((set, get) => ({
     // best-effort：详情查不到时保留裸 ID 展示
     workunitApi.get(workUnitId)
       .then((r) => {
-        useRosterStore.getState().patchAgentCurrentWorkUnit(instanceId, workUnitToCurrentWorkUnit(r.data));
+        useRosterStore.getState().patchAgentCurrentWorkUnit(instanceId, workUnitToCurrentWorkUnit(r.data.data));
       })
       .catch(() => {});
   },

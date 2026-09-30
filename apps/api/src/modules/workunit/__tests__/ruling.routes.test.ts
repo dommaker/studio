@@ -73,7 +73,7 @@ describe('#467 POST /workunits/:id/ruling（裁决轮提交）', () => {
     expect(res.status).toBe(200);
     expect(mockApplyPlanRuling).toHaveBeenCalledWith('wu-1', items, expect.anything());
     const body = await res.json();
-    expect(body.status).toBe('active');
+    expect(body.data.status).toBe('active');
   });
 
   it('404：WU 不存在', async () => {

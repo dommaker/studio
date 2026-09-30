@@ -53,8 +53,8 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
     let channelId: string | null = null;
     try {
       const res = await workunitApi.get(gap.id);
-      prefill = buildAnalysisConfirmPrefill(res.data?.metadata);
-      channelId = res.data?.channelId ?? null;
+      prefill = buildAnalysisConfirmPrefill(res.data?.data?.metadata);
+      channelId = res.data?.data?.channelId ?? null;
     } catch { /* best-effort */ }
     setApproveGap({ gap, prefill, channelId });
   };
@@ -69,11 +69,11 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
     try {
       if (action === 'verify') {
         const res = await workunitApi.verify(gap.id);
-        if (res.data?.verified) {
+        if (res.data?.data?.verified) {
           toast.success('验证通过，自动验证已补齐');
           await onRefresh();
         } else {
-          const failedCmds = (res.data?.failed || []).map((f: { command: string }) => f.command).join('；');
+          const failedCmds = (res.data?.data?.failed || []).map((f: { command: string }) => f.command).join('；');
           toast.error(`验证未通过${failedCmds ? `：${failedCmds}` : ''}`);
         }
       } else if (action === 'dispatchReview') {
@@ -89,7 +89,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
       const status = err?.response?.status;
       const errData = err?.response?.data?.error;
       if (action === 'verify' && status === 422) {
-        toast.error(err?.response?.data?.hint || '未配置验证命令（verifyCommands）');
+        toast.error(err?.response?.data?.data?.hint || '未配置验证命令（verifyCommands）');
       } else if (action === 'verify' && status === 409) {
         toast.error(errData?.message || '无 worktree，无法重跑验证');
       } else if (action === 'dispatchReview' && status === 409) {

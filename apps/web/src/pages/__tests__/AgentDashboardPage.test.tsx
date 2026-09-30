@@ -109,7 +109,7 @@ describe('AgentDashboardPage', () => {
     });
     mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
     mockWuList.mockResolvedValue({ data: { data: [], total: 0, page: 1, limit: 20 } });
-    mockWuGet.mockResolvedValue({ data: { id: 'wu-9', scope: '补查的任务', type: 'DEV', status: 'active', claimedAt: null } });
+    mockWuGet.mockResolvedValue({ data: { data: { id: 'wu-9', scope: '补查的任务', type: 'DEV', status: 'active', claimedAt: null } } });
     mockWuLastDone.mockResolvedValue({ data: { data: {} } });
     mockApiGet.mockResolvedValue({ data: { runtimes: [] } });
   });

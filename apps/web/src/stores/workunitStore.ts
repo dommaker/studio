@@ -225,10 +225,10 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   },
 
   createWorkUnit: async (data) => {
-    const { data: wu } = await workunitApi.create(data);
+    const { data: env } = await workunitApi.create(data);
     // Refresh list
     await get().loadWorkUnits();
-    return wu;
+    return env.data;
   },
 
   setStatusFilter: (status) => {
@@ -275,8 +275,8 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
 
   loadWorkUnitDetail: async (id) => {
     try {
-      const { data } = await workunitApi.get(id);
-      set({ detailById: { ...get().detailById, [id]: { wu: data, notFound: false, error: null } } });
+      const { data: env } = await workunitApi.get(id);
+      set({ detailById: { ...get().detailById, [id]: { wu: env.data, notFound: false, error: null } } });
     } catch (e) {
       // #241 口径：404 = 悬空 WU 单列友好态（无 error 文案）；其余错误走 errorMessage 正本
       const notFound = axios.isAxiosError(e) && e.response?.status === 404;

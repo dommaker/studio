@@ -126,9 +126,9 @@ describe('PMO-b/F6-c: 交付区块', () => {
     });
     mockApiPost.mockResolvedValue({ data: {} });
     mockDeliver.mockResolvedValue({ data: { delivered: true, deliverCommit: 'abcdef1234567890' } });
-    mockVerify.mockResolvedValue({ data: { verified: true, report: { commands: ['pnpm test'] } } });
-    mockDispatchReview.mockResolvedValue({ data: { reviewWorkUnitId: 'rw-1' } });
-    mockReviewPassed.mockResolvedValue({ data: {} });
+    mockVerify.mockResolvedValue({ data: { data: { verified: true, report: { commands: ['pnpm test'] } } } });
+    mockDispatchReview.mockResolvedValue({ data: { data: { reviewWorkUnitId: 'rw-1' } } });
+    mockReviewPassed.mockResolvedValue({ data: { data: {} } });
   });
 
   const renderDetail = () =>

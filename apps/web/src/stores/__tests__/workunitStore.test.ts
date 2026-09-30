@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('../../api/workunit', () => ({
   workunitApi: {
     list: vi.fn().mockResolvedValue({ data: { data: [], pagination: { total: 0, page: 1, limit: 20, totalPages: 0 } } }),
-    create: vi.fn().mockResolvedValue({ data: {} }),
+    create: vi.fn().mockResolvedValue({ data: { data: {} } }),
     get: vi.fn(),
   },
 }));
@@ -555,7 +555,7 @@ describe('workunitStore detail slice（#549）', () => {
   });
 
   it('loadWorkUnitDetail：REST 打底落 detailById（wu 快照，error/notFound 复位）', async () => {
-    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: row('wu-1') });
+    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: { data: row('wu-1') } });
 
     await useWorkUnitStore.getState().loadWorkUnitDetail('wu-1');
 
@@ -595,7 +595,7 @@ describe('workunitStore detail slice（#549）', () => {
   });
 
   it('applyWorkunitEvent：已打开的 detail 就地 upsert（含 status_changed 与 created）；未打开 no-op', async () => {
-    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: row('wu-1') });
+    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: { data: row('wu-1') } });
     await useWorkUnitStore.getState().loadWorkUnitDetail('wu-1');
 
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-1', { status: 'done' }), { insertIfMissing: false });

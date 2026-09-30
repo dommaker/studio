@@ -104,7 +104,7 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
     mockGetAgentSummary.mockResolvedValue({ data: { agents: [] } });
     mockWuList.mockResolvedValue({ data: { data: unassignedRows, total: 3 } });
     mockWuGet.mockImplementation((id: string) => {
-      if (id === 'wu-d2') return Promise.resolve({ data: { id, status: 'in_review' } });
+      if (id === 'wu-d2') return Promise.resolve({ data: { data: { id, status: 'in_review' } } });
       return Promise.reject(new Error('not found'));
     });
   });

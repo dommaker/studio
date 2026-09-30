@@ -1,39 +1,45 @@
 // WorkUnit API — Agent Network §3.28c-1
+// 类型正本 = @dommaker/studio-contract workunit 域（zod schema z.infer）；
+// 本文件只保留事件负载（/events + SSE，非 workunit REST）的解析器与本地类型。
 import { api } from './index';
+import type {
+  WorkUnit,
+  PaginatedBody,
+  DataBody,
+  CreateWorkUnitBody,
+  UpdateWorkUnitBody,
+  ReviewConfirmPayload,
+  PlanRulingPayload,
+  PlanDirectionPayload,
+  TreeTokenReport,
+  VerifyResult,
+  DispatchReviewResult,
+  DiscussionMessage,
+  DiscussionMessagesResult,
+  LastDoneResult,
+  ChangedFilesResult,
+  AdoptOpportunityResult,
+  IgnoreOpportunityResult,
+} from '@dommaker/studio-contract';
 
-export interface WorkUnit {
-  id: string;
-  parentId: string | null;
-  dependsOn: string;
-  type: string;
-  scope: string;
-  assigneeId: string | null;
-  assigneeRoleId?: string | null;  // 认领时的 roleId 快照（旧 WU 无此字段 → undefined/null）
-  status: string;
-  failureType: string | null;
-  retryCount: number;
-  timeoutAt: string | null;
-  channelId: string | null;
-  reqId?: string | null;
-  metadata: string | null;
-  createdAt: string;
-  updatedAt: string;
-  claimedAt: string | null;
-  completedAt: string | null;
-  /** #109：列表 API 附「可认领」标记（unassigned 且 blockedBy 依赖全了结才为 true）；仅列表项有 */
-  claimable?: boolean;
-}
-
-export interface PaginatedResponse<T> {
-  data: T[];
-  /** 后端 formatPaginatedResponse 包成 pagination 对象（见 apps/api/src/utils/pagination.ts） */
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
-}
+// 契约类型再出口（消费方继续从本模块 import，不感知包边界迁移）
+export type {
+  WorkUnit,
+  ReviewConfirmPayload,
+  PlanRulingPayload,
+  PlanDirectionPayload,
+  TreeTokenReport,
+  VerifyResult,
+  DispatchReviewResult,
+  DiscussionMessage,
+  DiscussionMessagesResult,
+  AdoptOpportunityResult,
+  IgnoreOpportunityResult,
+} from '@dommaker/studio-contract';
+/** 巡检机会条目（契约名 InspectionOpportunity；UI 侧沿用短名 Opportunity） */
+export type { InspectionOpportunity as Opportunity } from '@dommaker/studio-contract';
+/** 分页壳别名 = 契约 PaginatedBody（后端 formatPaginatedResponse 同形状） */
+export type PaginatedResponse<T> = PaginatedBody<T>;
 
 /** M2 成本红线度量：agent-loop 写入的 workunit:tokens 事件（payload 解析后） */
 export interface WorkunitTokenEvent {
@@ -227,24 +233,8 @@ export function formatExecutionStreamChunkText(
       return null;
   }
 }
-// #463：review-passed 结构化确认表单载荷（后端 apps/api workunit/confirm-payload.ts 为契约正本；
-// 此处为线上 JSON 形状的镜像类型，形态照 mapUtils 与后端 PmoMap 的平行定义先例）
-export type ReviewConfirmPayload =
-  | { kind: 'decision'; conclusion: string }
-  | { kind: 'spec'; tasks: Array<{ title: string; ac?: string[]; blockedBy?: string[]; leg?: string }> }
-  // #471：plan（一脉会话规划单）与 analysis 同形契约（destination/fog → 开图台账；tasks → 派工覆写）
-  | { kind: 'analysis' | 'plan'; destination?: string; fog?: string[]; tasks?: string[] };
 
-// #467：裁决轮提交载荷（后端 apps/api workunit/ruling 路由 + pmo/plan-ruling.ts 为契约正本；
-// 镜像类型，形态照 ReviewConfirmPayload 先例）。accept 必须带 conclusion；reopen = 打回重议（只重调该题）
-export type PlanRulingPayload = {
-  items: Array<{ question: string; action: 'accept' | 'reopen'; conclusion?: string }>;
-};
-
-// #567：方向锁定提交载荷（后端 apps/api pmo/plan-direction.ts 为契约正本；镜像类型，
-// 形态照 PlanRulingPayload 先例）。choice = 选定方向名（须在 planDirections.options 内）；note = 可选补充说明
-export type PlanDirectionPayload = { choice: string; note?: string };
-
+// 响应壳：全部端点已统一 envelope——单实体 `{ data: T }`（DataBody），列表 `{ data, pagination }`（PaginatedBody）。
 export const workunitApi = {
   list: (params?: {
     type?: string;
@@ -259,42 +249,33 @@ export const workunitApi = {
     q?: string;
     page?: number;
     limit?: number;
-  }) => api.get<PaginatedResponse<WorkUnit>>('/workunits', { params }),
+  }) => api.get<PaginatedBody<WorkUnit>>('/workunits', { params }),
 
-  get: (id: string) => api.get<WorkUnit>(`/workunits/${id}`),
+  get: (id: string) => api.get<DataBody<WorkUnit>>(`/workunits/${id}`),
 
   /** #387 批量聚合：每 assignee 最近一条完成 WU（roster 空闲卡「最近完成」，替代逐实例 list 的 N+1） */
   lastDone: (assigneeIds: string[]) =>
-    api.get<{ success: boolean; data: Record<string, WorkUnit | null> }>(
+    api.get<DataBody<LastDoneResult>>(
       '/workunits/last-done',
       { params: { assigneeIds: assigneeIds.join(',') } },
     ),
 
-  create: (data: {
-    scope: string;
-    type?: string;
-    assigneeId?: string;
-    status?: string;
-    channelId?: string;
-    parentId?: string;
-    dependsOn?: string;
-    metadata?: string;
-  }) => api.post<WorkUnit>('/workunits', data),
+  create: (data: CreateWorkUnitBody) => api.post<DataBody<WorkUnit>>('/workunits', data),
 
-  update: (id: string, data: Partial<WorkUnit>) =>
-    api.put<WorkUnit>(`/workunits/${id}`, data),
+  update: (id: string, data: UpdateWorkUnitBody) =>
+    api.put<DataBody<WorkUnit>>(`/workunits/${id}`, data),
 
   delete: (id: string) => api.delete(`/workunits/${id}`),
 
   /** #445：agentId 可省略——缺省由服务端按会话用户解析（人工引导片认领，身份诚实归因） */
   claim: (id: string, agentId?: string) =>
-    api.post<WorkUnit>(`/workunits/${id}/claim`, agentId ? { agentId } : {}),
+    api.post<DataBody<WorkUnit>>(`/workunits/${id}/claim`, agentId ? { agentId } : {}),
 
   unclaim: (id: string) =>
-    api.post<WorkUnit>(`/workunits/${id}/unclaim`),
+    api.post<DataBody<WorkUnit>>(`/workunits/${id}/unclaim`),
 
   transitionStatus: (id: string, status: string) =>
-    api.post<WorkUnit>(`/workunits/${id}/status`, { status }),
+    api.post<DataBody<WorkUnit>>(`/workunits/${id}/status`, { status }),
 
   // #106 M7：可选 summary 穿透 l3 台账（analysis 确认弹窗的待决问题清单、decision 结论等）
   // #177：可选 defaultAssigneeId（analysis 确认处「默认执行角色」）→ 应用于全部派生 task 子 WU
@@ -302,7 +283,7 @@ export const workunitApi = {
   // 存储契约不变；与 summary 并存时 confirm 优先（人永远不接触魔法行）
   reviewPassed: (id: string, summary?: string, defaultAssigneeId?: string, confirm?: ReviewConfirmPayload) => {
     const trimmed = summary?.trim();
-    return api.post<WorkUnit>(`/workunits/${id}/review-passed`, {
+    return api.post<DataBody<WorkUnit>>(`/workunits/${id}/review-passed`, {
       ...(trimmed ? { summary: trimmed } : {}),
       ...(defaultAssigneeId ? { defaultAssigneeId } : {}),
       ...(confirm ? { confirm } : {}),
@@ -310,37 +291,37 @@ export const workunitApi = {
   },
 
   reviewRejected: (id: string, reason?: string) =>
-    api.post<WorkUnit>(`/workunits/${id}/review-rejected`, { reason }),
+    api.post<DataBody<WorkUnit>>(`/workunits/${id}/review-rejected`, { reason }),
 
   /** F6-c: 人工重跑 L1 自动验证（human-only，只动台账不动状态） */
   verify: (id: string, commands?: string[]) =>
-    api.post<VerifyResult>(`/workunits/${id}/verify`, commands ? { commands } : {}),
+    api.post<DataBody<VerifyResult>>(`/workunits/${id}/verify`, commands ? { commands } : {}),
 
   /** F6-c: 人工补派 L2 agent 评审（human-only） */
   dispatchReview: (id: string) =>
-    api.post<DispatchReviewResult>(`/workunits/${id}/dispatch-review`),
+    api.post<DataBody<DispatchReviewResult>>(`/workunits/${id}/dispatch-review`),
 
   /** #185（决策 #87 D2）：Web 按钮通道「继续执行」——纯授权复活，与频道回复共享同一复活原语 */
   resume: (id: string) =>
-    api.post<WorkUnit>(`/workunits/${id}/resume`),
+    api.post<DataBody<WorkUnit>>(`/workunits/${id}/resume`),
 
   /** #185（决策 #87 D2）：Web 按钮通道「关闭任务」——死信显式关闭路径（decision/spec 无 closed → 409） */
   close: (id: string) =>
-    api.post<WorkUnit>(`/workunits/${id}/close`),
+    api.post<DataBody<WorkUnit>>(`/workunits/${id}/close`),
 
   /** #467：裁决轮一次性提交（全对/单题修改/打回重议）——后端批量落探路台账并复活同会话 */
   submitRuling: (id: string, payload: PlanRulingPayload) =>
-    api.post<WorkUnit>(`/workunits/${id}/ruling`, payload),
+    api.post<DataBody<WorkUnit>>(`/workunits/${id}/ruling`, payload),
 
   /** #567：方向锁定选定提交——后端落探路台账并复活同会话（裁决轮前置环节） */
   submitDirection: (id: string, payload: PlanDirectionPayload) =>
-    api.post<WorkUnit>(`/workunits/${id}/direction`, payload),
+    api.post<DataBody<WorkUnit>>(`/workunits/${id}/direction`, payload),
 
   getMessages: (id: string, params?: { before?: string; limit?: number }) =>
-    api.get(`/workunits/${id}/messages`, { params }),
+    api.get<DataBody<DiscussionMessagesResult>>(`/workunits/${id}/messages`, { params }),
 
   postMessage: (id: string, content: string, authorType?: 'human' | 'agent') =>
-    api.post(`/workunits/${id}/messages`, { content, authorType }),
+    api.post<DataBody<DiscussionMessage>>(`/workunits/${id}/messages`, { content, authorType }),
 
   /** M2: workunit:tokens 度量事件（配合 parseWorkunitTokenEvents 按 WorkUnit 过滤） */
   listTokenEvents: (limit = 200) =>
@@ -358,76 +339,20 @@ export const workunitApi = {
 
   /** AC-5.4: 树级 token 开销聚合 */
   getTreeTokens: (id: string) =>
-    api.get<TreeTokenReport>(`/workunits/${id}/tree-tokens`),
+    api.get<DataBody<TreeTokenReport>>(`/workunits/${id}/tree-tokens`),
 
   /** 批量版（2026-09-25 频道首屏合并）：一次请求拿全部 WU 文件集，缺键/空数组 → 降级候选集词表 */
   getChangedFilesBatch: (ids: string[]) =>
-    api.get<{ success: boolean; data: { filesByWu: Record<string, string[]> } }>(
+    api.get<DataBody<ChangedFilesResult>>(
       '/workunits/changed-files',
       { params: { ids: ids.join(',') } },
     ),
 
   /** #163 T8-E2: 巡检机会采纳（201，建 feature 子单，源条目记 wuId） */
   adoptOpportunity: (id: string, oppId: string) =>
-    api.post<AdoptOpportunityResult>(`/workunits/${id}/opportunities/${oppId}/adopt`),
+    api.post<DataBody<AdoptOpportunityResult>>(`/workunits/${id}/opportunities/${oppId}/adopt`),
 
   /** #163 T8-E2: 巡检机会忽略（200，终态；reason 可省） */
   ignoreOpportunity: (id: string, oppId: string, reason?: string) =>
-    api.post<IgnoreOpportunityResult>(`/workunits/${id}/opportunities/${oppId}/ignore`, { reason }),
+    api.post<DataBody<IgnoreOpportunityResult>>(`/workunits/${id}/opportunities/${oppId}/ignore`, { reason }),
 };
-
-/** AC-5.4: 树级 token 开销报告（GET /workunits/:id/tree-tokens 响应体） */
-export interface TreeTokenReport {
-  rootId: string;
-  nodes: Array<{
-    workUnitId: string;
-    profileName: string | null;
-    status: string;
-    injectedTokens: number | null;
-    executionTokens: number | null;
-    totalTokens: number | null;
-  }>;
-  rootTotal: number;
-  budgetRemaining: number;
-}
-
-/** F6-c: POST /workunits/:id/verify 响应体（200；400/409 走 error 信封，422 为 {verified:false, reason, hint}） */
-export interface VerifyResult {
-  verified: boolean;
-  /** 验证通过时的报告（metadata.verifyReport 或 {commands, source}） */
-  report?: unknown;
-  /** 验证失败时的失败命令与输出尾巴 */
-  failed?: Array<{ command: string; tail: string }>;
-  /** 422 no-commands 时的原因与提示 */
-  reason?: string;
-  hint?: string;
-}
-
-/** F6-c: POST /workunits/:id/dispatch-review 响应体 */
-export interface DispatchReviewResult {
-  reviewWorkUnitId: string;
-}
-
-/** #163 T8-E2: 巡检机会条目（WU metadata.opportunities 数组元素） */
-export interface Opportunity {
-  id: string;
-  problem: string;
-  suggestion: string;
-  estimate?: string;
-  status: 'pending' | 'adopted' | 'ignored';
-  /** adopted：采纳开出的 feature 子单 id */
-  wuId?: string;
-  /** ignored：忽略理由（可附） */
-  ignoreReason?: string;
-}
-
-/** #163: POST /workunits/:id/opportunities/:oppId/adopt 响应体（201） */
-export interface AdoptOpportunityResult {
-  workUnit: WorkUnit;
-  opportunities: Opportunity[];
-}
-
-/** #163: POST /workunits/:id/opportunities/:oppId/ignore 响应体（200） */
-export interface IgnoreOpportunityResult {
-  opportunities: Opportunity[];
-}

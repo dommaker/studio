@@ -9,7 +9,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { z } from 'zod';
-import { defineRoute, paginated, HttpError } from '../http.js';
+import { defineRoute, paginated, HttpError, requireHuman, resolveCallerAuthorType } from '../http.js';
 
 const itemSchema = z.object({ id: z.string(), title: z.string() });
 
@@ -59,6 +59,12 @@ function buildApp() {
   app.get('/raw', defineRoute({}, async (_req, res) => {
     res.set('Content-Type', 'text/plain').send('raw-ok');
   }));
+
+  // human-only 守卫（requireHuman 中间件，A2A §4.4）
+  app.post('/human-only', requireHuman('Review actions are human-only (authorType=agent rejected)'), defineRoute(
+    { body: z.object({}).passthrough().optional() },
+    async () => ({ ok: true }),
+  ));
 
   return app;
 }
@@ -161,5 +167,58 @@ describe('defineRoute', () => {
     const res = await fetch(`${base}/items/42`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { id: '42', title: 'x' } });
+  });
+});
+
+describe('requireHuman / resolveCallerAuthorType（A2A §4.4 human-only 守卫）', () => {
+  let server: Server;
+  let base: string;
+
+  beforeAll(async () => {
+    const app = buildApp();
+    await new Promise<void>((resolve) => {
+      server = app.listen(0, '127.0.0.1', resolve);
+    });
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const post = (init?: { body?: unknown; headers?: Record<string, string> }) =>
+    fetch(`${base}/human-only`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+    });
+
+  it('body.authorType=agent → 403 FORBIDDEN + 定制 message', async () => {
+    const res = await post({ body: { authorType: 'agent' } });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: { code: 'FORBIDDEN', message: 'Review actions are human-only (authorType=agent rejected)' },
+    });
+  });
+
+  it('x-author-type: agent header → 403', async () => {
+    const res = await post({ headers: { 'x-author-type': 'agent' } });
+    expect(res.status).toBe(403);
+  });
+
+  it('body.authorType 优先于 header；human/缺省放行', async () => {
+    const res = await post({ body: { authorType: 'human' }, headers: { 'x-author-type': 'agent' } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { ok: true } });
+    expect((await post()).status).toBe(200);
+  });
+
+  it('resolveCallerAuthorType：非字符串 body.authorType 忽略，缺省 human', async () => {
+    const req = (body?: unknown, headers: Record<string, string> = {}) =>
+      ({ body, headers }) as unknown as import('express').Request;
+    expect(resolveCallerAuthorType(req({ authorType: 'agent' }, { 'x-author-type': 'human' }))).toBe('agent');
+    expect(resolveCallerAuthorType(req(undefined, { 'x-author-type': 'agent' }))).toBe('agent');
+    expect(resolveCallerAuthorType(req({ authorType: 123 }))).toBe('human');
+    expect(resolveCallerAuthorType(req())).toBe('human');
   });
 });

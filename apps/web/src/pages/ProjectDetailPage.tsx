@@ -165,7 +165,7 @@ export function ProjectDetailPage() {
     const statusMap: Record<string, string> = {};
     for (let i = 0; i < fogEntries.length; i++) {
       const r = results[i];
-      if (r.ok && r.value.data?.status) statusMap[fogEntries[i].wuId!] = r.value.data.status;
+      if (r.ok && r.value.data?.data?.status) statusMap[fogEntries[i].wuId!] = r.value.data.data.status;
     }
     return statusMap;
   }, [project]);

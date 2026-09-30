@@ -81,7 +81,6 @@ describe('GET /last-done（#387 批量最近完成）', () => {
     const res = await fetch(`${base}/last-done?assigneeIds=a1,a2`);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.success).toBe(true);
     expect(body.data.a1.id).toBe('wu-2');
     expect(body.data.a2.id).toBe('wu-4');
   });

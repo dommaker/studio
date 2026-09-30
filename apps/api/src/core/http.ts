@@ -9,10 +9,10 @@
  * 响应格式第三种形状。
  *
  * 与 workunit/http-helpers.ts 的关系：本文件是它的通用化上浮（#551 模式推广到全 API）；
- * workunit 迁移后 http-helpers 删除，其余模块不再各自发明错误映射。
+ * workunit 域已迁移（http-helpers 删除，requireHuman 一并上浮本文件），其余模块不再各自发明错误映射。
  */
 
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { ERROR_CODES, type Pagination, type PaginatedBody } from '@dommaker/studio-contract';
 import { getErrorMessage } from '../utils/errors.js';
@@ -61,6 +61,32 @@ export interface RouteOptions {
   errors?: readonly ErrorMapping[];
   /** 成功状态码，默认 200（201/204 等场景覆盖；204 时忽略返回值） */
   status?: number;
+}
+
+/**
+ * A2A §4.4: 调用方 authorType 识别（body.authorType 优先，其次 x-author-type header）。
+ * 与讨论空间发帖的 authorType 字段同约定；UI/人类调用不发送该字段 → 'human'。
+ * （自 workunit/http-helpers.ts 上浮——workunit 域迁移契约驱动后，human-only 守卫
+ * 与 defineRoute 同属 HTTP 边界通用件，供后续域复用。）
+ */
+export function resolveCallerAuthorType(req: Request): string {
+  const fromBody = typeof req.body?.authorType === 'string' ? req.body.authorType : undefined;
+  const fromHeader = req.headers['x-author-type'];
+  return fromBody ?? (typeof fromHeader === 'string' ? fromHeader : 'human');
+}
+
+/**
+ * A2A §4.4-2 / §8-Q3 human-only 守卫：agent 身份调用一律 403（验收权只在人）；
+ * message 按端点动作定制。须在 defineRoute 之前挂载（读原始 body）。
+ */
+export function requireHuman(message: string) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (resolveCallerAuthorType(req) === 'agent') {
+      res.status(403).json({ error: { code: 'FORBIDDEN', message } });
+      return;
+    }
+    next();
+  };
 }
 
 /** 构造分页返回体（defineRoute 识别后原样直出，不再包 `{ data }`） */

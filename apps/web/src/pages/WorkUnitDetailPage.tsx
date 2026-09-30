@@ -72,7 +72,7 @@ export function WorkUnitDetailPage() {
     workunitApi.get(id)
       .then(r => {
         if (!alive) return;
-        const unit = r.data;
+        const unit = r.data.data;
         setWu(unit);
         // 归属解析全部 best-effort 并行：解析不到就不显示对应行，不阻塞页面
         resolveWuPmo(unit).then(p => { if (alive) setPmo(p); });
@@ -100,7 +100,7 @@ export function WorkUnitDetailPage() {
   const reloadWu = () => {
     if (!id) return;
     workunitApi.get(id)
-      .then(r => setWu(r.data))
+      .then(r => setWu(r.data.data))
       .catch(() => { /* best-effort：失败时清单保持旧态，下轮手动刷新 */ });
   };
   const title = wu ? (typeof meta.title === 'string' && meta.title ? meta.title : wu.scope) : '';

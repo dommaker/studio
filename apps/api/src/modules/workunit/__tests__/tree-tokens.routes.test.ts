@@ -6,7 +6,7 @@
  *  - 200：返回 TreeTokenReport 结构（rootId / nodes / rootTotal / budgetRemaining）
  *  - 200：无 collab metadata 时 rootId = WU 自身 id
  *  - 200：有 collab.rootId 时 rootId 从 metadata 取
- *  - 500：aggregateTreeTokens 抛错时返回 INTERNAL_ERROR
+ *  - 500：aggregateTreeTokens 抛错时返回 INTERNAL
  *
  * 路由层契约测试，mock WorkUnitService + aggregateTreeTokens（同 workunit-evidence.routes.test.ts 模式）。
  */
@@ -95,10 +95,10 @@ describe('GET /:id/tree-tokens (AC-5.4)', () => {
 
     const res = await get('/wu-1/tree-tokens');
     expect(res.status).toBe(200);
-    expect(res.json.rootId).toBe('wu-1');
-    expect(res.json.nodes).toEqual([]);
-    expect(res.json.rootTotal).toBe(0);
-    expect(res.json.budgetRemaining).toBe(100000);
+    expect(res.json.data.rootId).toBe('wu-1');
+    expect(res.json.data.nodes).toEqual([]);
+    expect(res.json.data.rootTotal).toBe(0);
+    expect(res.json.data.budgetRemaining).toBe(100000);
     // rootId 从 wu.id 取（metadata null）
     expect(mockAggregateTreeTokens).toHaveBeenCalledWith('wu-1', expect.anything());
   });
@@ -128,21 +128,21 @@ describe('GET /:id/tree-tokens (AC-5.4)', () => {
 
     const res = await get('/wu-child-1/tree-tokens');
     expect(res.status).toBe(200);
-    expect(res.json.rootId).toBe('wu-root');
-    expect(res.json.nodes).toHaveLength(1);
-    expect(res.json.nodes[0].profileName).toBe('Analyst');
-    expect(res.json.rootTotal).toBe(10000);
+    expect(res.json.data.rootId).toBe('wu-root');
+    expect(res.json.data.nodes).toHaveLength(1);
+    expect(res.json.data.nodes[0].profileName).toBe('Analyst');
+    expect(res.json.data.rootTotal).toBe(10000);
     // rootId 从 metadata.collab.rootId 取
     expect(mockAggregateTreeTokens).toHaveBeenCalledWith('wu-root', expect.anything());
   });
 
-  it('500：aggregateTreeTokens 抛错时返回 INTERNAL_ERROR', async () => {
+  it('500：aggregateTreeTokens 抛错时返回 INTERNAL', async () => {
     const wu = { id: 'wu-2', metadata: null };
     mockGetById.mockResolvedValue(wu);
     mockAggregateTreeTokens.mockRejectedValue(new Error('scan failed'));
 
     const res = await get('/wu-2/tree-tokens');
     expect(res.status).toBe(500);
-    expect(res.json.error.code).toBe('INTERNAL_ERROR');
+    expect(res.json.error.code).toBe('INTERNAL');
   });
 });

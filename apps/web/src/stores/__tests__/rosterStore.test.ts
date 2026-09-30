@@ -184,7 +184,7 @@ describe('rosterStore applyInstanceStatusEvent — 就地更新唯一一份（#3
       data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } },
     });
     mockListChannels.mockResolvedValue({ data: { data: [] } });
-    mockWuGet.mockResolvedValue({ data: { id: 'wu-9', scope: '补查的任务', type: 'DEV', status: 'active', claimedAt: null } });
+    mockWuGet.mockResolvedValue({ data: { data: { id: 'wu-9', scope: '补查的任务', type: 'DEV', status: 'active', claimedAt: null } } });
   });
 
   it('instanceId 命中：字段落加法语义（负载缺失键保留原值）', async () => {

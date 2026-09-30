@@ -29,13 +29,14 @@ vi.mock('../../../api/workunit', async () => {
   return {
     ...actual,
     workunitApi: {
-      get: mockWuGet,
+      // envelope 在 mock 边界构造（{ data: { data: 负载 } }，与真实 wire 同形）；各 mock 只提供负载
+      get: (id: string) => mockWuGet(id).then((wu: unknown) => ({ data: { data: wu } })),
       listTokenEvents: mockListTokenEvents,
       listExecutionStepEvents: mockListExecSteps,
-      reviewPassed: mockReviewPassed,
-      reviewRejected: mockReviewRejected,
-      resume: mockResume,
-      close: mockClose,
+      reviewPassed: (id: string, ...rest: unknown[]) => mockReviewPassed(id, ...rest).then((wu: unknown) => ({ data: { data: wu } })),
+      reviewRejected: (id: string, ...rest: unknown[]) => mockReviewRejected(id, ...rest).then((wu: unknown) => ({ data: { data: wu } })),
+      resume: (id: string) => mockResume(id).then((wu: unknown) => ({ data: { data: wu } })),
+      close: (id: string) => mockClose(id).then((wu: unknown) => ({ data: { data: wu } })),
     },
   };
 });
@@ -222,13 +223,13 @@ describe('WorkUnitDrawer', () => {
       sseHandlers.push(h);
       return () => { sseHandlers = sseHandlers.filter(x => x !== h); };
     });
-    mockWuGet.mockResolvedValue({ data: WU });
+    mockWuGet.mockResolvedValue(WU);
     mockListTokenEvents.mockResolvedValue({ data: { events: TOKEN_EVENTS, total: TOKEN_EVENTS.length } });
     mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
-    mockReviewPassed.mockResolvedValue({ data: { ...WU, status: 'done' } });
-    mockReviewRejected.mockResolvedValue({ data: { ...WU, status: 'active' } });
-    mockResume.mockResolvedValue({ data: { ...WU, status: 'active' } });
-    mockClose.mockResolvedValue({ data: { ...WU, status: 'closed' } });
+    mockReviewPassed.mockResolvedValue({ ...WU, status: 'done' });
+    mockReviewRejected.mockResolvedValue({ ...WU, status: 'active' });
+    mockResume.mockResolvedValue({ ...WU, status: 'active' });
+    mockClose.mockResolvedValue({ ...WU, status: 'closed' });
     mockGetOverhead.mockResolvedValue({ data: OVERHEAD });
     mockGetChain.mockResolvedValue({ data: { data: CHAIN } });
     mockStreamChunks.mockReturnValue([]);
@@ -312,7 +313,7 @@ describe('WorkUnitDrawer', () => {
 
   it('#290 负责人带 assigneeRoleId 认领快照：实例离线（摘要未命中）仍解析为角色名，不发实例档案点查', async () => {
     // 2026-09-10：离线实例档案点查段已删除（被回收实例点查必 404）；认领快照接管该场景
-    mockWuGet.mockResolvedValue({ data: { ...WU, assigneeRoleId: 'role-coder' } });
+    mockWuGet.mockResolvedValue({ ...WU, assigneeRoleId: 'role-coder' });
     mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-coder', name: 'Coder' }] } });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     const link = await screen.findByText('@Coder');
@@ -395,7 +396,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('#275：WU 无 channelId → 不渲染频道链接', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...WU, channelId: null } });
+    mockWuGet.mockResolvedValue({ ...WU, channelId: null });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('方向稿 A/B 原型页搭建')).toBeTruthy());
     expect(screen.queryByText('所属频道')).toBeNull();
@@ -487,17 +488,15 @@ describe('WorkUnitDrawer', () => {
 
   it('证据台账：done 缺 l3 → 三层留痕 + 人工确认按钮（点击调 reviewPassed）', async () => {
     mockWuGet.mockResolvedValue({
-      data: {
-        ...WU,
-        status: 'done',
-        completedAt: '2026-07-19T11:00:00Z',
-        metadata: JSON.stringify({
-          attestations: {
-            l1: { verdict: 'approved', by: 'verify', at: '2026-07-19T10:50:00Z', kind: 'verify' },
-            l2: { verdict: 'approved', by: '76d96d35-c35e', at: '2026-07-19T10:55:00Z', kind: 'agent-review', summary: '实现正确' },
-          },
-        }),
+      ...WU,
+      status: 'done',
+      completedAt: '2026-07-19T11:00:00Z',
+      metadata: JSON.stringify({
+      attestations: {
+      l1: { verdict: 'approved', by: 'verify', at: '2026-07-19T10:50:00Z', kind: 'verify' },
+      l2: { verdict: 'approved', by: '76d96d35-c35e', at: '2026-07-19T10:55:00Z', kind: 'agent-review', summary: '实现正确' },
       },
+      }),
     });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText(/评审结论：实现正确/)).toBeTruthy());
@@ -508,7 +507,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('证据台账：in_review → 审查闸门「通过」按钮（硬门语义）', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockWuGet.mockResolvedValue({ ...WU, status: 'in_review' });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('通过验收')).toBeTruthy());
     fireEvent.click(screen.getByText('通过验收'));
@@ -517,15 +516,13 @@ describe('WorkUnitDrawer', () => {
 
   it('analysis 单（#106 M7；#463 结构化表单）：通过走共享确认弹窗——预填清单人改后 confirm 载荷随 reviewPassed 回传', async () => {
     mockWuGet.mockResolvedValue({
-      data: {
-        ...WU,
-        type: 'analysis',
-        status: 'in_review',
-        metadata: JSON.stringify({
-          analysisDestination: '三仓特性联动上线',
-          analysisFog: ['存储选型用哪个？'],
-        }),
-      },
+      ...WU,
+      type: 'analysis',
+      status: 'in_review',
+      metadata: JSON.stringify({
+      analysisDestination: '三仓特性联动上线',
+      analysisFog: ['存储选型用哪个？'],
+      }),
     });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('通过验收')).toBeTruthy());
@@ -546,7 +543,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('#284：in_review → 拒绝入口（带原因弹窗，调 reviewRejected），与列表行行为一致', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockWuGet.mockResolvedValue({ ...WU, status: 'in_review' });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     fireEvent.click(await screen.findByText('拒绝'));
     fireEvent.change(screen.getByPlaceholderText(/拒绝原因/), { target: { value: '结论不完整，返工' } });
@@ -556,12 +553,10 @@ describe('WorkUnitDrawer', () => {
 
   it('#284（决策 #250 D6）：autoApprove「打开即弹」——analysis in_review 抽屉自动弹确认弹窗，无需点通过', async () => {
     mockWuGet.mockResolvedValue({
-      data: {
-        ...WU,
-        type: 'analysis',
-        status: 'in_review',
-        metadata: JSON.stringify({ analysisDestination: '三仓特性联动上线', analysisFog: ['存储选型用哪个？'] }),
-      },
+      ...WU,
+      type: 'analysis',
+      status: 'in_review',
+      metadata: JSON.stringify({ analysisDestination: '三仓特性联动上线', analysisFog: ['存储选型用哪个？'] }),
     });
     renderDrawer({ kind: 'wu', id: 'WU-1017', autoApprove: true });
     // #463 起结构化预填（buildAnalysisConfirmPrefill 吸收原 buildMapOpeningPrefill）
@@ -571,7 +566,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('#284：autoApprove 但 WU 非 analysis/非 in_review → 不自动弹窗（仅打开抽屉）', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } }); // type=dev
+    mockWuGet.mockResolvedValue({ ...WU, status: 'in_review' }); // type=dev
     renderDrawer({ kind: 'wu', id: 'WU-1017', autoApprove: true });
     await waitFor(() => expect(screen.getByText('通过验收')).toBeTruthy());
     expect(screen.queryByLabelText('目标')).toBeNull();
@@ -617,9 +612,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('#185（决策 #87 D4）：blocked 卡住型 WU 显示处置组件（继续执行/关闭任务），点继续执行调 resume', async () => {
-    mockWuGet.mockResolvedValue({
-      data: { ...WU, status: 'blocked', metadata: JSON.stringify({ title: '方向稿 A/B 原型页搭建', blockReason: 'stuck: 连续 3 步无进展' }) },
-    });
+    mockWuGet.mockResolvedValue({ ...WU, status: 'blocked', metadata: JSON.stringify({ title: '方向稿 A/B 原型页搭建', blockReason: 'stuck: 连续 3 步无进展' }) });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     const resumeBtn = await screen.findByRole('button', { name: '继续执行' });
     expect(screen.getByRole('button', { name: '关闭任务' })).toBeTruthy();
@@ -628,9 +621,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('#185（决策 #87 D3）：blocked NEED_INPUT 型不显示「继续执行」（维持引导回复），仅「关闭任务」', async () => {
-    mockWuGet.mockResolvedValue({
-      data: { ...WU, status: 'blocked', metadata: JSON.stringify({ title: '方向稿', waitingForInput: true, waitingQuestion: '用 OAuth 吗？' }) },
-    });
+    mockWuGet.mockResolvedValue({ ...WU, status: 'blocked', metadata: JSON.stringify({ title: '方向稿', waitingForInput: true, waitingQuestion: '用 OAuth 吗？' }) });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await screen.findByRole('button', { name: '关闭任务' });
     expect(screen.queryByRole('button', { name: '继续执行' })).toBeNull();
@@ -714,7 +705,7 @@ describe('WorkUnitDrawer', () => {
 
   // 批次A 项5：闸门动作失败内联错误行（BlockedActions run() 同模式），不再静默
   it('批次A 项5：审查闸门「通过」失败 → 错误行内联进抽屉（服务端 error.message 优先）', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockWuGet.mockResolvedValue({ ...WU, status: 'in_review' });
     mockReviewPassed.mockRejectedValue(Object.assign(new Error('Request failed with status code 409'), {
       isAxiosError: true,
       response: { status: 409, data: { error: { message: '状态机不允许该迁移' } } },
@@ -727,7 +718,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('批次A 项5：拒绝失败 → 弹窗保持打开 + 错误行进弹窗', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockWuGet.mockResolvedValue({ ...WU, status: 'in_review' });
     mockReviewRejected.mockRejectedValue(new Error('服务端挂了'));
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     fireEvent.click(await screen.findByText('拒绝'));
@@ -754,7 +745,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('E2-1：ReviewHint 挪入抽屉——in_review 且频道无成员时出现在闸门按钮上方，「去设置」跳 /agents', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockWuGet.mockResolvedValue({ ...WU, status: 'in_review' });
     mockListAgents.mockResolvedValue({ data: { data: [] } });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
 
@@ -769,7 +760,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('E2-1：频道有成员 → ReviewHint 不渲染（回归既有 in_review 语义）', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockWuGet.mockResolvedValue({ ...WU, status: 'in_review' });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await screen.findByText('通过验收');
     await waitFor(() => expect(mockListAgents).toHaveBeenCalledWith('ch-1'));
@@ -777,7 +768,7 @@ describe('WorkUnitDrawer', () => {
   });
 
   it('E2-1：成员拉取失败 → ReviewHint 不渲染（防「无人可认领」误报）', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockWuGet.mockResolvedValue({ ...WU, status: 'in_review' });
     mockListAgents.mockRejectedValue(new Error('403'));
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await screen.findByText('通过验收');

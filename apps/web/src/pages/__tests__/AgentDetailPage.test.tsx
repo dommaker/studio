@@ -117,7 +117,7 @@ describe('AgentDetailPage', () => {
     sse.reconnects.length = 0;
     mockApis();
     mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
-    mockWuGet.mockResolvedValue({ data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } });
+    mockWuGet.mockResolvedValue({ data: { data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } } });
     mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
     mockWuList.mockResolvedValue({
       data: {
@@ -381,7 +381,7 @@ describe('AgentDetailPage — #440 agent 头像', () => {
     sse.reconnects.length = 0;
     mockApis();
     mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
-    mockWuGet.mockResolvedValue({ data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } });
+    mockWuGet.mockResolvedValue({ data: { data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } } });
     mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
     mockWuList.mockResolvedValue({ data: { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 1 } } });
   });
