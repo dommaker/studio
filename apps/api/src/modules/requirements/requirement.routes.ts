@@ -8,12 +8,24 @@
  *   GET   /api/v1/requirements/:id       — get by id
  *   PATCH /api/v1/requirements/:id       — 更新 status/title/docs/description
  *   GET   /api/v1/requirements/:id/chain — 全链路（需求 + WorkUnit 状态列表）
+ *
+ * 契约驱动迁移（2026-09 批次 1/7）：全部端点走 core/http.ts defineRoute——
+ * zod 校验入参（手写 guard 收进 schema）、统一 envelope（{ data }）、
+ * 错误映射 options.errors（'Project not found' → 400 先于 'not found' → 404）。
  */
-import { Router, type Request, type Response } from 'express';
-import { FileStore, type RequirementStatus } from '@dommaker/studio-shared';
-import { RequirementService, REQUIREMENT_STATUSES } from './requirement.service.js';
+import { Router } from 'express';
+import {
+  listRequirementsQuerySchema,
+  chainStatsQuerySchema,
+  requirementIdParamsSchema,
+  createRequirementBodySchema,
+  updateRequirementBodySchema,
+  ERROR_CODES,
+} from '@dommaker/studio-contract';
+import { FileStore } from '@dommaker/studio-shared';
+import { RequirementService } from './requirement.service.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
-import { getErrorMessage } from '../../utils/errors.js';
+import { defineRoute, HttpError } from '../../core/http.js';
 
 export function createRequirementRoutes(fileStore?: FileStore): Router {
   const router = Router();
@@ -21,122 +33,74 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
   // #387: 单次批量 id 上限（PMO 单页 ≤ 20 项目，留余量；超出静默截断）
   const MAX_BATCH_IDS = 100;
 
-  /** GET / — list requirements（status/channelId 过滤） */
-  router.get('/', async (req: Request, res: Response) => {
-    const { status, channelId } = req.query;
-    if (status !== undefined && !REQUIREMENT_STATUSES.includes(status as RequirementStatus)) {
-      return res.status(400).json({ success: false, error: `status must be one of: ${REQUIREMENT_STATUSES.join(', ')}` });
-    }
-    const data = await service.list({
-      status: status as string | undefined,
-      channelId: channelId as string | undefined,
-    });
-    res.json({ success: true, data });
-  });
+  /** GET / — list requirements（status/channelId 过滤；status 非法值 zod 400） */
+  router.get('/', defineRoute({ query: listRequirementsQuerySchema }, async (_req, _res, { query }) => {
+    return service.list({ status: query.status, channelId: query.channelId });
+  }));
 
-  /** POST / — 手动创建需求 */
-  router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-    const { title, channelId, description, createdBy, docs, projectId } = req.body;
-    if (!title || typeof title !== 'string' || !title.trim()) {
-      return res.status(400).json({ success: false, error: 'title is required' });
-    }
-    if (docs !== undefined && (!Array.isArray(docs) || docs.some(d => typeof d !== 'string'))) {
-      return res.status(400).json({ success: false, error: 'docs must be an array of strings' });
-    }
-    // B3a: projectId 挂接 PMO 项目（string | null；不存在 → 400）
-    if (projectId !== undefined && projectId !== null && typeof projectId !== 'string') {
-      return res.status(400).json({ success: false, error: 'projectId must be a string or null' });
-    }
-    try {
-      const data = await service.create({
-        title: title.trim(),
-        channelId: typeof channelId === 'string' ? channelId : null,
-        description: typeof description === 'string' ? description : undefined,
-        createdBy: typeof createdBy === 'string' ? createdBy : 'manual',
-        docs,
-        projectId: projectId === undefined ? undefined : projectId,
+  /** POST / — 手动创建需求（B3a: projectId 挂接 PMO 项目，不存在 → 400） */
+  router.post('/', requireAuth(), requireNotGuest(), defineRoute(
+    { body: createRequirementBodySchema },
+    {
+      status: 201,
+      errors: [{ match: 'Project not found', status: 400, code: ERROR_CODES.BAD_REQUEST }],
+    },
+    async (_req, _res, { body }) => {
+      return service.create({
+        title: body.title,
+        channelId: body.channelId ?? null,
+        description: body.description,
+        createdBy: body.createdBy ?? 'manual',
+        docs: body.docs,
+        projectId: body.projectId,
       });
-      res.status(201).json({ success: true, data });
-    } catch (e: unknown) {
-      const msg = getErrorMessage(e);
-      if (msg.includes('Project not found')) {
-        return res.status(400).json({ success: false, error: msg });
-      }
-      throw e;
-    }
-  });
+    },
+  ));
 
   /**
    * GET /chain-stats?reqIds=REQ-1,REQ-2 — #387 批量徽章统计：每需求 {finished,total}
    * （finished = workFinished 口径，服务端同源计算）。PMO 卡片专用，消逐项目
    * getChain 的 N+1；不存在的需求不出现在结果里（前端徽章静默缺省）。
    */
-  router.get('/chain-stats', async (req: Request, res: Response) => {
-    const raw = req.query.reqIds;
-    const ids = typeof raw === 'string'
-      ? raw.split(',').map(s => s.trim()).filter(s => s.length > 0)
-      : [];
-    if (ids.length === 0) {
-      return res.status(400).json({ success: false, error: 'reqIds is required (comma-separated ids)' });
-    }
-    try {
-      const data = await service.getChainStats(ids.slice(0, MAX_BATCH_IDS));
-      res.json({ success: true, data });
-    } catch (e: unknown) {
-      res.status(500).json({ success: false, error: getErrorMessage(e) });
-    }
-  });
+  router.get('/chain-stats', defineRoute({ query: chainStatsQuerySchema }, async (_req, _res, { query }) => {
+    const ids = query.reqIds.split(',').map(s => s.trim()).filter(s => s.length > 0);
+    return service.getChainStats(ids.slice(0, MAX_BATCH_IDS));
+  }));
 
   /** GET /:id — get requirement by id */
-  router.get('/:id', async (req: Request, res: Response) => {
-    const data = await service.get(req.params.id as string);
-    if (!data) return res.status(404).json({ success: false, error: `Requirement not found: ${req.params.id as string}` });
-    res.json({ success: true, data });
-  });
+  router.get('/:id', defineRoute({ params: requirementIdParamsSchema }, async (_req, _res, { params }) => {
+    const data = await service.get(params.id);
+    if (!data) throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Requirement not found: ${params.id}`);
+    return data;
+  }));
 
   /** PATCH /:id — 更新 status/title/docs/description/projectId */
-  router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-    const { title, status, description, docs, projectId } = req.body;
-    if (status !== undefined && !REQUIREMENT_STATUSES.includes(status)) {
-      return res.status(400).json({ success: false, error: `status must be one of: ${REQUIREMENT_STATUSES.join(', ')}` });
-    }
-    if (title !== undefined && (typeof title !== 'string' || !title.trim())) {
-      return res.status(400).json({ success: false, error: 'title must be a non-empty string' });
-    }
-    if (docs !== undefined && (!Array.isArray(docs) || docs.some(d => typeof d !== 'string'))) {
-      return res.status(400).json({ success: false, error: 'docs must be an array of strings' });
-    }
-    // B3a: projectId 挂接/清除 PMO 项目（string | null；项目不存在 → 400）
-    if (projectId !== undefined && projectId !== null && typeof projectId !== 'string') {
-      return res.status(400).json({ success: false, error: 'projectId must be a string or null' });
-    }
-    try {
-      const data = await service.update(req.params.id as string, {
-        title: typeof title === 'string' ? title.trim() : undefined,
-        status,
-        description,
-        docs,
-        projectId: projectId === undefined ? undefined : projectId,
+  router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
+    { params: requirementIdParamsSchema, body: updateRequirementBodySchema },
+    {
+      errors: [
+        // 顺序敏感：'Project not found' 含 'not found'，须先命中 400
+        { match: 'Project not found', status: 400, code: ERROR_CODES.BAD_REQUEST },
+        { match: 'not found', status: 404, code: ERROR_CODES.NOT_FOUND },
+      ],
+    },
+    async (_req, _res, { params, body }) => {
+      return service.update(params.id, {
+        title: body.title,
+        status: body.status,
+        description: body.description,
+        docs: body.docs,
+        projectId: body.projectId,
       });
-      res.json({ success: true, data });
-    } catch (e: unknown) {
-      const msg = getErrorMessage(e);
-      if (msg.includes('Project not found')) {
-        return res.status(400).json({ success: false, error: msg });
-      }
-      if (msg.includes('not found')) {
-        return res.status(404).json({ success: false, error: msg });
-      }
-      throw e;
-    }
-  });
+    },
+  ));
 
   /** GET /:id/chain — 全链路数据（需求 + WorkUnit id/title/status/assignee） */
-  router.get('/:id/chain', async (req: Request, res: Response) => {
-    const chain = await service.getChain(req.params.id as string);
-    if (!chain) return res.status(404).json({ success: false, error: `Requirement not found: ${req.params.id as string}` });
-    res.json({ success: true, data: chain });
-  });
+  router.get('/:id/chain', defineRoute({ params: requirementIdParamsSchema }, async (_req, _res, { params }) => {
+    const chain = await service.getChain(params.id);
+    if (!chain) throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Requirement not found: ${params.id}`);
+    return chain;
+  }));
 
   return router;
 }

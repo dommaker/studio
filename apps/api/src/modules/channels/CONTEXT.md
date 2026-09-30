@@ -35,6 +35,7 @@ Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线
 
 ### 注意事项
 
+- **契约驱动（2026-09 批次 1/7）**：全部 REST 端点走 `core/http.ts defineRoute`（schema 在 `@dommaker/studio-contract` channels.ts），响应统一 `{ data }` 壳（原 `{success,data}` 退役）；消息分页 `{ data: { messages, total, hasMore } }`（原平铺 `{success,data,total,hasMore}` 退役）；ChannelError 经路由层 `translating()` 转 HttpError（status 自带 400/404/409）；`PATCH /:id` 的 defaultProfileId 退役守卫依赖 updateChannelBodySchema 的 `.passthrough()`（zod 默认 strip 会先于守卫吞掉该键）；`GET /:id/attachments/:attachmentId` 二进制流例外（pipe 至 finish 才返回，否则 defineRoute 在 headersSent 前 end() 截断流）；SSE 事件负载不属 REST 契约，保留本地解析器
 - **频道图片附件（2026-09，docs/plans/2026-09-channel-attachments.md）**：`POST /:id/attachments`（requireAuth+requireNotGuest，与发消息同语义）收 JSON base64（不引 multipart 依赖），单图 ≤5MB 超限 413，落盘 `STUDIO_DATA_DIR/attachments/<channelId>/<uuid>.<ext>`（扩展名白名单 png/jpg/gif/webp，与 FileStore baseDir 同口径解析数据根）；返回相对 URL，消息体直接存 markdown 图片语法即完整事实源——**无附件元数据表**（YAGNI，mime 由 id 内嵌扩展名推导）。`GET /:id/attachments/:attachmentId` 经 `?token=` 携带 JWT（`tokenQueryToHeader` 映射进 header 复用 requireAuth；<img> 无法带 Authorization 头，SSE /events/stream 同款），guest session（userId=null）过不了 session→user 联查 = 看不了图（已知取舍，图比消息早一步要登录；2026-09-14 起消息 GET 同样要登录）。json limit：全局 2mb 不动，app.ts 在全局 parser 前对该路径预挂 `express.json({limit:'8mb'})`（已解析请求 `_body` 标记跳过全局），路由级同挂保直挂测试自足
 - **输出文件路径**：`perInvocationOutputFile()` 返回绝对路径（ANALYST_DIR 基于 REPO_DIR）。scout 路径用相对路径，session-manager 有 worktree fallback
 - **JSON 解析链**：4 层（sanitize → code-fence → regex → LLM repair），outputText = "DONE" 无 JSON，文件是唯一数据载体

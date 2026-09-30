@@ -89,7 +89,7 @@ function installApiGet(messagesImpl?: (before?: string) => unknown) {
     if (String(url).endsWith('/messages')) {
       const result = messagesImpl
         ? messagesImpl(config?.params?.before)
-        : { data: { data: [], hasMore: false, total: 0 } };
+        : { data: { data: { messages: [], hasMore: false, total: 0 } } };
       return Promise.resolve(result);
     }
     return Promise.resolve({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
@@ -193,8 +193,8 @@ describe('ChannelDetailPage — quote/reply 预览点击定位上游消息（Pha
     seedMessages(BASE_MESSAGES, { hasMore: true });
     // 翻一页：before=最老消息 m-parent → 返回含目标的历史页并到底
     installApiGet((before) => before === 'm-parent'
-      ? { data: { data: [oldMsg], hasMore: false, total: 1 } }
-      : { data: { data: [], hasMore: true, total: 0 } });
+      ? { data: { data: { messages: [oldMsg], hasMore: false, total: 1 } } }
+      : { data: { data: { messages: [], hasMore: true, total: 0 } } });
 
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
@@ -212,8 +212,8 @@ describe('ChannelDetailPage — quote/reply 预览点击定位上游消息（Pha
     seedMessages(BASE_MESSAGES, { hasMore: true });
     // 翻一页后到底（空页 + hasMore=false），目标始终不存在
     installApiGet((before) => before
-      ? { data: { data: [], hasMore: false, total: 0 } }
-      : { data: { data: [], hasMore: true, total: 0 } });
+      ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
+      : { data: { data: { messages: [], hasMore: true, total: 0 } } });
 
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());

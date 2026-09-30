@@ -59,7 +59,7 @@ describe('useChannelMessages', () => {
     vi.clearAllMocks();
     seq = 0;
     useChannelMessageStore.getState().__resetForTests();
-    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
     mockOnEvent.mockImplementation((h: (msg: WebSocketMessage) => void) => {
       handler = h;
       return () => {};
@@ -67,7 +67,7 @@ describe('useChannelMessages', () => {
   });
 
   async function renderLoaded(initial: ChannelMessage[] = []) {
-    mockListMessages.mockResolvedValue({ data: { data: initial, hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: initial, hasMore: false } } });
     const { result } = renderHook(() => useChannelMessages('ch-1'));
     await waitFor(() => expect(result.current.loading).toBe(false));
     return result;
@@ -205,14 +205,14 @@ describe('useChannelMessages', () => {
   it('loadMore 以最老消息 id 为游标前插（#319 id 游标，替代 timestamp）', async () => {
     const m3 = msg('m3', { createdAt: iso(2) });
     const m4 = msg('m4', { createdAt: iso(3) });
-    mockListMessages.mockResolvedValue({ data: { data: [m3, m4], hasMore: true } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [m3, m4], hasMore: true } } });
     const { result } = renderHook(() => useChannelMessages('ch-1'));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.hasMore).toBe(true);
 
     const m1 = msg('m1', { createdAt: iso(0) });
     const m2 = msg('m2', { createdAt: iso(1) });
-    mockListMessages.mockResolvedValue({ data: { data: [m1, m2], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [m1, m2], hasMore: false } } });
 
     let inserted: boolean | undefined;
     await act(async () => {
@@ -230,13 +230,13 @@ describe('useChannelMessages', () => {
     it('prepend 历史页后 refetch 保留历史、合并新消息、按 id 去重', async () => {
       const m3 = msg('m3', { createdAt: iso(2) });
       const m4 = msg('m4', { createdAt: iso(3) });
-      mockListMessages.mockResolvedValue({ data: { data: [m3, m4], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3, m4], hasMore: true } } });
       const { result } = renderHook(() => useChannelMessages('ch-1'));
       await waitFor(() => expect(result.current.loading).toBe(false));
 
       const m1 = msg('m1', { createdAt: iso(0) });
       const m2 = msg('m2', { createdAt: iso(1) });
-      mockListMessages.mockResolvedValue({ data: { data: [m1, m2], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1, m2], hasMore: false } } });
       await act(async () => {
         await result.current.loadMore();
       });
@@ -244,7 +244,7 @@ describe('useChannelMessages', () => {
       // 最新一页：m3 服务端更新版 + 既有 m4 + 新到 m5
       const m3Updated = { ...m3, content: '服务端更新' };
       const m5 = msg('m5', { createdAt: iso(4) });
-      mockListMessages.mockResolvedValue({ data: { data: [m3Updated, m4, m5], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3Updated, m4, m5], hasMore: true } } });
       await act(async () => {
         await result.current.refresh();
       });
@@ -255,20 +255,20 @@ describe('useChannelMessages', () => {
 
     it('prepend 方向上 hasMore 不被最新一页的 hasMore 错误重置', async () => {
       const m3 = msg('m3', { createdAt: iso(2) });
-      mockListMessages.mockResolvedValue({ data: { data: [m3], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3], hasMore: true } } });
       const { result } = renderHook(() => useChannelMessages('ch-1'));
       await waitFor(() => expect(result.current.loading).toBe(false));
 
       // 历史已全部加载（hasMore=false），本地最老 m1 早于最新一页
       const m1 = msg('m1', { createdAt: iso(0) });
-      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: false } } });
       await act(async () => {
         await result.current.loadMore();
       });
       expect(result.current.hasMore).toBe(false);
 
       // 最新一页的 hasMore=true 描述头部方向，不得覆盖 prepend 方向状态
-      mockListMessages.mockResolvedValue({ data: { data: [m3], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3], hasMore: true } } });
       await act(async () => {
         await result.current.refresh();
       });
@@ -278,14 +278,14 @@ describe('useChannelMessages', () => {
     });
 
     it('未 prepend 时 refetch 以最新一页为准刷新 hasMore（新历史可被加载）', async () => {
-      mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
       const { result } = renderHook(() => useChannelMessages('ch-1'));
       await waitFor(() => expect(result.current.loading).toBe(false));
       expect(result.current.hasMore).toBe(false);
 
       // 空频道灌入超过一页消息：最新一页 hasMore=true，合并后应可继续 loadMore
       const m1 = msg('m1', { createdAt: iso(0) });
-      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: true } } });
       await act(async () => {
         await result.current.refresh();
       });
@@ -296,26 +296,26 @@ describe('useChannelMessages', () => {
 
     it('merge 后 loadMore 游标仍取当前列表最旧消息', async () => {
       const m3 = msg('m3', { createdAt: iso(2) });
-      mockListMessages.mockResolvedValue({ data: { data: [m3], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3], hasMore: true } } });
       const { result } = renderHook(() => useChannelMessages('ch-1'));
       await waitFor(() => expect(result.current.loading).toBe(false));
 
       const m1 = msg('m1', { createdAt: iso(0) });
-      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: true } } });
       await act(async () => {
         await result.current.loadMore();
       });
 
       // merge 只在尾部并入新消息，最旧消息不变
       const m4 = msg('m4', { createdAt: iso(3) });
-      mockListMessages.mockResolvedValue({ data: { data: [m3, m4], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3, m4], hasMore: true } } });
       await act(async () => {
         await result.current.refresh();
       });
       expect(result.current.messages.map(m => m.id)).toEqual(['m1', 'm3', 'm4']);
 
       const m0 = msg('m0', { createdAt: iso(-1) });
-      mockListMessages.mockResolvedValue({ data: { data: [m0], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m0], hasMore: false } } });
       await act(async () => {
         await result.current.loadMore();
       });
@@ -327,13 +327,13 @@ describe('useChannelMessages', () => {
 
     it('频道切换后首拉仍是替换语义', async () => {
       const a1 = msg('a1', { channelId: 'ch-1', createdAt: iso(0) });
-      mockListMessages.mockResolvedValue({ data: { data: [a1], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [a1], hasMore: false } } });
       const { result, rerender } = renderHook(({ id }) => useChannelMessages(id), { initialProps: { id: 'ch-1' } });
       await waitFor(() => expect(result.current.loading).toBe(false));
       expect(result.current.messages.map(m => m.id)).toEqual(['a1']);
 
       const b1 = msg('b1', { channelId: 'ch-2', createdAt: iso(1) });
-      mockListMessages.mockResolvedValue({ data: { data: [b1], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [b1], hasMore: true } } });
       rerender({ id: 'ch-2' });
       await waitFor(() => expect(result.current.messages.map(m => m.id)).toEqual(['b1']));
       expect(result.current.hasMore).toBe(true);
@@ -350,7 +350,7 @@ describe('useChannelMessages（#313 门禁轮询接线）', () => {
     useChannelMessageStore.getState().__resetForTests();
     mockCtx.status = 'connected';
     mockOnEvent.mockReturnValue(() => {});
-    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
   });
 
   afterEach(() => {
@@ -419,7 +419,7 @@ describe('useChannelMessages 错误态（#482）', () => {
     expect(result.current.error).toBeTruthy();
 
     const m1 = msg('m1');
-    mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: false } } });
     await act(async () => {
       await result.current.refresh();
     });
@@ -433,7 +433,7 @@ describe('useChannelMessages 错误态（#482）', () => {
     try {
       mockCtx.status = 'disconnected';
       const m1 = msg('m1');
-      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: false } } });
       const { result } = renderHook(() => useChannelMessages('ch-1'));
       await act(async () => { await Promise.resolve(); });
       expect(result.current.messages).toHaveLength(1);
@@ -455,7 +455,7 @@ describe('useChannelMessages 错误态（#482）', () => {
     expect(result.current.error).toBeTruthy();
 
     const b1 = msg('b1', { channelId: 'ch-2' });
-    mockListMessages.mockResolvedValue({ data: { data: [b1], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [b1], hasMore: false } } });
     rerender({ id: 'ch-2' });
     expect(result.current.error).toBeNull();
     await waitFor(() => expect(result.current.messages.map(m => m.id)).toEqual(['b1']));

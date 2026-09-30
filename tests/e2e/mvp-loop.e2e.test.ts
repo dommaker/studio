@@ -130,8 +130,9 @@ async function getWorkUnit(id: string): Promise<any> {
 }
 
 async function getChannelMessages(channelId: string): Promise<any[]> {
-  const body = await apiJson<{ data: any[] }>(`/channels/${channelId}/messages?limit=100`);
-  return body.data;
+  // channels 域已契约化：消息分页统一 `{ data: { messages, total, hasMore } }` 壳
+  const body = await apiJson<{ data: { messages: any[] } }>(`/channels/${channelId}/messages?limit=100`);
+  return body.data.messages;
 }
 
 function wuMetadata(wu: any): Record<string, any> {

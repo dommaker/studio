@@ -118,7 +118,7 @@ describe('resyncOnReconnect（断线补底数）', () => {
   const msg = (createdAt: number, authorType: 'human' | 'agent' = 'agent') => ({
     id: `m-${createdAt}`, channelId: 'ch', authorType, content: 'x', createdAt: new Date(createdAt).toISOString(),
   });
-  const page = (list: unknown[]) => ({ data: { data: list } });
+  const page = (list: unknown[]) => ({ data: { data: { messages: list, total: list.length, hasMore: false } } });
 
   it('无簿记频道时不发请求', async () => {
     await useUnreadStore.getState().resyncOnReconnect();

@@ -15,12 +15,13 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 
-/** GET /:id/messages 响应体（data 内 meta 已 JSON.parse、createdAt 经 JSON 序列化回字符串） */
+/** GET /:id/messages 响应体（{ data: { messages, total, hasMore } }；messages 内 meta 已 JSON.parse、createdAt 经 JSON 序列化回字符串） */
 interface MessagesPageResponse {
-  success: boolean;
-  data: Array<Omit<ChannelMessageData, 'meta' | 'createdAt'> & { meta: unknown; createdAt: string }>;
-  total: number;
-  hasMore: boolean;
+  data: {
+    messages: Array<Omit<ChannelMessageData, 'meta' | 'createdAt'> & { meta: unknown; createdAt: string }>;
+    total: number;
+    hasMore: boolean;
+  };
 }
 
 let tmpDir: string;
@@ -83,20 +84,19 @@ describe('GET /channels/:id/messages 分页 limit（C2）', () => {
     const body: MessagesPageResponse = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.success).toBe(true);
-    expect(body.data).toHaveLength(3);
-    expect(body.total).toBe(MSG_COUNT);
-    expect(body.hasMore).toBe(true);
+    expect(body.data.messages).toHaveLength(3);
+    expect(body.data.total).toBe(MSG_COUNT);
+    expect(body.data.hasMore).toBe(true);
     // 最新 3 条，页内升序
-    expect(body.data.map(m => m.id)).toEqual(['msg-07', 'msg-08', 'msg-09']);
+    expect(body.data.messages.map(m => m.id)).toEqual(['msg-07', 'msg-08', 'msg-09']);
   });
 
   it('limit 大于消息总数时返回全部，hasMore=false', async () => {
     const res = await fetch(`${baseUrl}/${CH}/messages?limit=50`);
     const body: MessagesPageResponse = await res.json();
 
-    expect(body.data).toHaveLength(MSG_COUNT);
-    expect(body.hasMore).toBe(false);
+    expect(body.data.messages).toHaveLength(MSG_COUNT);
+    expect(body.data.hasMore).toBe(false);
   });
 
   // #264：meta 形态契约——REST 出口必须是 object（前端 NotificationBell/频道页按 object 定型消费），
@@ -118,12 +118,12 @@ describe('GET /channels/:id/messages 分页 limit（C2）', () => {
     const res = await fetch(`${baseUrl}/${CH}/messages?limit=50`);
     const body: MessagesPageResponse = await res.json();
 
-    for (const m of body.data) {
+    for (const m of body.data.messages) {
       expect(typeof m.meta).toBe('object');
       expect(m.meta).not.toBeNull();
       expect(Array.isArray(m.meta)).toBe(false);
     }
-    const card = body.data.find(m => m.id === 'msg-card');
+    const card = body.data.messages.find(m => m.id === 'msg-card');
     expect(card?.meta).toEqual(cardMeta);
   });
 
@@ -131,10 +131,10 @@ describe('GET /channels/:id/messages 分页 limit（C2）', () => {
     const res = await fetch(`${baseUrl}/${CH}/messages?limit=2&before=msg-05&includeTotal=true`);
     const body: MessagesPageResponse = await res.json();
 
-    expect(body.total).toBe(11); // 候选 8 统一口径：热+冷原始行数（原「锚点过滤后的总数」随分支漂移，退役）
-    expect(body.data).toHaveLength(2);
-    expect(body.hasMore).toBe(true);
-    expect(body.data.map(m => m.id)).toEqual(['msg-03', 'msg-04']);
+    expect(body.data.total).toBe(11); // 候选 8 统一口径：热+冷原始行数（原「锚点过滤后的总数」随分支漂移，退役）
+    expect(body.data.messages).toHaveLength(2);
+    expect(body.data.hasMore).toBe(true);
+    expect(body.data.messages.map(m => m.id)).toEqual(['msg-03', 'msg-04']);
   });
 
   it('锚点 id 不存在 → 空页、hasMore=false（#319：位置不可知不整页错发）', async () => {
@@ -142,7 +142,7 @@ describe('GET /channels/:id/messages 分页 limit（C2）', () => {
     const body: MessagesPageResponse = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.data).toEqual([]);
-    expect(body.hasMore).toBe(false);
+    expect(body.data.messages).toEqual([]);
+    expect(body.data.hasMore).toBe(false);
   });
 });

@@ -113,8 +113,7 @@ describe('B8：GET /:id 不再附 _count', () => {
   it('响应无 prisma 遗留 _count 字段', async () => {
     const res = await fetch(`${baseUrl}/${CH}`);
     expect(res.status).toBe(200);
-    const body = await res.json() as { success: boolean; data: Record<string, unknown> };
-    expect(body.success).toBe(true);
+    const body = await res.json() as { data: Record<string, unknown> };
     expect(body.data.id).toBe(CH);
     expect(body.data._count).toBeUndefined();
   });

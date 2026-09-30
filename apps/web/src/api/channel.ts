@@ -1,39 +1,43 @@
 // Channel API — B1-001 + Phase 2 (AC-B4/C3/E3)
+// 契约驱动迁移（2026-09 批次 1/7）：channels 域类型 import 自 @dommaker/studio-contract，
+// 响应壳统一 { data }（原 {success,data} 手抄声明删除）；消息分页 { data:{messages,total,hasMore} }。
+// agent-profiles / projects 域端点（listAgents/createAgent/discoverProjects 等）未迁移，保留本地类型。
+import type {
+  Channel,
+  ChannelRouting,
+  ChannelMessage as ContractChannelMessage,
+  FileRef,
+  ChannelFileVocabulary,
+  ChannelCurrentPmo,
+  ChannelPmoCandidate,
+  ChannelSuggestions,
+  MergeTargetPreview,
+  ConvertSuggestion,
+  ChannelMessagesResult,
+  SavedImage,
+  SendIntent,
+} from '@dommaker/studio-contract';
 import { api } from './index';
 
-export interface ChannelMessage {
-  id: string;
-  channelId: string;
-  authorType: 'human' | 'agent';
-  agentName?: string;
-  content: string;
-  replyToId?: string | null;
-  workUnitId?: string | null;
-  /** #264：REST/SSE 出口为 object（shapeMessageData 已解析）；string 为存量/测试形态，消费侧双型兼容 */
-  meta?: string | Record<string, unknown>;
+export type {
+  Channel,
+  ChannelRouting,
+  FileRef,
+  ChannelFileVocabulary,
+  ChannelCurrentPmo,
+  ChannelPmoCandidate,
+  ChannelSuggestions,
+  MergeTargetPreview,
+  ConvertSuggestion,
+};
+export type { ChannelSuggestion, SendIntent } from '@dommaker/studio-contract';
+
+/** 频道消息 = 契约 wire 形状 + 客户端本地标记（#326 骨架降级 / #486 乐观回显，服务端不下发） */
+export interface ChannelMessage extends ContractChannelMessage {
   /** #326：骨架标记——数据层降级产物，content/meta 大头已剥离，结构字段仍在（ADR 2026-08-25） */
   degraded?: boolean;
-  /** #486：乐观回显本地标记（仅客户端 pending 态，服务端不下发；成功被本体替换、失败回滚） */
+  /** #486：乐观回显本地标记（仅客户端 pending 态；成功被本体替换、失败回滚） */
   pending?: boolean;
-  createdAt: string;
-}
-
-export interface Channel {
-  id: string;
-  name: string;
-  type: string;
-  defaultWorkspaceId?: string | null;
-  defaultPath?: string | null;
-  members?: string; // JSON string of agent ID array
-  /** #466: 频道级「阶段→角色」路由表（profile id；undefined/某档 null = 该阶段回池涌现） */
-  routing?: ChannelRouting;
-}
-
-/** #466: 工单路由三档（plan 规划 / implement 执行 / review 评审） */
-export interface ChannelRouting {
-  plan?: string | null;
-  implement?: string | null;
-  review?: string | null;
 }
 
 export interface AgentProfile {
@@ -51,13 +55,6 @@ export interface AgentProfile {
   lastError?: string | null;
 }
 
-export interface ConvertSuggestion {
-  title?: string;
-  description?: string;
-  suggestedAssigneeId?: string;
-  suggestedProjectPath?: string;
-}
-
 export interface LocalProject {
   name: string;
   path: string;
@@ -65,117 +62,58 @@ export interface LocalProject {
   language?: string;
 }
 
-/** #281（决策 #249 §2）：@文件引用——repo = 工程绝对路径（PMO gitRepos 同形），path = git ls-files 相对路径 */
-export interface FileRef {
-  repo: string;
-  path: string;
-}
-
-/** #281：频道文件词表（候选集顺序，各仓 git ls-files） */
-export interface ChannelFileVocabulary {
-  repos: { repo: string; files: string[] }[];
-}
-
-/** #272（决策 #251 Q6）：顶栏「当前 PMO」chip 形状（派生不落库；gitRepos 多仓走 tooltip） */
-export interface ChannelCurrentPmo {
-  id: string;
-  pmoNumber: string;
-  title: string;
-  gitRepos: string[];
-}
-
-/** #638：`#` 触发 PMO 自动补全弹框的候选项（当前 PMO 置顶 + 挂接 REQ 所属 PMO，seq 降序去重） */
-export interface ChannelPmoCandidate {
-  id: string;
-  pmoNumber: string;
-  title: string;
-}
-
-/**
- * #443（spec #441 情境引导 02）：频道建议派生端点形状。
- * 后端只回结构化数据（id = 文案模板锚 + params = 模板参数），文案由前端
- * suggestionCopy 模板注册表渲染；kind 三态：status 只读说明 / action 确定性动作 / prompt 预填建议。
- */
-export interface ChannelSuggestion {
-  id: string;
-  kind: 'status' | 'action' | 'prompt';
-  params: Record<string, string>;
-  /** prompt 形态专用（#446）：预填进输入框的指令本体（发给 agent 的自然语言任务，走既有 @mention 消息路由） */
-  text?: string;
-}
-
-export interface ChannelSuggestions {
-  currentWuId: string | null;
-  suggestions: ChannelSuggestion[];
-  /**
-   * #490：fail-closed 可观测标志——推导内部读取失败被吞时 true（此时 suggestions 必为空）；
-   * 正常路径（含「确实无建议」）false。前端仅 console 记录 + 不落「已返回」台账
-   * （ChannelWorkBar 占位保持加载态而非误显空闲），不出任何 UI。
-   */
-  degraded?: boolean;
-}
-
-/** #632：发送 intent——'new-task' 显式建未指派 WU（涌现认领）并关联消息；'plain' 强制纯存储；不传 = 自动合并判定 */
-export type SendIntent = 'new-task' | 'plain';
-
-/** #632：发送前归属预览（GET /channels/:id/merge-target）——预测无 @ 无 replyTo 消息的三态归属 */
-export interface MergeTargetPreview {
-  status: 'unique' | 'ambiguous' | 'none';
-  workUnit?: { id: string; title: string };
-}
-
 export const channelApi = {
   list: () =>
-    api.get<{ success: boolean; data: Channel[] }>('/channels'),
+    api.get<{ data: Channel[] }>('/channels'),
 
   get: (channelId: string) =>
-    api.get<{ success: boolean; data: Channel }>(`/channels/${channelId}`),
+    api.get<{ data: Channel }>(`/channels/${channelId}`),
 
   create: (data: { name: string; type: string; agents?: Array<{ name: string }>; defaultPath?: string | null }) =>
-    api.post<{ success: boolean; data: Channel }>('/channels', data),
+    api.post<{ data: Channel }>('/channels', data),
 
   update: (channelId: string, data: { defaultWorkspaceId?: string; defaultPath?: string; name?: string; routing?: ChannelRouting }) =>
-    api.patch<{ success: boolean; data: Channel }>(`/channels/${channelId}`, data),
+    api.patch<{ data: Channel }>(`/channels/${channelId}`, data),
 
   listMessages: (channelId: string, params?: { before?: string; limit?: number }) =>
-    // 响应里的 total 后端 2026-09 起恒 0（默认跳过节流扫描，?includeTotal=true 才实算）且前端无消费方——类型不收
-    api.get<{ success: boolean; data: ChannelMessage[]; hasMore: boolean }>(
+    // 响应里的 total 后端 2026-09 起恒 0（默认跳过节流扫描，?includeTotal=true 才实算）且前端无消费方
+    api.get<{ data: ChannelMessagesResult }>(
       `/channels/${channelId}/messages`,
       { params }
     ),
 
   sendMessage: (channelId: string, content: string, replyToId?: string, files?: FileRef[], intent?: SendIntent) =>
-    api.post<{ success: boolean; data: ChannelMessage }>(
+    api.post<{ data: ChannelMessage }>(
       `/channels/${channelId}/messages`,
       { content, replyToId, ...(files?.length ? { files } : {}), ...(intent ? { intent } : {}) }
     ),
 
   /** #632: 发送前归属预览（无 @ 无 replyTo 消息的 merge 预测；失败由调用方静默降级为不显示预览条） */
   getMergeTarget: (channelId: string) =>
-    api.get<{ success: boolean; data: MergeTargetPreview }>(`/channels/${channelId}/merge-target`),
+    api.get<{ data: MergeTargetPreview }>(`/channels/${channelId}/merge-target`),
 
   /** #281: @文件引用只读词表（候选集 = 频道相关工程；文件候选走词表路径后缀补全） */
   getFileVocabulary: (channelId: string) =>
-    api.get<{ success: boolean; data: ChannelFileVocabulary }>(`/channels/${channelId}/file-vocabulary`),
+    api.get<{ data: ChannelFileVocabulary }>(`/channels/${channelId}/file-vocabulary`),
 
   /** 2026-09 截图粘贴：频道图片上传（JSON base64；返回相对 URL，渲染时现拼 ?token=） */
   uploadAttachment: (channelId: string, data: { mime: string; dataBase64: string }) =>
-    api.post<{ success: boolean; data: { id: string; url: string; size: number } }>(
+    api.post<{ data: SavedImage }>(
       `/channels/${channelId}/attachments`,
       data,
     ),
 
   /** #272: 顶栏「当前 PMO」chip 派生（最近挂接 REQ 所属 PMO / 杂务 PMO；无 → data=null） */
   getCurrentPmo: (channelId: string) =>
-    api.get<{ success: boolean; data: ChannelCurrentPmo | null }>(`/channels/${channelId}/current-pmo`),
+    api.get<{ data: ChannelCurrentPmo | null }>(`/channels/${channelId}/current-pmo`),
 
   /** #638: `#` 触发 PMO 自动补全候选（当前 PMO 置顶 + 挂接 REQ 所属 PMO；无来源 → data=[]） */
   getPmoCandidates: (channelId: string) =>
-    api.get<{ success: boolean; data: ChannelPmoCandidate[] }>(`/channels/${channelId}/pmo-candidates`),
+    api.get<{ data: ChannelPmoCandidate[] }>(`/channels/${channelId}/pmo-candidates`),
 
   /** #443: 频道建议派生（fail-closed，按当前事实现算；无建议 → suggestions=[]） */
   getSuggestions: (channelId: string) =>
-    api.get<{ success: boolean; data: ChannelSuggestions }>(`/channels/${channelId}/suggestions`),
+    api.get<{ data: ChannelSuggestions }>(`/channels/${channelId}/suggestions`),
 
   listAgents: (channelId?: string, options?: { includeSystem?: boolean }) =>
     api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {
@@ -195,13 +133,13 @@ export const channelApi = {
   convertToTask: (channelId: string, messageId: string, data: {
     title?: string; description?: string; assigneeId?: string; projectPath?: string;
   }) =>
-    api.post<{ success: boolean; data: unknown }>(
+    api.post<{ data: unknown }>(
       `/channels/${channelId}/messages/${messageId}/convert-to-task`,
       data
     ),
 
   suggestTask: (channelId: string, messageId: string) =>
-    api.post<{ success: boolean; data: ConvertSuggestion }>(
+    api.post<{ data: ConvertSuggestion }>(
       `/channels/${channelId}/messages/${messageId}/convert-to-task/suggest`
     ),
 
@@ -211,7 +149,7 @@ export const channelApi = {
   },
 
   updateMembers: (channelId: string, ops: { add?: string[]; remove?: string[] }) =>
-    api.patch<{ success: boolean; data: { members: string[] } }>(`/channels/${channelId}/members`, ops),
+    api.patch<{ data: { members: string[]; warning?: string } }>(`/channels/${channelId}/members`, ops),
 
   createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string; skills?: string[]; preset?: string }) =>
     api.post<AgentProfile>('/agent-profiles', data),

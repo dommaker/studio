@@ -83,7 +83,7 @@ export const useUnreadStore = create<UnreadState>((set, get) => ({
     const channelIds = Object.keys(get().lastSeenAt);
     if (channelIds.length === 0) return;
     const results = await fanOut(channelIds, (id) =>
-      channelApi.listMessages(id, { limit: RESYNC_PAGE_LIMIT }).then(r => r.data?.data ?? []));
+      channelApi.listMessages(id, { limit: RESYNC_PAGE_LIMIT }).then(r => r.data?.data?.messages ?? []));
     set(state => {
       const unreadCounts = { ...state.unreadCounts };
       const lastSeenAt = { ...state.lastSeenAt };

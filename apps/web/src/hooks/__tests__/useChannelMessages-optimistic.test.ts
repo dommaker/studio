@@ -55,7 +55,7 @@ describe('useChannelMessages — 乐观回显（#486）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useChannelMessageStore.getState().__resetForTests();
-    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
     mockOnEvent.mockImplementation((h: (msg: WebSocketMessage) => void) => {
       handler = h;
       return () => {};
@@ -136,7 +136,7 @@ describe('useChannelMessages — 乐观回显（#486）', () => {
 
   it('pending 不作分页游标：列表仅 pending 时 loadMore 不发请求', async () => {
     // 边界：首拉空页但 hasMore=true（服务端分页边缘），随后本地 pending 成为唯一消息
-    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: true } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: true } } });
     const result = await renderLoaded();
     let resolveSend!: (v: unknown) => void;
     mockSendMessage.mockImplementation(() => new Promise(resolve => { resolveSend = resolve; }));

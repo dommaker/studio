@@ -196,7 +196,7 @@ describe('#632: PATCH /:id 退役 defaultProfileId', () => {
     });
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toContain('defaultProfileId');
+    expect(body.error.message).toContain('defaultProfileId');
   });
 
   it('正常字段（name）不受影响', async () => {

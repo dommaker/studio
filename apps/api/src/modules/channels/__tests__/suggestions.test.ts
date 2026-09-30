@@ -738,7 +738,6 @@ describe('channel routes（#443）：GET /:id/suggestions', () => {
     const r = await fetch(`${baseUrl}/${channel.id}/suggestions`);
     expect(r.status).toBe(200);
     const body = await r.json();
-    expect(body.success).toBe(true);
     expect(body.data).toEqual({
       currentWuId: null,
       suggestions: [{ id: 'channel-no-members', kind: 'status', params: {} }],

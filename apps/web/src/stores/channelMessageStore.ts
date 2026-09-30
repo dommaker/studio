@@ -114,7 +114,7 @@ function scheduleHydration(channelId: string, before: string): void {
         useChannelMessageStore.setState(st => {
           const cur = st.channels[channelId];
           if (!cur) return st;
-          return { channels: { ...st.channels, [channelId]: { ...cur, messages: mergePage(cur.messages, res.data.data) } } };
+          return { channels: { ...st.channels, [channelId]: { ...cur, messages: mergePage(cur.messages, res.data.data.messages) } } };
         });
       } catch (err) {
         console.error('[Channel] Failed to hydrate messages', err);
@@ -153,20 +153,20 @@ export const useChannelMessageStore = create<ChannelMessageState>((set, get) => 
               // 合并路径：prepend 的历史页不丢；hasMore 仅当本地最老消息落在最新一页内
               // （未 prepend 出页外）才以响应为准
               const oldest = cur.messages[0];
-              const hasMore = !oldest || res.data.data.some(m => m.id === oldest.id)
-                ? res.data.hasMore
+              const hasMore = !oldest || res.data.data.messages.some(m => m.id === oldest.id)
+                ? res.data.data.hasMore
                 : cur.hasMore;
               return {
                 channels: {
                   ...st.channels,
-                  [channelId]: { ...cur, messages: mergePage(cur.messages, res.data.data), hasMore, loading: false, error: null },
+                  [channelId]: { ...cur, messages: mergePage(cur.messages, res.data.data.messages), hasMore, loading: false, error: null },
                 },
               };
             }
             return {
               channels: {
                 ...st.channels,
-                [channelId]: { messages: res.data.data, hasMore: res.data.hasMore, loading: false, error: null, loaded: true },
+                [channelId]: { messages: res.data.data.messages, hasMore: res.data.data.hasMore, loading: false, error: null, loaded: true },
               },
             };
           });
@@ -197,11 +197,11 @@ export const useChannelMessageStore = create<ChannelMessageState>((set, get) => 
     try {
       // #319：游标 = 锚点消息 id（原 createdAt 时间戳同毫秒撞车会漏/重）
       const res = await channelApi.listMessages(channelId, { before: oldest.id });
-      const older = res.data.data;
+      const older = res.data.data.messages;
       set(st => {
         const cur = st.channels[channelId];
         if (!cur) return st;
-        return { channels: { ...st.channels, [channelId]: { ...cur, messages: [...older, ...cur.messages], hasMore: res.data.hasMore } } };
+        return { channels: { ...st.channels, [channelId]: { ...cur, messages: [...older, ...cur.messages], hasMore: res.data.data.hasMore } } };
       });
       return older.length > 0;
     } catch (err) {
@@ -260,8 +260,11 @@ export const useChannelMessageStore = create<ChannelMessageState>((set, get) => 
       id: pendingId,
       channelId,
       authorType: 'human',
+      agentName: null,
       content,
       replyToId: replyToId ?? null,
+      workUnitId: null,
+      meta: {},
       createdAt: new Date().toISOString(),
       pending: true,
     };

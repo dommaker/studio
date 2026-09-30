@@ -84,11 +84,10 @@ describe('DELETE /channels/:id fallback', () => {
     const wuEmpty = await wuService.create({ scope: 'empty' });
 
     const res = await fetch(`${baseUrl}/${CH_DEL}`, { method: 'DELETE' });
-    const body: { success: boolean; data: { deleted: boolean; fallbackChannelId: string } } = await res.json();
+    const body: { data: { deleted: boolean; fallbackChannelId: string } } = await res.json();
 
-    // 响应形状不变
+    // 响应形状（契约 envelope { data }）
     expect(res.status).toBe(200);
-    expect(body.success).toBe(true);
     expect(body.data).toEqual({ deleted: true, fallbackChannelId: CH_FALLBACK });
 
     // 频道已删除

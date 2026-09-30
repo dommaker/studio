@@ -43,13 +43,13 @@ describe('channelMessageStore', () => {
     vi.clearAllMocks();
     resetClientPerfSink();
     useChannelMessageStore.getState().__resetForTests();
-    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
   });
 
   describe('fetchMessages（首拉替换 / refetch 合并）', () => {
     it('首拉：替换语义落库，loading 落位、loaded 置位', async () => {
       const m1 = msg('m1', 0);
-      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: true } } });
       await useChannelMessageStore.getState().fetchMessages('ch-1');
       const s = sliceOf()!;
       expect(s.messages.map(m => m.id)).toEqual(['m1']);
@@ -61,17 +61,17 @@ describe('channelMessageStore', () => {
 
     it('同频道 refetch：合并语义——prepend 历史保留、已存在按服务端刷新、新消息有序插入', async () => {
       const m3 = msg('m3', 2);
-      mockListMessages.mockResolvedValue({ data: { data: [m3], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3], hasMore: true } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');
       // prepend 一页历史
       const m1 = msg('m1', 0);
-      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: false } } });
       await store.loadMore('ch-1');
       // refetch：m3 服务端更新版 + 新到 m4
       const m3u = { ...m3, content: '服务端更新' };
       const m4 = msg('m4', 3);
-      mockListMessages.mockResolvedValue({ data: { data: [m3u, m4], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3u, m4], hasMore: true } } });
       await store.fetchMessages('ch-1');
 
       const s = sliceOf()!;
@@ -81,15 +81,15 @@ describe('channelMessageStore', () => {
 
     it('prepend 方向上 hasMore 不被最新一页的 hasMore 错误重置', async () => {
       const m3 = msg('m3', 2);
-      mockListMessages.mockResolvedValue({ data: { data: [m3], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3], hasMore: true } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');
       const m1 = msg('m1', 0);
-      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: false } } });
       await store.loadMore('ch-1');
       expect(sliceOf()!.hasMore).toBe(false);
       // 最新一页 hasMore=true 描述头部方向，不得覆盖 prepend 方向状态
-      mockListMessages.mockResolvedValue({ data: { data: [m3], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3], hasMore: true } } });
       await store.fetchMessages('ch-1');
       expect(sliceOf()!.hasMore).toBe(false);
     });
@@ -103,7 +103,7 @@ describe('channelMessageStore', () => {
       expect(sliceOf()!.messages).toHaveLength(0);
 
       const m1 = msg('m1', 0);
-      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: false } } });
       await store.fetchMessages('ch-1');
       expect(sliceOf()!.error).toBeNull();
       expect(sliceOf()!.messages.map(m => m.id)).toEqual(['m1']);
@@ -126,13 +126,13 @@ describe('channelMessageStore', () => {
   describe('loadMore（#319 id 游标 prepend）', () => {
     it('以最老非 pending 消息 id 为游标前插，返回是否真实前插', async () => {
       const m3 = msg('m3', 2);
-      mockListMessages.mockResolvedValue({ data: { data: [m3], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m3], hasMore: true } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');
 
       const m1 = msg('m1', 0);
       const m2 = msg('m2', 1);
-      mockListMessages.mockResolvedValue({ data: { data: [m1, m2], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1, m2], hasMore: false } } });
       const inserted = await store.loadMore('ch-1');
 
       expect(mockListMessages).toHaveBeenLastCalledWith('ch-1', { before: 'm3' });
@@ -150,7 +150,7 @@ describe('channelMessageStore', () => {
     });
 
     it('pending 不作分页游标：列表仅 pending 时不发请求（#486）', async () => {
-      mockListMessages.mockResolvedValue({ data: { data: [], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: true } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');
       let resolveSend!: (v: unknown) => void;
@@ -192,7 +192,7 @@ describe('channelMessageStore', () => {
   describe('applyMessageUpdated（#315 全量本体优先 / legacy patch）', () => {
     it('全量 message 本体原位替换', async () => {
       const m1 = msg('m1', 0, { content: '旧内容' });
-      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: false } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');
 
@@ -203,7 +203,7 @@ describe('channelMessageStore', () => {
 
     it('legacy patch：仅 meta 整体替换、骨架不假复活；带 content 复活清 degraded', async () => {
       const m1 = msg('m1', 0, { content: '', meta: '{}', degraded: true });
-      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: false } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');
 
@@ -243,17 +243,17 @@ describe('channelMessageStore', () => {
   describe('messages 升序不变量（deriveStreamView 免全量 sort 的前提，F1）', () => {
     it('prepend / 乱序 SSE 插入 / refetch 合并后恒按 createdAt 升序', async () => {
       const store = useChannelMessageStore.getState();
-      mockListMessages.mockResolvedValue({ data: { data: [msg('m3', 2)], hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [msg('m3', 2)], hasMore: true } } });
       await store.fetchMessages('ch-1');
       // prepend 一页更早历史
-      mockListMessages.mockResolvedValue({ data: { data: [msg('m1', 0)], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [msg('m1', 0)], hasMore: false } } });
       await store.loadMore('ch-1');
       // 乱序到达的 SSE 增量
       store.applyMessageSent('ch-1', msg('m5', 4));
       store.applyMessageSent('ch-1', msg('m4', 3));
       // refetch 合并进落在中间的新消息 m2
       mockListMessages.mockResolvedValue({
-        data: { data: [msg('m2', 1), msg('m3', 2), msg('m4', 3), msg('m5', 4)], hasMore: false },
+        data: { data: { messages: [msg('m2', 1), msg('m3', 2), msg('m4', 3), msg('m5', 4)], hasMore: false, total: 4 } },
       });
       await store.fetchMessages('ch-1');
 
@@ -311,7 +311,7 @@ describe('channelMessageStore', () => {
     });
 
     it('按 planPrune 降级视口上方历史为骨架', async () => {
-      mockListMessages.mockResolvedValue({ data: { data: batch(10), hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: batch(10), hasMore: false } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');
       store.syncPruning('ch-1', 'm8', OPTS); // 边界 7-2=5 → [m1..m5]
@@ -322,12 +322,12 @@ describe('channelMessageStore', () => {
 
     it('视口进入降级区 → 防抖后以首个非骨架 id 为游标整页水合，骨架原位复活、hasMore 不动', async () => {
       const list = batch(10);
-      mockListMessages.mockResolvedValue({ data: { data: list, hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: list, hasMore: false } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');
       store.syncPruning('ch-1', 'm8', OPTS);
 
-      mockListMessages.mockResolvedValue({ data: { data: list.slice(0, 5), hasMore: true } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: list.slice(0, 5), hasMore: true } } });
       store.syncPruning('ch-1', 'm6', OPTS); // idx 5 < 5+1 → 触发水合
       expect(mockListMessages).toHaveBeenCalledTimes(1); // 首拉；防抖未点火
       await vi.advanceTimersByTimeAsync(250);
@@ -338,11 +338,11 @@ describe('channelMessageStore', () => {
     });
 
     it('防抖窗口内连续触发只发一次水合请求', async () => {
-      mockListMessages.mockResolvedValue({ data: { data: batch(10), hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: batch(10), hasMore: false } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');
       store.syncPruning('ch-1', 'm8', OPTS);
-      mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
       store.syncPruning('ch-1', 'm6', OPTS);
       store.syncPruning('ch-1', 'm6', OPTS);
       await vi.advanceTimersByTimeAsync(250);
@@ -350,7 +350,7 @@ describe('channelMessageStore', () => {
     });
 
     it('__resetForTests 清数据面 + 纪律簿记 + 水合计时器', async () => {
-      mockListMessages.mockResolvedValue({ data: { data: batch(10), hasMore: false } });
+      mockListMessages.mockResolvedValue({ data: { data: { messages: batch(10), hasMore: false } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');
       store.syncPruning('ch-1', 'm8', OPTS);

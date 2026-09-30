@@ -59,7 +59,6 @@ describe('Requirement API (vision §5.3)', () => {
     const { status, json } = await api('POST', '/', { title: '手动需求', description: 'desc' });
 
     expect(status).toBe(201);
-    expect(json.success).toBe(true);
     expect(json.data.id).toBe('REQ-0001');
     expect(json.data.title).toBe('手动需求');
     expect(json.data.status).toBe('open');
@@ -71,8 +70,7 @@ describe('Requirement API (vision §5.3)', () => {
     for (const body of [{}, { title: '' }, { title: '   ' }, { title: 123 }]) {
       const { status, json } = await api('POST', '/', body);
       expect(status).toBe(400);
-      expect(json.success).toBe(false);
-      expect(json.error).toContain('title');
+      expect(json.error.message).toContain('title');
     }
   });
 
@@ -100,7 +98,7 @@ describe('Requirement API (vision §5.3)', () => {
   it('GET / with invalid status → 400', async () => {
     const { status, json } = await api('GET', '/?status=bogus');
     expect(status).toBe(400);
-    expect(json.error).toContain('status');
+    expect(json.error.message).toContain('status');
   });
 
   it('GET /:id returns the requirement; unknown → 404', async () => {
@@ -112,7 +110,7 @@ describe('Requirement API (vision §5.3)', () => {
 
     const missing = await api('GET', '/REQ-9999');
     expect(missing.status).toBe(404);
-    expect(missing.json.success).toBe(false);
+    expect(missing.json.error.message).toContain('Requirement not found');
   });
 
   it('PATCH /:id updates status/title/docs', async () => {
@@ -145,7 +143,6 @@ describe('Requirement API (vision §5.3)', () => {
 
     const { status, json } = await api('GET', `/${created.id}/chain`);
     expect(status).toBe(200);
-    expect(json.success).toBe(true);
     expect(json.data.requirement.id).toBe(created.id);
     // §10：chain 条目自带 type/createdAt/claimedAt/completedAt（createdAt 动态，分开断言）
     expect(json.data.workunits).toHaveLength(1);
@@ -173,7 +170,6 @@ describe('Requirement API (vision §5.3)', () => {
 
     const { status, json } = await api('GET', `/chain-stats?reqIds=${r1.id},${r2.id},REQ-99999`);
     expect(status).toBe(200);
-    expect(json.success).toBe(true);
     expect(json.data[r1.id]).toEqual({ finished: 1, total: 2 });
     expect(json.data[r2.id]).toEqual({ finished: 0, total: 1 });
     expect(json.data['REQ-99999']).toBeUndefined();
@@ -212,7 +208,7 @@ describe('Requirement API (vision §5.3)', () => {
       const { status, json } = await api('POST', '/', { title: '挂空项目', projectId: 'proj-no-such-b3a' });
 
       expect(status).toBe(400);
-      expect(json.error).toContain('Project not found');
+      expect(json.error.message).toContain('Project not found');
     });
 
     it('POST / with non-string projectId → 400', async () => {

@@ -116,7 +116,7 @@ describe('CreateChannelForm（#272 创建频道表单）', () => {
   });
 
   it('创建失败内联报错；取消回调', async () => {
-    const createChannel = vi.fn().mockRejectedValue({ response: { data: { error: '重名' } } });
+    const createChannel = vi.fn().mockRejectedValue({ isAxiosError: true, response: { data: { error: { code: 'CONFLICT', message: '重名' } } } });
     const { onCancel } = renderForm({ createChannel });
 
     fireEvent.change(screen.getByLabelText('频道名称'), { target: { value: 'ops' } });
