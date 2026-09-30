@@ -16,7 +16,7 @@
 | `MetricsService.getEfficiencyMetrics` | `metrics.service.ts` | #120：加载统一事件 + WU index（角色归因）→ 组合 cacheHitRate + sectionTrim；60s 独立缓存（`efficiencyCache`），注入 `now` 跳过缓存 |
 | `OverviewMetrics` 等 9 组指标接口 | `metrics.types.ts`（经 `metrics.service.ts` re-export） | D16 类型契约（Percentile + 9 个指标组接口 + OverviewAggregateInput 在 metrics-aggregate.ts） |
 | `EvidenceMetrics` (接口) | `metrics.types.ts`（经 `metrics.service.ts` re-export） | F6 证据台账指标（决策 1）：l1/l2/l3 分层达成、selfReview 率、needsHuman、derivedMismatch 双轨偏差（持续为 0 才可停止手写 in_review）、派生列分布——派生一律过 deriveDisplayState |
-| `INJECTED_TOKEN_BUDGET` (常量) | `monitoring.service.ts` | 知识/约束注入红线上限：2000 tokens/任务 |
+| `INJECTED_TOKEN_BUDGET` (常量) | `monitoring.service.ts` | 知识/约束注入红线上限：927 tokens/任务（harness 1.16.0 estimateTokens 新尺子旧窗口反推值，与 knowledge-service INJECT_TOKEN_BUDGET 同数；推导正本见 agents/__tests__/prompt-composer.test.ts 反推块；旧尺子口径原值 2000） |
 | `OVERHEAD_RATIO_BUDGET` (常量) | `monitoring.service.ts` | 封装开销比红线：0.2（对应总 token 不超过直连 CLI 的 1.2x） |
 | `KnowledgeMetricsSource` (接口) | `monitoring.service.ts` | 知识度量源接口，定义 `getFlywheelMetrics` 和 `getAuditReport` 方法 |
 | `FlywheelStats` (接口) | `monitoring.service.ts` | M1 飞轮指标类型，包含 quality、hitRate、freshness 等字段 |

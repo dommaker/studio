@@ -34,7 +34,7 @@ import type {
   KnowledgeSubsystem,
   KnowledgeOrigin,
 } from '@dommaker/harness';
-import { TokenEstimator } from '@dommaker/harness';
+import { estimateTokens } from '@dommaker/harness';
 import { FileStore, logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
@@ -204,7 +204,7 @@ export interface InjectOpts {
  * 入口 = worktree `.claude/settings.json` 里注册的 local-rag MCP server
  * （studio-agent worktree-resolver propagateHarnessConfig 写入；agent CLI 以
  * worktree 为 cwd 启动，自动加载该配置），工具名 `mcp__local-rag__query_documents`。
- * 体量 ~3 行（约 80 tokens），计入 2K 注入红线内的固定小额开销。
+ * 体量 ~3 行（约 80 tokens），计入注入红线（INJECT_TOKEN_BUDGET）内的固定小额开销。
  */
 export const KNOWLEDGE_QUERY_GUIDANCE = [
   '## 何时查知识库',
@@ -341,7 +341,7 @@ export class KnowledgeService {
    * - proposal 须经审核（promote → verified）才参与注入（见 injectContext 的
    *   isInjectableMaturity 闸门）；模板式 extractFromExecution 保留为兜底。
    * - 提取开销（tokens/duration）以 knowledge:extraction 事件单独度量，
-   *   不计入 2K 注入红线。
+   *   不计入注入红线。
    * - 永不抛出：LLM 未配置/调用失败仅记日志（e2e 无 LLM 时静默跳过）。
    * - P8（2026-09-16 perf 实测）：总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`
    *   整体跳过——无凭证/fake-provider 环境里 studio 角色 provider 仍指向真实
@@ -524,7 +524,7 @@ export class KnowledgeService {
 
   async injectContext(agentType: string, opts?: InjectOpts): Promise<InjectContextResult> {
     const injectedIds: string[] = [];
-    // §10 依赖项：maxTokens 做实（此前 _opts 未生效，2K 红线只有度量无运行时截断）。
+    // §10 依赖项：maxTokens 做实（此前 _opts 未生效，注入红线只有度量无运行时截断）。
     // 缺省回退 INJECT_TOKEN_BUDGET——#91 起 prompt 组装按分段软定额传入有效预算（knowledge 定额 + 池余量）。
     const maxTokens = opts?.maxTokens ?? INJECT_TOKEN_BUDGET;
 
@@ -547,8 +547,8 @@ export class KnowledgeService {
     const signals = this.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
     const filteredSignals = (signals || []).filter((s: any) => !isRoleMemory(s) && s.status !== 'stale' && isInjectableMaturity(s.maturity));
 
-    // ③（wireups）：2K 注入红线执行 — 候选按注入优先级（成熟度 → 引用计数）排序，
-    // 逐个累加 TokenEstimator.estimateText（harness 1.1.0 口径），超 2000 截断并记 knowledge:inject-trimmed 事件。
+    // ③（wireups）：注入红线（INJECT_TOKEN_BUDGET）执行 — 候选按注入优先级（成熟度 → 引用计数）排序，
+    // 逐个累加 estimateTokens（harness 尺子口径），超预算截断并记 knowledge:inject-trimmed 事件。
     interface Candidate { line: string; id: string }
     const toCandidates = (entries: any[], lineOf: (e: any) => string): Candidate[] =>
       entries
@@ -558,7 +558,7 @@ export class KnowledgeService {
 
     // #602 D3：E1 prompt-template 提案生效落点 —— 「## 系统约束」段经 renderWithOverride
     // 渲染（无覆盖文件时 fallback 即原模板，行为零变化）。token 计量按渲染后文本，
-    // 避免 override 前缀使 2K 红线截断口径漂移。
+    // 避免 override 前缀使注入红线截断口径漂移。
     const sectionOverhead = (s: { header: string; templateId?: string }): string =>
       s.templateId
         ? renderWithOverride(s.templateId, `${s.header}\n{content}`, { content: '' })
@@ -580,23 +580,23 @@ export class KnowledgeService {
     const trimmedIds: string[] = [];
     let usedTokens = 0;
     // 预算内给检索指引预留（有注入时必附加，属红线内固定小额开销）
-    const guidanceTokens = TokenEstimator.estimateText(KNOWLEDGE_QUERY_GUIDANCE + '\n\n');
+    const guidanceTokens = estimateTokens(KNOWLEDGE_QUERY_GUIDANCE + '\n\n');
 
     // #91: 未截断的原始尺寸（inject-trimmed / section_trimmed 埋点的尺寸字段，
     // 口径与下方 kept 一致：header + 行 + reference 提示 + 检索指引）
     let originalTokens = 0;
     for (const section of sectionCandidates) {
       if (section.items.length === 0) continue;
-      originalTokens += TokenEstimator.estimateText(sectionOverhead(section) + '\n');
-      for (const item of section.items) originalTokens += TokenEstimator.estimateText(item.line + '\n');
+      originalTokens += estimateTokens(sectionOverhead(section) + '\n');
+      for (const item of section.items) originalTokens += estimateTokens(item.line + '\n');
     }
 
     for (const section of sectionCandidates) {
       if (section.items.length === 0) continue;
-      const headerTokens = TokenEstimator.estimateText(sectionOverhead(section) + '\n'); // 渲染后 overhead + 段落分隔
+      const headerTokens = estimateTokens(sectionOverhead(section) + '\n'); // 渲染后 overhead + 段落分隔
       const keptLines: string[] = [];
       for (const item of section.items) {
-        const lineTokens = TokenEstimator.estimateText(item.line + '\n');
+        const lineTokens = estimateTokens(item.line + '\n');
         const cost = (keptLines.length === 0 ? headerTokens : 0) + lineTokens;
         if (usedTokens + cost + guidanceTokens > maxTokens) {
           trimmedIds.push(item.id);
@@ -613,7 +613,7 @@ export class KnowledgeService {
     const refCount = await this.query.count({ consumptionModes: ['reference'] });
     if (refCount > 0) {
       const hint = `[知识库: ${refCount} 条参考，遇到问题时用 search()]`;
-      const hintTokens = TokenEstimator.estimateText(hint + '\n\n');
+      const hintTokens = estimateTokens(hint + '\n\n');
       originalTokens += hintTokens;
       if (usedTokens + hintTokens + guidanceTokens <= maxTokens) {
         sections.push(hint);
@@ -1155,8 +1155,12 @@ function isRoleMemory(entry: any): boolean {
   return Array.isArray(entry?.tags) && entry.tags.includes('role-memory');
 }
 
-/** ③（wireups）：注入 token 预算（vision D6「注入 ≤2K tokens」红线执行点） */
-export const INJECT_TOKEN_BUDGET = 2_000;
+/** ③（wireups）：注入 token 预算（vision D6「注入 ≤2K tokens」红线执行点）。
+ *  harness 1.16.0 换 estimateTokens 新尺子后按「旧窗口反推」换算：用真实渲染器对本仓知识条目
+ *  内容类（英文为主夹少量中文，旧尺子整串 /1.5 高估）产出的注入全文，取旧尺子在旧 2000 下
+ *  放行的最长前缀，再读新尺子 = 927；与 monitoring INJECTED_TOKEN_BUDGET 同数，
+ *  推导即测试正本见 agents/__tests__/prompt-composer.test.ts「九段定额换尺子反推（推导即测试 = 定数正本）」块。 */
+export const INJECT_TOKEN_BUDGET = 927;
 
 /**
  * ③（wireups）：注入优先级 = 成熟度权重 × 10000 + 引用计数。

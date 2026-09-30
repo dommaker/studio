@@ -17,7 +17,7 @@
  */
 
 import { parseChannels, FileStore, logger, stripTrailingSlashes, type AgentProfileData } from '@dommaker/studio-shared';
-import { TokenEstimator } from '@dommaker/harness';
+import { estimateTokens } from '@dommaker/harness';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { projectService } from '../../pmo/project.service.js';
@@ -38,28 +38,35 @@ import { getErrorMessage } from '../../../utils/errors.js';
  *
  * 软定额 + 池内余量共享：按 persona → roster → skills → map → memory → knowledge → files
  * → contract → handoff 顺序逐段组装，段有效预算 = 本段定额 + 共享池余量；段实际用量低于有效预算时，
- * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~4.9K）。
- * map 段 = #111 T5 探路地图完整渲染（定额 800，实测校准见 apps/api/src/modules/agents/CONTEXT.md）。
- * files 段 = #285（决策 #257）@文件引用注入段「## 引用文件」（定额 400，见 buildFilesSection）。
- * contract 段 = #119 契约段生成器（定额 200，按 WU type 产出格式 + 最小模板）。
+ * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~5.3K）。
+ * 定额数值 = harness 1.16.0 estimateTokens 新尺子口径，逐段「旧窗口反推」所得（不是系数）：
+ * 用生产入口把该段渲染到不截断 → 旧尺子（harness ≤1.15，任一中文字整串按 len/1.5）在旧定额
+ * （300/400/600/800/300/1000/400/200/800）下放行的最长前缀 → estimateTokens 对同一前缀的读数。
+ * 推导即测试正本 = __tests__/prompt-composer.test.ts「九段定额换尺子反推（推导即测试 = 定数正本）」块：
+ * 改尺子或改常量后，该块直接报出该是多少。方向不唯一（ASCII 为主段新尺子读数更小、中文为主段
+ * 更大），禁一把系数套到底。
+ * map 段 = #111 T5 探路地图完整渲染（destination + N 封顶中文决策行 + 开放雾清单反推）。
+ * files 段 = #285（决策 #257）@文件引用注入段「## 引用文件」（ASCII 路径为主 + 中文标注，
+ * 新尺子读数低于旧 400，方向为降；见 buildFilesSection）。
+ * contract 段 = #119 契约段生成器（按全部真实模板逐一反推取最大值；见 buildContractSection）。
  * memory / handoff 段内容源分别归 #100（角色记忆索引常驻注入）与 #95（handoff 前序
  * 进展段）。
  */
 export const SECTION_QUOTAS = {
-  persona: 300,
-  roster: 400,
-  skills: 600,
-  map: 800,
-  memory: 300,
-  knowledge: 1000,
-  files: 400,
-  contract: 200,
-  handoff: 800,
+  persona: 703,
+  roster: 493,
+  skills: 635,
+  map: 1181,
+  memory: 318,
+  knowledge: 493,
+  files: 213,
+  contract: 396,
+  handoff: 834,
 } as const;
 
 type InjectSectionName = keyof typeof SECTION_QUOTAS;
 
-/** #111 T5：地图段 decisions 渲染条数封顶 N（实测校准：典型 ~160tok，顶格偏重 ~720tok < 800 定额） */
+/** #111 T5：地图段 decisions 渲染条数封顶 N（顶格完整渲染尺寸随 map 段定额一并在旧窗口反推中校准，见 __tests__/prompt-composer.test.ts 推导块；超出段预算时按 fog 保留、决策从旧到新裁） */
 export const MAP_DECISIONS_MAX = 10;
 /** #111 T5：单条 decision summary 紧凑截断阈值（超出加省略号；顶格单行 ~43tok） */
 export const MAP_SUMMARY_MAX_CHARS = 160;
@@ -177,18 +184,18 @@ interface BuiltSection {
 }
 
 /**
- * #150 A2: 按 token 预算截断文本（TokenEstimator 口径，替代 chars/4 反推 slice(0, budget*4)）。
- * 旧反推只在纯 ASCII 下成立：含中文文本按 TokenEstimator（≈1.5 字符/token）会超预算。
- * 二分求 estimateText 口径下最长的预算适配前缀，与估算器严格一致，不再复制启发式。
+ * #150 A2: 按 token 预算截断文本（estimateTokens 口径，替代 chars/4 反推 slice(0, budget*4)）。
+ * 旧反推只在纯 ASCII 下成立：含中文文本按估算器口径（CJK 逐字 2 token）会超预算。
+ * 二分求 estimateTokens 口径下最长的预算适配前缀，与估算器严格一致，不再复制启发式。
  */
 function sliceToTokenBudget(text: string, tokenBudget: number): string {
   if (tokenBudget <= 0) return '';
-  if (TokenEstimator.estimateText(text) <= tokenBudget) return text;
+  if (estimateTokens(text) <= tokenBudget) return text;
   let lo = 0;
   let hi = text.length;
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
-    if (TokenEstimator.estimateText(text.slice(0, mid)) <= tokenBudget) lo = mid;
+    if (estimateTokens(text.slice(0, mid)) <= tokenBudget) lo = mid;
     else hi = mid - 1;
   }
   return text.slice(0, lo);
@@ -371,7 +378,7 @@ export async function composeStepPrompt(
       maxTokens: budget,
     });
     injectedKnowledgeIds = injected.injectedIds ?? [];
-    const keptTokens = injected.usage?.keptTokens ?? TokenEstimator.estimateText(injected.prompt);
+    const keptTokens = injected.usage?.keptTokens ?? estimateTokens(injected.prompt);
     return {
       section: injected.prompt,
       tokens: keptTokens,
@@ -470,7 +477,7 @@ export async function composeStepPrompt(
  * MAP_SUMMARY_MAX_CHARS 截断加省略号）+ 开放 fog（open/in-discussion，resolved 不列）清单。
  * WU 无 pmoId / PMO 无 map（非探路型）→ 空段（不注入，行为同现状）。
  * 超预算截断策略：fog 全保留，decisions 从旧到新逐条裁（保最新）；决策裁光仍超
- * （fog+destination 病态规模）→ 按 TokenEstimator 口径兜底截（与其他段同口径）。
+ * （fog+destination 病态规模）→ 按 estimateTokens 口径兜底截（与其他段同口径）。
  * originalTokens = N 封顶后完整渲染尺寸（N 封顶不算截断，只有预算裁条才落埋点）。
  */
 async function buildPmoMapSection(metadata: WorkUnitMetadata, tokenBudget: number): Promise<BuiltSection> {
@@ -504,20 +511,20 @@ async function buildPmoMapSection(metadata: WorkUnitMetadata, tokenBudget: numbe
   };
 
   const full = render(decisionLines);
-  const originalTokens = TokenEstimator.estimateText(full);
+  const originalTokens = estimateTokens(full);
   if (originalTokens <= tokenBudget) return { section: full, tokens: originalTokens, originalTokens };
 
   // 超预算：fog 全保留，decisions 从旧到新逐条裁（列表尾 = 最旧）
   let kept = decisionLines;
-  while (kept.length > 0 && TokenEstimator.estimateText(render(kept)) > tokenBudget) {
+  while (kept.length > 0 && estimateTokens(render(kept)) > tokenBudget) {
     kept = kept.slice(0, -1);
   }
   let section = render(kept);
-  if (TokenEstimator.estimateText(section) > tokenBudget) {
-    // 兜底：fog+destination 自身已超预算，按 TokenEstimator 口径截（与其他段同口径）
+  if (estimateTokens(section) > tokenBudget) {
+    // 兜底：fog+destination 自身已超预算，按 estimateTokens 口径截（与其他段同口径）
     section = sliceToTokenBudget(section, tokenBudget);
   }
-  return { section, tokens: TokenEstimator.estimateText(section), originalTokens };
+  return { section, tokens: estimateTokens(section), originalTokens };
 }
 
 /**
@@ -529,7 +536,7 @@ async function buildPmoMapSection(metadata: WorkUnitMetadata, tokenBudget: numbe
  * 否则（含 workspaceRoot 缺失）标注「位于本工程之外」；段尾固定行（D6 原文）只读约束。
  * 防御性解析：fileRefs 非数组/畸形条目跳过；无有效引用 → 空段不注入。
  *
- * 截断（D2/D4，TokenEstimator 口径）：块级截断保注入序前缀 —— 段头+固定行保留，
+ * 截断（D2/D4，estimateTokens 口径）：块级截断保注入序前缀 —— 段头+固定行保留，
  * 引用块按序填充超预算即停；有未注入引用时段尾标注「另有 N 条引用未注入」（标注自身
  * 计入预算，加标注超预算则再少保一条，迭代收敛）。病态超预算（段头+固定行都装不下）
  * → 空段不注入（不半截输出）。截断明细经 trimDetail 回传（runSection merge 进
@@ -567,11 +574,11 @@ function buildFilesSection(metadata: WorkUnitMetadata, tokenBudget: number): Bui
   };
 
   const full = render(blocks, 0);
-  const originalTokens = TokenEstimator.estimateText(full);
+  const originalTokens = estimateTokens(full);
   if (originalTokens <= tokenBudget) return { section: full, tokens: originalTokens, originalTokens };
 
   // 病态超预算：段头 + 固定行（含标注）都装不下 → 空段不注入（不半截输出）
-  if (TokenEstimator.estimateText(render([], blocks.length)) > tokenBudget) {
+  if (estimateTokens(render([], blocks.length)) > tokenBudget) {
     return { section: '', tokens: 0, originalTokens: 0 };
   }
 
@@ -580,12 +587,12 @@ function buildFilesSection(metadata: WorkUnitMetadata, tokenBudget: number): Bui
   let keptCount = 0;
   while (
     keptCount < blocks.length
-    && TokenEstimator.estimateText(render(blocks.slice(0, keptCount + 1), blocks.length - keptCount - 1)) <= tokenBudget
+    && estimateTokens(render(blocks.slice(0, keptCount + 1), blocks.length - keptCount - 1)) <= tokenBudget
   ) {
     keptCount++;
   }
   // 标注计数位宽变化（9→10 等）可能把末态顶超预算：再少保一条直至收敛
-  while (keptCount > 0 && TokenEstimator.estimateText(render(blocks.slice(0, keptCount), blocks.length - keptCount)) > tokenBudget) {
+  while (keptCount > 0 && estimateTokens(render(blocks.slice(0, keptCount), blocks.length - keptCount)) > tokenBudget) {
     keptCount--;
   }
 
@@ -593,7 +600,7 @@ function buildFilesSection(metadata: WorkUnitMetadata, tokenBudget: number): Bui
   const section = render(blocks.slice(0, keptCount), droppedCount);
   return {
     section,
-    tokens: TokenEstimator.estimateText(section),
+    tokens: estimateTokens(section),
     originalTokens,
     trimDetail: {
       keptCount,
@@ -605,8 +612,8 @@ function buildFilesSection(metadata: WorkUnitMetadata, tokenBudget: number): Bui
 
 /**
  * #119: 组装 `## 产出契约` 段 —— 按 WU type 产出格式 + 最小模板（CONTRACT_TEMPLATES）。
- * 未知/无契约 type → 空段（不注入）。超预算按 TokenEstimator 口径截（与其他段同口径），
- * originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点（定额 200）。
+ * 未知/无契约 type → 空段（不注入）。超预算按 estimateTokens 口径截（与其他段同口径），
+ * originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点（定额见 SECTION_QUOTAS.contract）。
  */
 function buildContractSection(wu: WorkUnitData, metadata: WorkUnitMetadata, tokenBudget: number): BuiltSection {
   // #163（T8-E2）：巡检单契约优先于 analysis 通用模板
@@ -620,11 +627,11 @@ function buildContractSection(wu: WorkUnitData, metadata: WorkUnitMetadata, toke
   if (!template || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
 
   const full = `## 产出契约\n\n${template}`;
-  const originalTokens = TokenEstimator.estimateText(full);
+  const originalTokens = estimateTokens(full);
   if (originalTokens > tokenBudget) {
     // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
     const sliced = sliceToTokenBudget(full, tokenBudget);
-    return { section: sliced, tokens: TokenEstimator.estimateText(sliced), originalTokens };
+    return { section: sliced, tokens: estimateTokens(sliced), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
 }
@@ -633,7 +640,7 @@ function buildContractSection(wu: WorkUnitData, metadata: WorkUnitMetadata, toke
  * #95: 组装 `## 前序进展` 段 —— 断链新会话（续用不命中）时给 agent 的前序上下文。
  * 注入条件：isNewSession && stepCount>0（含复活丢会话）。内容 = metadata.progressLog
  * （成功步，旧→新）+ errorType 存在时附「上一步失败」行（失败步不落 log，注入时补）。
- * progressLog 空且无 errorType → 空段。超预算按 TokenEstimator 口径截（与其他段同口径），
+ * progressLog 空且无 errorType → 空段。超预算按 estimateTokens 口径截（与其他段同口径），
  * originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点。
  */
 function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, tokenBudget: number): BuiltSection {
@@ -659,10 +666,10 @@ function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, 
   }
 
   const full = lines.join('\n');
-  const originalTokens = TokenEstimator.estimateText(full);
+  const originalTokens = estimateTokens(full);
   if (originalTokens > tokenBudget) {
     const sliced = sliceToTokenBudget(full, tokenBudget);
-    return { section: sliced, tokens: TokenEstimator.estimateText(sliced), originalTokens };
+    return { section: sliced, tokens: estimateTokens(sliced), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
 }
@@ -701,15 +708,15 @@ async function buildSkillSection(
   const header = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
   // #92: 段尾 MANIFEST 指针（恒在段尾，agent 按需读全文清单）
   const pointer = `完整 skill 清单见 skills MANIFEST.md（${studioPath('skills', 'MANIFEST.md')}）`;
-  const pointerTokens = TokenEstimator.estimateText(pointer + '\n\n'); // +\n\n 分隔符
-  const fixedTokens = TokenEstimator.estimateText(header) + pointerTokens;
+  const pointerTokens = estimateTokens(pointer + '\n\n'); // +\n\n 分隔符
+  const fixedTokens = estimateTokens(header) + pointerTokens;
 
   const candidates = ranked.map(entry => {
     const triggerSummary = Array.isArray(entry.triggers) && entry.triggers.length > 0
       ? `｜触发：${entry.triggers.slice(0, 5).join(', ')}`
       : '';
     const block = `### ${entry.name}\n${entry.description || '（无描述）'}${triggerSummary}\n全文：${studioPath('skills', entry.name, 'SKILL.md')}`;
-    return { entry, block, blockTokens: TokenEstimator.estimateText(block + '\n\n') }; // + \n\n 分隔符
+    return { entry, block, blockTokens: estimateTokens(block + '\n\n') }; // + \n\n 分隔符
   });
   // 未截断的原始尺寸（截断埋点的 originalTokens；块级跳过也计入）
   const originalTokens = fixedTokens + candidates.reduce((sum, c) => sum + c.blockTokens, 0);
@@ -725,7 +732,7 @@ async function buildSkillSection(
         const sliced = sliceToTokenBudget(block, tokenBudget - tokens);
         blocks.push(sliced);
         matched.push(entry.name);
-        tokens = fixedTokens + TokenEstimator.estimateText(sliced);
+        tokens = fixedTokens + estimateTokens(sliced);
       }
       break;
     }
@@ -744,7 +751,7 @@ async function buildSkillSection(
  * 决策 13 + #91: 组装 `## 你的角色` 段（角色自述 + preset 声明）。
  * 内容 = role.persona ?? role.description，附 preset 带入的 skills/tools/constraints 行
  * （#91 修复：此前 preset 三字段落盘后无任何消费，角色配置形同虚设）；皆空则段省略。
- * 调用方传入有效预算（#91 定额 + 池余量），超出按 TokenEstimator 口径截断。
+ * 调用方传入有效预算（#91 定额 + 池余量），超出按 estimateTokens 口径截断。
  */
 function buildPersonaSection(role: AgentProfileData, tokenBudget: number): BuiltSection {
   const persona = role.persona ?? role.description;
@@ -762,11 +769,11 @@ function buildPersonaSection(role: AgentProfileData, tokenBudget: number): Built
   if (!body || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
 
   const full = `## 你的角色\n\n${body}`;
-  const originalTokens = TokenEstimator.estimateText(full);
+  const originalTokens = estimateTokens(full);
   if (originalTokens > tokenBudget) {
     // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
     const sliced = sliceToTokenBudget(full, tokenBudget);
-    return { section: sliced, tokens: TokenEstimator.estimateText(sliced), originalTokens };
+    return { section: sliced, tokens: estimateTokens(sliced), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
 }
@@ -776,7 +783,7 @@ function buildPersonaSection(role: AgentProfileData, tokenBudget: number): Built
  * 花名册 = 本频道 active 成员的 name + description + provider（排除自己——委派质量取决于
  * 模型对角色能力的理解，没有花名册的 DELEGATE 是盲派）；members 为空（历史频道未回填）
  * 时回退到全部 active profile，与 DelegationGate 的过渡期口径一致。
- * 预算：调用方传入有效预算（#91 定额 + 池余量），超出按 TokenEstimator 口径截断。
+ * 预算：调用方传入有效预算（#91 定额 + 池余量），超出按 estimateTokens 口径截断。
  */
 async function buildRosterSection(
   wu: WorkUnitData,
@@ -807,11 +814,11 @@ ${rosterLines.join('\n')}
 
 如需把一部分工作交给更合适的成员，输出一行：ACTION: DELEGATE:@<成员名>:<子任务 scope>（scope 为该行剩余内容）。仅可委派给上述成员，不可委派给自己；委派深度上限 ${resolveMaxDepth()} 跳（根任务 depth=0），同一任务最多委派 ${MAX_DELEGATIONS_PER_PARENT} 次，不可对同一成员重复委派。系统校验通过后会创建子任务并在频道发卡片，你继续按 PROGRESS 推进自己的部分；校验不通过则转为 NEED_INPUT 请人裁决。`;
 
-  const originalTokens = TokenEstimator.estimateText(full);
+  const originalTokens = estimateTokens(full);
   if (originalTokens > tokenBudget) {
     // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
     const sliced = sliceToTokenBudget(full, tokenBudget);
-    return { section: sliced, tokens: TokenEstimator.estimateText(sliced), originalTokens };
+    return { section: sliced, tokens: estimateTokens(sliced), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
 }
@@ -821,8 +828,8 @@ ${rosterLines.join('\n')}
  * 每行 = topic 路径 + 一句话摘要，正文由 agent 现成文件工具按需读，不引入语义搜索/RAG）。
  * 内容源 = roleMemoryStore.readIndex(roleId)；索引不存在/为空 → 空段（section: ''，同现状）；
  * 读盘失败 → 空段 + 记日志（non-blocking，绝不阻断 prompt 组装）。段首协议行说明按需语义
- * （同 skills 段风格）。预算经调用方 runSection 传有效预算（#91 定额 300 + 池余量），
- * 超出按 TokenEstimator 口径截断，originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点。
+ * （同 skills 段风格）。预算经调用方 runSection 传有效预算（#91 memory 定额 + 池余量），
+ * 超出按 estimateTokens 口径截断，originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点。
  */
 async function buildMemorySection(roleId: string, tokenBudget: number): Promise<BuiltSection> {
   let index: string;
@@ -842,11 +849,11 @@ async function buildMemorySection(roleId: string, tokenBudget: number): Promise<
 
   const header = '## 角色记忆索引\n\n以下为你在往次任务中沉淀的记忆索引（每行 = topic 路径 + 一句话摘要）；任务内容命中相关记忆时，先用文件工具按需读对应 topic 正文再据此执行，不相关则忽略。';
   const full = `${header}\n\n${body}`;
-  const originalTokens = TokenEstimator.estimateText(full);
+  const originalTokens = estimateTokens(full);
   if (originalTokens > tokenBudget) {
     // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
     const sliced = sliceToTokenBudget(full, tokenBudget);
-    return { section: sliced, tokens: TokenEstimator.estimateText(sliced), originalTokens };
+    return { section: sliced, tokens: estimateTokens(sliced), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
 }

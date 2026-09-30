@@ -7,7 +7,7 @@
  * - injectContext: rule + context + signal assembly
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { TokenEstimator } from '@dommaker/harness';
+import { estimateTokens } from '@dommaker/harness';
 
 // ── Mock FileStore to intercept appendJsonl calls ──
 const { mockAppendJsonl, mockResolutionCreate } = vi.hoisted(() => ({
@@ -36,7 +36,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-import { KnowledgeService } from '../knowledge-service.js';
+import { INJECT_TOKEN_BUDGET, KnowledgeService } from '../knowledge-service.js';
 import type { PatternEntry, IncidentEntry, TrendEntry } from '../knowledge-service.js';
 import { eventBus } from '@dommaker/studio-shared';
 
@@ -478,12 +478,12 @@ describe('KnowledgeService Phase 1A: Consume', () => {
       expect(result.injectedIds).toEqual(['c1']);
     });
 
-    // ── ③ 2K 注入红线执行（wireups ③）：裁剪 + knowledge:inject-trimmed 事件 ──
+    // ── ③ 注入红线执行（wireups ③，预算 = INJECT_TOKEN_BUDGET 927·新尺子旧窗口反推）：裁剪 + knowledge:inject-trimmed 事件 ──
 
-    it('③: 候选总量超 2K tokens 时裁剪到预算内，并写 knowledge:inject-trimmed 事件', async () => {
+    it('③: 候选总量超注入预算时裁剪到预算内，并写 knowledge:inject-trimmed 事件', async () => {
       const { ks, query } = createKS();
       mockAppendJsonl.mockClear();
-      const big = (label: string) => `${label} ${'规'.repeat(1400)}`; // ≈934 tokens/条（TokenEstimator 中文 ≈1.5 字符/token）
+      const big = (label: string) => `${label} ${'规'.repeat(146)}`; // ≈299 tokens/条（estimateTokens：CJK 2 token/字）
       query.queryEntries
         .mockResolvedValueOnce([
           { id: 'r1', content: big('规则一'), type: 'guideline', sourceReferences: [{ timestamp: 't' }], status: 'published', maturity: 'verified' },
@@ -494,8 +494,8 @@ describe('KnowledgeService Phase 1A: Consume', () => {
 
       const result = await ks.injectContext('executor');
 
-      // 注入估算 ≤ 2000 tokens（TokenEstimator.estimateText 口径）；r3 被裁剪
-      expect(TokenEstimator.estimateText(result.prompt)).toBeLessThanOrEqual(2000);
+      // 注入估算 ≤ INJECT_TOKEN_BUDGET(927)（estimateTokens 口径）；r3 被裁剪
+      expect(estimateTokens(result.prompt)).toBeLessThanOrEqual(INJECT_TOKEN_BUDGET);
       expect(result.injectedIds).toEqual(['r1', 'r2']);
       expect(result.prompt).not.toContain('规则三');
       // 裁剪事件（沿用 studio-events.jsonl 事件写入路径）
@@ -505,7 +505,7 @@ describe('KnowledgeService Phase 1A: Consume', () => {
       );
       const call = mockAppendJsonl.mock.calls.find(c => c[1]?.type === 'knowledge:inject-trimmed');
       const payload = JSON.parse(call![1].payload);
-      expect(payload).toMatchObject({ agentType: 'executor', budgetTokens: 2000 });
+      expect(payload).toMatchObject({ agentType: 'executor', budgetTokens: INJECT_TOKEN_BUDGET });
       expect(payload.trimmedIds).toEqual(['r3']);
     });
 
@@ -522,7 +522,7 @@ describe('KnowledgeService Phase 1A: Consume', () => {
 
       const result = await ks.injectContext('executor');
 
-      expect(TokenEstimator.estimateText(result.prompt)).toBeLessThanOrEqual(2000);
+      expect(estimateTokens(result.prompt)).toBeLessThanOrEqual(INJECT_TOKEN_BUDGET);
       expect(result.injectedIds).toContain('r-small');
       expect(result.injectedIds).not.toContain('r-big');
       expect(result.prompt).toContain('高优先级 proven 小条目');

@@ -18,7 +18,7 @@
 // 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
 import { execSync } from 'child_process';
 import { eventBus, logger, FileStore, parseChannels, withAttestation, isStaleClaimSleep, parseStreamEvents, extractCliSessionId, type RuntimeStateData } from '@dommaker/studio-shared';
-import { TokenEstimator } from '@dommaker/harness';
+import { estimateTokens } from '@dommaker/harness';
 import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
@@ -105,7 +105,7 @@ const LIVE_HOLDER_THRESHOLD_MS = 120_000;
  *  判定 FileStore 故障，loop 自我了断（同 #63 fencing 哲学） */
 const HEARTBEAT_FAIL_LIMIT = 3;
 
-// §10 P0 注入总预算（2K 红线）随 prompt 组装段一并迁到 ./prompt-composer.js（2026-08 工单 05）
+// §10 P0 注入总预算（注入红线）随 prompt 组装段一并迁到 ./prompt-composer.js（2026-08 工单 05）
 
 // 类型契约已抽到 ./agent-loop.types.js（工单 28，行为不变）；
 // StepResult re-export 保留——completion-gates 等生产消费方经本门面取类型（#544）
@@ -1197,7 +1197,7 @@ export class AgentLoop {
         workUnitId: wu.id,
         channelId: wu.channelId,
         executionId: task.executionId,
-        injectedTokens: TokenEstimator.estimateText(knowledgeContext),
+        injectedTokens: estimateTokens(knowledgeContext),
         executionTokens: real ? real.inputTokens + real.outputTokens : null,
         // D16/B6: 缓存命中与真实账单数据源（CLI 回报 usage 时才有；未回报则缺省不编造）
         ...(real ? {
@@ -1319,7 +1319,7 @@ export class AgentLoop {
       metadataUpdates.errorAt = undefined;
 
       // M2 成本红线度量 + B6 真实记账: 每次 CLI 执行完成记一条 workunit:tokens 事件
-      // （注入估算 TokenEstimator.estimateText 口径 vs 2K 红线；执行 tokens 取 CLI 真实 usage，未回报记 null 不编造）。
+      // （注入估算 estimateTokens 口径 vs 注入红线 INJECT_TOKEN_BUDGET；执行 tokens 取 CLI 真实 usage，未回报记 null 不编造）。
       const realUsage = recordTokenEvent(result);
 
       // wireup④ token 预算数据源: 本次真实消耗（billed 口径，含 cache）累加进

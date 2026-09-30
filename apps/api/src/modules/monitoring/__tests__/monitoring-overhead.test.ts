@@ -64,7 +64,7 @@ describe('M2: aggregateOverheadEvents math', () => {
     expect(s.workUnits).toBe(3);
     expect(s.avgInjectedTokens).toBe(400); // (400+600+200)/3
     expect(s.injectedBudget).toBe(INJECTED_TOKEN_BUDGET);
-    expect(s.injectedBudgetUsedPct).toBe(20); // 400/2000
+    expect(s.injectedBudgetUsedPct).toBe(Math.round((400 / INJECTED_TOKEN_BUDGET) * 100)); // 400/927（旧尺子时代口径为 400/2000）
     expect(s.avgExecutionTokens).toBe(15_000); // (10000+20000)/2，null 不计入
     expect(s.executionCoveragePct).toBe(67); // 2/3
     // mean(400/10000, 600/20000) = mean(0.04, 0.03) = 0.035
@@ -111,7 +111,7 @@ describe('M2: MonitoringService.getOverheadStats (fixture file)', () => {
       expect(s.source).toBe('events');
       expect(s.executions).toBe(1);
       expect(s.avgInjectedTokens).toBe(800);
-      expect(s.injectedBudgetUsedPct).toBe(40);
+      expect(s.injectedBudgetUsedPct).toBe(Math.round((800 / INJECTED_TOKEN_BUDGET) * 100)); // 800/927
       expect(s.avgOverheadRatio).toBe(0.05);
       expect(s.extractionTokens).toBe(700);
     } finally {

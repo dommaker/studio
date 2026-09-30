@@ -1,7 +1,7 @@
 /**
  * sessions.routes 路由测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
- * mock @dommaker/harness（TokenEstimator/SessionManager），挂载 sessionsRoutes
+ * mock @dommaker/harness（estimateTokens/SessionManager），挂载 sessionsRoutes
  * 覆盖：POST /estimate-tokens、POST /sessions、POST /sessions/:id/events、
  * GET /sessions/:id、POST /sessions/:id/checkpoint（含未知会话 404）。
  * HOME 指向临时目录隔离 knowledge-bus 链路。
@@ -18,14 +18,7 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/harness')>();
   return {
     ...actual,
-    TokenEstimator: class {
-      static estimateText(text: string) {
-        return text.length;
-      }
-      static estimateObject(obj: unknown) {
-        return JSON.stringify(obj).length;
-      }
-    },
+    estimateTokens: (text: string) => text.length,
     SessionManager: class {
       private events = new Map<string, unknown[]>();
       createSession(id: string) {

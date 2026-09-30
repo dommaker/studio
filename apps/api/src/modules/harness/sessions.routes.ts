@@ -30,13 +30,14 @@ sessionsRoutes.post('/estimate-tokens', async (req: Request, res: Response) => {
 
     const { text, object } = req.body;
     await loadHarness();
-    const TokenEstimator = harnessModule!.TokenEstimator;
+    const estimateTokens = harnessModule!.estimateTokens;
 
     let tokens: number;
     if (text) {
-      tokens = TokenEstimator.estimateText(text);
+      tokens = estimateTokens(text);
     } else if (object) {
-      tokens = TokenEstimator.estimateObject(object);
+      // 旧 estimateObject 语义守恒：JSON.stringify 后走文本估算
+      tokens = estimateTokens(JSON.stringify(object));
     } else {
       return res.status(400).json({ error: 'text or object is required' });
     }

@@ -5,8 +5,8 @@
  * - 域匹配命中（wu.type/role.acceptedTypes 经 normalizeToStage 归一化 ∩ skill.agentTypes）：
  *   knowledgeContext 含 `## 本次任务 Skills`（在 `## 项目上下文` 之前）+ 协议说明行
  *   + 索引块（name + description + triggers 摘要 + SKILL.md 指针（studioPath 解析的绝对路径）），不含正文；
- *   injectContext 收到分段定额 + 池内余量共享后的 maxTokens（#91：map 800（#111 T5）/ skills 600 /
- *   persona 300 / roster 400 / memory 300 / knowledge 1000 / handoff 800，前段未用定额流入后段）
+ *   injectContext 收到分段定额 + 池内余量共享后的 maxTokens（#91 + harness 1.16.0 新尺子「旧窗口反推」，
+ *   数值以 prompt-composer SECTION_QUOTAS 为准、推导正本见 prompt-composer.test.ts 反推块；前段未用定额流入后段）
  * - metadata.matchedSkills 不再作为注入输入（step 时实时计算；匹配名单经 metadataUpdates 落盘供度量）
  * - +skill 显式点名 step 时从 wu.scope 解析（parseSkillHintsFromScope），排最高优先级
  * - 决策 13：`## 你的角色` 段（persona ?? description，为空省略）
@@ -80,14 +80,15 @@ vi.mock('../../knowledge/knowledge-service', () => ({
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
   },
-  INJECT_TOKEN_BUDGET: 2000,
+  INJECT_TOKEN_BUDGET: 927,
 }));
 
 import { FileStore } from '@dommaker/studio-shared';
-import { TokenEstimator } from '@dommaker/harness';
+import { estimateTokens } from '@dommaker/harness';
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载
 const { AgentLoop } = await import('../loop/agent-loop');
+const { SECTION_QUOTAS } = await import('../loop/prompt-composer');
 const { invalidateManifestCache } = await import('../../skills/manifest-loader.js');
 
 /** 新注入契约的固定文本（与 agent-loop buildSkillSection 保持一致） */
@@ -97,8 +98,8 @@ const studioHome = process.env.STUDIO_HOME ?? path.join(os.homedir(), '.studio')
 const SKILL_HEADER = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
 const SKILL_BLOCK = `### feature-dev\n功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌\n全文：${path.join(studioHome, 'skills', 'feature-dev', 'SKILL.md')}`;
 const SKILL_MANIFEST_POINTER = `完整 skill 清单见 skills MANIFEST.md（${path.join(studioHome, 'skills', 'MANIFEST.md')}）`;
-const SKILL_TOKENS = TokenEstimator.estimateText(SKILL_HEADER) + TokenEstimator.estimateText(SKILL_BLOCK + '\n\n')
-  + TokenEstimator.estimateText(SKILL_MANIFEST_POINTER + '\n\n');
+const SKILL_TOKENS = estimateTokens(SKILL_HEADER) + estimateTokens(SKILL_BLOCK + '\n\n')
+  + estimateTokens(SKILL_MANIFEST_POINTER + '\n\n');
 
 describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
   let agentLoop: AgentLoop;
@@ -171,10 +172,12 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     expect(knowledgeContext).toContain('- test rule');
     expect(knowledgeContext.indexOf('## 本次任务 Skills')).toBeLessThan(knowledgeContext.indexOf('## 项目上下文'));
 
-    // skill 段先占定额：injectContext 收到 knowledge 定额 1000 + 各前段余量（map/persona/roster/memory 空）
+    // skill 段先占定额：injectContext 收到 knowledge 定额 + 各前段余量（persona/roster/map/memory 空 → 定额全额入池）
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
-      maxTokens: 1000 + (1400 - SKILL_TOKENS) + 300 + 400 + 300,
+      maxTokens: SECTION_QUOTAS.knowledge
+        + (SECTION_QUOTAS.persona + SECTION_QUOTAS.roster + SECTION_QUOTAS.skills
+           + SECTION_QUOTAS.map + SECTION_QUOTAS.memory - SKILL_TOKENS),
     });
   });
 
@@ -218,7 +221,7 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     expect(knowledgeContext.split('### feature-dev').length - 1).toBe(1);
   });
 
-  it('skill 库为空 → 无 skill 段，injectContext 吃到全部前段余量（#91：1000 定额 + 2400 余量）', async () => {
+  it('skill 库为空 → 无 skill 段，injectContext 吃到全部前段余量（#91：knowledge 定额 + 前五段定额全额余量）', async () => {
     fs.rmSync(path.join(testSkillsDir, 'feature-dev'), { recursive: true, force: true });
     invalidateManifestCache();
     try {
@@ -228,7 +231,8 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
       expect(knowledgeContext).not.toContain('## 本次任务 Skills');
       expect(mockInjectContext).toHaveBeenCalledWith('feature', {
         tags: ['feature'],
-        maxTokens: 1000 + 800 + 600 + 300 + 400 + 300,
+        maxTokens: SECTION_QUOTAS.knowledge + SECTION_QUOTAS.map + SECTION_QUOTAS.skills
+          + SECTION_QUOTAS.memory + SECTION_QUOTAS.roster + SECTION_QUOTAS.persona,
       });
     } finally {
       writeSkillFixture();

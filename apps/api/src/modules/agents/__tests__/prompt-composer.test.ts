@@ -1,8 +1,10 @@
 /**
  * #91 — composeStepPrompt 函数级测试接缝：分段软定额 + 池内余量共享 + trim 埋点
  *
- * - 九段软定额：persona 300 / roster 400 / skills 600 / map 800（#111 T5）/ memory 300 / knowledge 1000 / files 400（#285）/ contract 200（#119）/ handoff 800
- * - 池内余量共享：前段未用定额流入共享池，后段有效预算 = 定额 + 池（总量封顶 ~4.5K）
+ * - 九段软定额（harness 1.16.0 estimateTokens 新尺子「旧窗口反推」值，推导即测试见本文件推导块）：
+ *   persona 703 / roster 493 / skills 635 / map 1181（#111 T5）/ memory 318 / knowledge 493 /
+ *   files 213（#285）/ contract 396（#119）/ handoff 834
+ * - 池内余量共享：前段未用定额流入共享池，后段有效预算 = 定额 + 池（总量封顶 = 定额总和 ~5.3K）
  * - 任一段截断落 prompt:section_trimmed 事件（段名/原始 token 数/截断后 token 数/定额），
  *   经 metricsFileStore fire-and-forget 写 studio-events.jsonl
  * - role preset 的 skills/tools/constraints 进入「## 你的角色」段
@@ -56,7 +58,9 @@ vi.mock('../../workunit/wu-messenger.js', () => ({
 
 import { FileStore } from '@dommaker/studio-shared';
 import type { AgentProfileData } from '@dommaker/studio-shared';
-import { TokenEstimator } from '@dommaker/harness';
+import { estimateTokens } from '@dommaker/harness';
+// 推导块的 2K 线常量之一（INJECT_TOKEN_BUDGET 走 vi.importActual，本文件把 knowledge-service 整体 mock 了）
+import { INJECTED_TOKEN_BUDGET } from '../../monitoring/monitoring.service.js';
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载
 const { composeStepPrompt, SECTION_QUOTAS, CONTRACT_TEMPLATES } = await import('../loop/prompt-composer');
@@ -118,6 +122,43 @@ const makeWu = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 }) as any;
 
+/**
+ * 与生产 sliceToTokenBudget 同形（新尺子 estimateTokens 版）：预算内最长前缀。
+ * 池截断类断言的精确期望值用它计算——切到预算边界的粒度是「字」，放行量常比预算少 1~2 token，
+ * 硬编码预算数字当期望值会在定额一变时假红/假绿。
+ */
+const sliceByNewRuler = (text: string, budget: number): string => {
+  if (budget <= 0) return '';
+  if (estimateTokens(text) <= budget) return text;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (estimateTokens(text.slice(0, mid)) <= budget) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo);
+};
+
+/** 临时抬本段定额渲染未截断全文，finally 还原（不污染其它用例）。推导块与「先取全文再算精确期望」的用例共用。 */
+const renderUntrimmed = async (
+  name: keyof typeof SECTION_QUOTAS,
+  compose: () => Promise<{ knowledgeContext: string; prompt: string }>,
+  extract: (out: { knowledgeContext: string; prompt: string }) => string,
+): Promise<string> => {
+  const quotas = SECTION_QUOTAS as unknown as Record<string, number>;
+  const saved = quotas[name];
+  quotas[name] = 50_000_000;
+  try {
+    const out = await compose();
+    const t = extract(out);
+    expect(t.length, `${name} 段渲染非空`).toBeGreaterThan(0);
+    return t;
+  } finally {
+    quotas[name] = saved;
+  }
+};
+
 describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋点', () => {
   let fileStore: FileStore;
   let testDir: string;
@@ -145,17 +186,17 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
 
   afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
 
-  it('九段软定额表：persona 300 / roster 400 / skills 600 / map 800 / memory 300 / knowledge 1000 / files 400（#285）/ contract 200 / handoff 800', () => {
+  it('九段软定额表（harness 1.16.0 新尺子旧窗口反推值，推导过程见下方推导块）：persona 703 / roster 493 / skills 635 / map 1181 / memory 318 / knowledge 493 / files 213（#285）/ contract 396 / handoff 834', () => {
     expect(SECTION_QUOTAS).toEqual({
-      persona: 300,
-      roster: 400,
-      skills: 600,
-      map: 800,
-      memory: 300,
-      knowledge: 1000,
-      files: 400,
-      contract: 200,
-      handoff: 800,
+      persona: 703,
+      roster: 493,
+      skills: 635,
+      map: 1181,
+      memory: 318,
+      knowledge: 493,
+      files: 213,
+      contract: 396,
+      handoff: 834,
     });
   });
 
@@ -172,21 +213,23 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     expect(knowledgeContext).not.toContain('## 系统约束');
   });
 
-  it('池内余量共享：前段未用定额流入后段（全空时 knowledge 有效预算 = 3400）', async () => {
+  it('池内余量共享：前段未用定额流入后段（全空时 knowledge 有效预算 = 3823）', async () => {
     await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
 
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
-      // persona 300 + roster 400 + skills 600 + map 800 + memory 300 全未用 → 余量入池
-      maxTokens: 1000 + 300 + 400 + 600 + 800 + 300,
+      // persona 703 + roster 493 + skills 635 + map 1181 + memory 318 全未用 → 余量入池
+      maxTokens: SECTION_QUOTAS.knowledge
+        + SECTION_QUOTAS.persona + SECTION_QUOTAS.roster + SECTION_QUOTAS.skills
+        + SECTION_QUOTAS.map + SECTION_QUOTAS.memory,
     });
   });
 
-  it('skills 段占定额后余量入池：knowledge 预算 = 1000 + (1300 - skillTokens) + 800 + 300', async () => {
+  it('skills 段占定额后余量入池：knowledge 预算 = 493 + (1831 - skillTokens) + 1181 + 318', async () => {
     writeSkill('feature-dev', '功能开发流程');
     const skillBlock = `### feature-dev\n功能开发流程｜触发：登录\n全文：${path.join(studioHome, 'skills', 'feature-dev', 'SKILL.md')}`;
-    const skillTokens = TokenEstimator.estimateText(SKILL_HEADER) + TokenEstimator.estimateText(skillBlock + '\n\n')
-      + TokenEstimator.estimateText(SKILL_MANIFEST_POINTER + '\n\n');
+    const skillTokens = estimateTokens(SKILL_HEADER) + estimateTokens(skillBlock + '\n\n')
+      + estimateTokens(SKILL_MANIFEST_POINTER + '\n\n');
 
     const { knowledgeContext, skillMatched } = await composeStepPrompt(
       { wu: makeWu(), metadata: {} as any },
@@ -197,15 +240,17 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     expect(knowledgeContext).toContain('## 本次任务 Skills');
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
-      // skills 有效预算 = 600 + persona 300 + roster 400 余量 = 1300
-      maxTokens: 1000 + (1300 - skillTokens) + 800 + 300,
+      // skills 有效预算 = 635 + persona 703 + roster 493 余量 = 1831
+      maxTokens: SECTION_QUOTAS.knowledge
+        + (SECTION_QUOTAS.skills + SECTION_QUOTAS.persona + SECTION_QUOTAS.roster - skillTokens)
+        + SECTION_QUOTAS.map + SECTION_QUOTAS.memory,
     });
     // 未截断 → 无 section_trimmed 事件（#172：skill_used 曝光发射已删除，此处不再出现）
     expect(sectionTrimmedEvents()).toEqual([]);
   });
 
-  it('skills 段超有效预算（定额 600 + persona 300 + roster 400 余量）截断并落 prompt:section_trimmed（段名/原始/截断后/定额齐全）', async () => {
-    writeSkill('big-skill', '述'.repeat(6000)); // 单块 ~4000+ token（含中文 ≈1.5 字符/token），超 1300 有效预算
+  it('skills 段超有效预算（定额 635 + persona 703 + roster 493 余量 = 1831）截断并落 prompt:section_trimmed（段名/原始/截断后/定额齐全）', async () => {
+    writeSkill('big-skill', '述'.repeat(6000)); // 单块 ~12000+ token（estimateTokens CJK 2 token/字），超 1831 有效预算
 
     const { knowledgeContext } = await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
 
@@ -213,18 +258,24 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     const events = sectionTrimmedEvents();
     expect(events).toHaveLength(1);
     expect(events[0].section).toBe('skills');
-    expect(events[0].quota).toBe(600);
-    expect(events[0].trimmedTokens).toBe(1300);
+    expect(events[0].quota).toBe(SECTION_QUOTAS.skills);
+    // 有效预算 = 635 + 703 + 493 = 1831；精确截断值 = 固定开销 + 新尺子预算前缀，与生产同式（字粒度截断可低于预算数个 token）
+    const effective = SECTION_QUOTAS.skills + SECTION_QUOTAS.persona + SECTION_QUOTAS.roster;
+    const fixedTokens = estimateTokens(SKILL_HEADER) + estimateTokens(SKILL_MANIFEST_POINTER + '\n\n');
+    const block = `### big-skill\n${'述'.repeat(6000)}｜触发：登录\n全文：${path.join(studioHome, 'skills', 'big-skill', 'SKILL.md')}`;
+    const expectedTrimmed = fixedTokens + estimateTokens(sliceByNewRuler(block, effective - fixedTokens));
+    expect(events[0].trimmedTokens).toBe(expectedTrimmed);
     expect(events[0].originalTokens).toBeGreaterThan(events[0].trimmedTokens);
-    // skills 有效预算用尽（余量 0）→ knowledge 预算 = 1000 + 800 + 300
+    // skills 段截断后仅剩余量 (1831 - expectedTrimmed) 入池 → knowledge 预算
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
-      maxTokens: 2100,
+      maxTokens: SECTION_QUOTAS.knowledge + (effective - expectedTrimmed)
+        + SECTION_QUOTAS.map + SECTION_QUOTAS.memory,
     });
   });
 
-  it('persona 段超有效预算（定额 300，首段无余量）截断并落事件，定额字段记名义定额 300', async () => {
-    const persona = '角'.repeat(8000); // ~5300+ token > 定额 300
+  it('persona 段超有效预算（定额 703，首段无余量）截断并落事件，定额字段记名义定额 703', async () => {
+    const persona = '角'.repeat(8000); // 16000+ token > 定额 703
 
     const { knowledgeContext } = await composeStepPrompt(
       { wu: makeWu(), metadata: {} as any },
@@ -235,13 +286,15 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     const events = sectionTrimmedEvents();
     expect(events).toHaveLength(1);
     expect(events[0].section).toBe('persona');
-    expect(events[0].quota).toBe(300);
-    expect(events[0].trimmedTokens).toBe(300);
-    expect(events[0].originalTokens).toBeGreaterThan(300);
-    // persona 用尽有效预算 → 余量 0；knowledge 预算 = 1000 + 400 + 600 + 800 + 300
+    expect(events[0].quota).toBe(SECTION_QUOTAS.persona);
+    const expectedTrimmed = estimateTokens(sliceByNewRuler(`## 你的角色\n\n${persona}`, SECTION_QUOTAS.persona));
+    expect(events[0].trimmedTokens).toBe(expectedTrimmed);
+    expect(events[0].originalTokens).toBeGreaterThan(SECTION_QUOTAS.persona);
+    // persona 余量 (703 - expectedTrimmed) 入池 → knowledge 预算 = 493 + 余量 + roster/skills/map/memory 定额
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
-      maxTokens: 3100,
+      maxTokens: SECTION_QUOTAS.knowledge + (SECTION_QUOTAS.persona - expectedTrimmed)
+        + SECTION_QUOTAS.roster + SECTION_QUOTAS.skills + SECTION_QUOTAS.map + SECTION_QUOTAS.memory,
     });
   });
 
@@ -263,6 +316,13 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
       } as any);
     }
 
+    // 先取未截断全文，再按生产同式算精确截断值
+    const full = await renderUntrimmed(
+      'roster',
+      () => composeStepPrompt({ wu: makeWu({ channelId: 'ch-1' }), metadata: {} as any }, deps(makeRole())),
+      o => o.knowledgeContext,
+    );
+
     const { knowledgeContext } = await composeStepPrompt(
       { wu: makeWu({ channelId: 'ch-1' }), metadata: {} as any },
       deps(makeRole()),
@@ -272,10 +332,11 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     const events = sectionTrimmedEvents();
     expect(events).toHaveLength(1);
     expect(events[0].section).toBe('roster');
-    expect(events[0].quota).toBe(400);
-    // 有效预算 = 400 + persona 300 = 700
-    expect(events[0].trimmedTokens).toBe(700);
-    expect(events[0].originalTokens).toBeGreaterThan(700);
+    expect(events[0].quota).toBe(SECTION_QUOTAS.roster);
+    // 有效预算 = 493 + persona 703 = 1196
+    const effective = SECTION_QUOTAS.roster + SECTION_QUOTAS.persona;
+    expect(events[0].trimmedTokens).toBe(estimateTokens(sliceByNewRuler(full, effective)));
+    expect(events[0].originalTokens).toBeGreaterThan(effective);
   });
 
   it('knowledge 段内部截断（injectContext usage）→ 落 knowledge 的 section_trimmed 事件', async () => {
@@ -290,7 +351,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     const events = sectionTrimmedEvents();
     expect(events).toHaveLength(1);
     expect(events[0].section).toBe('knowledge');
-    expect(events[0].quota).toBe(1000);
+    expect(events[0].quota).toBe(SECTION_QUOTAS.knowledge);
     expect(events[0].originalTokens).toBe(1500);
     expect(events[0].trimmedTokens).toBe(1000);
   });
@@ -327,6 +388,323 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     const { prompt } = await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
 
     expect(prompt).not.toContain('AGENTS.generated.md');
+  });
+
+  describe('九段定额换尺子反推（推导即测试 = 定数正本）', () => {
+  // ── harness 1.16.0 换尺子：九段定额反推（推导即测试 = 定数正本） ─────────────
+  // 方法（docs/plans/2026-09-harness-116-token-ruler-adoption.md §3；样本口径 = 真渲染，
+  // 数据区扒样已证伪，见 .studio/research/2026-09-token-ruler-ratio-measurement.md「第二轮尝试」）：
+  //   1. 生产入口 composeStepPrompt 把本段渲染到不截断（临时抬定额，finally 还原），得全文 T；
+  //   2. 旧窗口 W = 旧尺子（harness ≤1.15 的旧估算器 estimateText：串里只要有一个中文字
+  //      → ceil(len/1.5)，否则 ceil(len/4)）在旧定额下放行的最长前缀，二分与生产
+  //      sliceToTokenBudget 同形；
+  //   3. 新定额 = estimateTokens(W) —— 新尺子对同一串字的读数。等价换算，不是系数。
+  // 取整规则：反推整值直接用、不取整（无残差）；常量偏离反推值即本块红，报错直接给出「该是多少」。
+  // knowledge 段与两个 2K 线常量（INJECT_TOKEN_BUDGET 旧 2000 / INJECTED_TOKEN_BUDGET 同数）
+  // 用真实渲染器 KnowledgeService.injectContext 产出的注入全文按同法反推。
+  // 跨机可复现性：skill 指针/全文路径经 studioPath() 读 STUDIO_HOME，隔离根 mkdtemp 随机后缀会
+  // 让渲染宽度逐机漂移；推导块把它钉成定长哨兵路径后可复现，afterEach 必还原，不污染同文件
+  // 其它用例（它们仍按真实隔离根断言路径）。
+  const DERIVE_STUDIO_HOME = '/studio-home';
+  const OLD_QUOTAS = {
+    persona: 300, roster: 400, skills: 600, map: 800, memory: 300,
+    knowledge: 1000, files: 400, contract: 200, handoff: 800,
+  } as const;
+  const OLD_INJECT_BUDGET = 2_000;
+
+  const oldRuler = (t: string): number =>
+    !t ? 0 : /[一-龥]/.test(t) ? Math.ceil(t.length / 1.5) : Math.ceil(t.length / 4);
+
+  /** 旧尺子在旧预算下放行的最长前缀（与生产 sliceToTokenBudget 同形，只换尺子） */
+  const oldWindow = (text: string, budget: number): string => {
+    if (oldRuler(text) <= budget) return text;
+    let lo = 0;
+    let hi = text.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (oldRuler(text.slice(0, mid)) <= budget) lo = mid;
+      else hi = mid - 1;
+    }
+    return text.slice(0, lo);
+  };
+
+  /** 稳定前缀段：其余段全空时 knowledgeContext 即本段全文 */
+  const leadT = (
+    name: keyof typeof SECTION_QUOTAS,
+    wu: any,
+    metadata: any,
+    role: AgentProfileData,
+  ) => renderUntrimmed(
+    name,
+    () => composeStepPrompt({ wu, metadata }, deps(role)),
+    o => o.knowledgeContext,
+  );
+
+  // —— 各段真实输入 fixture（内容类对齐 research 比值表：中文自述 / 中文成员说明 /
+  //    中英混排 skill 行 / 中文决策行 / 中英混排记忆索引 / ASCII 引用路径 / 契约模板 / 中文进展行）——
+  const PERSONA_ZH = '你是本仓的资深工程师，负责 API 与数据层。做事纪律：先查后做，改动前核影响面；收尾跑相关测试并贴原始输出；说人话，不堆术语，不讨好；需求含糊时先列问题再裁决，不猜测；提交直落本地 master，不上线。';
+
+  const ROSTER_DESCS = [
+    '审计日志的查询与统计 API 端点，支持按用户、角色、操作类型过滤与分页汇总。',
+    '处理钉钉机器人回调，包括 ActionCard 按钮点击的健康检查与忽略提示。',
+    '知识引擎：三层分离（Producer → Engine → Consumer），管条目的生产与消费。',
+    '认证与会话：注册、登录、Guest Session、JWT 与 OAuth 流程。',
+    '项目管理办公室：OKR + 项目 CRUD + 交付守卫，PMO id 即分支名。',
+    '频道域：消息创建与路由，replyTo 线程、@mention 派单与合并窗口。',
+    'WorkUnit 核心域：任务单元 CRUD、认领与状态机，NEED_INPUT 挂起恢复。',
+    '聚合监控指标：M1 飞轮指标与 M2 封装开销，经 HTTP 路由对外。',
+    '触发器子系统：SCHEDULE cron + EVENT 事件条件，动作 CREATE/UPDATE/EXECUTE。',
+    '转写归档：会话原文落数据区，供 WU 收尾批量提取与 handoff 摘要。',
+  ];
+
+  const SKILL_FIXTURES: Array<[string, string]> = [
+    ['tdd-implement', '测试先行实现：先写 FAIL 测试（RED）再实现到 GREEN，Phase commit 分批提交'],
+    ['code-review', '两轴评审：契约轴 AC 对照 + 规范轴，绿了才 ship'],
+    ['diagnosing-bugs', 'bug 快速路：诊断→复现→修复→防回归，复现测试与修复同 commit'],
+    ['research', '对高可信一手源做调研，报告落 .studio/research/ 并回挂来源单'],
+    ['to-tickets', '把冻结 spec 拆成可独立认领的执行票，票面带 AC 与验收口径'],
+    ['grilling', '开图前网状逼问：一次摆出全部决策点，人一次性裁决'],
+    ['domain-modeling', '维护领域词表与 CONTEXT.md，术语先入词表再写代码'],
+    ['ticket-loop', '多票批处理调度：夜巡每票独立会话，跑完统一 code-review'],
+    ['repo-reconcile', '上线前对齐：把散在分支与 worktree 的提交合回 master 并清分支'],
+    ['ship-chain', '交付链编排：harness 发包 → studio 采纳 → 上线，分阶段派发'],
+  ];
+
+  const MAP_FIXTURE = {
+    destination: '把结算链路迁到新引擎并完成双写灰度收敛',
+    decisions: Array.from({ length: 10 }, (_, i) => ({
+      wuId: `wu-m-${i}`,
+      summary: `决策${i}：存储层选 PostgreSQL 而非 MySQL——JSONB 与部分索引够用，pgvector 可后续再上；迁移面已收敛到 ledger 层，双写期对账以新侧为准，回滚窗口 24h 且不双写。`,
+      resolvedAt: `2026-09-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
+    })),
+    fog: Array.from({ length: 6 }, (_, i) => ({
+      id: `F${i}`,
+      question: `雾问题${i}：灰度期间对账口径与回滚窗口如何钉死？`,
+      wuId: null,
+      status: i % 2 === 0 ? 'open' : 'in-discussion',
+    })),
+  };
+
+  const MEMORY_FIXTURE = `# Role Memory Index\n\n${Array.from({ length: 30 }, (_, i) => i % 2 === 0
+    ? `- [auth-flow-${i}](topics/auth-flow-${i}.md) — OAuth 授权走 PKCE 且不回退账号密码，redirect_uri 必须逐字一致`
+    : `- [build-cache-${i}](topics/build-cache-${i}.md) — pnpm 损坏时用 vitest/tsc-gate 直跑，别等 install 全量恢复`).join('\n')}`;
+
+  const FILES_FIXTURE = {
+    workspaceRoot: '/repo/ws',
+    fileRefs: Array.from({ length: 30 }, (_, i) => ({
+      repo: '/repo/ws',
+      path: `apps/api/src/modules/knowledge/engine/query-part-${String(i).padStart(2, '0')}.ts`,
+    })),
+  };
+
+  // knowledge 注入正文内容类（research：knowledge 条目正文 新÷旧 中位 0.65——英文为主夹少量
+  // 中文时，旧尺子「见一个中文整串除 1.5」严重高估，等价窗口即变小）
+  const KNOWLEDGE_RULES = [
+    'Non-blocking section builds must log loudly with the section name and error — a silent catch let the R4 inject bug lurk for months before anyone noticed（静默 catch 是 bug 潜伏数月的土壤，段构建失败必须出声）.',
+    'All runtime data paths resolve through studioPath()/studioDir(); never hardcode the data root in code, docs or tests — test isolation pins STUDIO_HOME to an ephemeral root and hardcoded paths silently write through into production data（硬编码即穿透生产数据区）.',
+    'vitest module mocks are per test file and resolved-path based: vi.mock on a specifier without .js still intercepts the same resolved module id — keep mock paths aligned with import specifiers or the SUT loads the real module and hits the disk.',
+    'FileKnowledgeStore.list() is readIndex plus one readFileSync per entry (N+1 sync reads); injectContext scans four times per agent step, so the mtime memo wrapper is mandatory — never bypass it with a fresh store instance.',
+    'Deploy webhook accepts push to refs/heads/master only and returns 202 before the script starts; the script must be idempotent and reentrant because webhook and cron can race（撞窗时脚本必须幂等可重入）.',
+    'Session resume keys on stored provider session id; a resume miss with stepCount>0 is the only reliable handoff signal — replay 前序进展 from metadata.progressLog instead of restarting the unit from scratch.',
+    'recordReference closes the maturity loop on every injected id; a new consumer that forgets it makes proven entries decay to stale and the flywheel starves silently（引用回报断链会让成熟度循环停摆）.',
+    'git commit trailers are compliance data — grep-able and machine-checkable: governance edits require the Governance-Approved trailer, and a missing trailer is a policy violation, not formatting noise.',
+    'When a corrupted pnpm store breaks install, run tsc/vitest by direct node invocation — do not block on a full reinstall; CI cache invalidation is the usual root cause.',
+    'Token budgets must name which ruler measures them: estimateTokens counts per code point (CJK 2, others 0.25, ceil) while the retired estimator collapsed whole strings to len/1.5 — swapping rulers silently rescales every threshold, so convert each section quota one by one（换尺子必须逐段换算，不能一把系数套到底）.',
+    'Reference counts shown to the agent must come from the same store the injector reads; pointing the hint at an index built elsewhere teaches the model to search a graveyard.',
+    'Every fire-and-forget metrics append needs a catch — an unhandled rejection inside a section builder would tear down the whole step loop for one missing jsonl file.',
+  ].map((content, i) => ({
+    id: `rule-${i}`,
+    content,
+    type: 'guideline',
+    sourceReferences: [{ timestamp: '2026-09-01T00:00:00Z' }],
+    status: 'published',
+    maturity: i % 3 === 0 ? 'proven' : 'verified',
+  }));
+
+  const KNOWLEDGE_CONTEXTS = [
+    'provider default is claude; the roster section falls back to all active profiles when channel.members is empty（历史频道未回填成员时的过渡口径）.',
+    'studio-events.jsonl path is resolved per call by resolveStudioEventsFile(); STUDIO_EVENTS_FILE env overrides it for test isolation — never freeze the path at module load.',
+    'Worktree agent CLI starts with the worktree as cwd and loads .claude/settings.json, where the local-rag MCP server is registered by propagateHarnessConfig.',
+    'PMO id doubles as the branch name; requirements aggregate by REQ-<n>; status derives from the WorkUnit ledger rather than manual flags.',
+  ].map((content, i) => ({
+    id: `ctx-${i}`,
+    content,
+    type: 'preference',
+    sourceReferences: [{ timestamp: '2026-09-01T00:00:00Z' }],
+    status: 'published',
+    maturity: 'active',
+  }));
+
+  const KNOWLEDGE_SIGNALS = [
+    { id: 'sig-settle', summary: '结算双写灰度：对账以新侧为准，回滚窗口 24h', status: 'published', maturity: 'proven' },
+    { id: 'sig-memory', summary: 'MEMORY.md 索引常驻注入，正文按需读', status: 'published', maturity: 'proven' },
+    { id: 'sig-lease', summary: '租约 fencing：心跳 30s，fencing token 校验', status: 'published', maturity: 'verified' },
+    { id: 'sig-distill', summary: 'WU done 钩子门槛检测零 LLM，命中才发提案卡', status: 'published', maturity: 'verified' },
+    { id: 'sig-ship', summary: 'master 受保护禁直推，ship 走 PR 自动合并', status: 'published', maturity: 'active' },
+  ];
+
+  const HANDOFF_FIXTURE = Array.from({ length: 25 }, (_, i) => ({
+    step: i + 1,
+    action: i % 4 === 3 ? 'complete' : 'progress',
+    summary: [
+      '完成数据层迁移，双写校验通过',
+      '接口层接线 recordResult，落盘幂等验证',
+      '路由层合并窗口歧义守卫上线',
+      '补齐 CONTEXT.md 口径与漂移项',
+      '修 lease-heartbeat 与 fencing 竞态',
+    ][i % 5] + `（第 ${i + 1} 轮：TDD 链全绿，Tested-By trailer 已带）`,
+    at: `2026-09-${String((i % 28) + 1).padStart(2, '0')}T10:00:00Z`,
+  }));
+
+  beforeEach(() => {
+    mockInjectContext.mockResolvedValue({ prompt: '', injectedIds: [] });
+    mockReadIndex.mockResolvedValue('');
+    mockProjectGet.mockResolvedValue(null);
+    process.env.STUDIO_HOME = DERIVE_STUDIO_HOME;
+  });
+  afterEach(() => {
+    process.env.STUDIO_HOME = studioHome;
+  });
+
+  it('推导表：九段定额 + 两个 2K 线常量 = estimateTokens(旧窗口)，常量必须等于反推值', async () => {
+    const rows: string[] = [];
+    const record = (section: string, old: number, T: string, sample: string, final: number): number => {
+      const W = oldWindow(T, old);
+      const derived = estimateTokens(W);
+      rows.push(`${section.padEnd(22)} old=${String(old).padStart(4)}  旧窗口=${String(W.length).padStart(5)}字  反推=${String(derived).padStart(5)}  现常量=${String(final).padStart(5)}  样本=${sample}`);
+      return derived;
+    };
+
+    const dPersona = record('persona', OLD_QUOTAS.persona,
+      await leadT('persona', makeWu(), {} as any, makeRole({ persona: PERSONA_ZH.repeat(10) })),
+      'buildPersonaSection(role.persona=中文自述句×10)', SECTION_QUOTAS.persona);
+
+    const now = new Date().toISOString();
+    await fileStore.createChannel({
+      id: 'ch-derive', name: '#derive', type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null,
+      members: JSON.stringify(ROSTER_DESCS.map((_, i) => `dm-${i}`)),
+      createdAt: now, updatedAt: now,
+    } as any);
+    for (let i = 0; i < ROSTER_DESCS.length; i++) {
+      await fileStore.createProfile({
+        id: `dm-${i}`, name: `成员-${i}`, description: ROSTER_DESCS[i],
+        channels: '[]', status: 'active', provider: 'claude',
+        createdAt: now, updatedAt: now,
+      } as any);
+    }
+    const dRoster = record('roster', OLD_QUOTAS.roster,
+      await leadT('roster', makeWu({ channelId: 'ch-derive' }), {} as any, makeRole()),
+      'buildRosterSection(10 名 active 成员：中文模块说明 + DELEGATE 协议尾)', SECTION_QUOTAS.roster);
+
+    for (const [name, description] of SKILL_FIXTURES) {
+      writeSkillMeta(name, { description, agentTypes: ['feature'], triggers: ['登录'] });
+    }
+    const dSkills = record('skills', OLD_QUOTAS.skills,
+      await leadT('skills', makeWu(), {} as any, makeRole()),
+      'buildSkillSection(10 条中英混排索引行 + MANIFEST 指针，STUDIO_HOME=哨兵)', SECTION_QUOTAS.skills);
+    clearSkills();
+
+    mockProjectGet.mockResolvedValue({ id: 'proj-derive', map: MAP_FIXTURE });
+    const dMap = record('map', OLD_QUOTAS.map,
+      await leadT('map', makeWu(), { pmoId: 'proj-derive' } as any, makeRole()),
+      'buildPmoMapSection(destination + 10 条中文决策行(N 封顶) + 6 条开放雾)', SECTION_QUOTAS.map);
+    mockProjectGet.mockResolvedValue(null);
+
+    mockReadIndex.mockResolvedValue(MEMORY_FIXTURE);
+    const dMemory = record('memory', OLD_QUOTAS.memory,
+      await leadT('memory', makeWu(), {} as any, makeRole()),
+      'buildMemorySection(MEMORY.md 索引 30 行：topic 路径 + 中英混排摘要)', SECTION_QUOTAS.memory);
+    // 后续步骤复位：leadT 只抬本段定额，前段 mock 若不复位会串进本段 knowledgeContext
+    mockReadIndex.mockResolvedValue('');
+
+    const actualKs = await vi.importActual<any>('../../knowledge/knowledge-service.js');
+    const ks = new actualKs.KnowledgeService({
+      store: { list: vi.fn(() => []), get: vi.fn(), save: vi.fn(), update: vi.fn(), delete: vi.fn() } as any,
+      lifecycle: { recordReference: vi.fn(), shouldAutoPromote: vi.fn(() => false) } as any,
+      ingest: { ingestEntry: vi.fn() } as any,
+      linter: { validateEntry: vi.fn(() => []) } as any,
+      query: {
+        queryEntries: vi.fn()
+          .mockResolvedValueOnce(KNOWLEDGE_RULES)
+          .mockResolvedValueOnce(KNOWLEDGE_CONTEXTS),
+        listEntries: vi.fn().mockResolvedValue([]),
+        getIndexes: vi.fn().mockReturnValue(KNOWLEDGE_SIGNALS),
+        count: vi.fn().mockResolvedValue(37),
+      } as any,
+      eventEmitter: { emit: vi.fn() } as any,
+    });
+    const injected = await ks.injectContext('implement', { maxTokens: 50_000_000 });
+    // 全量放行（未裁条）：usage 原始 = 截后，否则「渲染到不截断」不成立
+    expect(injected.usage?.keptTokens).toBe(injected.usage?.originalTokens);
+    const knowledgeT = injected.prompt;
+    const dKnowledge = record('knowledge', OLD_QUOTAS.knowledge, knowledgeT,
+      'KnowledgeService.injectContext(12 rule + 4 context + 5 signal + 37 reference 全量渲染)', SECTION_QUOTAS.knowledge);
+    const dInject = record('INJECT_TOKEN_BUDGET', OLD_INJECT_BUDGET, knowledgeT,
+      '同上：同一 knowledge 全文 T，旧 2000', actualKs.INJECT_TOKEN_BUDGET);
+    record('INJECTED_TOKEN_BUDGET', OLD_INJECT_BUDGET, knowledgeT,
+      '同上（与 INJECT_TOKEN_BUDGET 必须同数）', INJECTED_TOKEN_BUDGET);
+
+    const dFiles = record('files', OLD_QUOTAS.files,
+      await leadT('files', makeWu(), FILES_FIXTURE as any, makeRole()),
+      'buildFilesSection(30 条 ASCII 引用路径 + 本工程中文标注 + D6 固定行)', SECTION_QUOTAS.files);
+
+    // contract 段内容随 WU type 变化：定额须覆盖全部真实模板里反推值最大者（取 max 规则）
+    let dContract = 0;
+    let contractMaxType = '';
+    const contractCases: Array<[string, any]> = [
+      ...Object.keys(CONTRACT_TEMPLATES).map((t): [string, any] => [t, {}]),
+      ['inspection', { inspection: true }],
+    ];
+    for (const [type, metadata] of contractCases) {
+      const wu = makeWu({ type: type === 'inspection' ? 'analysis' : type });
+      const T = await renderUntrimmed(
+        'contract',
+        () => composeStepPrompt({ wu, metadata: metadata as any }, deps(makeRole())),
+        o => o.prompt.slice(o.prompt.indexOf('## 产出契约')),
+      );
+      const d = estimateTokens(oldWindow(T, OLD_QUOTAS.contract));
+      if (d >= dContract) { dContract = d; contractMaxType = type; }
+    }
+    rows.push(`contract                 old=${String(OLD_QUOTAS.contract).padStart(4)}  旧窗口=-     反推=${String(dContract).padStart(5)}  现常量=${String(SECTION_QUOTAS.contract).padStart(5)}  样本=buildContractSection(取 ${contractCases.length} 个真实模板反推最大值，最大者=${contractMaxType})`);
+
+    const dHandoff = record('handoff', OLD_QUOTAS.handoff,
+      await renderUntrimmed(
+        'handoff',
+        () => composeStepPrompt(
+          { wu: makeWu(), metadata: { stepCount: 25, progressLog: HANDOFF_FIXTURE } as any, isNewSession: true },
+          deps(makeRole()),
+        ),
+        o => o.prompt.slice(o.prompt.indexOf('## 前序进展')),
+      ),
+      'buildHandoffSection(25 条中文进展行)', SECTION_QUOTAS.handoff);
+
+    console.log(`[token-ruler-derive] 哨兵 STUDIO_HOME=${DERIVE_STUDIO_HOME}\n${rows.join('\n')}`);
+
+    // —— 推导即守卫：常量必须等于反推值（改尺子/改常量后，此处直接报出该是多少）——
+    expect(SECTION_QUOTAS.persona, `persona 应为反推值 ${dPersona}`).toBe(dPersona);
+    expect(SECTION_QUOTAS.roster, `roster 应为反推值 ${dRoster}`).toBe(dRoster);
+    expect(SECTION_QUOTAS.skills, `skills 应为反推值 ${dSkills}`).toBe(dSkills);
+    expect(SECTION_QUOTAS.map, `map 应为反推值 ${dMap}`).toBe(dMap);
+    expect(SECTION_QUOTAS.memory, `memory 应为反推值 ${dMemory}`).toBe(dMemory);
+    expect(SECTION_QUOTAS.knowledge, `knowledge 应为反推值 ${dKnowledge}`).toBe(dKnowledge);
+    expect(SECTION_QUOTAS.files, `files 应为反推值 ${dFiles}`).toBe(dFiles);
+    expect(SECTION_QUOTAS.contract, `contract 应为反推值（模板最大值）${dContract}`).toBe(dContract);
+    expect(SECTION_QUOTAS.handoff, `handoff 应为反推值 ${dHandoff}`).toBe(dHandoff);
+
+    expect(actualKs.INJECT_TOKEN_BUDGET, `INJECT_TOKEN_BUDGET 应为 knowledge 全文旧 2000 窗口反推值 ${dInject}`).toBe(dInject);
+    expect(INJECTED_TOKEN_BUDGET, `INJECTED_TOKEN_BUDGET 应与之同数 ${dInject}`).toBe(dInject);
+    expect(INJECTED_TOKEN_BUDGET).toBe(actualKs.INJECT_TOKEN_BUDGET);
+  }, 30_000);
+
+  it('方向钉住：ASCII 为主的 files 段反推值 < 旧值，中文为主的 persona/handoff 段 > 旧值', () => {
+    expect(SECTION_QUOTAS.files / OLD_QUOTAS.files).toBeLessThan(1);
+    expect(SECTION_QUOTAS.persona / OLD_QUOTAS.persona).toBeGreaterThan(1);
+    expect(SECTION_QUOTAS.handoff / OLD_QUOTAS.handoff).toBeGreaterThan(1);
+    // 反证「统一 ×3」：纯中文最坏比值 3.00 若全局套用，files 段会凭空放行约 3 倍内容
+    expect(SECTION_QUOTAS.files).toBeLessThan(OLD_QUOTAS.files * 3);
+  });
   });
 });
 
@@ -437,11 +815,16 @@ describe('#92: skills 硬预裁剪 + MANIFEST 指针', () => {
     // 预裁剪：scope-big（scope 文本匹配）不进段；domain-big（域匹配）保留
     expect(knowledgeContext).toContain('### domain-big');
     expect(knowledgeContext).not.toContain('### scope-big');
-    // 预裁剪后仍受 #91 定额截断（domain-big 单块超 1300 有效预算 → 落 skills 截断埋点）
+    // 预裁剪后仍受 #91 定额截断（domain-big 单块超 1831 有效预算 = 635+703+493 → 落 skills 截断埋点）
     const events = sectionTrimmedEvents();
     expect(events).toHaveLength(1);
     expect(events[0].section).toBe('skills');
-    expect(events[0].trimmedTokens).toBe(1300);
+    const effective = SECTION_QUOTAS.skills + SECTION_QUOTAS.persona + SECTION_QUOTAS.roster;
+    const fixedTokens = estimateTokens(SKILL_HEADER) + estimateTokens(SKILL_MANIFEST_POINTER + '\n\n');
+    const domainBlock = `### domain-big\n${'述'.repeat(6000)}\n全文：${path.join(studioHome, 'skills', 'domain-big', 'SKILL.md')}`;
+    expect(events[0].trimmedTokens).toBe(
+      fixedTokens + estimateTokens(sliceByNewRuler(domainBlock, effective - fixedTokens)),
+    );
     expect(events[0].originalTokens).toBeGreaterThan(events[0].trimmedTokens);
     // 指针恒在段尾（截断也保留）
     expect(knowledgeContext).toContain(SKILL_MANIFEST_POINTER);
@@ -559,9 +942,9 @@ describe('#111 T5: PMO 地图段完整渲染（destination + 近 N 条决策 + �
   });
 
   it('超预算 → fog 全保留、decisions 从旧到新截（保最新），落 prompt:section_trimmed(section=map)', async () => {
-    // 80 条开放雾（≈1910 tok，TokenEstimator 中文口径）+ 10 条决策 → 原始 ~3040 tok > 2100 有效预算（persona/roster/skills 全空余量入池）；
-    // 决策从旧裁到只剩最新 1 条（fog 自身未超预算 → 不触发兜底整段截）
-    const fog = Array.from({ length: 80 }, (_, i) => ({
+    // 60 条开放雾（≈2520 tok，estimateTokens 逐码点口径）+ 10 条决策（≈310/条）→ 原始 ~5750 tok > 3012 有效预算（map 1181 + persona/roster/skills 全空余量 1831 入池）；
+    // 决策从旧裁到只剩最新（fog+固定开销自身未超预算 → 不触发兜底整段截）
+    const fog = Array.from({ length: 60 }, (_, i) => ({
       id: `F${i}`,
       question: `雾问题-${String(i).padStart(2, '0')}：${'详'.repeat(14)}`,
       wuId: null,
@@ -575,19 +958,20 @@ describe('#111 T5: PMO 地图段完整渲染（destination + 近 N 条决策 + �
 
     const { knowledgeContext } = await composeWithMap({ destination: '目标 X', decisions, fog });
 
-    // fog 全保留（80 条一条不少）
-    for (let i = 0; i < 80; i++) {
+    // fog 全保留（60 条一条不少）
+    for (let i = 0; i < 60; i++) {
       expect(knowledgeContext).toContain(`雾问题-${String(i).padStart(2, '0')}：`);
     }
     // decisions 保最新、从旧截：最新在，最旧不在
     expect(knowledgeContext).toContain('决策结论-9');
     expect(knowledgeContext).not.toContain('决策结论-0');
-    // 截断埋点：section=map / quota=800 / 截后 ≤ 2100（map 有效预算）< 原始
+    // 截断埋点：section=map / quota=1181 / 截后 ≤ 3012（map 有效预算）< 原始
+    const effective = SECTION_QUOTAS.map + SECTION_QUOTAS.persona + SECTION_QUOTAS.roster + SECTION_QUOTAS.skills;
     const events = sectionTrimmedEvents();
     expect(events).toHaveLength(1);
     expect(events[0].section).toBe('map');
-    expect(events[0].quota).toBe(800);
-    expect(events[0].trimmedTokens).toBeLessThanOrEqual(2100);
+    expect(events[0].quota).toBe(SECTION_QUOTAS.map);
+    expect(events[0].trimmedTokens).toBeLessThanOrEqual(effective);
     expect(events[0].originalTokens).toBeGreaterThan(events[0].trimmedTokens);
   });
 
@@ -851,9 +1235,17 @@ describe('#100: 角色记忆索引常驻注入（memory 段 = per-role MEMORY.md
     expect(knowledgeContext).toContain('## 系统约束'); // knowledge 段仍组装，证明 non-blocking
   });
 
-  it('AC1: 索引超有效预算（定额 300 + 池余量）→ 截断并落 prompt:section_trimmed(section=memory, quota=300)', async () => {
+  it('AC1: 索引超有效预算（定额 318 + 池余量）→ 截断并落 prompt:section_trimmed(section=memory, quota=318)', async () => {
     const lines = Array.from({ length: 200 }, (_, i) => `- [t${i}](topics/t${i}.md) — ${'述'.repeat(80)}`);
-    mockReadIndex.mockResolvedValue(`# Role Memory Index\n\n${lines.join('\n')}`);
+    const index = `# Role Memory Index\n\n${lines.join('\n')}`;
+    mockReadIndex.mockResolvedValue(index);
+
+    // 先取未截断全文，再按生产同式算精确截断值
+    const full = await renderUntrimmed(
+      'memory',
+      () => composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole())),
+      o => o.knowledgeContext,
+    );
 
     const { knowledgeContext } = await composeStepPrompt(
       { wu: makeWu(), metadata: {} as any },
@@ -864,9 +1256,11 @@ describe('#100: 角色记忆索引常驻注入（memory 段 = per-role MEMORY.md
     const events = sectionTrimmedEvents();
     expect(events).toHaveLength(1);
     expect(events[0].section).toBe('memory');
-    expect(events[0].quota).toBe(300);
-    // 有效预算 = 定额 300 + 前段（persona 300 + roster 400 + skills 600 + map 800）余量 2100
-    expect(events[0].trimmedTokens).toBe(2400);
+    expect(events[0].quota).toBe(SECTION_QUOTAS.memory);
+    // 有效预算 = 定额 318 + 前段（persona 703 + roster 493 + skills 635 + map 1181）余量 3012 = 3330
+    const effective = SECTION_QUOTAS.memory + SECTION_QUOTAS.persona + SECTION_QUOTAS.roster
+      + SECTION_QUOTAS.skills + SECTION_QUOTAS.map;
+    expect(events[0].trimmedTokens).toBe(estimateTokens(sliceByNewRuler(full, effective)));
     expect(events[0].originalTokens).toBeGreaterThan(events[0].trimmedTokens);
   });
 });
@@ -1096,8 +1490,8 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     }
   });
 
-  it('契约段 200 软定额 + 模板表覆盖 review/implement/decision/analysis/bug/spec/plan（#121/#463/#471）', () => {
-    expect(SECTION_QUOTAS.contract).toBe(200);
+  it('契约段软定额 396（旧窗口反推，模板最大值口径）+ 模板表覆盖 review/implement/decision/analysis/bug/spec/plan（#121/#463/#471）', () => {
+    expect(SECTION_QUOTAS.contract).toBe(396);
     expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'bug', 'decision', 'implement', 'plan', 'review', 'spec']);
   });
 
@@ -1182,12 +1576,12 @@ describe('#285（决策 #257 D1/D2/D4/D6/D7/D9）：files 段「## 引用文件�
   // D6 原文（逐字，与 #285 票体固定行一致）
   const FILES_FOOTER = '以下引用中位于本工程之外的文件为只读上下文，请勿修改；跨仓写入请显式提出并等人确认。大文件请按需分段读取，不要全文吞入。';
 
-  /** 让 knowledge 段吃满有效预算（3400），files 段有效预算 = 裸定额 400 */
+  /** 让 knowledge 段吃满有效预算（3823 = 493 定额 + 前段全空余量 3330），files 段有效预算 = 裸定额 213 */
   const saturateKnowledgeBudget = () => {
     mockInjectContext.mockResolvedValue({
       prompt: '## 系统约束\n- test rule',
       injectedIds: [],
-      usage: { originalTokens: 3400, keptTokens: 3400 },
+      usage: { originalTokens: 3823, keptTokens: 3823 },
     });
   };
 
@@ -1283,8 +1677,8 @@ describe('#285（决策 #257 D1/D2/D4/D6/D7/D9）：files 段「## 引用文件�
     expect(mixed.knowledgeContext).not.toContain('null');
   });
 
-  it('截断（D2/D4）：超 400 定额 → 保注入序前缀 + 段尾「另有 N 条引用未注入」+ section_trimmed payload 含 keptCount/droppedPaths(≤5)/droppedCount', async () => {
-    saturateKnowledgeBudget(); // files 有效预算 = 400
+  it('截断（D2/D4）：超 213 定额 → 保注入序前缀 + 段尾「另有 N 条引用未注入」+ section_trimmed payload 含 keptCount/droppedPaths(≤5)/droppedCount', async () => {
+    saturateKnowledgeBudget(); // files 有效预算 = 213
     const refs = Array.from({ length: 40 }, (_, i) => ({
       repo: '/repo/ws',
       path: `src/very/deeply/nested/directory/structure/for/budget/file-${String(i).padStart(2, '0')}.ts`,
@@ -1298,8 +1692,8 @@ describe('#285（决策 #257 D1/D2/D4/D6/D7/D9）：files 段「## 引用文件�
     const events = sectionTrimmedEvents();
     expect(events).toHaveLength(1);
     expect(events[0].section).toBe('files');
-    expect(events[0].quota).toBe(400);
-    expect(events[0].trimmedTokens).toBeLessThanOrEqual(400);
+    expect(events[0].quota).toBe(SECTION_QUOTAS.files);
+    expect(events[0].trimmedTokens).toBeLessThanOrEqual(SECTION_QUOTAS.files);
     expect(events[0].originalTokens).toBeGreaterThan(events[0].trimmedTokens);
     const { keptCount, droppedPaths, droppedCount } = events[0];
     expect(keptCount).toBeGreaterThan(0);

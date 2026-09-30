@@ -36,6 +36,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 }));
 
 import { AgentLoop } from '../loop/agent-loop';
+import { SECTION_QUOTAS } from '../loop/prompt-composer';
 import { parseAgentOutput } from '../loop/agent-loop-parsers';
 
 function makeProfile(id: string, name: string): AgentProfileData {
@@ -395,9 +396,12 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
 
       const opts = mockInjectContext.mock.calls[0][1];
       // #91 分段软定额：map/skills/memory 段空（余量全入池），persona/roster 占用部分定额——
-      // maxTokens = 1000 + 800 + 600 + 300 + 400 + 300 - personaTokens - rosterTokens
-      expect(opts.maxTokens).toBeLessThan(3400);
-      expect(opts.maxTokens).toBeGreaterThan(1000);
+      // maxTokens = (knowledge+map+skills+memory+roster+persona) 定额总和 - personaTokens - rosterTokens
+      //（定额为 harness 1.16.0 estimateTokens 旧窗口反推值，数值口径见 prompt-composer SECTION_QUOTAS）
+      expect(opts.maxTokens).toBeLessThan(
+        SECTION_QUOTAS.knowledge + SECTION_QUOTAS.map + SECTION_QUOTAS.skills
+        + SECTION_QUOTAS.memory + SECTION_QUOTAS.roster + SECTION_QUOTAS.persona);
+      expect(opts.maxTokens).toBeGreaterThan(SECTION_QUOTAS.knowledge);
     });
 
     it('members 为空 → 回退到全部 active profile（与闸门口径一致）', async () => {
