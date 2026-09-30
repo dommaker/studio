@@ -17,8 +17,9 @@
  * 不得 import 任何 studio 业务模块（防止循环依赖）。
  */
 
-import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
+import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
+import { KnowledgeInjector } from './knowledge-injector.js';
 import { FileStore, logger, eventBus } from '@dommaker/studio-shared';
 import { wrapWithSegmentSpan } from '@dommaker/studio-shared/read-metrics';
 import { execFile, execFileSync } from 'child_process';
@@ -99,7 +100,13 @@ export const sharedQuery = wrapWithSegmentSpan(
   'KnowledgeQuery',
   HARNESS_SPAN_QUERY_METHODS,
 );
-export const sharedInjector = wrapWithSegmentSpan(new KnowledgeInjector(sharedQuery), 'KnowledgeInjector', HARNESS_SPAN_INJECTOR_METHODS);
+export const sharedInjector = wrapWithSegmentSpan(
+  new KnowledgeInjector(sharedQuery),
+  // 段名保持 'KnowledgeInjector' 不变（指标消费方兼容）；类本体已收口为
+  // studio 本地 knowledge-injector.ts（harness 侧 KnowledgeInjector 移除，见该文件头注释）
+  'KnowledgeInjector',
+  HARNESS_SPAN_INJECTOR_METHODS,
+);
 // GAP-01: shared linter for ingest validation
 export const sharedLinter = wrapWithSegmentSpan(
   new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore)),

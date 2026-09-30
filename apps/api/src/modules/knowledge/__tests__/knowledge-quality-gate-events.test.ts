@@ -43,9 +43,10 @@ vi.mock('@dommaker/harness', () => {
   }
   class KnowledgeLifecycle {}
   class KnowledgeQuery {}
-  class KnowledgeInjector {}
   class ReferenceTracker {}
-  return { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker };
+  // 本地 knowledge-injector.ts 从包根 import estimateTokens，整体 mock 必须提供
+  const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+  return { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeLinter, ReferenceTracker, estimateTokens };
 });
 
 // scheduleVectorDbSync / startup pkill 不真正起进程

@@ -1,6 +1,6 @@
 # apps/api/src/modules/knowledge
 
-> Updated: 2026-09-10 (pattern-entry 交互模式查询/解析口径收敛，/search 500 根因修复)
+> Updated: 2026-09-30 (KnowledgeInjector 收口为本地 knowledge-injector.ts；前次：pattern-entry 交互模式查询/解析口径收敛，/search 500 根因修复)
 
 ### 职责
 
@@ -15,7 +15,8 @@
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| `knowledge-singletons` | `knowledge-singletons.ts` | 共享单例唯一所有者（sharedStore 等）+ 向量库同步 + 统一质量门（R4）+ `publishKnowledgeEntryChanged`（条目变更 SSE 广播，见注意事项 Step 2 条） |
+| `knowledge-singletons` | `knowledge-singletons.ts` | 共享单例唯一所有者（sharedStore 等）+ 向量库同步 + 统一质量门（R4）+ `publishKnowledgeEntryChanged`（条目变更 SSE 广播，见注意事项 Step 2 条）；sharedInjector 自 2026-09-30 起为本地 `KnowledgeInjector`（harness 侧类移除收口） |
+| `KnowledgeInjector` | `knowledge-injector.ts` | 知识注入策略本地正本（harness KnowledgeInjector 收口承接，ADR-0031~0034 分工：消费编排归 studio）：按阶段/预算查询 → exclude 去重 → 预算不足摘要降级 → ContextSource（本地同构类型）；token 尺子用 harness `estimateTokens`；formatEntry/formatEntrySummary + EXTERNAL_SOURCE_MARKER 字面量为本地复刻（已安装 harness 未从包根导出且 formatForPrompt 格式不等价，文件头注释注明待 harness 发版后切换 import） |
 | `MtimeMemoKnowledgeStore` | `knowledge-store-memo.ts` | sharedStore 的 mtime 校验聚合 memo 包装（#343，缓存 seam ADR 外部包条款）：mtime+size 指纹兜底跨进程外部写 + 本进程写穿透失效；命中深克隆保持「每次读全新对象」契约；readEntriesFromDisk/snapshot 直通不缓存；harness 1.8.0 起补齐 KnowledgeStore 15 成员——`applyAll`（写穿透失效，与 saveAll 同口径）+ `getConsumptionStats`（直通不缓存：stats 文件不在 .md/index.json 指纹内，缓存必过期） |
 | `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore），knowledgeService 的 query 引擎（R4 修复接线） |
 | `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder）；E2：有注入时附「何时查知识库」指引（`KNOWLEDGE_QUERY_GUIDANCE`）；#91：maxTokens 由 prompt-composer 按分段定额传入（knowledge 493 新尺子反推值 + 池余量；缺省回退 INJECT_TOKEN_BUDGET=927，同为 estimateTokens 口径旧窗口反推值，推导正本见 agents/__tests__/prompt-composer.test.ts 反推块），`knowledge:inject-trimmed` 事件补 originalTokens/keptTokens 尺寸字段，返回值带 `usage` 供 `prompt:section_trimmed` 埋点；#602 D3：「## 系统约束」段经 `renderWithOverride('knowledge.rules-section', …)` 渲染（E1 prompt-template 提案生效落点的真实消费端；无覆盖文件时逐字节等同原行为，token 计量按渲染后文本） |
@@ -37,6 +38,7 @@ knowledge/
 ├── engine/                    # 存储/查询层
 │   └── unified-query.ts       # 双存储统一查询
 ├── knowledge-singletons.ts    # 共享单例/向量库同步/统一质量门（R4 收敛；sharedStore 已包 memo）
+├── knowledge-injector.ts      # 知识注入策略本地正本（harness KnowledgeInjector 收口承接）+ ContextSource 同构类型
 ├── knowledge-store-memo.ts    # MtimeMemoKnowledgeStore：sharedStore 的 mtime 校验聚合 memo（#343）
 ├── knowledge-design-doc.ts    # 设计时知识沉淀：upsertKnowledge + checkDocumentFreshness（#343 起自 KnowledgeBus 迁出）
 ├── knowledge-service.ts       # 统一知识能力层（KnowledgeService 编排 + 单例接线；工单 29 拆分后聚焦编排）
@@ -79,6 +81,7 @@ knowledge/
 
 ### 注意事项
 
+- **KnowledgeInjector 已收口为 studio 本地模块（2026-09-30）**：`knowledge-injector.ts` 承接 harness `KnowledgeInjector` 的注入策略（harness 仓正从源码移除该类；消费编排归 studio 的定案分工）。格式化未走 `KnowledgeQuery.formatForPrompt`——已安装 harness 1.16.0 的该方法是简化格式（`title: content`），与注入路径富格式（ID/成熟度/层级/标签头）不等价，切换会改变注入输出；`EXTERNAL_SOURCE_MARKER` 常量亦未从包根导出。故本地复刻 formatEntry/formatEntrySummary + 同值标记字面量，待 harness 发版导出后切换 import（文件头注释为准）。三个整体 mock '@dommaker/harness' 的知识测试（quality-gate-events / vector-sync / inject-wiring）同步摘除 KnowledgeInjector mock 并补 `estimateTokens` 桩。
 - **消费链路三条已知坑（M2 诊断，2026-09-21）**：① 已修（#611）：`verifyConsumptionChain`（每次进程启动跑）**真走 `recordReference`**——哨兵条目 `__consumption_chain_probe__`（archived，不进默认 list/注入面；每次启动删旧存新以绕过同日去重，保证必触发 onReference）+ 轮询验证 `knowledge:consumption` 事件落盘（5s 超时），断链 → false + error 出声，不再直写 `knowledge:probe` 假绿；配套 monitor 日级门控新增 consumption 归零告警（连续 3 天无 consumption 事件 → `monitor:alert` warning，source `knowledge_consumption_silence`，monitor-system-probes.checkKnowledgeHealth）；② 已修（#612）：injectContext 以 `wu.type` 作 agentType 过滤 `applicableAgents`（unified-query.ts:71-75），rule 条目的 affects 词表曾用角色词表（agent/reviewer/executor/monitor）与 WU type **零交集**——「## 系统约束」rule 段对任何真实 WU 恒空；修复 = RuleScanner 的 affects 改用阶段词表（决策 8 单一词表，harness 约束/架构规则/环境阈值等全局规则写 `[]` = 全阶段可见，inferAffects 仅路径明确指向阶段时定向）+ injectContext 入口经 `normalizeToStage` 归一化 legacy 类型（feature/bug→implement、task→general）；③ 已修（#614）：`guideline-rule-*.md` 的 tags 曾被弃置/清理循环**无去重反复追加 `deprecated`**（实盘 63 文件、单文件千余次）——根因是 rule-scanner 弃置路径与 pattern-miner 旧模式清理对已终态条目仍每次 `save` 追加；修复 = 已达终态（deprecated/outdated）条目跳过不写 + 写入时保序去重（防回归 tag-append-dedup.test.ts）；存量清洗两轮：09-22 首轮（备份 outputs/tag-dedup-backup-20260922）发生在修复部署前，被残留腐蚀重新污染（长回 ~194 重复/文件）；09-24 修复部署后终洗（#609）：63 个 md + index.json 保序去重（备份 outputs/tag-dedup-backup-20260924.tar.gz，脚本 outputs/tag-dedup-20260924.py），重启触发 cold-start fullScan 后复扫零重复、终态条目不再被重写，修复实盘生效。harness 侧同类 append 路径审计结论：均已带存在性判断或 Set 去重，无需修。
 - **Resolution maturity/layer 值域（M1，2026-09-21 脏值源头修复）**：resolution 走 `FileStore.writeDoc` 直写 markdown、**绕开 harness store 写入闸**，值域须写入方自守——maturity ∈ `draft`/`verified`/`proven`（`pending`/`canonical` 是 harness 知识 schema 未声明脏值，已退役；`isActionableMaturity` 注入闸仍兼容 legacy `canonical` 至存量清洗完成）；layer 写 harness StorageLayer 合法值（现统一 `'project'`），原 `L3_tool_behavior`/`L4_env_config` 分层值挪进 tags 保信息。写入点：`createResolution`（draft）/`verifyResolution`（3 次验证 → proven）/`ensureSeedResolutions`（proven seed，注意 seed 判重只看 title+fix hash，存量脏 seed 不会被本路径重写，归存量清洗线）+ agents 侧 triage.service B13-002 回写、auditor-execution autoCreateResolutions。读侧口径同步：/resolutions 浏览与 /search 解法源 = draft+proven（proven 命中加分），getDensityScore 计 proven
 - **知识条目变更 SSE 事件（2026-09 web-ux-optional-fixes Step 2）**：`publishKnowledgeEntryChanged(action, { entryId?, entryType?, title? })`（knowledge-singletons）经 eventBus `events` 频道广播 `knowledge.entry_changed`（sse.routes 前缀映射进 knowledge topic，载荷只带轻量元信息 = 前端「重拉信号」，信封不带 event_id 同 knowledge bridge 惯例）。三个发射点：`ingestWithQualityGate` 成功入库（agent 产出主路径）、`knowledgeService.promote/demote` 成熟度迁移实际发生（不在迁移表不发）、`POST /knowledge/unified` 人工创建。绕过门面直调 `sharedStore.save` 的机器流（pattern-miner/rule-scanner/decision-chain-extractor）**不广播**——高频机器写库经 store 层 chokepoint 广播会造成事件风暴，是有意排除。消费方：KnowledgePage 订阅后防抖重拉当前 tab。

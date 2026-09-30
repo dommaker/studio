@@ -26,9 +26,10 @@ function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnTyp
     KnowledgeIngest: class { ingestEntry() { return { id: 'x' }; } },
     KnowledgeLifecycle: class { shouldAutoPromote() { return false; } },
     KnowledgeQuery: class {},
-    KnowledgeInjector: class {},
     KnowledgeLinter: class { validateEntry() { return []; } },
     ReferenceTracker: class {},
+    // 本地 knowledge-injector.ts 从包根 import estimateTokens，整体 mock 必须提供
+    estimateTokens: (text: string) => Math.ceil(text.length / 4),
   }));
 }
 
