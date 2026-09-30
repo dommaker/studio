@@ -28,3 +28,4 @@
 - 路由 GET / 默认按 `createdAt` 降序排列，分页参数为 `page` 和 `limit`（默认 1/20）。
 - 该模块的长期规划是废弃并被 agent-profiles / workunit API 替代（见 `docs/vision-2026.md`）。
 - **已修复（2026-08-25）**：POST /events 已挂 requireLocalhost（内部 runtime 回调假设坐实：全仓无远程调用方）；GET /:executionId 回显服务器绝对路径（POST /:executionId/archive 已随工单 20 删除）。
+- **契约驱动迁移（2026-10 批次 7/8）**：三端点走 defineRoute（schema = studio-contract executions.ts，LEGACY 标注）——GET / 分页壳形状不变；GET /:executionId 裸实体进 `{ data }` 壳；POST /events `{ received }` 进壳（唯一调用方同机 agent-runtime 不解析响应体）；500 code 'INTERNAL_ERROR' 归一 INTERNAL。头部注释声称的 web executionApi 消费方经 grep 实证已不存在，注释同批修正。

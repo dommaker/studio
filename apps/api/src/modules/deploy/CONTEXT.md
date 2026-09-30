@@ -18,3 +18,4 @@ Deploy Webhook：GitHub push 事件触发的自动部署入口（触发式部署
 - **安全**：HMAC-SHA256 校验 `X-Hub-Signature-256`（timing-safe 比较），secret = env `DEPLOY_WEBHOOK_SECRET`；未配置按 503 处理（`DEPLOY_SCRIPT` 同）。HMAC 即认证，`app.ts` 鉴权白名单放行该路径
 - **先响应再触发**：部署会重启本进程，必须 202 返回后再 spawn（`detached + unref`）
 - **日志**：脚本 stdout/stderr 追加到 env `DEPLOY_LOG`（默认 `/var/log/studio-deploy.log`）——`stdio: 'ignore'` 曾导致 webhook 通道部署零日志（2026-08-09 事故）；`DEPLOY_LOG` 不可写时降级为丢弃并 warn
+- **契约驱动迁移（2026-10 批次 7/8）**：/webhook 为协议面例外保持原样（express.raw HMAC-SHA256，202 机器串约定），出参形状（`{ accepted }` / `{ ignored }` / `{ error }`）声明在 studio-contract deploy.ts。

@@ -16,6 +16,8 @@ import { mcpServer, type MCPRequestContext } from './server.js';
 import { getToolSchemas, executeTool } from './tools.js';
 import { toolRegistry } from './tool-registry.js';
 import { logger } from '@dommaker/studio-shared';
+import { mcpToolCallBodySchema, mcpToolNameParamsSchema } from '@dommaker/studio-contract';
+import { defineRoute } from '../../core/http.js';
 import { requireAuth, requireAdmin, requireLocalhost } from '../../middleware/auth.js';
 import { mcpRateLimit } from '../../middleware/rate-limit.js';
 import adminRoutes from './admin.routes.js';
@@ -143,15 +145,10 @@ router.post('/', requireLocalhost(), async (req: Request, res: Response) => {
  * GET /api/v1/mcp/tools
  * 列出所有可用 tools（简化接口）
  */
-router.get('/tools', async (_req: Request, res: Response) => {
-  try {
-    const tools = getToolSchemas();
-    res.json({ tools, total: tools.length });
-  } catch (error) {
-    logger.error('Failed to list MCP tools', { error: String(error) });
-    res.status(500).json({ error: 'Failed to list tools' });
-  }
-});
+router.get('/tools', defineRoute({}, async () => {
+  const tools = getToolSchemas();
+  return { tools, total: tools.length };
+}));
 
 /**
  * POST /api/v1/mcp/tools/:name
@@ -159,43 +156,38 @@ router.get('/tools', async (_req: Request, res: Response) => {
  * 2026-07 收紧：roleId 自声明 + executor seed 默认全允许 → 执行任意 tool
  * （含 devops/git），PUBLIC_API 前缀下曾匿名可达；收紧为 Admin。
  */
-router.post('/tools/:name', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
-  try {
-    const { name } = req.params as Record<string, string>;
-    const roleId = req.body?.roleId || req.headers['x-role-id'] as string;
-    const result = await executeTool(name, req.body, roleId);
-
-    if (!result.success) {
-      return res.status(400).json({
-        error: (result as any).error,
-        duration: result.duration,
-      });
-    }
-
-    return res.json({
-      result: result.result,
-      duration: result.duration,
-    });
-  } catch (error) {
-    logger.error('MCP tool call failed', { error: String(error) });
-    return res.status(500).json({ error: String(error) });
-  }
-});
+router.post('/tools/:name', requireAuth(), requireAdmin(), defineRoute(
+  {
+    params: mcpToolNameParamsSchema,
+    body: mcpToolCallBodySchema,
+  },
+  {
+    errors: [
+      { match: 'Unknown or disabled tool', status: 404, code: 'NOT_FOUND' },
+      { match: 'Permission denied', status: 403, code: 'FORBIDDEN' },
+      { match: 'Rate limit exceeded', status: 429, code: 'RATE_LIMITED' },
+    ],
+  },
+  async (req, _res, { params, body }) => {
+    const roleId = body.roleId || req.headers['x-role-id'] as string;
+    const result = await executeTool(params.name, body, roleId);
+    return { result: result.result, duration: result.duration };
+  },
+));
 
 /**
  * GET /api/v1/mcp/health
  * Health check — returns tool availability status
+ * unhealthy → 503 裸健康体（机器面例外，handler 自写 res 不进壳）
  */
-router.get('/health', async (_req: Request, res: Response) => {
-  try {
-    const health = toolRegistry.getHealth();
-    const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
-    res.status(statusCode).json(health);
-  } catch (error) {
-    logger.error('MCP health check failed', { error: String(error) });
-    res.status(500).json({ status: 'unhealthy', error: String(error) });
+router.get('/health', defineRoute({}, async (_req, res) => {
+  const health = toolRegistry.getHealth();
+  if (health.status === 'unhealthy') {
+    res.status(503).json(health);
+    return;
   }
-});
+  return health;
+}));
 
 // Admin routes（2026-07 收紧：此前注释声称由 route-registry 提供 requireAuth，实际并无）
 router.use('/admin', requireAuth(), requireAdmin(), adminRoutes);

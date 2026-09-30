@@ -42,3 +42,4 @@
 **上游**: `@dommaker/studio-shared`（FileStore appendJsonl/readJsonl、frontmatter 解析）、`studio-dir`（studioPath）、`studio-log-path.ts`（isTestEnv）。
 
 **下游**: WU 收尾提取（auto→appendDraft 直 promote；manual→submitMemoryProposal 发卡）、角色记忆索引注入（readIndex 读取方）、人审提案审批（review-proposal 通用端点 kind='memory' → adapter onApprove/onReject）、蒸馏产物落地（distill-landings 调 submitMemoryProposal 带 sourceRefs）。
+- **契约驱动迁移（2026-10 批次 7/8）结论**：本模块无自有 HTTP 面——专有端点已随 #353 退役，人审走 /review-proposals kind='memory' 通用端点（批次 4 已迁）。

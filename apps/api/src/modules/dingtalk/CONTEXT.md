@@ -22,3 +22,4 @@
 - 路由挂载于 /api/v1/dingtalk 前缀，由 route-registry 统一注册
 - ActionCard 按钮点击（/action）仅返回静态 HTML，不再执行实际会议操作
 - 健康检查（/health）返回 JSON 格式 { status: 'ok', service: 'dingtalk-callback' }
+- **契约驱动迁移（2026-10 批次 7/8）**：GET /health 走 defineRoute 进 `{ data }` 壳（无消费方）；/action 为浏览器跳转 HTML 面例外保持原样。

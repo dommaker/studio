@@ -32,3 +32,4 @@ GC 候选清单：蒸馏运行后按周期计龄--reference/context 层连续 3 
 - approve 非事务：崩溃可能留半成品（原料部分归档），重跑由新提案覆盖。
 - topic 来源白名单（#366）：门槛 topic 信号只计 `origin=agent/human` 条目；system（蒸馏产物/规则扫描/历史冷启动灌入）/external/未知来源不凑数不入组——批量同 tag 误触蒸馏的闸门，漏触发由 manual 信号与卡审兜底。「只认创建时自带 tag」未做（需 tag 来源持久化）。
 - 来源标定口径（#371 裁决）：`agent` = 会话沉淀，钦定矿石 session-summary 显式声明；机器流一律 `system` 不计入——monitor 告警（聚集=告警多≠可提炼模式）、knowledge-sync 遥测/design-doc 归档、pattern-miner 统计挖掘产物（#366 误触提案卡 pat-* 实证参与者）、resolution 自动落盘。`recordPattern` 缺省 `system`（fail-closed），经该门面的写入路径漏标来源不会误触——绕过门面直调 store 的写入仍须显式标定；存量 44 条经 studio-config/bin/knowledge-relabel-origins-371 一次性重标。
+- **契约驱动迁移（2026-10 批次 7/8）结论**：本模块无自有 HTTP 面——提案卡 approve/reject/status 全走 /review-proposals 通用端点（批次 4 已迁），前端 api/distill.ts 亦只消费该面。

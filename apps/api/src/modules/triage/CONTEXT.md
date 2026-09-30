@@ -28,3 +28,4 @@
 - `classifyError` 截取错误消息前 100 字符作为 summary
 - `SystemTriageResult` 为另一套独立分类，与 `classifyError` 无直接关联
 - 策略映射 `STRATEGY_MAP` 和模式数组 `ERROR_PATTERNS` 未对外导出
+- **契约驱动迁移（2026-10 批次 7/8）结论**：本模块无 HTTP 面（纯错误分类逻辑，消费方 = Monitor/Auditor 内部调用），无 REST 契约可迁。

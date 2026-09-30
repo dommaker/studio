@@ -34,6 +34,12 @@ API 契约唯一正本（docs/architecture/target-architecture.md）：按域一
 - `harness.ts`：harness 域——@dommaker/harness 类型不可 import，ConstraintResult/ConstraintCheckResult/生效约束/ExecutionTrace/知识条目/AgentState wire 重声明（passthrough 宽声明）+ 八子路由全端点请求/响应；列表壳内层 data 键改名词键（traces/constraints/retired/entries/issues/agents，避免 data.data 双包）；#641 sanitize 依赖 check-constraints hasRequirement 声明保留（zod 剥未知键坑）
 - `cso.ts`：cso 域——GET /validate 响应（恒 200 降级三形态：正常/validator 不可用 note/异常 skipped note）
 - `iron-laws.ts`：iron-laws 域——IronLaw passthrough 宽声明 + 四端点请求/响应；`{ success, data, count, source }` 壳退役；context 用 record 保 has* 键供 #641 sanitize 剥离；constraintResultItem/ConstraintCheckResult/violationPartialView 与 harness.ts 同源（import 复用）
+- `mcp.ts`：mcp 域（批次 7/8）——只迁 REST 管理面（GET /tools、POST /tools/:name、GET /health + admin 六端点）；McpTool/McpToolStats/McpAdminToolItem/McpAuditLog（历史行 passthrough）/ McpHealthResult（三态词表）实体 + 端点请求/响应；**协议面不声明**：POST /（JSON-RPC）、/sse、/messages、/external/* 由 MCP 协议定形保持原样；GET /health 的 unhealthy 503 裸健康体例外（handler 自写 res）；POST /tools/:name 抛错由清一色 500 细分 404/403/429
+- `builtin-tools.ts`：builtin-tools 域——BuiltinTool（category 四词表，静态注册 HZ-026）+ 三端点请求/响应；GET / 列表壳内层 data 键改名词键 tools；PATCH 非 boolean enabled 由静默忽略收紧 400
+- `executions.ts`：executions 域（LEGACY surface 标注）——ExecutionWithProgress（历史行稀疏 passthrough + 进度三键）+ 三端点请求/响应；GET / 分页壳形状不变；GET /:id 裸实体与 POST /events `{ received }` 进壳（无消费方）；500 code 'INTERNAL_ERROR' 归一 INTERNAL
+- `discord.ts` / `deploy.ts`：**协议面例外只声明出参**——discord interactions（express.raw Ed25519 签名）出参 = Discord 协议 `{ type, data?: { content } }`；deploy webhook（GitHub HMAC raw body）出参 = `{ accepted }` / `{ ignored }` / `{ error: string }`；raw body 无法预解析，zod 入参与 envelope 均不适用，路由保持原样
+- `lark.ts` / `dingtalk.ts`：回调为协议面例外（lark url_verification 回 challenge / ack `{ code: 0, msg }`；dingtalk /action 回 HTML 页），仅 GET /health 走统一 `{ data }` 壳
+- 批次 7/8 三无面域结论：**triage**（纯错误分类逻辑模块）、**distill** 与 **role-memory**（HTTP 面 = /review-proposals 通用端点，批次 4 已迁）无 REST 面可迁
 
 ## 注意事项
 

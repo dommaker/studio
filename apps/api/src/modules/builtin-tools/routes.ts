@@ -1,5 +1,11 @@
 // builtin-tools/routes.ts — Built-in Toolset (HZ-026)
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
+import {
+  builtinToolNameParamsSchema,
+  builtinToolListQuerySchema,
+  builtinToolPatchBodySchema,
+} from '@dommaker/studio-contract';
+import { defineRoute, HttpError } from '../../core/http.js';
 import { logger } from '../../utils/logger.js';
 
 const router = Router();
@@ -168,59 +174,45 @@ const BUILTIN_TOOLS: BuiltinTool[] = [
 ];
 
 // GET /api/v1/builtin-tools — 列表
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    const category = req.query.category as string | undefined;
-    const tools = category
-      ? BUILTIN_TOOLS.filter(t => t.category === category)
-      : BUILTIN_TOOLS;
+router.get('/', defineRoute({ query: builtinToolListQuerySchema }, async (_req, _res, { query }) => {
+  const tools = query.category
+    ? BUILTIN_TOOLS.filter(t => t.category === query.category)
+    : BUILTIN_TOOLS;
 
-    res.json({
-      data: tools.map(t => ({
-        name: t.name,
-        description: t.description,
-        category: t.category,
-        inputSchema: t.inputSchema,
-        enabled: t.enabled,
-      })),
-      total: tools.length,
-      categories: [...new Set(BUILTIN_TOOLS.map(t => t.category))],
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to list builtin tools');
-    res.status(500).json({ error: 'Failed to list builtin tools' });
-  }
-});
+  return {
+    tools: tools.map(t => ({
+      name: t.name,
+      description: t.description,
+      category: t.category,
+      inputSchema: t.inputSchema,
+      enabled: t.enabled,
+    })),
+    total: tools.length,
+    categories: [...new Set(BUILTIN_TOOLS.map(t => t.category))],
+  };
+}));
 
 // GET /api/v1/builtin-tools/:name — 单个工具详情
-router.get('/:name', async (req: Request, res: Response) => {
-  try {
-    const tool = BUILTIN_TOOLS.find(t => t.name === req.params.name as string);
-    if (!tool) return res.status(404).json({ error: 'Tool not found' });
-    res.json(tool);
-  } catch (error) {
-    logger.error({ error }, 'Failed to get builtin tool');
-    res.status(500).json({ error: 'Failed to get builtin tool' });
-  }
-});
+router.get('/:name', defineRoute({ params: builtinToolNameParamsSchema }, async (_req, _res, { params }) => {
+  const tool = BUILTIN_TOOLS.find(t => t.name === params.name);
+  if (!tool) throw new HttpError(404, 'NOT_FOUND', 'Tool not found');
+  return tool;
+}));
 
 // PATCH /api/v1/builtin-tools/:name — 启用/禁用工具
-router.patch('/:name', async (req: Request, res: Response) => {
-  try {
-    const tool = BUILTIN_TOOLS.find(t => t.name === req.params.name as string);
-    if (!tool) return res.status(404).json({ error: 'Tool not found' });
+router.patch('/:name', defineRoute(
+  { params: builtinToolNameParamsSchema, body: builtinToolPatchBodySchema },
+  async (_req, _res, { params, body }) => {
+    const tool = BUILTIN_TOOLS.find(t => t.name === params.name);
+    if (!tool) throw new HttpError(404, 'NOT_FOUND', 'Tool not found');
 
-    const { enabled } = req.body;
-    if (typeof enabled === 'boolean') {
-      tool.enabled = enabled;
+    if (body.enabled !== undefined) {
+      tool.enabled = body.enabled;
     }
 
     logger.info({ tool: tool.name, enabled: tool.enabled }, 'Builtin tool updated');
-    res.json(tool);
-  } catch (error) {
-    logger.error({ error }, 'Failed to update builtin tool');
-    res.status(500).json({ error: 'Failed to update builtin tool' });
-  }
-});
+    return tool;
+  },
+));
 
 export default router;
