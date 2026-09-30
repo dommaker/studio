@@ -88,10 +88,12 @@ describe('useDetectedProviders', () => {
   it('API 成功返回后解析 provider 列表', async () => {
     mockGet.mockResolvedValue({
       data: {
-        runtimes: [
-          { provider: 'claude', version: '1.0.0' },
-          { provider: 'kimi', version: '2.1.0' },
-        ],
+        data: {
+          runtimes: [
+            { provider: 'claude', version: '1.0.0' },
+            { provider: 'kimi', version: '2.1.0' },
+          ],
+        },
       },
     });
     const { result } = renderHook(() => useDetectedProviders());
@@ -113,10 +115,12 @@ describe('useDetectedProviders', () => {
   it('清单内同 provider 重复条目只保留首次出现', async () => {
     mockGet.mockResolvedValue({
       data: {
-        runtimes: [
-          { provider: 'claude', version: 'v1' },
-          { provider: 'claude', version: 'v2' },
-        ],
+        data: {
+          runtimes: [
+            { provider: 'claude', version: 'v1' },
+            { provider: 'claude', version: 'v2' },
+          ],
+        },
       },
     });
     const { result } = renderHook(() => useDetectedProviders());
@@ -130,7 +134,7 @@ describe('useDetectedProviders', () => {
     mockGet.mockReturnValue(new Promise((r) => { resolve = r; }));
     const { result, unmount } = renderHook(() => useDetectedProviders());
     unmount();
-    resolve({ data: { runtimes: [{ provider: 'claude', version: '1.0.0' }] } });
+    resolve({ data: { data: { runtimes: [{ provider: 'claude', version: '1.0.0' }] } } });
     // 状态应停留在初始值（loading=true, no crash）
     expect(result.current.loading).toBe(true);
   });
@@ -145,7 +149,7 @@ describe('useDetectedProviders', () => {
 
   it('enabled 翻 true 后发起且每次挂载只扫一次；收起再展开不重发（#403）', async () => {
     mockGet.mockResolvedValue({
-      data: { runtimes: [{ provider: 'claude', version: '1.0.0' }] },
+      data: { data: { runtimes: [{ provider: 'claude', version: '1.0.0' }] } },
     });
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) => useDetectedProviders({ enabled }),

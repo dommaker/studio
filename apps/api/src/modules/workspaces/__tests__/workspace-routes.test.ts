@@ -88,8 +88,6 @@ describe('GET /api/v1/workspaces（list）', () => {
 
     const { status, body } = await call('GET', '/');
     expect(status).toBe(200);
-    expect(body.success).toBe(true);
-    expect(body.total).toBe(2);
     expect(body.data.map((w: any) => w.id)).toEqual(['ws_new', 'ws_old']);
   });
 
@@ -97,7 +95,6 @@ describe('GET /api/v1/workspaces（list）', () => {
     const { status, body } = await call('GET', '/');
     expect(status).toBe(200);
     expect(body.data).toEqual([]);
-    expect(body.total).toBe(0);
   });
 });
 
@@ -117,7 +114,8 @@ describe('GET /api/v1/workspaces/:id（get one）', () => {
   it('不存在 → 404', async () => {
     const { status, body } = await call('GET', '/ws_ghost');
     expect(status).toBe(404);
-    expect(body.error).toBe('Workspace not found');
+    // 契约驱动迁移后错误壳统一 { error: { code, message } }（原平铺 { error: string, code }）
+    expect(body.error).toEqual({ code: 'NOT_FOUND', message: 'Workspace not found' });
   });
 });
 
@@ -164,6 +162,6 @@ describe('DELETE /api/v1/workspaces/:id', () => {
   it('不存在 → 404', async () => {
     const { status, body } = await call('DELETE', '/ws_ghost');
     expect(status).toBe(404);
-    expect(body.code).toBe('WORKSPACE_NOT_FOUND');
+    expect(body.error.code).toBe('NOT_FOUND');
   });
 });

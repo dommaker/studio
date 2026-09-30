@@ -90,7 +90,8 @@ describe('#448 问题1: OKR 列表缓存写后失效', () => {
     const url = `${baseUrl}/okr?companyId=${companyId}`;
     const created = await createOkr(uniqueQuarter(), `okr-put-${Date.now()}`);
     expect(created.status).toBe(201);
-    const { id } = (await created.json()) as { id: string };
+    // 契约驱动迁移后单体响应统一 { data } 壳（原裸对象）
+    const { data: { id } } = (await created.json()) as { data: { id: string } };
 
     await fetch(url); // MISS，写入缓存
     const cached = await fetch(url);
@@ -112,7 +113,7 @@ describe('#448 问题1: OKR 列表缓存写后失效', () => {
     const url = `${baseUrl}/okr?companyId=${companyId}`;
     const created = await createOkr(uniqueQuarter(), `okr-del-${Date.now()}`);
     expect(created.status).toBe(201);
-    const { id } = (await created.json()) as { id: string };
+    const { data: { id } } = (await created.json()) as { data: { id: string } };
 
     await fetch(url); // MISS，写入缓存
     const cached = await fetch(url);
@@ -139,11 +140,11 @@ describe('#448 问题2: OKR 撞重返回 409', () => {
     expect(body.error.message).toContain('already exists');
   });
 
-  it('service 层非冲突错误仍返回 500 INTERNAL_ERROR', async () => {
+  it('service 层非冲突错误仍返回 500（错误码统一 INTERNAL，原 INTERNAL_ERROR）', async () => {
     vi.spyOn(okrService, 'create').mockRejectedValueOnce(new Error('disk exploded'));
     const res = await createOkr(uniqueQuarter());
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('INTERNAL_ERROR');
+    expect(body.error.code).toBe('INTERNAL');
   });
 });

@@ -112,7 +112,8 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
     setDeliverError(null);
     try {
       const res = await projectApi.deliver(projectId);
-      toast.success(`交付成功${res.data?.deliverCommit ? ` (${String(res.data.deliverCommit).slice(0, 7)})` : ''}`);
+      // 契约驱动迁移（批次 2/7）：成功响应统一 { data } 壳（原裸对象）
+      toast.success(`交付成功${res.data?.data?.deliverCommit ? ` (${String(res.data.data.deliverCommit).slice(0, 7)})` : ''}`);
       // 刷新台账与项目信息（显示 deliveredAt/deliveredBy/deliverCommit）
       await onRefresh();
     } catch (err) {
@@ -138,7 +139,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
     setMarking(true);
     try {
       const res = await projectApi.markDelivered(projectId, commit);
-      toast.success(`已标记交付${res.data?.deliverCommit ? ` (${String(res.data.deliverCommit).slice(0, 7)})` : ''}`);
+      toast.success(`已标记交付${res.data?.data?.deliverCommit ? ` (${String(res.data.data.deliverCommit).slice(0, 7)})` : ''}`);
       setMarkCommit('');
       await onRefresh();
     } catch (err) {

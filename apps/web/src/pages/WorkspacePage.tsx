@@ -6,34 +6,19 @@
 // presetProvider 锁定行内 runtime 的 CLI；行为归一 = 创建成功关弹框 + onCreated，原「成功留框」差异随之消除）
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { workspaceApi } from '../api';
+import type { WorkspaceRuntime } from '@dommaker/studio-contract';
+import { workspaceApi, type Workspace } from '../api';
 import { BackButton, SkeletonText, SkeletonCard } from '../components/ui';
 import { IconMonitor } from '../components/ui/icons';
 import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
 
-interface Runtime {
-  id: string;
-  provider: string;
-  name: string;
-  version: string | null;
-  status: string;
-  /** #574: 模型清单（扫描期探测，随 runtimes 记录持久） */
-  models?: string[];
-  /** #574: live = CLI 实测探测；fallback = 注册表静态兜底 */
-  modelsSource?: 'live' | 'fallback';
-}
-
-interface WorkspaceDetail {
-  id: string;
-  name: string;
-  status: string;
-  workspaceRoot: string;
-  runtimes: Runtime[];
-}
+// 契约驱动迁移（批次 2/7）：手抄 Runtime/WorkspaceDetail interface 删除，统一用契约类型
+// （契约 Workspace.runtimes 可缺省——旧记录无该字段，渲染 `?? []` 兜底）
+type Runtime = WorkspaceRuntime;
 
 export function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
-  const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedRuntime, setSelectedRuntime] = useState<Runtime | null>(null);
@@ -59,6 +44,7 @@ export function WorkspacePage() {
   const openDialog = (rt: Runtime) => {
     setSelectedRuntime(rt);
   };
+  const runtimes = workspace?.runtimes ?? [];
 
   // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——标题 + 行卡形态
   if (loading) return (
@@ -91,9 +77,9 @@ export function WorkspacePage() {
 
       <div className="flex-1 overflow-auto u-page-px pb-8">
         <div className="max-w-5xl mt-4">
-          <h2 className="mc-block-label mb-2">可用 CLI ({workspace.runtimes.length})</h2>
+          <h2 className="mc-block-label mb-2">可用 CLI ({runtimes.length})</h2>
 
-          {workspace.runtimes.length === 0 ? (
+          {runtimes.length === 0 ? (
             // 批次 F-4：空态归 .empty-state 正本（图标 + 文案 + 下一步指引）
             <div className="empty-state">
               <div className="empty-icon"><IconMonitor size={32} /></div>
@@ -102,13 +88,13 @@ export function WorkspacePage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {workspace.runtimes.map((rt) => (
+              {runtimes.map((rt) => (
                 <div
-                  key={rt.id}
+                  key={rt.id ?? rt.provider}
                   className="card flex items-center justify-between p-3"
                 >
                   <div>
-                    <span className="font-medium">{rt.name}</span>
+                    <span className="font-medium">{rt.name ?? rt.provider}</span>
                     <span className="ml-2 text-sm u-text-3">
                       {rt.version ? `v${rt.version}` : ''}
                     </span>

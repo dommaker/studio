@@ -71,13 +71,14 @@ describe('#266: projects exclude 排除清单 CRUD 路由', () => {
   it('GET /exclude 初始为空清单', async () => {
     const { status, json } = await req('GET', '/exclude');
     expect(status).toBe(200);
-    expect(json).toEqual({ success: true, data: { exclude: [] } });
+    // 契约驱动迁移后统一 { data } 壳（原 { success: true, data } 平铺壳退役）
+    expect(json).toEqual({ data: { exclude: [] } });
   });
 
   it('PUT /exclude 保存后 GET 反映，且落盘到 projects-exclude.json', async () => {
     const saved = await req('PUT', '/exclude', { exclude: ['beta-proj', '/data/secret'] });
     expect(saved.status).toBe(200);
-    expect(saved.json.success).toBe(true);
+    expect(saved.json.data.exclude).toEqual(['beta-proj', '/data/secret']);
 
     const { status, json } = await req('GET', '/exclude');
     expect(status).toBe(200);

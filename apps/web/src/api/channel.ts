@@ -16,6 +16,7 @@ import type {
   ChannelMessagesResult,
   SavedImage,
   SendIntent,
+  LocalProject,
 } from '@dommaker/studio-contract';
 import { api } from './index';
 
@@ -30,7 +31,7 @@ export type {
   MergeTargetPreview,
   ConvertSuggestion,
 };
-export type { ChannelSuggestion, SendIntent } from '@dommaker/studio-contract';
+export type { ChannelSuggestion, SendIntent, LocalProject } from '@dommaker/studio-contract';
 
 /** 频道消息 = 契约 wire 形状 + 客户端本地标记（#326 骨架降级 / #486 乐观回显，服务端不下发） */
 export interface ChannelMessage extends ContractChannelMessage {
@@ -53,13 +54,6 @@ export interface AgentProfile {
   skills?: string[];
   isOnline?: boolean;
   lastError?: string | null;
-}
-
-export interface LocalProject {
-  name: string;
-  path: string;
-  hasClaudeMd: boolean;
-  language?: string;
 }
 
 export const channelApi = {
@@ -145,7 +139,8 @@ export const channelApi = {
 
   discoverProjects: (search?: string) => {
     const params = search ? `?search=${encodeURIComponent(search)}` : '';
-    return api.get<{ success: boolean; data: LocalProject[] }>(`/projects/discover${params}`);
+    // 契约驱动迁移（批次 2/7）：{ success, data } 平铺壳 → { data }
+    return api.get<{ data: LocalProject[] }>(`/projects/discover${params}`);
   },
 
   updateMembers: (channelId: string, ops: { add?: string[]; remove?: string[] }) =>

@@ -91,7 +91,7 @@ const renderPanel = (delivery: DeliveryStatus = baseDelivery, onRefresh = vi.fn(
 describe('DeliveryPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDeliver.mockResolvedValue({ data: { delivered: true, deliverCommit: 'abcdef1234567890' } });
+    mockDeliver.mockResolvedValue({ data: { data: { delivered: true, deliverCommit: 'abcdef1234567890' } } });
     mockVerify.mockResolvedValue({ data: { data: { verified: true, report: { commands: ['pnpm test'] } } } });
     mockDispatchReview.mockResolvedValue({ data: { data: { reviewWorkUnitId: 'rw-1' } } });
     mockReviewPassed.mockResolvedValue({ data: { data: {} } });
@@ -367,7 +367,7 @@ describe('DeliveryPanel', () => {
   });
 
   it('#469 标记已交付成功：trim 后提交，success toast 带短哈希 + onRefresh + 清空输入', async () => {
-    mockMarkDelivered.mockResolvedValue({ data: { delivered: true, deliverCommit: 'c0ffee1234', deliveredAt: '2026-09-09T00:00:00Z' } });
+    mockMarkDelivered.mockResolvedValue({ data: { data: { delivered: true, deliverCommit: 'c0ffee1234', deliveredAt: '2026-09-09T00:00:00Z' } } });
     const onRefresh = vi.fn();
     renderPanel(branchOnlyDelivery, onRefresh);
 

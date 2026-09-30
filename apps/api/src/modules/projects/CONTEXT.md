@@ -17,6 +17,7 @@ Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息�
 
 ### 注意事项
 
+- **契约驱动迁移（2026-10 批次 2/7）**：全部端点走 core/http.ts defineRoute + `@dommaker/studio-contract` projects.ts schema——统一 envelope `{ data }`（原 `{ success: true, data }` 平铺壳退役；前端消费方原本就读 `res.data.data`，运行时解包不变）；PUT /exclude 手写数组校验收进 zod（口径不变），500 兜底统一 INTERNAL。
 - 只读发现层，不负责工程注册（注册在 workspaces 模块）
 - **工程即叶子（2026-07-29）**：命中标记（CLAUDE.md / package.json / .git）的目录不再递归内部 —— monorepo 只列根目录，子包不重复出现；非工程中间目录（分组目录、无标记 packages/）仍继续下钻
 - **D6 排除清单（第一层，2026-07-27）**：env `STUDIO_PROJECTS_EXCLUDE`（冒号分隔）或构造参数 `exclude` —— 规则命中目录名（精确）或绝对路径（目录边界前缀，不误伤同名前缀目录）即跳过且不递归

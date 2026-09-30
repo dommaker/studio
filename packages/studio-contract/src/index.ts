@@ -13,3 +13,7 @@ export * from './envelope.js';
 export * from './workunit.js';
 export * from './channels.js';
 export * from './requirements.js';
+export * from './pmo.js';
+export * from './companies.js';
+export * from './projects.js';
+export * from './workspaces.js';

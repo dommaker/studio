@@ -146,7 +146,7 @@ describe('WorkUnitDetailPage', () => {
       inflight: null, lastToken: null,
     });
     mockWuGet.mockResolvedValue(baseWu);
-    mockProjectGet.mockResolvedValue({ data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } });
+    mockProjectGet.mockResolvedValue({ data: { data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } } });
     mockReqGet.mockResolvedValue({ data: { success: true, data: { id: 'REQ-0042', projectId: 'proj-2' } } });
     mockChannelList.mockResolvedValue({ data: { success: true, data: [{ id: 'ch-1', name: '主频道' }] } });
     mockAgentSummary.mockResolvedValue({
@@ -258,7 +258,7 @@ describe('WorkUnitDetailPage', () => {
   it('PMO 解析回落：metadata 无 pmoId 时经 reqId → requirement.projectId 解析', async () => {
     mockWuGet.mockResolvedValue({ ...baseWu, metadata: JSON.stringify({ title: '登录功能开发' }) });
     mockProjectGet.mockImplementation((pid: string) =>
-      Promise.resolve({ data: { id: pid, pmoNumber: 'PM-0009', title: '回落项目' } }),
+      Promise.resolve({ data: { data: { id: pid, pmoNumber: 'PM-0009', title: '回落项目' } } }),
     );
     render(<WorkUnitDetailPage />);
     const pmoLink = await screen.findByText('PM-0009');
@@ -527,7 +527,7 @@ describe('WorkUnitDetailPage — #440 meta strip', () => {
       inflight: null, lastToken: null,
     });
     mockWuGet.mockResolvedValue(baseWu);
-    mockProjectGet.mockResolvedValue({ data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } });
+    mockProjectGet.mockResolvedValue({ data: { data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } } });
     mockReqGet.mockResolvedValue({ data: { success: true, data: { id: 'REQ-0042', projectId: 'proj-2' } } });
     mockChannelList.mockResolvedValue({ data: { success: true, data: [{ id: 'ch-1', name: '主频道' }] } });
     mockAgentSummary.mockResolvedValue({

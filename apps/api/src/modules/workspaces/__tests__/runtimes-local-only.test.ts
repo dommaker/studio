@@ -52,9 +52,9 @@ function seedWorkspace(s: Seed): void {
   }));
 }
 
-async function getRuntimes(): Promise<{ status: number; body: { runtimes: Array<Record<string, unknown>> } }> {
+async function getRuntimes(): Promise<{ status: number; body: { data: { runtimes: Array<Record<string, unknown>> } } }> {
   const res = await fetch(baseUrl);
-  return { status: res.status, body: await res.json() as { runtimes: Array<Record<string, unknown>> } };
+  return { status: res.status, body: await res.json() as { data: { runtimes: Array<Record<string, unknown>> } } };
 }
 
 beforeAll(async () => {
@@ -99,7 +99,7 @@ describe('GET /workspaces/runtimes — 本机 CLI 清单', () => {
 
     const { status, body } = await getRuntimes();
     expect(status).toBe(200);
-    expect(body.runtimes).toEqual([
+    expect(body.data.runtimes).toEqual([
       // 旧记录无 auth 字段 → 回落 unknown（#565 AC4）
       { provider: 'claude', version: '2.1.80', auth: 'unknown' },
       { provider: 'kimi', version: '0.31.0', auth: 'unknown' },
@@ -117,7 +117,7 @@ describe('GET /workspaces/runtimes — 本机 CLI 清单', () => {
 
     const { status, body } = await getRuntimes();
     expect(status).toBe(200);
-    expect(body.runtimes).toEqual([
+    expect(body.data.runtimes).toEqual([
       { provider: 'claude', version: '2.1.273', auth: 'ok' },
       { provider: 'codex', version: '0.147.0', auth: 'failed', authHint: '运行 codex login 登录' },
     ]);
@@ -135,7 +135,7 @@ describe('GET /workspaces/runtimes — 本机 CLI 清单', () => {
 
     const { status, body } = await getRuntimes();
     expect(status).toBe(200);
-    expect(body.runtimes).toEqual([
+    expect(body.data.runtimes).toEqual([
       { provider: 'codex', version: '0.147.0', auth: 'ok', models: ['gpt-5.6-sol', 'gpt-5.5'], modelsSource: 'live' },
       { provider: 'claude', version: '2.1.273', auth: 'ok', models: ['opus', 'sonnet'], modelsSource: 'fallback' },
       { provider: 'openclaw', version: '1.0.0', auth: 'unknown' },
@@ -157,7 +157,7 @@ describe('GET /workspaces/runtimes — 本机 CLI 清单', () => {
     });
 
     const { body } = await getRuntimes();
-    expect(body.runtimes.map(r => r.provider)).toEqual(['claude']);
+    expect(body.data.runtimes.map(r => r.provider)).toEqual(['claude']);
   });
 
   it('绑过 token 的同名记录不算本机（与 resolveVpsWorkspace 判定一致）', async () => {
@@ -167,7 +167,7 @@ describe('GET /workspaces/runtimes — 本机 CLI 清单', () => {
     });
 
     const { body } = await getRuntimes();
-    expect(body.runtimes).toEqual([]);
+    expect(body.data.runtimes).toEqual([]);
   });
 
   it('本机记录缺失 → 空清单（不报错，前端回退全量可选）', async () => {
@@ -178,7 +178,7 @@ describe('GET /workspaces/runtimes — 本机 CLI 清单', () => {
 
     const { status, body } = await getRuntimes();
     expect(status).toBe(200);
-    expect(body.runtimes).toEqual([]);
+    expect(body.data.runtimes).toEqual([]);
   });
 
   it('请求前仍先重扫本机（best-effort 新鲜度语义不回归），扫失败不阻断', async () => {
@@ -190,7 +190,7 @@ describe('GET /workspaces/runtimes — 本机 CLI 清单', () => {
     mockRescan.mockRejectedValueOnce(new Error('scan boom'));
     const res1 = await getRuntimes();
     expect(res1.status).toBe(200);
-    expect(res1.body.runtimes).toEqual([{ provider: 'kimi', version: '0.31.0', auth: 'unknown' }]);
+    expect(res1.body.data.runtimes).toEqual([{ provider: 'kimi', version: '0.31.0', auth: 'unknown' }]);
     expect(mockRescan).toHaveBeenCalledTimes(1);
   });
 });

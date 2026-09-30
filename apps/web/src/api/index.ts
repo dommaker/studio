@@ -1,5 +1,21 @@
 // API 客户端
 import axios from 'axios';
+import type {
+  Project,
+  DeliveryStatus,
+  DeliveryGap,
+  DeliverResult,
+  MarkDeliveredResult,
+  ParsePmoCommandResult,
+  PublishProjectResult,
+  DeliveryPolicy,
+  Workspace,
+} from '@dommaker/studio-contract';
+
+// 🆕 PMO-b: 交付台账类型（GET /pmo/project/:id/delivery 响应形状）——
+// 契约驱动迁移（2026-10 批次 2/7）：import 自 contract，原手抄 interface 删除
+// （手抄版缺 channelId 是漂移——后端恒返回）。
+export type { DeliveryStatus, DeliveryGap, Project, Workspace };
 
 // API 基础 URL（相对路径，由 nginx 反向代理）
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
@@ -153,6 +169,8 @@ export const authApi = {
 
 
 // Project API - GEN-005: PMO 项目管理
+// 契约驱动迁移（2026-10 批次 2/7）：响应统一 { data } 壳（单体/交付/发布原裸对象），
+// 类型 import 自 @dommaker/studio-contract。
 export const projectApi = {
   // 创建项目（自动生成 PMO 号；PMO-a: companyId 由服务端解析，前端不再传）
   // #114 T8：gitRepos 多工程入参（每选中工程一条交付腿）；单个工程仍走 gitRepo
@@ -165,9 +183,9 @@ export const projectApi = {
     gitBranch?: string;
     gitRepo?: string;
     gitRepos?: string[];
-    deliveryPolicy?: 'auto-merge' | 'branch-only';
+    deliveryPolicy?: DeliveryPolicy;
     requirementsDocId?: string;
-  }) => api.post('/pmo/project', data),
+  }) => api.post<{ data: Project }>('/pmo/project', data),
 
   // 获取项目列表
   list: (params?: {
@@ -176,14 +194,14 @@ export const projectApi = {
     priority?: string;
     okrId?: string;
     limit?: number;
-  }) => api.get('/pmo/project', { params }),
+  }) => api.get<{ data: Project[] }>('/pmo/project', { params }),
 
   // 获取项目详情
-  get: (id: string) => api.get(`/pmo/project/${id}`),
+  get: (id: string) => api.get<{ data: Project }>(`/pmo/project/${id}`),
 
   // 通过 PMO 号获取项目
   getByPmoNumber: (pmoNumber: string, companyId: string) =>
-    api.get(`/pmo/project/by-pmo/${pmoNumber}`, { params: { companyId } }),
+    api.get<{ data: Project }>(`/pmo/project/by-pmo/${pmoNumber}`, { params: { companyId } }),
 
   // 更新项目
   update: (id: string, data: {
@@ -193,73 +211,34 @@ export const projectApi = {
     status?: string;
     priority?: string;
     progress?: number;
-  }) => api.put(`/pmo/project/${id}`, data),
+  }) => api.put<{ data: Project }>(`/pmo/project/${id}`, data),
 
   // 更新项目状态
   updateStatus: (id: string, status: string) =>
-    api.put(`/pmo/project/${id}/status`, { status }),
+    api.put<{ data: Project }>(`/pmo/project/${id}/status`, { status }),
 
   // 发布 PMO 到 Channel（#177：可选 assigneeId 指派 analysis WU 执行角色，留空=涌现）
   publish: (id: string, channelId: string, assigneeId?: string) =>
-    api.post(`/pmo/project/${id}/publish`, { channelId, ...(assigneeId ? { assigneeId } : {}) }),
+    api.post<{ data: PublishProjectResult }>(`/pmo/project/${id}/publish`, { channelId, ...(assigneeId ? { assigneeId } : {}) }),
 
   // 删除项目
-  delete: (id: string) => api.delete(`/pmo/project/${id}`),
+  delete: (id: string) => api.delete<{ data: { success: boolean } }>(`/pmo/project/${id}`),
 
   // 解析 CEO 指令中的 PMO 号
   parseCommand: (command: string) =>
-    api.post('/pmo/project/parse-command', { command }),
+    api.post<{ data: ParsePmoCommandResult }>('/pmo/project/parse-command', { command }),
 
   // 🆕 PMO-b: 交付台账
-  getDelivery: (id: string) => api.get(`/pmo/project/${id}/delivery`),
+  getDelivery: (id: string) => api.get<{ data: DeliveryStatus }>(`/pmo/project/${id}/delivery`),
 
   // 🆕 PMO-b: 交付合并（human-only；branch-only 返回 409 BRANCH_ONLY）
-  deliver: (id: string) => api.post(`/pmo/project/${id}/deliver`),
+  deliver: (id: string) => api.post<{ data: DeliverResult }>(`/pmo/project/${id}/deliver`),
 
   // #469: branch-only 标记已交付（系统外合并后人工落档 commit 哈希，写 deliveredAt/By/Commit）
   markDelivered: (id: string, commit: string) =>
-    api.post(`/pmo/project/${id}/mark-delivered`, { commit }),
+    api.post<{ data: MarkDeliveredResult }>(`/pmo/project/${id}/mark-delivered`, { commit }),
 
 };
-
-// 🆕 PMO-b: 交付台账（GET /pmo/project/:id/delivery 响应形状）
-export interface DeliveryGap {
-  id: string;
-  title: string;
-  type: string;
-  missing: Array<'l1' | 'l2' | 'l3'>;
-}
-
-export interface DeliveryStatus {
-  projectId: string;
-  pmoNumber: string;
-  branch: string | null;
-  policy: 'auto-merge' | 'branch-only';
-  gitRepo: string | null;
-  wu: {
-    total: number;
-    finished: number;
-    inFlight: number;
-    byStatus: { unassigned: number; active: number; inReview: number; blocked: number };
-  };
-  evidence: {
-    l1Missing: string[];
-    l2Missing: string[];
-    l3Missing: string[];
-    selfReviewCount: number;
-  };
-  deliverable: boolean;
-  missing: string[];
-  /** 项目 WU 链路 token 总消耗 */
-  tokens: number;
-  /** #376 归档口径：终态项目实时重算零 WU（历史任务数据已清理，计数不可考） */
-  archived: boolean;
-  /** 已完成但证据有缺口的 WU 明细 */
-  gaps: DeliveryGap[];
-  deliveredAt: string | null;
-  deliveredBy: string | null;
-  deliverCommit: string | null;
-}
 
 // Library API (#155 T5: 阅览室——跨项目 .studio/ 聚合只读层；无写路径)
 export const libraryApi = {
@@ -270,7 +249,8 @@ export const libraryApi = {
 };
 
 // Workspace API — AS-020 P2/P7
+// 契约驱动迁移（2026-10 批次 2/7）：响应统一 { data } 壳（原 { success, data, total }，total 退役）。
 export const workspaceApi = {
-  list: () => api.get('/workspaces'),
-  get: (id: string) => api.get(`/workspaces/${id}`),
+  list: () => api.get<{ data: Workspace[] }>('/workspaces'),
+  get: (id: string) => api.get<{ data: Workspace }>(`/workspaces/${id}`),
 };

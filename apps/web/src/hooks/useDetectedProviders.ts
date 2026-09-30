@@ -3,6 +3,7 @@
 // 扫描实现见 apps/api/src/modules/workspaces/local-workspace.ts → daemon/cli-scanner.ts）
 // 2026-09-10：端点收敛为本机 CLI 清单，nodeId / workspaceName 随远程节点方向废弃
 import { useEffect, useRef, useState } from 'react';
+import type { WorkspaceRuntime } from '@dommaker/studio-contract';
 import { api } from '../api';
 
 export interface DetectedProvider {
@@ -17,8 +18,9 @@ export interface DetectedProvider {
 /** 内置 CLI provider（与 packages/studio-shared/src/providers.ts 的 BUILTIN_PROVIDERS 对齐） */
 export const BUILTIN_PROVIDERS = ['claude', 'kimi', 'codex', 'opencode'] as const;
 
+// 契约驱动迁移（批次 2/7）：响应统一 { data } 壳（原平铺 { runtimes } 无壳）
 interface RuntimesResponse {
-  runtimes?: Array<{ provider: string; version: string; auth?: 'ok' | 'failed' | 'unknown'; authHint?: string }>;
+  data?: { runtimes?: WorkspaceRuntime[] };
 }
 
 /**
@@ -40,12 +42,12 @@ export function useDetectedProviders(options?: { enabled?: boolean }) {
     api.get<RuntimesResponse>('/workspaces/runtimes')
       .then((res) => {
         const byProvider = new Map<string, DetectedProvider>();
-        for (const rt of res.data.runtimes ?? []) {
+        for (const rt of res.data.data?.runtimes ?? []) {
           if (!rt?.provider || byProvider.has(rt.provider)) continue;
           byProvider.set(rt.provider, {
             provider: rt.provider,
             version: rt.version ?? '',
-            auth: rt.auth,
+            auth: rt.auth as DetectedProvider['auth'],
             authHint: rt.authHint,
           });
         }

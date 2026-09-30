@@ -119,13 +119,13 @@ describe('PMO-b/F6-c: 交付区块', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     toast.dismiss();
-    mockGetProject.mockResolvedValue({ data: mockProject });
+    mockGetProject.mockResolvedValue({ data: { data: mockProject } });
     mockApiGet.mockImplementation((url: string) => {
       if (url.includes('/tasks')) return Promise.resolve({ data: [] });
       return Promise.resolve({ data: [] });
     });
     mockApiPost.mockResolvedValue({ data: {} });
-    mockDeliver.mockResolvedValue({ data: { delivered: true, deliverCommit: 'abcdef1234567890' } });
+    mockDeliver.mockResolvedValue({ data: { data: { delivered: true, deliverCommit: 'abcdef1234567890' } } });
     mockVerify.mockResolvedValue({ data: { data: { verified: true, report: { commands: ['pnpm test'] } } } });
     mockDispatchReview.mockResolvedValue({ data: { data: { reviewWorkUnitId: 'rw-1' } } });
     mockReviewPassed.mockResolvedValue({ data: { data: {} } });
@@ -141,7 +141,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
     );
 
   it('渲染台账：策略/分支/WU 完成度/证据三层 + 在途徽标与缺口行动行', async () => {
-    mockGetDelivery.mockResolvedValue({ data: deliveryAutoMergePending });
+    mockGetDelivery.mockResolvedValue({ data: { data: deliveryAutoMergePending } });
     renderDetail();
 
     await waitFor(() => {
@@ -167,8 +167,8 @@ describe('PMO-b/F6-c: 交付区块', () => {
 
   it('auto-merge：点击交付合并调 deliver，成功后显示已交付记录并禁用按钮', async () => {
     mockGetDelivery
-      .mockResolvedValueOnce({ data: deliveryDeliverable })
-      .mockResolvedValue({ data: deliveryDelivered });
+      .mockResolvedValueOnce({ data: { data: deliveryDeliverable } })
+      .mockResolvedValue({ data: { data: deliveryDelivered } });
     renderDetail();
 
     const btn = await screen.findByText('交付合并');
@@ -193,7 +193,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
   });
 
   it('auto-merge：409 时展示 missing / conflictFiles', async () => {
-    mockGetDelivery.mockResolvedValue({ data: deliveryDeliverable });
+    mockGetDelivery.mockResolvedValue({ data: { data: deliveryDeliverable } });
     mockDeliver.mockRejectedValue({
       response: {
         status: 409,
@@ -219,7 +219,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
   });
 
   it('branch-only：deliverable 且未交付时显示合并提示，无交付按钮', async () => {
-    mockGetDelivery.mockResolvedValue({ data: deliveryBranchOnly });
+    mockGetDelivery.mockResolvedValue({ data: { data: deliveryBranchOnly } });
     renderDetail();
 
     await waitFor(() => {
@@ -231,7 +231,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
 
   it('branch-only：证据未齐时不显示合并提示（缺口行动清单即指引）', async () => {
     mockGetDelivery.mockResolvedValue({
-      data: { ...deliveryAutoMergePending, policy: 'branch-only' as const },
+      data: { data: { ...deliveryAutoMergePending, policy: 'branch-only' as const } },
     });
     renderDetail();
 
@@ -245,13 +245,13 @@ describe('PMO-b/F6-c: 交付区块', () => {
 
   it('待验收徽标 + gap 行渲染 + 点「人工确认」调 reviewPassed 并刷新台账', async () => {
     mockGetDelivery.mockResolvedValue({
-      data: {
+      data: { data: {
         ...deliveryAutoMergePending,
         wu: { total: 2, finished: 2, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
         evidence: { l1Missing: [], l2Missing: [], l3Missing: ['wu-9'], selfReviewCount: 1 },
         missing: ['撰写发布说明 缺 L3 人工确认'],
         gaps: [{ id: 'wu-9', title: '撰写发布说明', type: 'doc', missing: ['l3'] as Array<'l1' | 'l2' | 'l3'> }],
-      },
+      } },
     });
     renderDetail();
 
@@ -276,13 +276,13 @@ describe('PMO-b/F6-c: 交付区块', () => {
 
   it('「重跑验证」成功：toast 提示 + verify 调用参数 + 刷新台账', async () => {
     mockGetDelivery.mockResolvedValue({
-      data: {
+      data: { data: {
         ...deliveryAutoMergePending,
         wu: { total: 1, finished: 1, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
         evidence: { l1Missing: ['wu-1'], l2Missing: [], l3Missing: [], selfReviewCount: 0 },
         missing: ['修复登录缺陷 缺 L1 自动验证'],
         gaps: [{ id: 'wu-1', title: '修复登录缺陷', type: 'bug', missing: ['l1'] as Array<'l1' | 'l2' | 'l3'> }],
-      },
+      } },
     });
     renderDetail();
 
@@ -298,9 +298,9 @@ describe('PMO-b/F6-c: 交付区块', () => {
   });
 
   it('status=completed 且证据未齐：进展卡内显示琥珀警告条（白话词表，缺 0 的层不显示）', async () => {
-    mockGetProject.mockResolvedValue({ data: { ...mockProject, status: 'completed' } });
+    mockGetProject.mockResolvedValue({ data: { data: { ...mockProject, status: 'completed' } } });
     mockGetDelivery.mockResolvedValue({
-      data: {
+      data: { data: {
         ...deliveryAutoMergePending,
         wu: { total: 2, finished: 2, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
         evidence: { l1Missing: ['wu-1', 'wu-2'], l2Missing: [], l3Missing: ['wu-2'], selfReviewCount: 0 },
@@ -308,7 +308,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
           { id: 'wu-1', title: '甲', type: 'task', missing: ['l1'] as Array<'l1' | 'l2' | 'l3'> },
           { id: 'wu-2', title: '乙', type: 'task', missing: ['l1', 'l3'] as Array<'l1' | 'l2' | 'l3'> },
         ],
-      },
+      } },
     });
     renderDetail();
 
@@ -326,7 +326,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
 
   it('#474：进展卡折叠为次要块（头部恒显 %，展开见 Token meta/副标题；「已完成 n/m」已删——与交付台账重复）', async () => {
     mockGetDelivery.mockResolvedValue({
-      data: {
+      data: { data: {
         ...deliveryAutoMergePending,
         wu: {
           total: 8,
@@ -335,7 +335,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
           byStatus: { unassigned: 2, active: 1, inReview: 1, blocked: 1 },
         },
         tokens: 1234567,
-      },
+      } },
     });
     renderDetail();
 

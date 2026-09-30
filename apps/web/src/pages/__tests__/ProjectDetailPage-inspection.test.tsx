@@ -83,7 +83,7 @@ const renderDetail = () =>
 describe('ProjectDetailPage — 发起巡检', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetProject.mockResolvedValue({ data: mockProject });
+    mockGetProject.mockResolvedValue({ data: { data: mockProject } });
     mockApiGet.mockResolvedValue({ data: [] });
     mockApiPost.mockResolvedValue({ data: {} });
     mockGetDelivery.mockRejectedValue(new Error('no delivery'));

@@ -32,9 +32,15 @@ async function invoke(body: Record<string, unknown>, headers: Record<string, unk
     (l: any) => l.route && l.route.path === '/project/:id/mark-delivered' && l.route.methods.post,
   );
   const stack = layer.route.stack;
-  const handler = stack[stack.length - 1].handle;
+  const req = createReq(body, headers);
   const res = createRes();
-  await handler(createReq(body, headers), res, () => undefined);
+  // 契约驱动迁移后 human-only 守卫（requireHuman）挂在 defineRoute 之前的独立中间件层，
+  // 只调末位 handler 会绕过守卫——跑完整链（STUDIO_AUTH=none 下 requireAuth/requireNotGuest 放行）
+  for (const { handle } of stack) {
+    let advanced = false;
+    await handle(req, res, () => { advanced = true; });
+    if (!advanced) break;
+  }
   return res;
 }
 
@@ -52,13 +58,15 @@ describe('POST /pmo/project/:id/mark-delivered（#469）', () => {
     expect(mockMark).not.toHaveBeenCalled();
   });
 
-  it('成功 → 200 + delivered/deliverCommit/deliveredAt；commit trim 后入 service', async () => {
+  it('成功 → 200 + { data: { delivered/deliverCommit/deliveredAt } }（统一壳）；commit trim 后入 service', async () => {
     const res = await invoke({ commit: '  c0ffee  ' });
     expect(mockMark).toHaveBeenCalledWith('p1', expect.any(String), 'c0ffee');
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      delivered: true,
-      deliverCommit: 'c0ffee',
-      deliveredAt: '2026-09-09T00:00:00Z',
+      data: expect.objectContaining({
+        delivered: true,
+        deliverCommit: 'c0ffee',
+        deliveredAt: '2026-09-09T00:00:00Z',
+      }),
     }));
   });
 

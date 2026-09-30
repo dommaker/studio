@@ -96,7 +96,8 @@ function useProjectLabels(projectIds: string[]): Record<string, string> {
     Promise.all(stale.map(id =>
       projectApi.get(id)
         .then(r => {
-          const p = r.data as { pmoNumber?: string; title?: string } | null;
+          // 契约驱动迁移（批次 2/7）：单体响应统一 { data } 壳（原裸对象）
+          const p = r.data.data as { pmoNumber?: string; title?: string } | null;
           return p?.title ? `${p.pmoNumber ?? 'PMO'} · ${p.title}` : null;
         })
         .catch(() => null)

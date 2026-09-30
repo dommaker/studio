@@ -19,6 +19,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `constraintApi` | `api/constraint.ts` | 约束提案卡审批（kind='constraint'，ADR-0033 子项 7/8：新约束 / 升级提案，通用端点 approve/reject/status） |
 | `evolutionApi` | `api/evolution.ts` | 约束进化提案卡审批（kind='evolution'，#623；断点 3 遗留补丁——api 侧发卡已久，web 封装与卡配置 2026-09-23 补） |
 | `companyApi` / `okrApi` / `harnessApi` | `api/*.ts` | 公司 / PMO OKR / 质量门 |
+| `projectApi` / `workspaceApi` | `api/index.ts` | PMO 项目 CRUD + 交付（台账/deliver/mark-delivered/publish）/ workspace 只读；pmo/companies/projects/workspaces 四域 REST 类型正本 = `@dommaker/studio-contract`（契约驱动迁移 2026-10 批次 2/7），全部端点 envelope `{ data }`（单体/交付/发布原裸对象、projects/workspaces 原 `{success,data}`/平铺壳统一进壳）；`components/pmo/types.ts` 手抄 interface 删除改 re-export 契约类型（worktreePath/OKR 等前端历史遗留字段不入契约，页面本地扩展） |
 | `transcriptsApi` / `eventsApi` | `api/*.ts` | WU transcript 只读 / 事件检索 |
 | `WebSocketProvider` | `api/websocket.tsx` | SSE Context Provider，根部唯一 EventSource |
 | `useGatedPoll` | `hooks/useGatedPoll.ts` | 共享门禁轮询（#313）：挂载首拉 + 仅当（visible ∧ SSE≠connected）按 interval 轮询 + 回 visible 立即补拉；intervalMs<=0 = 完全停用（#549：只接 SSE + 重连对齐的 store 维持无轮询现状） |

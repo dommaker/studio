@@ -73,10 +73,11 @@ describe('companies routes', () => {
   it('POST / 创建公司并写入 FileStore', async () => {
     const { status, json } = await req('POST', '/', { name: '测试公司' });
     expect(status).toBe(201);
-    expect(json.id).toMatch(/^company_/);
-    expect(json.name).toBe('测试公司');
+    // 契约驱动迁移后单体响应统一 { data } 壳（原裸对象）
+    expect(json.data.id).toMatch(/^company_/);
+    expect(json.data.name).toBe('测试公司');
 
-    const file = path.join(tmpHome, '.studio', 'data', 'companies', `${json.id}.json`);
+    const file = path.join(tmpHome, '.studio', 'data', 'companies', `${json.data.id}.json`);
     expect(fs.existsSync(file)).toBe(true);
   });
 
@@ -88,20 +89,20 @@ describe('companies routes', () => {
   });
 
   it('GET /:companyId 返回详情，不存在返回 404', async () => {
-    const created = (await req('POST', '/', { name: '详情公司' })).json;
+    const created = (await req('POST', '/', { name: '详情公司' })).json.data;
     const found = await req('GET', `/${created.id}`);
     expect(found.status).toBe(200);
-    expect(found.json.name).toBe('详情公司');
+    expect(found.json.data.name).toBe('详情公司');
 
     const missing = await req('GET', '/company_not_exist');
     expect(missing.status).toBe(404);
   });
 
   it('PATCH /:companyId 更新名称，不存在返回 404', async () => {
-    const created = (await req('POST', '/', { name: '旧名字' })).json;
+    const created = (await req('POST', '/', { name: '旧名字' })).json.data;
     const patched = await req('PATCH', `/${created.id}`, { name: '新名字' });
     expect(patched.status).toBe(200);
-    expect(patched.json.name).toBe('新名字');
+    expect(patched.json.data.name).toBe('新名字');
 
     const missing = await req('PATCH', '/company_not_exist', { name: 'x' });
     expect(missing.status).toBe(404);

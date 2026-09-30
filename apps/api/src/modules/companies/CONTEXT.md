@@ -22,6 +22,7 @@
 
 ### 注意事项
 
+- **契约驱动迁移（2026-10 批次 2/7）**：全部端点走 core/http.ts defineRoute + `@dommaker/studio-contract` companies.ts schema——统一 envelope `{ data }`（list/hall-stats/sizes-config 原已带壳形状不变，get/create(201)/update 原裸对象统一进壳）；404 走 HttpError；500 兜底统一 INTERNAL（原各端点手写固定文案）；name 缺省原静默存 undefined，zod 收紧为 400。
 - 本模块在 008912d（db-removal）中被误删，导致前端 `/api/v1/companies` 404，后按 FileStore 版本恢复；与 Prisma 无任何关联。
 - `GET /sizes/config` 必须在 `GET /:companyId` 之后不会冲突：`/:companyId` 只匹配单段路径。
 - `hall-stats` 聚合 `~/.studio/logs/executions.jsonl` 的执行统计（测试环境隔离到 os.tmpdir()/studio-test-logs，见 utils/studio-log-path.ts），文件不存在时按 0 处理。

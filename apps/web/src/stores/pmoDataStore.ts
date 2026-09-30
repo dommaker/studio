@@ -20,13 +20,11 @@ export const PMO_DATA_POLL_INTERVAL_MS = 30000;
 export const PMO_PROJECTS_LIMIT = 100;
 
 /**
- * PMO 项目列表行 = 共享领域类型 Project（components/pmo/types）+ FileRefChip 的
- * gitRepo 匹配字段。projectApi.list 响应无声明类型，后端返回全字段。
+ * PMO 项目列表行 = 契约 Project（@dommaker/studio-contract，经 components/pmo/types
+ * re-export；含 gitRepo/deliveries——FileRefChip 的匹配字段，原 PmoProject extends
+ * 手抄 Project 补丁字段已随契约收口，契约即全字段正本）。
  */
-export interface PmoProject extends Project {
-  gitRepo?: string | null;
-  deliveries?: { gitRepo?: string | null }[];
-}
+export type PmoProject = Project;
 
 interface PmoDataState {
   /** 公司列表（服务端按 createdAt 倒序；消费方取 [0] 作为默认公司）。undefined = 未拉到 */

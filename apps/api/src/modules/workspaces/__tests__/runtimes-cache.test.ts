@@ -67,13 +67,13 @@ describe('GET /workspaces/runtimes — apiCache 60s 档（#403）', () => {
     const res1 = await fetch(baseUrl);
     expect(res1.status).toBe(200);
     expect(res1.headers.get('x-cache')).toBe('MISS');
-    expect(await res1.json()).toEqual({ runtimes: [] });
+    expect(await res1.json()).toEqual({ data: { runtimes: [] } });
     expect(mockRescan).toHaveBeenCalledTimes(1);
 
     const res2 = await fetch(baseUrl);
     expect(res2.status).toBe(200);
     expect(res2.headers.get('x-cache')).toBe('HIT');
-    expect(await res2.json()).toEqual({ runtimes: [] });
+    expect(await res2.json()).toEqual({ data: { runtimes: [] } });
     // 验收核心：第二次请求未再触发 CLI 全量重扫
     expect(mockRescan).toHaveBeenCalledTimes(1);
   });
