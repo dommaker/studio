@@ -41,9 +41,10 @@ function collectFiles(root) {
 }
 
 function stripComments(content) {
+  // 等长替换（改写 offset 依赖原文件坐标，长度必须不变）
   return content
     .replace(/\/\*[\s\S]*?\*\//g, m => ' '.repeat(m.length))
-    .replace(/(^|[^:'"])\/\/[^\n]*/g, '$1');
+    .replace(/(^|[^:'"])\/\/[^\n]*/g, (m, p1) => p1 + ' '.repeat(m.length - p1.length));
 }
 
 /**
@@ -124,9 +125,10 @@ export function parseDynamicNames(content, occ) {
   const before = content.slice(Math.max(0, occ.stmtStart - 120), occ.stmtStart);
   const after = content.slice(occ.stmtEnd, occ.stmtEnd + 120);
   const names = [];
-  const backM = before.match(/\{([\s\S]*?)\}\s*=\s*(?:await\s*)?$/);
+  // 注：括号组限定 [^{}]*——回看窗口里可能混着 try/对象字面量的花括号， lazy 匹配会从最早的 { 开始吃到无关内容
+  const backM = before.match(/\{([^{}]*)\}\s*=\s*(?:await\s*)?$/);
   if (backM) names.push(...parseNamedClause(`{${backM[1]}}`));
-  const thenM = after.match(/^\.then\(\s*\(?\s*\{([\s\S]*?)\}\s*\)?/);
+  const thenM = after.match(/^\.then\(\s*\(?\s*\{([^{}]*)\}\s*\)?/);
   if (thenM) names.push(...parseNamedClause(`{${thenM[1]}}`));
   const arrowM = after.match(/^\.then\(\s*(\w+)\s*=>\s*\1\.(\w+)/);
   if (arrowM) names.push({ imported: arrowM[2], local: arrowM[2], isType: false });
@@ -313,6 +315,24 @@ export function applyRewrites(rewrites, srcRoot = SRC_ROOT) {
 
 // ---------- CLI ----------
 
+/** 校验 surface：每个名字必须能在来源文件中找到对应 export（防解析错位产生幽灵导出） */
+export function verifySurface(surface, modulesRoot = MODULES_ROOT) {
+  const problems = [];
+  for (const [mod, s] of surface) {
+    for (const [name, e] of s) {
+      const file = path.join(modulesRoot, mod, e.source.replace(/^\.\//, '').replace(/\.js$/, '.ts'));
+      if (!fs.existsSync(file)) { problems.push(`${mod}: 来源文件不存在 ${e.source}（${name}）`); continue; }
+      const content = stripComments(fs.readFileSync(file, 'utf8'));
+      const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const direct = new RegExp(`export\\s+(?:async\\s+)?(?:const|let|var|function|class|interface|type|enum)\\s+${esc}\\b`).test(content)
+        || new RegExp(`export\\s+(?:type\\s+)?\\{[^}]*\\b${esc}\\b[^}]*\\}`).test(content)
+        || (e.kind === 'default' && /export\s+default\b/.test(content));
+      if (!direct) problems.push(`${mod}: "${name}" 在 ${e.source} 中找不到 export（kind=${e.kind}）`);
+    }
+  }
+  return problems;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
   const apply = args.includes('--apply');
@@ -321,6 +341,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (conflicts.length) {
     console.error('公共面冲突（需人工裁决）：');
     for (const c of conflicts) console.error(`  ${c.mod}: "${c.exportName}" 来自 ${c.a.source}(${c.a.kind}) 与 ${c.b.source}(${c.b.kind})，消费方 ${c.consumer}`);
+    process.exit(1);
+  }
+
+  const problems = verifySurface(surface);
+  if (problems.length) {
+    console.error('公共面校验失败（幽灵导出/来源缺失）：');
+    for (const p of problems) console.error(`  ${p}`);
     process.exit(1);
   }
 

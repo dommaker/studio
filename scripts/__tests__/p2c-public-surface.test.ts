@@ -17,6 +17,21 @@ import {
   scanSpecifiers,
 } from '../p2c-public-surface.mjs';
 
+describe('scanSpecifiers offset 保真', () => {
+  it('行注释不导致 offset 漂移（改写安全性）', () => {
+    const content = `// 顶部注释 import { fake } from './fake.js';\nimport { real } from '../workunit/service.js'; // 行尾注释\n/* 块 import x from './y.js' */\nconst m = await import('../agents/loop/loop.js');`;
+    const occs = scanSpecifiers(content);
+    expect(occs).toHaveLength(2);
+    for (const occ of occs) {
+      // offset 必须精确指向原文件中的 specifier 文本
+      expect(content.slice(occ.start, occ.end)).toBe(occ.spec);
+      expect(content.slice(occ.stmtStart, occ.stmtEnd)).toBe(occ.statement);
+    }
+    expect(occs.map(o => o.spec)).toEqual(['../workunit/service.js', '../agents/loop/loop.js']);
+  });
+});
+
+
 describe('parseBindings', () => {
   it('各种 import 形态', () => {
     expect(parseBindings(`import foo from './x.js'`).defaultName).toBe('foo');
