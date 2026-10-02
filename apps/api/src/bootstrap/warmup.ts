@@ -18,13 +18,16 @@ export function startWarmupTasks(): void {
   }).catch(err => logger.warn('[Warmup] knowledge import failed', { error: String(err) }));
 
   // agents 域冷启动任务组：SessionSummary 增量提取 / P1b 知识冷启动导入
-  import('../modules/agents/index.js').then(({ sessionSummaryService, knowledgeCurator }) => {
+  // P2-d 刀7：knowledgeCurator 随知识维护 Agent 迁 agent-knowledge
+  import('../modules/agents/index.js').then(({ sessionSummaryService }) => {
     // 启动时跑一次
     setTimeout(() => sessionSummaryService.summarize(), 3000);
     // 每 6 小时增量跑一次（daemon 长期运行不丢分析）
     setInterval(() => sessionSummaryService.summarize(), 6 * 60 * 60 * 1000);
-    knowledgeCurator.coldStartAll().catch(() => { /* non-blocking */ });
   }).catch(err => logger.warn('[Warmup] agents import failed', { error: String(err) }));
+  import('../modules/agent-knowledge/index.js').then(({ knowledgeCurator }) => {
+    knowledgeCurator.coldStartAll().catch(() => { /* non-blocking */ });
+  }).catch(err => logger.warn('[Warmup] agent-knowledge import failed', { error: String(err) }));
 
   // #173（#60 决策 Q3b / spec 批次 C4）：事件保留轮转——信号热 30 天 → 月度 gzip 冷包
   // 永久保留；噪声（level=debug：knowledge:*/tool:call）7 天滚动删除。启动后跑一次 + 每 24h。

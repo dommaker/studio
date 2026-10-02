@@ -14,7 +14,7 @@ const { mockRunDailyMaintenance } = vi.hoisted(() => ({
   mockRunDailyMaintenance: vi.fn(),
 }));
 
-vi.mock('../../agents/knowledge/knowledge-curator.service.js', () => ({
+vi.mock('../../agent-knowledge/index.js', () => ({
   knowledgeCurator: { runDailyMaintenance: mockRunDailyMaintenance },
 }));
 

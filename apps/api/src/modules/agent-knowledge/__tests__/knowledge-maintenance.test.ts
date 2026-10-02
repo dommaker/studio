@@ -29,7 +29,7 @@ vi.mock('@dommaker/studio-shared', () => ({ resolveStudioLogFile: (f) => "/tmp/s
   logger: mockLogger,
 }));
 
-vi.mock('../system-executor.js', () => ({
+vi.mock('../../agents/system-executor.js', () => ({
   getSystemExecutor: () => ({ runJson: mockRunJson }),
 }));
 
@@ -49,7 +49,7 @@ vi.mock('child_process', () => {
   return { exec: execFn };
 });
 
-import { semanticDedup, assessQuality, validateFreshness, resolveContradictions } from '../knowledge/knowledge-maintenance.js';
+import { semanticDedup, assessQuality, validateFreshness, resolveContradictions } from '../knowledge-maintenance.js';
 
 function entry(id: string, over: Record<string, any> = {}): any {
   return {

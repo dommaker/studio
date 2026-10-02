@@ -8,7 +8,6 @@ export { AgentInstanceService, INSTANCE_ALIVE_TIMEOUT_MS, summarizeRoleStates } 
 export { ensureStudioProfile } from './agent-profile.service.js';
 export { backfillProfileProviders } from './default-provider.js';
 export { registerDefaultTriggers } from './default-triggers.js';
-export { getExtractFromTextSystemPrompt, knowledgeCurator } from './knowledge/knowledge-curator.service.js';
 export { sessionSummaryService } from './session-summary.service.js';
 export { getSystemExecutor, StudioRoleNotConfiguredError } from './system-executor.js';
 export { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';

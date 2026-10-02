@@ -91,7 +91,7 @@ vi.mock('../../../utils/studio-events-tail.js', () => ({
   readStudioEventsSince: mockReadStudioEventsSince,
 }));
 
-vi.mock('../../agents/knowledge/knowledge-curator.service.js', () => ({
+vi.mock('../../agent-knowledge/index.js', () => ({
   knowledgeCurator: { runDailyMaintenance: mockRunDailyMaintenance },
 }));
 

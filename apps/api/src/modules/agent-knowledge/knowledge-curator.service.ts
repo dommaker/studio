@@ -13,7 +13,7 @@
 import { logger, FileStore } from '@dommaker/studio-shared';
 import * as coldStart from './knowledge-cold-start.js';
 import * as maintenance from './knowledge-maintenance.js';
-import { getStore } from '../../../core/store.js';
+import { getStore } from '../../core/store.js';
 
 
 /**

@@ -10,8 +10,8 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { getSystemExecutor } from '../system-executor.js';
-import { sharedStore } from '../../knowledge/index.js';
+import { getSystemExecutor } from '../agents/index.js';
+import { sharedStore } from '../knowledge/index.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as os from 'os';

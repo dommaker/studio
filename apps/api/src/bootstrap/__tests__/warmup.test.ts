@@ -29,6 +29,8 @@ vi.mock('../../modules/knowledge/index.js', () => ({
 }));
 vi.mock('../../modules/agents/index.js', () => ({
   sessionSummaryService: { summarize: spies.summarize },
+}));
+vi.mock('../../modules/agent-knowledge/index.js', () => ({
   knowledgeCurator: { coldStartAll: spies.coldStartAll },
 }));
 vi.mock('../../utils/studio-events-rotation.js', () => ({

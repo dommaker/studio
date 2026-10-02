@@ -357,7 +357,9 @@ export class KnowledgeService {
       return;
     }
     // P2-c 拆环：knowledge→agents 静态边转函数内动态 import（置于 try 外，catch 的 instanceof 也要用）
-    const { getExtractFromTextSystemPrompt, getSystemExecutor, StudioRoleNotConfiguredError } = await import('../agents/index.js');
+    // P2-d 刀7：getExtractFromTextSystemPrompt 随知识维护 Agent 迁 agent-knowledge
+    const { getExtractFromTextSystemPrompt } = await import('../agent-knowledge/index.js');
+    const { getSystemExecutor, StudioRoleNotConfiguredError } = await import('../agents/index.js');
     try {
       const transcript = buildConversationTranscript(messages);
       if (!transcript) return;
