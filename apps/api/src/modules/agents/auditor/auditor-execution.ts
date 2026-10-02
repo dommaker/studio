@@ -186,7 +186,7 @@ export async function escalateToTriage(
       const failureRate = stats.failed / stats.total;
       if (failureRate > 0.3) {
         try {
-          const { triageService } = await import('../triage/triage.service.js');
+          const { triageService } = await import('../../triage/index.js');
           triageService.handleAlert({
             type: 'agent_type_failure_trend',
             severity: 'critical',
@@ -213,7 +213,7 @@ export async function escalateToTriage(
   // Overall successRate < 50% → workunit_health_degraded
   if (total >= 5 && overallSuccessRate < 50) {
     try {
-      const { triageService } = await import('../triage/triage.service.js');
+      const { triageService } = await import('../../triage/index.js');
       triageService.handleAlert({
         type: 'workunit_health_degraded',
         severity: 'critical',

@@ -39,9 +39,9 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 // Use dynamic import after mock setup
-const { triageService } = await import('../triage/triage.service.js');
-const { systemHealthCheck } = await import('../monitor/monitor-system-probes.js');
-const { foldIncidentRows } = await import('../triage/incident-store.js');
+const { triageService } = await import('../triage.service.js');
+const { systemHealthCheck } = await import('../../agents/monitor/monitor-system-probes.js');
+const { foldIncidentRows } = await import('../incident-store.js');
 
 describe('TriageService + MonitorService', () => {
   beforeEach(() => {
@@ -234,27 +234,27 @@ describe('TriageService + MonitorService', () => {
 
   describe('classifySystemError()', () => {
     it('maps service_down -> timeout (critical)', async () => {
-      const { classifySystemError } = await import('../../triage/error-class.js');
+      const { classifySystemError } = await import('../error-class.js');
       const r = classifySystemError('service_down', 'unreachable');
       expect(r.errorClass).toBe('timeout');
       expect(r.severity).toBe('critical');
     });
 
     it('maps zombie -> timeout (degraded)', async () => {
-      const { classifySystemError } = await import('../../triage/error-class.js');
+      const { classifySystemError } = await import('../error-class.js');
       const r = classifySystemError('zombie', 'defunct');
       expect(r.errorClass).toBe('timeout');
     });
 
     it('maps ext_dependency -> vendor_error (critical)', async () => {
-      const { classifySystemError } = await import('../../triage/error-class.js');
+      const { classifySystemError } = await import('../error-class.js');
       const r = classifySystemError('ext_dependency', 'DB timeout');
       expect(r.errorClass).toBe('vendor_error');
       expect(r.severity).toBe('critical');
     });
 
     it('falls back to env_error for unrecognized patterns', async () => {
-      const { classifySystemError } = await import('../../triage/error-class.js');
+      const { classifySystemError } = await import('../error-class.js');
       const r = classifySystemError('resource_critical', 'something else');
       expect(r.errorClass).toBe('env_error');
     });
@@ -262,7 +262,7 @@ describe('TriageService + MonitorService', () => {
     // ── 执行级事件分类 (FL-037 Phase 1) ──
 
     it('maps execution_repeated_failure -> timeout (degraded)', async () => {
-      const { classifySystemError } = await import('../../triage/error-class.js');
+      const { classifySystemError } = await import('../error-class.js');
       const r = classifySystemError('execution_repeated_failure', 'same step failed 3 times');
       expect(r.errorClass).toBe('timeout');
       expect(r.severity).toBe('degraded');
@@ -270,21 +270,21 @@ describe('TriageService + MonitorService', () => {
     });
 
     it('maps execution_heartbeat_lost -> timeout (critical)', async () => {
-      const { classifySystemError } = await import('../../triage/error-class.js');
+      const { classifySystemError } = await import('../error-class.js');
       const r = classifySystemError('execution_heartbeat_lost', 'heartbeat lost 30min');
       expect(r.errorClass).toBe('timeout');
       expect(r.severity).toBe('critical');
     });
 
     it('maps execution_session_exhausted -> env_error (critical)', async () => {
-      const { classifySystemError } = await import('../../triage/error-class.js');
+      const { classifySystemError } = await import('../error-class.js');
       const r = classifySystemError('execution_session_exhausted', '5 sessions exhausted');
       expect(r.errorClass).toBe('env_error');
       expect(r.severity).toBe('critical');
     });
 
     it('maps execution_timeout -> timeout (critical)', async () => {
-      const { classifySystemError } = await import('../../triage/error-class.js');
+      const { classifySystemError } = await import('../error-class.js');
       const r = classifySystemError('execution_timeout', 'execution over 2.5h');
       expect(r.errorClass).toBe('timeout');
       expect(r.severity).toBe('critical');

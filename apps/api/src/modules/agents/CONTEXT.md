@@ -11,7 +11,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - `monitor/` - Monitor Agent（service/probes/system-probes/alerts/reports/lifecycle）
 - `ops/` - 进程级守护（ops.service/ops-rules/proc-probes/system-health）
 - `knowledge/` - 知识维护 Agent（curator/cold-start/extraction/maintenance）
-- `triage/` - Triage Agent（triage.service；incident-store = incidents.jsonl append-only；#468 incident-notification.ts：incident.created/escalated 落 NotificationService type=incident（severity 进 content 首行），取代断裂的 SSE 桥）
+- `triage/` - ~~Triage Agent~~（P2-d 刀2 已并入顶层 modules/triage：triage.service；incident-store = incidents.jsonl append-only；#468 incident-notification.ts：incident.created/escalated 落 NotificationService type=incident（severity 进 content 首行），取代断裂的 SSE 桥）
 - 根目录 - 共享与 CRUD：routes、agent-profile/*、agent-instance/*、token-usage/*、default-provider、default-triggers、system-executor、session-summary.service、requirement-gate（P2-d 刀1：types.ts 拆分删除——Triage 类型归 triage/types.ts、MonitorAlert 类型归 monitor/types.ts；exec-async 下沉 core/；死文件 wu-test-guards/agent-knowledge-analysis 删除）
 
 ### 核心导出

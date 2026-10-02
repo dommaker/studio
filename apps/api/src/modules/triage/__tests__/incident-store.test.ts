@@ -23,7 +23,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 import { FileStore } from '@dommaker/studio-shared';
 import { foldIncidentRows, appendIncidentUpdate } from '../incident-store.js';
-import { rotateJsonlLog } from '../../../../utils/studio-log-rotation.js';
+import { rotateJsonlLog } from '../../../utils/studio-log-rotation.js';
 
 const NOW = new Date('2026-08-19T12:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;

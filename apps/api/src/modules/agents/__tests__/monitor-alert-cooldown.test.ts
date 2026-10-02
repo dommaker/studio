@@ -18,7 +18,7 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: { recordPattern: vi.fn(() => Promise.resolve()) },
 }));
 
-vi.mock('../triage/triage.service.js', () => ({
+vi.mock('../../triage/index.js', () => ({
   triageService: { handleAlert: vi.fn(() => Promise.resolve()) },
 }));
 

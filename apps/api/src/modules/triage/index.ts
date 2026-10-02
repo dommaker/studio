@@ -6,3 +6,5 @@
  */
 export { classifySystemError } from './error-class.js';
 export type { SystemTriageResult } from './error-class.js';
+export { triageService } from './triage.service.js';
+export type { TriageIncidentInput, TriageIncidentType, TriageLogEntry } from './types.js';

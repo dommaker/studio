@@ -56,7 +56,7 @@ vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { list: vi.fn(() => []) },
 }));
 
-vi.mock('../triage/triage.service.js', () => ({
+vi.mock('../../triage/index.js', () => ({
   triageService: { handleAlert: vi.fn(() => Promise.resolve()) },
 }));
 

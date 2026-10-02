@@ -54,7 +54,7 @@ vi.mock('../../knowledge/knowledge-sync.service.js', () => ({
   knowledgeSync: {},
 }));
 
-vi.mock('../triage/triage.service.js', () => ({
+vi.mock('../../triage/index.js', () => ({
   triageService: {},
 }));
 

@@ -47,7 +47,7 @@ vi.mock('@dommaker/studio-agent', () => ({
 }));
 
 vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} }));
-vi.mock('../triage/triage.service.js', () => ({ triageService: { handleAlert: vi.fn(() => Promise.resolve()) } }));
+vi.mock('../../triage/index.js', () => ({ triageService: { handleAlert: vi.fn(() => Promise.resolve()) } }));
 
 vi.mock('../../mcp/tool-registry.js', () => ({
   toolRegistry: { getStats: mockGetStats },

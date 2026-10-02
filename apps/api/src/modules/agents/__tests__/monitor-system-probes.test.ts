@@ -79,7 +79,7 @@ vi.mock('../../knowledge/knowledge-sync.service.js', () => ({
   knowledgeSync: { runSyncCycle: mockRunSyncCycle },
 }));
 
-vi.mock('../triage/triage.service.js', () => ({
+vi.mock('../../triage/index.js', () => ({
   triageService: { handleAlert: mockHandleAlert },
 }));
 

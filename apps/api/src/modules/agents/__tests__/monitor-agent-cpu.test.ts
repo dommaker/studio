@@ -59,7 +59,7 @@ vi.mock('../../knowledge/preference-observer.js', () => ({
   preferenceObserver: { record: vi.fn() },
 }));
 
-vi.mock('../triage/triage.service.js', () => ({
+vi.mock('../../triage/index.js', () => ({
   triageService: { handleAlert: vi.fn() },
 }));
 

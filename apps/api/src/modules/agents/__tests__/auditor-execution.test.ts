@@ -28,7 +28,7 @@ vi.mock('os', async (importOriginal) => {
 // 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
 afterAll(() => { fs.rmSync(tmpHome, { recursive: true, force: true }); });
 
-vi.mock('../triage/triage.service.js', () => ({
+vi.mock('../../triage/index.js', () => ({
   triageService: { handleAlert: mockHandleAlert },
 }));
 

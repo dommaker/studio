@@ -1,16 +1,16 @@
 // Triage Service — incident response: diagnose → classify → act → resolve/escalate
 import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
-import { classifySystemError } from '../../triage/index.js';
-import { knowledgeService } from '../../knowledge/index.js';
-import type { SystemTriageResult } from '../../triage/index.js';
+import { classifySystemError } from './error-class.js';
+import { knowledgeService } from '../knowledge/index.js';
+import type { SystemTriageResult } from './error-class.js';
 import type { TriageIncidentInput, TriageLogEntry } from './types.js';
 import { appendIncidentUpdate } from './incident-store.js';
 import { persistIncidentNotification } from './incident-notification.js';
-import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
-import { getErrorMessage } from '../../../utils/errors.js';
-import { countProcessesByCmdline, listZombieProcesses, readDiskUsage, readMemoryUsage } from '../ops/proc-probes.js';
-import { execAsync } from '../../../core/exec-async.js';
-import { getStore } from '../../../core/store.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { getErrorMessage } from '../../utils/errors.js';
+import { countProcessesByCmdline, listZombieProcesses, readDiskUsage, readMemoryUsage } from '../../core/proc-probes.js';
+import { execAsync } from '../../core/exec-async.js';
+import { getStore } from '../../core/store.js';
 
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
@@ -281,7 +281,7 @@ class TriageService {
     // B11-007: Resolution 查询 — 已知解法匹配
     let resolutionHint = '';
     try {
-      const { resolutionService } = await import('../../knowledge/index.js');
+      const { resolutionService } = await import('../knowledge/index.js');
       const matched = await resolutionService.matchResolutions({ errorMessage: input.message });
       if (matched.resolutions.length > 0) {
         resolutionHint = matched.resolutions[0].fix;
@@ -377,7 +377,7 @@ class TriageService {
       const errMsg = String(e).slice(0, 500);
       let llmDiagnosis = '';
       try {
-        const { getSystemExecutor } = await import('../system-executor.js');
+        const { getSystemExecutor } = await import('../agents/index.js');
         const diagPrompt = [
           `事件类型: ${incidentType}`,
           `消息: ${input.message}`,
