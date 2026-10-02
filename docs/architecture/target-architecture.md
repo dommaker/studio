@@ -47,3 +47,12 @@ apps/api（Express 5）
 ## 性能预算
 
 - 目标值与基线见 `docs/architecture/performance-baseline.md`；ship 前对比，回归 > 20% 需说明。
+
+## 落地状态（2026-10-02，重构收官）
+
+本文描述的目标架构已全部落地（计划 docs/plans/2026-09-arch-refactor.md §7 落地摘要）：
+
+- **已固化 lint**：`local/no-deep-module-import`（跨模块深路径，error）、无参 `new FileStore()` 封禁（error）、`local/no-hand-copied-api-types`（前端手抄类型，error）。
+- **已固化测试/探针**：route-registry 启动顺序断言 + 鉴权姿态探针（`apps/api/src/__tests__/route-registry-auth.probe.ts`）、模块 barrel 测试、contract 各域 parity 测试、OpenAPI 覆盖探针（下条）。
+- **OpenAPI 已复活**：`GET /api/docs` 由 contract zod schema 实时派生（转换层 `packages/studio-contract/src/openapi.ts`，装配 `apps/api/src/openapi/`：路由栈发现 + defineRoute meta + response-map 装订），`GET /api/docs/ui` 为 Swagger CDN 页；协议面（discord/deploy/lark/dingtalk 回调、SSE、MCP 消息面）不进文档，列 `x-studio-undocumented`。
+- **性能**：重构前后对比见 performance-baseline.md §6（读 p95 全绿、零回归；冷启动改善 34%–78%，「端口可服务 < 10s」贴线未达——listen 仍在初始化链尾，两口径分离留作后续优化项）。

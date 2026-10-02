@@ -73,7 +73,6 @@
 | LandingPage | apps/web/src/components/LandingPage.tsx | Lurk Wall: 个人网站展示页 — 不提示登录，不显示入口 |
 | MoreDropdown | apps/web/src/components/MoreDropdown.tsx | MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能） |
 | NotificationBell | apps/web/src/components/NotificationBell.tsx | Notification Bell — B2-003: 通知中心 |
-| OAuthCallback | apps/web/src/components/OAuthCallback.tsx | OAuth callback handler. |
 | PmoNumberBadge | apps/web/src/components/PmoNumberBadge.tsx | PMO 号显示组件 - GEN-005 |
 | SidebarNew | apps/web/src/components/SidebarNew.tsx | Sidebar.tsx - 侧边栏组件（最新设计） |
 | TopNav | apps/web/src/components/TopNav.tsx | TopNav.tsx - 顶部导航栏组件（L1 核心功能） |
@@ -109,13 +108,11 @@
 | AgentDetailPage | apps/web/src/pages/AgentDetailPage.tsx | AgentDetailPage — /agents/:profileId（2026-07-31 全流程串联 UX 重构 §5.3） |
 | AuditLogsPage | apps/web/src/pages/AuditLogsPage.tsx | 审计日志页面 - AR-012 |
 | ChannelDetailPage | apps/web/src/pages/ChannelDetailPage.tsx | 线程内过程消息折叠/聚合：连续 ≥3 条「过程消息」收成一组（默认折叠，点击展开）。 |
-| ForgotPasswordPage | apps/web/src/pages/ForgotPasswordPage.tsx | 忘记密码页面 — 输入邮箱，发送重置链接 |
 | KnowledgePage | apps/web/src/pages/KnowledgePage.tsx | 知识库页面 — 累积知识浏览 |
 | MonitoringPage | apps/web/src/pages/MonitoringPage.tsx | MonitoringPage — Agent Network MVP-6 |
 | NotFoundPage | apps/web/src/pages/NotFoundPage.tsx | 404 页面 - 路由表兜底（未匹配路径） |
 | PMOPage | apps/web/src/pages/PMOPage.tsx | PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33） |
 | ProjectDetailPage | apps/web/src/pages/ProjectDetailPage.tsx | Project 详情页 - GEN-005 + FL-013 |
-| ResetPasswordPage | apps/web/src/pages/ResetPasswordPage.tsx | 重置密码页面 — 使用 token 设置新密码 |
 | Settings | apps/web/src/pages/Settings.tsx | 设置页面 - API 配置 + 通知 + 公司 + 主题语言 |
 | WorkUnitDetailPage | apps/web/src/pages/WorkUnitDetailPage.tsx | WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4） |
 | WorkUnitListPage | apps/web/src/pages/WorkUnitListPage.tsx | WorkUnitListPage |
@@ -251,4 +248,12 @@
 | triage.service | apps/api/src/modules/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | apps/api/src/modules/triage/types.ts | Triage Agent 类型定义（P2-d 自 agents/types.ts 拆分，随 triage 子系统归属） |
 | types | apps/web/src/components/pmo/types.ts | PMO 页面共享领域类型 — KR / OKR / Project |
+| channel | apps/web/src/api/channel.ts | Channel API — B1-001 + Phase 2 (AC-B4/C3/E3) |
+| workunit | apps/web/src/api/workunit.ts | 从 GET /events?type=workunit:tokens 的响应行中解析某个 WorkUnit 的 token 事件。 |
+| ChannelGuidance | apps/web/src/components/channel/ChannelGuidance.tsx | ChannelGuidance — 频道引导片区（P3-b 自 ChannelDetailPage 切出）： |
+| ChannelStreamHead | apps/web/src/components/channel/ChannelStreamHead.tsx | ChannelStreamHead — 消息流头部块（P3-b 自 ChannelDetailPage 切出）： |
+| ChannelTopbar | apps/web/src/components/channel/ChannelTopbar.tsx | ChannelTopbar — 频道页顶栏（P3-b 自 ChannelDetailPage 切出）： |
+| channel | apps/web/src/types/channel.ts | 频道域客户端本地类型（P3-a 自 api/channel.ts 迁出——api 层不声明导出类型， |
+| websocket | apps/web/src/types/websocket.ts | SSE 客户端本地类型（P3-a 自 api/websocketHooks.ts 迁出——api 层不声明导出类型）。 |
+| workunit | apps/web/src/types/workunit.ts | WorkUnit 事件负载本地类型（P3-a 自 api/workunit.ts 迁出——api 层不声明导出类型）。 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

@@ -29,7 +29,7 @@ studio 能力边界面的表述（#201，2026-08-16）：与分层塔互补、�
 _Avoid_: 用薄替代塔、三件事并列、功能堆叠
 
 **契约正本**:
-前后端 API 契约的唯一真源 = `packages/studio-contract` 的 zod schema（docs/architecture/target-architecture.md，2026-09-30 架构重构批准）：一份 schema 同时出运行时校验（后端 `core/http.ts` defineRoute）、TS 类型（前后端 import）、OpenAPI 文档（派生物）。统一响应壳 = `{ data }` / `{ error: { code, message } }`（分页 `{ data, pagination }`）。配套硬规则：跨模块只 import 对方 `index.ts`；`new FileStore()` 只在 `core/store.ts`；routes.ts 只做 HTTP 翻译；前端禁手抄 API 响应类型。
+前后端 API 契约的唯一真源 = `packages/studio-contract` 的 zod schema（docs/architecture/target-architecture.md，2026-09-30 架构重构批准）：一份 schema 同时出运行时校验（后端 `core/http.ts` defineRoute）、TS 类型（前后端 import）、OpenAPI 文档（派生物——已复活：`GET /api/docs` 由 contract 派生实时生成 + `GET /api/docs/ui` Swagger 页，装配在 `apps/api/src/openapi/`，2026-10-02 Phase 4）。统一响应壳 = `{ data }` / `{ error: { code, message } }`（分页 `{ data, pagination }`）。配套硬规则：跨模块只 import 对方 `index.ts`；`new FileStore()` 只在 `core/store.ts`；routes.ts 只做 HTTP 翻译；前端禁手抄 API 响应类型。
 _Avoid_: 前端手抄 interface、yaml 当契约正本、响应格式第三种形状、模块级 FileStore 单例
 
 **上下文边界**:

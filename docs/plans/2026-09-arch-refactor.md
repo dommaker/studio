@@ -1,6 +1,6 @@
 # 架构重构：前后端分离 + 契约驱动 + 明确性能目标
 
-日期：2026-09-30　状态：已批准，实施中　类型：架构重构（多阶段）
+日期：2026-09-30　状态：**已完成**（2026-10-02 收官，落地摘要见 §7）　类型：架构重构（多阶段）
 
 ## 1. 背景与根因
 
@@ -111,3 +111,40 @@ agents 超级域拆法：loop / monitor / auditor / ops / knowledge 五个子系
 - 不动 `~/.studio` 数据区布局（冻结契约）和 FileStore 存储引擎本身
 - 不动 packages 六包划分（studio-contract 是唯一新增包）
 - 不追求一次消灭所有巨型文件（agent-loop.ts 1880 行等留到边界清晰后按域单独治理）
+
+## 7. 落地摘要（2026-10-02 收官补记）
+
+### 各 Phase commit 范围
+
+| Phase | commit 范围 | 内容 |
+|-------|-------------|------|
+| P0 基线 | `86eb1c85` | 目标架构/性能基线落字 + 死物清理（/api/docs 死链删除，Phase 4 复活） |
+| P1 契约层 | `e2e23421` → `142a9356`（11 commits） | studio-contract 建包 + defineRoute + 全 37 域迁移（八批）+ Express 4→5（`995d7d9c`） |
+| P2 后端边界 | `4607e218` → `a03774ef`（20 commits） | P2-a bootstrap 拆分；P2-b FileStore 收口（core/store.ts + lint 封禁）；P2-c barrel 立界 + 拆环（互耦 10→0）；P2-d agents 超级域八刀拆分；P2-e fs 直写收口 + 鉴权声明式上移 route-registry |
+| P3 前端收口 | `98769eca` → `f0ff48c4`（10 commits） | P3-a client 底座独立 + auth 死面清退 + e2e 三份合一 + 手抄类型 lint；P3-b 拉取页收口 useAsyncData + 双轨裁决落字 + ChannelDetailPage 三刀拆分 |
+| P4 验证与文档 | `921283e7`、`d6b19c54` + 本收尾 commit | 性能复测对比（baseline §6）+ OpenAPI 导出（/api/docs 复活）+ 文档收尾 |
+
+### 与计划的偏差
+
+- **P1 批次划分**：计划「每域一个 commit、引力中心优先（workunit → channels → agents → pmo → requirements → 其余）」；实际按主题分八批（workunit 首域单批 → channels/requirements → pmo/companies/projects/workspaces → skills/specs/triggers/evolution → knowledge 四域 → events 六域 → auth 六域 → mcp 十域 → agents 超级域收官）。agents 实际放最后一批而非第三批——它是最大引力中心，契约面最复杂，后置让前七批先立稳模式。
+- **P2-c 拆环手法**：计划只说「环逐个拆」；实际手法组合 = 公共面反推 codemod（p2c-public-surface）+ 36 模块 barrel 立界 + 共享原语下沉 core/studio-shared + 静态值边转处理器内动态 import，互耦对 10→0，lint 开 error 固化。
+- **P2-d 拆分粒度**：计划「五个子系统提升」；实际八刀——刀1 预备（exec-async 下沉/types 拆分/死文件）、刀2 triage 同域合并、刀3-7 五子系统（ops/auditor/loop/monitor/knowledge）、刀8 agents 本体瘦身收官。
+- **冷启动口径修正**：计划「Phase 2 bootstrap 拆分后分别度量端口可服务/全量就绪两口径，端口可服务 < 10s」。实测 bootstrap 拆分保持了 listen 位于初始化链尾（warmup 任务组本就 fire-and-forget 不在链上），**两口径未分离**；复测端口可服务 run1 15.8s / 重启 10.1–10.7s，较基线（24.1s / 39.2s / 47.6s）改善 34%–78% 但 < 10s 目标贴线未达。listen 前移（两口径真正分离）列为后续优化项，不在本次范围。详见 performance-baseline.md §6。
+- **P3-b 双轨裁决**：计划「二选一收进 SSE→store 或拉取页」；实际裁决为**按页归类双轨并存**（store 页 vs 拉取页判据 + 全量归类落字 CONTEXT），拉取页统一走 useAsyncData——一刀切单范式不符合页面实际语义。
+
+### 新增 lint 规则清单（硬规则固化落点）
+
+| 规则 | 档位 | 出处 | 内容 |
+|------|------|------|------|
+| `local/no-deep-module-import` | error | P2-c（`339502da`） | 跨模块只许 import 对方 index.ts 公共面，深路径即红 |
+| 无参 `new FileStore()` 封禁（eslint no-restricted-syntax） | error | P2-b（`42c53389`） | apps/api 走 core/store.ts getStore()，packages 走 getDefaultFileStore() |
+| `local/no-hand-copied-api-types` | error | P3-a（`a5fd61d5`） | 前端禁手抄 API 响应类型，一律 import type 自 contract |
+
+固化于测试/探针的架构断言：route-registry 顺序断言（启动 fail-fast）+ 鉴权姿态探针（`route-registry-auth.probe.ts`）+ 模块 barrel 测试（`module-barrels.test.ts`）+ OpenAPI 全量覆盖/防漂移探针（`openapi.probe.ts`，P4 新增）+ contract 各域 parity 测试（interface fixture ↔ schema 互验）。
+
+### P4 性能验收结论（详见 performance-baseline.md §6）
+
+- 读 p95 < 100ms：达标（最差 health 9.5ms，较基线最差 15.3ms 改善 38%）；回归 > 20% 端点为零。
+- 冷启动：较基线 −34%（run1）/ −74~78%（重启），< 10s 贴线未达（口径修正见上）。
+- 写 p95 < 300ms / SSE 推送 p95 < 200ms / 前端 LCP：本阶段未测（写路径与前端性能预算留待有对应需求时补测，目标保留）。
+- OpenAPI：`GET /api/docs`（278 端点，contract 派生）+ `GET /api/docs/ui`，协议面如实列 `x-studio-undocumented`。
