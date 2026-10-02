@@ -28,15 +28,15 @@ const { mockCreateCardMessage } = vi.hoisted(() => ({
 
 // 单例发卡走 mock（断言 + 重定向到测试 fileStore）；ChannelMessageService 类保持真实
 // （wireCardPostingToRealStore 用真类把卡片落进测试 fileStore）
-vi.mock('../../../channels/channel-message.service.js', async importOriginal => {
-  const actual = await importOriginal<typeof import('../../../channels/channel-message.service.js')>();
+vi.mock('../../channels/channel-message.service.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../channels/channel-message.service.js')>();
   return { ...actual, channelMessageService: { createCardMessage: mockCreateCardMessage } };
 });
 
 import { FileStore } from '@dommaker/studio-shared';
-import { ChannelMessageService } from '../../../channels/channel-message.service.js';
-import { clearReviewProposalAdapters } from '../../../review-proposal/registry.js';
-import { approveProposal, rejectProposal, getProposalStatus } from '../../../review-proposal/service.js';
+import { ChannelMessageService } from '../../channels/channel-message.service.js';
+import { clearReviewProposalAdapters } from '../../review-proposal/registry.js';
+import { approveProposal, rejectProposal, getProposalStatus } from '../../review-proposal/service.js';
 import { registerAuditorReviewAdapter, submitAuditorSuggestionProposal, findAuditorCardMessageId } from '../review-adapter.js';
 import type { Suggestion } from '../auditor-rules.js';
 

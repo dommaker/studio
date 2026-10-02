@@ -6,8 +6,6 @@
  */
 export { summarizeRoleStates } from './agent-instance.service.js';
 export { ensureStudioProfile } from './agent-profile.service.js';
-export { auditorService } from './auditor/auditor.service.js';
-export { getAuditorReviewAdapter } from './auditor/review-adapter.js';
 export { backfillProfileProviders } from './default-provider.js';
 export { registerDefaultTriggers } from './default-triggers.js';
 export { reconcileDispatchBreaks } from './dispatch-reconciliation.js';

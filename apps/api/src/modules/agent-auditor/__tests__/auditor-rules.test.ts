@@ -49,7 +49,7 @@ import {
   studioEventsJsonl,
   generateSuggestions,
   analyzeCircuitHealth,
-} from '../auditor/auditor-rules.js';
+} from '../auditor-rules.js';
 
 /** 模拟 FileStore.readJsonl：读 JSONL 文件，缺失返回 [] */
 const fileStoreStub = {

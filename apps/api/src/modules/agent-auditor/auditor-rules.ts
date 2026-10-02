@@ -14,12 +14,12 @@ import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
-import { knowledgeService } from '../../knowledge/index.js';
-import { skillStore } from '../../skills/index.js';
-import { WorkUnitService } from '../../workunit/index.js';
-import { resolveStudioEventsFile, getStudioEventTime } from '../../../utils/studio-events.js';
+import { knowledgeService } from '../knowledge/index.js';
+import { skillStore } from '../skills/index.js';
+import { WorkUnitService } from '../workunit/index.js';
+import { resolveStudioEventsFile, getStudioEventTime } from '../../utils/studio-events.js';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readJsonl 全量读
-import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
 /** D18 事件入口统一：事件文件 = ~/.studio/logs/studio-events.jsonl（测试期隔离）。保留函数名兼容既有调用方/测试。 */
 export function studioEventsJsonl(): string {
@@ -143,7 +143,7 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
 
     // Circuit 7: OKR 达成率 (B8 OKR 驱动闭环)
     try {
-      const { okrService } = await import('../../pmo/index.js');
+      const { okrService } = await import('../pmo/index.js');
       // Read OKR files from ~/.studio/okr/
       const okrDir = studioPath('okr');
       const okrKeys = await fileStore.listDocs(okrDir);

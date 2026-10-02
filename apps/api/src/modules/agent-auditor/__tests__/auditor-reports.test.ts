@@ -46,7 +46,7 @@ import {
   analyzeSessionTrends,
   trackTrends,
   postToSystemChannel,
-} from '../auditor/auditor-reports.js';
+} from '../auditor-reports.js';
 
 // 还原 homedir/env 补丁 + 清理 tmpHome（同 worker 后续文件不受影响）
 afterAll(() => {

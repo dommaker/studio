@@ -25,7 +25,7 @@ describe('#90 Auditor 零执行噪声抑制', () => {
   });
 
   it('过去 24h 零执行 → dailyAudit 早退，不 push / recordPattern / escalate / eval / resolution', async () => {
-    const { AuditorService } = await import('../auditor/auditor.service.js');
+    const { AuditorService } = await import('../auditor.service.js');
     const { knowledgeService } = await import('../../knowledge/knowledge-service.js');
     const agent = new AuditorService(new FileStore(testDir));
 

@@ -11,8 +11,8 @@ const { decisionSpy, mockSkillUpdate } = vi.hoisted(() => ({
   mockSkillUpdate: vi.fn(),
 }));
 
-vi.mock('../../../audit-logs/agent-decision.js', () => ({ recordAgentDecision: decisionSpy }));
-vi.mock('../../../skills/skill-store.js', () => ({
+vi.mock('../../audit-logs/agent-decision.js', () => ({ recordAgentDecision: decisionSpy }));
+vi.mock('../../skills/skill-store.js', () => ({
   skillStore: { update: mockSkillUpdate, get: vi.fn(), list: vi.fn(() => []) },
 }));
 

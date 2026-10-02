@@ -11,13 +11,13 @@
  */
 
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { knowledgeService } from '../../knowledge/index.js';
+import { knowledgeService } from '../knowledge/index.js';
 import * as rules from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
 import * as execution from './auditor-execution.js';
 import * as reports from './auditor-reports.js';
 import { registerAuditorReviewAdapter } from './review-adapter.js';
-import { getStore } from '../../../core/store.js';
+import { getStore } from '../../core/store.js';
 
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily

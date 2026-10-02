@@ -91,7 +91,7 @@ async function ensureAdaptersRegistered(): Promise<void> {
   const [skills, knowledge, auditor, memory, evolution] = await Promise.all([
     import('../skills/index.js'),
     import('../knowledge/index.js'),
-    import('../agents/index.js'),
+    import('../agent-auditor/index.js'),
     import('../role-memory/index.js'),
     import('../evolution/index.js'),
   ]);

@@ -16,10 +16,10 @@ import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { skillStore } from '../../skills/index.js';
+import { skillStore } from '../skills/index.js';
 import { classifyError } from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
-import { recordAgentDecision } from '../../audit-logs/index.js';
+import { recordAgentDecision } from '../audit-logs/index.js';
 import { randomUUID } from 'node:crypto';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
@@ -140,7 +140,7 @@ export async function autoCreateResolutions(
 ): Promise<void> {
   const opsErrorClasses = new Set(['permission', 'docker', 'git/worktree', 'port_conflict', 'llm/model']);
   try {
-    const { resolutionService } = await import('../../knowledge/index.js');
+    const { resolutionService } = await import('../knowledge/index.js');
 
     for (const e of recentExecs) {
       if (e.status !== 'closed' || !e.error) continue;
@@ -186,7 +186,7 @@ export async function escalateToTriage(
       const failureRate = stats.failed / stats.total;
       if (failureRate > 0.3) {
         try {
-          const { triageService } = await import('../../triage/index.js');
+          const { triageService } = await import('../triage/index.js');
           triageService.handleAlert({
             type: 'agent_type_failure_trend',
             severity: 'critical',
@@ -213,7 +213,7 @@ export async function escalateToTriage(
   // Overall successRate < 50% → workunit_health_degraded
   if (total >= 5 && overallSuccessRate < 50) {
     try {
-      const { triageService } = await import('../../triage/index.js');
+      const { triageService } = await import('../triage/index.js');
       triageService.handleAlert({
         type: 'workunit_health_degraded',
         severity: 'critical',
@@ -258,7 +258,7 @@ export async function generateEvalCases(recentExecs: Array<{
   if (failures.length === 0) return;
 
   try {
-    const { evalCaseGenerator } = await import('../../knowledge/index.js');
+    const { evalCaseGenerator } = await import('../knowledge/index.js');
     await evalCaseGenerator.generateFromFailures(failures);
   } catch (err) {
     logger.warn('[AuditorService] Eval case generation failed', { error: String(err) });

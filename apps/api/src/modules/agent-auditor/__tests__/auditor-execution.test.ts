@@ -48,7 +48,7 @@ import {
   autoCreateResolutions,
   escalateToTriage,
   generateEvalCases,
-} from '../auditor/auditor-execution.js';
+} from '../auditor-execution.js';
 
 // ── buildAuditorNotificationLink（#439）──
 
@@ -117,8 +117,8 @@ const { mockSubmitProposal } = vi.hoisted(() => ({
 }));
 
 // 只替换提案提交入口；findAuditorCardMessageId 等保留真实实现（走 mock fileStore）
-vi.mock('../auditor/review-adapter.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../auditor/review-adapter.js')>();
+vi.mock('../review-adapter.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../review-adapter.js')>();
   return { ...actual, submitAuditorSuggestionProposal: mockSubmitProposal };
 });
 

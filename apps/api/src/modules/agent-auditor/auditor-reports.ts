@@ -14,9 +14,9 @@ import * as path from 'path';
 import { logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
-import { parseStudioEventPayload, getStudioEventTime } from '../../../utils/studio-events.js';
+import { parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
-import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
 
@@ -209,7 +209,7 @@ export async function postToSystemChannel(fileStore: FileStore, content: string)
       return;
     }
 
-    const { channelMessageService } = await import('../../channels/index.js');
+    const { channelMessageService } = await import('../channels/index.js');
     await channelMessageService.createAgentMessage(
       channel.id,
       'Auditor',

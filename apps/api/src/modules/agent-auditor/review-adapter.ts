@@ -24,13 +24,13 @@ import {
   registerReviewProposalAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
-} from '../../review-proposal/index.js';
-import { submitProposal } from '../../review-proposal/index.js';
-import type { ReviewProposalBase, ReviewProposalRecord } from '../../review-proposal/index.js';
-import { parseMessageMeta } from '../../../utils/message-meta.js';
-import { getErrorMessage } from '../../../utils/errors.js';
+} from '../review-proposal/index.js';
+import { submitProposal } from '../review-proposal/index.js';
+import type { ReviewProposalBase, ReviewProposalRecord } from '../review-proposal/index.js';
+import { parseMessageMeta } from '../../utils/message-meta.js';
+import { getErrorMessage } from '../../utils/errors.js';
 import type { Suggestion } from './auditor-rules.js';
-import { getStore } from '../../../core/store.js';
+import { getStore } from '../../core/store.js';
 
 
 /** 审核闭环：提案卡投放的目标频道（同旧 pushConfirmationCards / 正本 card.ts 口径） */
@@ -108,7 +108,7 @@ async function executeAuditorApproval(
     ].join('\n');
     const scopeSource = detailLines.map(l => l.replace(/^- \[[^\]]*\]\s*/, '')).join('；');
 
-    const { WorkUnitService } = await import('../../workunit/index.js');
+    const { WorkUnitService } = await import('../workunit/index.js');
     const workUnit = await new WorkUnitService(fileStore).create({
       scope: `审计建议：${scopeSource}`.slice(0, 500),
       channelId: channel.id,

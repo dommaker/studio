@@ -10,7 +10,7 @@ const calls = vi.hoisted(() => [] as string[]);
 vi.mock('../../modules/agents/monitor/monitor.service.js', () => ({
   monitorService: { start: () => calls.push('monitor'), stop: vi.fn() },
 }));
-vi.mock('../../modules/agents/auditor/auditor.service.js', () => ({
+vi.mock('../../modules/agent-auditor/index.js', () => ({
   auditorService: { start: () => calls.push('auditor'), stop: vi.fn() },
 }));
 vi.mock('../../modules/requirements/rollup.js', () => ({

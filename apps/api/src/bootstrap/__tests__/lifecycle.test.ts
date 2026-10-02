@@ -25,7 +25,7 @@ vi.mock('../../modules/knowledge/evolution-scheduler.js', () => ({
 vi.mock('../../modules/agents/monitor/monitor.service.js', () => ({
   monitorService: { start: vi.fn(), stop: () => calls.push('monitor.stop') },
 }));
-vi.mock('../../modules/agents/auditor/auditor.service.js', () => ({
+vi.mock('../../modules/agent-auditor/index.js', () => ({
   auditorService: { start: vi.fn(), stop: () => calls.push('auditor.stop') },
 }));
 

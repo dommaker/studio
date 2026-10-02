@@ -73,7 +73,7 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     files: [
       'apps/api/src/modules/knowledge/*.ts',
       'apps/api/src/modules/agents/monitor/monitor.service.ts',
-      'apps/api/src/modules/agents/auditor/auditor.service.ts',
+      'apps/api/src/modules/agent-auditor/auditor.service.ts',
       // R5: agent-event-listener.ts 已随 pipeline-removal 删除（fb13e2b）；
       // 会话→知识提取现由 agent-loop 触发（R3 extractFromConversation）。
       'apps/api/src/modules/agents/loop/agent-loop.ts',

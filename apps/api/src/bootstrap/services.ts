@@ -4,7 +4,7 @@
 import { logger } from '@dommaker/studio-shared';
 import { startEvolutionScheduler } from '../modules/knowledge/index.js';
 import { monitorService } from '../modules/agents/index.js';
-import { auditorService } from '../modules/agents/index.js';
+import { auditorService } from '../modules/agent-auditor/index.js';
 
 export async function startCoreServices(): Promise<void> {
   monitorService.start();

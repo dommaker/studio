@@ -7,7 +7,7 @@ import type { Express } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import { stopEvolutionScheduler } from '../modules/knowledge/index.js';
 import { monitorService } from '../modules/agents/index.js';
-import { auditorService } from '../modules/agents/index.js';
+import { auditorService } from '../modules/agent-auditor/index.js';
 import { handleServerListenError } from '../utils/listen-error.js';
 import { stopTunnel } from './tunnel.js';
 

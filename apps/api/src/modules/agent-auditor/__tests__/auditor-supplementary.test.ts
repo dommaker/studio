@@ -12,7 +12,7 @@ describe('AuditorService supplementary edge cases', () => {
     // This test catches the bug: circuitSuggestions is used at line 183
     // but never defined as a local variable, causing ReferenceError at runtime.
     // The fix is to define it: `const circuitSuggestions = await this.analyzeKnowledgeCircuit();`
-    const { AuditorService } = await import('../auditor/auditor.service.js');
+    const { AuditorService } = await import('../auditor.service.js');
 
     // Check that the runAudit method body references circuitSuggestions
     const runAuditSrc = AuditorService.prototype.runAudit?.toString() || '';
