@@ -19,7 +19,7 @@
 
 import { logger, FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
-import type { MonitorAlert } from '../types.js';
+import type { MonitorAlert } from './types.js';
 import * as probes from './monitor-probes.js';
 import * as systemProbes from './monitor-system-probes.js';
 import * as alerting from './monitor-alerts.js';

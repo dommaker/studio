@@ -20,7 +20,7 @@
 import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import { logger, withAttestation } from '@dommaker/studio-shared';
-import { execFileAsync } from '../monitor/exec-async.js';
+import { execFileAsync } from '../../../core/exec-async.js';
 import {
   verifyTddChain,
   verifyPhaseFormat,

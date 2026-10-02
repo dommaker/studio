@@ -13,10 +13,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { execAsync } from './exec-async.js';
+import { execAsync } from '../../../core/exec-async.js';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger } from '@dommaker/studio-shared';
-import type { TriageIncidentInput } from '../types.js';
+import type { TriageIncidentInput } from '../triage/types.js';
 import { triageService } from '../triage/triage.service.js';
 import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
 import { sharedStore, sharedLifecycle } from '../../knowledge/index.js';

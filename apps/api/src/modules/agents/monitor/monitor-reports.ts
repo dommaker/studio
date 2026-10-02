@@ -15,7 +15,7 @@ import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../../knowledge/index.js';
 import { preferenceObserver } from '../../knowledge/index.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
-import { execFileAsync } from './exec-async.js';
+import { execFileAsync } from '../../../core/exec-async.js';
 import {
   writeStudioEvent,
   parseStudioEventPayload,

@@ -1,6 +1,10 @@
 /**
- * monitor 轮内异步子进程包装（#374）——monitor 轮禁止同步 execSync/execFileSync
- * （阻塞事件循环，SSE/HTTP 同进程受害），统一经此走回调式 exec/execFile 的 Promise 版。
+ * 轮内异步子进程包装（#374）——周期轮询（monitor/triage/completion-gates）禁止同步
+ * execSync/execFileSync（阻塞事件循环，SSE/HTTP 同进程受害），统一经此走回调式
+ * exec/execFile 的 Promise 版。
+ *
+ * P2-d 自 modules/agents/monitor/exec-async.ts 下沉 core/：零依赖原语，
+ * loop/monitor/triage 三方消费（proc-probes/system-role 同款手法③先例）。
  *
  * exec 走 shell（字符串命令，支持 `||` 兜底等 shell 语法）；
  * execFile 不经 shell（数组参数，git 等可信命令的防注入口径）。

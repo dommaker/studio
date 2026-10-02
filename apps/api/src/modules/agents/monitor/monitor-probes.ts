@@ -18,7 +18,7 @@ import {
   isStaleClaimSleep,
 } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
-import type { MonitorAlert } from '../types.js';
+import type { MonitorAlert } from './types.js';
 import { WorkUnitService } from '../../workunit/index.js';
 import { buildDeadLetterNotice } from '../../workunit/index.js';
 import { parseWuMetadata } from '../../workunit/index.js';

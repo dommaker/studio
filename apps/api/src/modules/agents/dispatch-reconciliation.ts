@@ -33,7 +33,7 @@ import { AnalysisHandoff } from '../pmo/index.js';
 import { ReviewDispatcher } from './loop/review-dispatcher.js';
 import { dispatchMonitorAlerts } from './monitor/monitor-alerts.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
-import type { MonitorAlertSource } from './types.js';
+import type { MonitorAlertSource } from './monitor/types.js';
 import { getStore } from '../../core/store.js';
 
 

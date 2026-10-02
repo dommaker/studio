@@ -11,7 +11,7 @@
 import { logger, ALERT_COOLDOWN_WARN_MS, ALERT_COOLDOWN_CRIT_MS, ALERT_COOLDOWN_GC_MS } from '@dommaker/studio-shared';
 import { knowledgeService } from '../../knowledge/index.js';
 import { notifyAlert } from '../../../utils/notifier.js';
-import type { MonitorAlert } from '../types.js';
+import type { MonitorAlert } from './types.js';
 import { triageService } from '../triage/triage.service.js';
 import { resolveStudioEventsFile, writeStudioEvent } from '../../../utils/studio-events.js';
 
@@ -127,7 +127,7 @@ export function dispatchMonitorAlerts(alerts: MonitorAlert[]): void {
  * Only critical alerts are escalated. Fire-and-forget, does not block check loop.
  */
 export function escalateToTriage(alerts: MonitorAlert[]): void {
-  const sourceToType: Record<MonitorAlert['source'], import('../types.js').TriageIncidentType | null> = {
+  const sourceToType: Record<MonitorAlert['source'], import('../triage/types.js').TriageIncidentType | null> = {
     failure_trend: 'execution_repeated_failure',
     session_escalation: 'execution_session_exhausted',
     total_time: 'execution_timeout',
