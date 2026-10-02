@@ -135,6 +135,85 @@ export function parseDynamicNames(content, occ) {
   return names;
 }
 
+/** 字符串字面量内容等长抹空（成员扫描用——防 specifier 里的 `mod.name` 被误判为成员访问） */
+function maskStrings(text) {
+  return text.replace(/'[^'\n]*'|"[^"\n]*"|`[^`]*`/g, s => ' '.repeat(s.length));
+}
+
+/**
+ * 动态 import 的补充消费名（parseDynamicNames 覆盖不了的两种形态）：
+ * 1) 命名空间持有：`const x = await import(spec)` 后文以 `x.foo()` 使用 → foo 进公共面
+ * 2) Promise.all 位置解构：`const [{ A }, { B }] = await Promise.all([import(s1), import(s2)])`
+ *    → 第 i 个对象模式的名字归第 i 个 import
+ * 返回 Map<stmtStart, names[]>（key = import()/require() 出现的 stmtStart）。
+ */
+export function analyzeDynamicUsages(content) {
+  const out = new Map();
+  const add = (key, names) => {
+    if (!names.length) return;
+    if (!out.has(key)) out.set(key, []);
+    out.get(key).push(...names);
+  };
+  // 1) 命名空间持有（成员扫描窗口在下一次同名重声明处截断——`const mod = await import()` 是常见一次性变量名，扫到 EOF 会张冠李戴）
+  const nsRe = /\b(?:const|let|var)\s+(\w+)\s*=\s*(?:await\s+)?import\s*\(\s*['"][^'"]+['"]\s*\)/g;
+  let m;
+  while ((m = nsRe.exec(content))) {
+    const id = m[1];
+    const stmtStart = content.indexOf('import', m.index);
+    const redeclRe = new RegExp(`\\b(?:const|let|var)\\s+${id}\\s*=`, 'g');
+    redeclRe.lastIndex = nsRe.lastIndex;
+    const redecl = redeclRe.exec(content);
+    const windowEnd = redecl ? redecl.index : content.length;
+    const windowText = maskStrings(content.slice(m.index, windowEnd));
+    const memberRe = new RegExp(`\\b${id}\\.(\\w+)`, 'g');
+    const names = [];
+    let mm;
+    while ((mm = memberRe.exec(windowText))) names.push({ imported: mm[1], local: mm[1], isType: false });
+    add(stmtStart, names);
+  }
+  // 2) Promise.all 位置/命名空间解构：以 Promise.all([ 为锚点向前后各看有限窗口
+  //    （不能用全文件 [ids] = ... Promise.all 正向扫——长数组字面量上嵌套量词灾难性回溯）
+  const paCallRe = /Promise\.all\(\s*\[/g;
+  while ((m = paCallRe.exec(content))) {
+    const before = content.slice(Math.max(0, m.index - 300), m.index);
+    const arrM = content.slice(m.index, m.index + 2000).match(/^Promise\.all\(\s*\[([\s\S]*?)\]\s*\)/);
+    if (!arrM) continue;
+    const imports = [...arrM[1].matchAll(/(?:import|require)\s*\(\s*['"][^'"]+['"]\s*\)/g)];
+    if (!imports.length) continue;
+    const importStart = m.index + arrM[0].indexOf('[') + 1;
+    // 2a) 对象模式位置解构：`const [{ A }, { B }] = await Promise.all([...])`
+    const lhsObj = before.match(/\[\s*((?:\{[^{}]*\}\s*,?\s*)+)\]\s*=\s*(?:await\s+)?$/);
+    if (lhsObj) {
+      const patterns = [...lhsObj[1].matchAll(/\{([^{}]*)\}/g)].map(x => x[1]);
+      imports.forEach((imp, i) => {
+        if (!patterns[i]) return;
+        add(importStart + imp.index, parseNamedClause(`{${patterns[i]}}`));
+      });
+      continue;
+    }
+    // 2b) 标识符数组解构：`const [skills, knowledge] = await Promise.all([...])`，成员访问重声明截断
+    const lhsIds = before.match(/\[\s*((?:\w+\s*,?\s*)+)\]\s*=\s*(?:await\s+)?$/);
+    if (lhsIds) {
+      const ids = lhsIds[1].split(',').map(s => s.trim()).filter(Boolean);
+      imports.forEach((imp, i) => {
+        const id = ids[i];
+        if (!id) return;
+        const stmtStart = importStart + imp.index;
+        const redeclRe = new RegExp(`\\b(?:const|let|var)\\s+${id}\\s*=`, 'g');
+        redeclRe.lastIndex = stmtStart + imp[0].length;
+        const redecl = redeclRe.exec(content);
+        const windowText = maskStrings(content.slice(stmtStart, redecl ? redecl.index : content.length));
+        const memberRe = new RegExp(`\\b${id}\\.(\\w+)`, 'g');
+        const names = [];
+        let mm;
+        while ((mm = memberRe.exec(windowText))) names.push({ imported: mm[1], local: mm[1], isType: false });
+        add(stmtStart, names);
+      });
+    }
+  }
+  return out;
+}
+
 // ---------- 核心：公共面计划 ----------
 
 /**
@@ -263,6 +342,7 @@ export function planPublicSurface(srcRoot = SRC_ROOT) {
     } else {
       // dynamic / require / typeof-import：仅换 specifier；解构名登记进 surface
       const names = parseDynamicNames(content, occ);
+      names.push(...(analyzeDynamicUsages(content).get(occ.stmtStart) ?? []));
       for (const n of names) addToSurface(target.mod, n.imported, sourceRel, n.isType ? 'type' : 'named', relFile);
       edits.push({ start: occ.start, end: occ.end, text: newSpec });
     }

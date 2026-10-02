@@ -9,6 +9,7 @@ import path from 'node:path';
 import {
   parseBindings,
   parseDynamicNames,
+  analyzeDynamicUsages,
   resolveDeepTarget,
   indexSpecifier,
   renderIndex,
@@ -68,6 +69,39 @@ describe('parseDynamicNames', () => {
     const req = occs.find(o => o.kind === 'require');
     expect(parseDynamicNames(c, req).map(n => n.imported)).toEqual(['WorkUnitService']);
     expect(occs.filter(o => o.kind === 'dynamic')).toHaveLength(1); // typeof import 也算 dynamic 位
+  });
+});
+
+describe('analyzeDynamicUsages', () => {
+  it('命名空间持有：x.foo() 成员进公共面', () => {
+    const c = `const skills = await import('../skills/review-adapter.js');\nskills.getSkillReviewAdapter();\nskills.other();`;
+    const occ = scanSpecifiers(c)[0];
+    const names = analyzeDynamicUsages(c).get(occ.stmtStart).map(n => n.imported);
+    expect(names).toEqual(['getSkillReviewAdapter', 'other']);
+  });
+  it('Promise.all 位置解构：第 i 个对象模式归第 i 个 import', () => {
+    const c = `const [{ RequirementService }, { selectProjectSnapshots }] = await Promise.all([\n  import('../requirements/requirement.service.js'),\n  import('../pmo/evidence-summary.js'),\n]);`;
+    const occs = scanSpecifiers(c);
+    const usages = analyzeDynamicUsages(c);
+    expect(usages.get(occs[0].stmtStart).map(n => n.imported)).toEqual(['RequirementService']);
+    expect(usages.get(occs[1].stmtStart).map(n => n.imported)).toEqual(['selectProjectSnapshots']);
+  });
+  it('Promise.all 标识符数组解构 + 成员访问', () => {
+    const c = `const [skills, knowledge] = await Promise.all([\n  import('../skills/review-adapter.js'),\n  import('../knowledge/review-adapter.js'),\n]);\nskills.getSkillReviewAdapter();\nknowledge.getKnowledgeReviewAdapter();`;
+    const occs = scanSpecifiers(c);
+    const usages = analyzeDynamicUsages(c);
+    expect(usages.get(occs[0].stmtStart).map(n => n.imported)).toEqual(['getSkillReviewAdapter']);
+    expect(usages.get(occs[1].stmtStart).map(n => n.imported)).toEqual(['getKnowledgeReviewAdapter']);
+  });
+  it('同名命名空间变量重声明截断（mod 一次性变量不张冠李戴）', () => {
+    const c = [
+      `async function a() { const mod = await import('../knowledge/knowledge-service.js'); return mod.knowledgeService; }`,
+      `async function b() { const mod = await import('../pmo/project.service.js'); return mod.projectService; }`,
+    ].join('\n');
+    const occs = scanSpecifiers(c);
+    const usages = analyzeDynamicUsages(c);
+    expect(usages.get(occs[0].stmtStart).map(n => n.imported)).toEqual(['knowledgeService']);
+    expect(usages.get(occs[1].stmtStart).map(n => n.imported)).toEqual(['projectService']);
   });
 });
 
