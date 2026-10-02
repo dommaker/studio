@@ -449,7 +449,7 @@ async function resolveConflictSceneWithLlm(args: {
 
   // verify 命令来源说明（与执行环节同策略：metadata.verifyCommands > 目录 package.json 惯例）。
   // lazy import：本模块头部依赖说明——不静态引入 agent-loop 侧模块，避免重依赖链
-  const { resolveVerifyCommands } = await import('../agents/index.js');
+  const { resolveVerifyCommands } = await import('../agent-loop/index.js');
   const { commands: verifyCommands, source: verifySource } = await resolveVerifyCommands(wu, meta, scene.cwd);
 
   // spawn 一次性解冲突会话（lazy import 同上；超时走 eventSource 注册表 600s）
@@ -536,7 +536,7 @@ async function recordMergeResolution(
 
 /** 合并后 verify（lazy import 同 pmo-branch-resolver 的循环依赖规避口径） */
 async function runMergeVerification(wu: WorkUnitData, meta: WorkUnitMetadata, mergeCwd: string) {
-  const { runWuVerification } = await import('../agents/index.js');
+  const { runWuVerification } = await import('../agent-loop/index.js');
   return runWuVerification(wu, meta, mergeCwd);
 }
 

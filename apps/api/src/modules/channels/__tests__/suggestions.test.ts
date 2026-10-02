@@ -17,7 +17,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
-import { ReviewDispatcher } from '../../agents/loop/review-dispatcher.js';
+import { ReviewDispatcher } from '../../agent-loop/review-dispatcher.js';
 import {
   deriveChannelSuggestions,
   SUGGESTION_TIMING,

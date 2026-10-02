@@ -9,7 +9,7 @@ import { getStore } from '../core/store.js';
 
 export async function startAgentLoops(): Promise<void> {
   try {
-    const { agentLoopRegistry } = await import('../modules/agents/index.js');
+    const { agentLoopRegistry } = await import('../modules/agent-loop/index.js');
     const { registerDefaultTriggers } = await import('../modules/agents/index.js');
     const { getTriggerScheduler } = await import('../modules/triggers/index.js');
     const { ensureStudioProfile } = await import('../modules/agents/index.js');

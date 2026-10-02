@@ -34,7 +34,7 @@ export async function registerScanHandlers(): Promise<void> {
 
   // ── #183: 派工/评审断链对账 handler（dispatch-reconciliation 触发器，5min）──
   registerExecuteHandler('dispatch-reconciliation-scan', async () => {
-    const { reconcileDispatchBreaks } = await import('../modules/agents/index.js');
+    const { reconcileDispatchBreaks } = await import('../modules/agent-loop/index.js');
     await reconcileDispatchBreaks();
   });
 

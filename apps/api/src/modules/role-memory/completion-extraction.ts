@@ -171,7 +171,7 @@ export class WuCompletionExtractor {
   /** 每日 token 预算熔断判定：守卫关闭 / 预算 <=0 → 不熔断；当日已耗 ≥ 预算 → true */
   private async isBudgetExhausted(): Promise<boolean> {
     // P2-c 拆环：role-memory→agents 静态边转函数内动态 import
-    const { tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage } = await import('../agents/index.js');
+    const { tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage } = await import('../agent-loop/index.js');
     if (!tokenBudgetGuardEnabled()) return false;
     const budget = resolveDailyTokenBudget();
     if (budget <= 0) return false;

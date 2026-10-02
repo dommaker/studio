@@ -57,7 +57,7 @@ import {
   tokenBudgetGuardEnabled,
   resolveDailyTokenBudget,
   getDailyTokenUsage,
-} from '../agents/index.js';
+} from '../agent-loop/index.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import type { WorkUnitData } from '../workunit/index.js';

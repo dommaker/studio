@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const calls = vi.hoisted(() => [] as string[]);
 
-vi.mock('../../modules/agents/loop/review-dispatcher.js', () => ({
+vi.mock('../../modules/agent-loop/index.js', () => ({
   getReviewDispatcher: () => ({ subscribeToEvents: () => calls.push('review-dispatcher') }),
 }));
 vi.mock('../../modules/events/workunit-events-bridge.js', () => ({

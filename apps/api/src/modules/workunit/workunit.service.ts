@@ -465,7 +465,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     if (!wu) return { kind: 'not-found' };
 
     const { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } =
-      await import('../agents/index.js');
+      await import('../agent-loop/index.js');
 
     if (!CODE_WORKTREE_TYPES.has(wu.type)) return { kind: 'not-code-type', wuType: wu.type };
 

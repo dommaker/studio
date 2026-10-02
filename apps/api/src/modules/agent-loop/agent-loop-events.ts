@@ -1,0 +1,217 @@
+// ─── workunit:tokens / tool:call 事件落盘（M2/B6/D18/T-1.1） ───
+// 2026-08 工单 28 从 agent-loop.ts 原样抽出（行为不变）：
+// workunit:tokens 事件写入（注入估算 vs CLI 真实 usage 诚实口径）+
+// tool:call trace 落盘（PatternMiner 数据源）。
+// agent-loop.ts re-export 保持对外导出语义不变。
+import { appendFileSync, existsSync, mkdirSync } from 'fs';
+import { extractToolCalls, extractProviderUsage, eventBus, FileStore, type StreamEvent } from '@dommaker/studio-shared';
+import { v4 as uuidv4 } from 'uuid';
+import type { ExecutionResult } from '@dommaker/studio-agent';
+import { noteTokensWritten } from './daily-token-budget.js';
+import { noteTokenLedgerWritten } from '../../utils/token-ledger.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { getStore } from '../../core/store.js';
+
+
+
+/** 事件落盘共享 FileStore（appendJsonl 写入用；agent-loop 的 skill 注入度量同用此实例）。
+ * 导出形态 = 测试 mock 锚点（prompt-composer 单测 vi.mock 本模块）；P2-b 例外保留的
+ * 模块级捕获，实例来自 getStore() 进程级单例。 */
+export const metricsFileStore = getStore();
+
+export interface WorkunitTokenEventArgs {
+  workUnitId: string;
+  /** 来源频道（wu.channelId 透传到 SSE 信封；null/缺省 → 信封无该键，不落 jsonl） */
+  channelId?: string | null;
+  executionId?: string;
+  /** 注入上下文估算 tokens（调用方按 estimateTokens 口径估算） */
+  injectedTokens: number;
+  /**
+   * 非缓存执行 tokens（CLI usage input+output，不含 cache）。CLI 未回报 usage 时传 null ——
+   * 聚合端据此把该事件排除在执行 tokens/开销比均值外（executionSource='unavailable'），不编造 0。
+   * 口径警告：delegation-gate 树预算（TREE_TOKEN_BUDGET=400K）按本字段校准，禁止改成含 cache；
+   * 账单/熔断口径看 billedTokens / totalTokens（2026-08-03 token-burn issue B6）。
+   */
+  executionTokens: number | null;
+  /** LLM 提取 tokens（可选；R3 提取异步入库，通常由 knowledge:extraction 事件单独度量） */
+  extractionTokens?: number;
+  /** D16: CLI usage 的 input tokens（缓存命中率分子分母用；有 usage 时写入） */
+  inputTokens?: number;
+  /** B6: CLI usage 的 output tokens（此前只记 input/cache，输出无账） */
+  outputTokens?: number;
+  /** D16: CLI usage 的 cache read / creation tokens（缓存命中率用；有 usage 时写入） */
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  /** B6: 真实账单口径 = input+output+cacheRead+cacheCreation（有 usage 时写入） */
+  billedTokens?: number;
+  /** B6: CLI 回报的美元成本 / 轮数（modelUsage 可得时写入） */
+  costUsd?: number;
+  numTurns?: number;
+  /** B6: 触发器来源（trigger 创建的 WU；按触发器聚合的输入） */
+  triggerId?: string;
+  /** #134: 执行 CLI 的 provider（#120 按 provider 分桶的数据源——「后端未上报」与「0% 命中」必须可分） */
+  provider?: string;
+}
+
+/** B6: 一次执行的真实 token 用量（账单口径，含 cache） */
+export interface RealUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  /** input+output+cacheRead+cacheCreation —— 账单/预算熔断口径 */
+  billedTokens: number;
+  costUsd?: number;
+  numTurns?: number;
+}
+
+/**
+ * B6（2026-08-03 token-burn issue P1-2）：真实 usage 解析链。
+ * #134：按 provider 分流（extractProviderUsage）——claude 优先 modelUsage 累积
+ * （多轮会话全量；顶层 usage.* 仅最后一轮，是此前 cache_read 无账的结构性原因之一），
+ * opencode 读 step_finish.part.tokens、codex 读 turn.completed.usage、
+ * kimi 无 usage 出口 → null；兜底 runner 透出的 usage 聚合（无 rawOutput 的失败路径）；
+ * 全零 → null（不编造）。
+ */
+export function resolveRealUsage(result: ExecutionResult, provider = 'claude'): RealUsage | null {
+  if (result.rawOutput) {
+    const m = extractProviderUsage(provider, result.rawOutput);
+    if (m && m.inputTokens + m.outputTokens + m.cacheReadTokens + m.cacheCreationTokens > 0) {
+      return {
+        inputTokens: m.inputTokens,
+        outputTokens: m.outputTokens,
+        cacheReadTokens: m.cacheReadTokens,
+        cacheCreationTokens: m.cacheCreationTokens,
+        billedTokens: m.inputTokens + m.outputTokens + m.cacheReadTokens + m.cacheCreationTokens,
+        ...(m.costUsd ? { costUsd: m.costUsd } : {}),
+        ...(m.numTurns ? { numTurns: m.numTurns } : {}),
+      };
+    }
+  }
+  const u = result.usage;
+  if (u && u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheCreationTokens > 0) {
+    return {
+      inputTokens: u.inputTokens,
+      outputTokens: u.outputTokens,
+      cacheReadTokens: u.cacheReadTokens,
+      cacheCreationTokens: u.cacheCreationTokens,
+      billedTokens: u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheCreationTokens,
+    };
+  }
+  return null;
+}
+
+/**
+ * M2: 写一条 workunit:tokens 事件（模块级函数，供 agent-loop 与单测直接调用）。
+ * totalTokens = injectedTokens + (billedTokens ?? executionTokens ?? 0)
+ * （B6：billed 含 cache 是账单口径；executionTokens 保持 input+output 旧语义供树预算闸门用）。
+ * SSE 负载加深（2026-08-24 计划）：落盘后顺带经 'events' 频道发 SSE 信封
+ * `workunit.tokens`（workunit. 前缀 → workunits topic），data 复用落盘的现成字段，
+ * 供 WU 抽屉 token 条事件驱动刷新（替代 REST 补拉）；best-effort，绝不影响记账流程。
+ */
+
+/** SSE 信封的 event_type（workunit. 前缀 → workunits topic） */
+export const WORKUNIT_TOKENS_SSE_TYPE = 'workunit.tokens';
+
+export async function writeWorkunitTokenEvent(eventsFile: string, args: WorkunitTokenEventArgs): Promise<void> {
+  const executionTokens = typeof args.executionTokens === 'number' && Number.isFinite(args.executionTokens)
+    ? args.executionTokens
+    : null;
+  const billedTokens = typeof args.billedTokens === 'number' && Number.isFinite(args.billedTokens)
+    ? args.billedTokens
+    : null;
+  const payload = {
+    workUnitId: args.workUnitId,
+    executionId: args.executionId,
+    injectedTokens: args.injectedTokens,
+    injectedSource: 'estimate:token-estimator',
+    executionTokens,
+    executionSource: executionTokens !== null || billedTokens !== null ? 'cli-usage' : 'unavailable',
+    totalTokens: args.injectedTokens + (billedTokens ?? executionTokens ?? 0),
+    ...(typeof args.extractionTokens === 'number' ? { extractionTokens: args.extractionTokens } : {}),
+    ...(typeof args.inputTokens === 'number' ? { inputTokens: args.inputTokens } : {}),
+    ...(typeof args.outputTokens === 'number' ? { outputTokens: args.outputTokens } : {}),
+    ...(typeof args.cacheReadTokens === 'number' ? { cacheReadTokens: args.cacheReadTokens } : {}),
+    ...(typeof args.cacheCreationTokens === 'number' ? { cacheCreationTokens: args.cacheCreationTokens } : {}),
+    ...(billedTokens !== null ? { billedTokens } : {}),
+    ...(typeof args.costUsd === 'number' ? { costUsd: args.costUsd } : {}),
+    ...(typeof args.numTurns === 'number' ? { numTurns: args.numTurns } : {}),
+    ...(args.triggerId ? { triggerId: args.triggerId } : {}),
+    ...(args.provider ? { provider: args.provider } : {}),
+  };
+  await metricsFileStore.appendJsonl(eventsFile, {
+    type: 'workunit:tokens',
+    source: 'agent-loop',
+    payload: JSON.stringify(payload),
+    createdAt: new Date().toISOString(),
+  });
+  // SSE 负载加深：落盘成功后顺带实时推送（信封形态同 execution-step-events 的 eventBus.publish）。
+  // best-effort：eventBus.publish 为同步 emit（订阅侧异常会向上抛），try/catch 保住记账主流程。
+  try {
+    eventBus.publish('events', {
+      event_type: WORKUNIT_TOKENS_SSE_TYPE,
+      event_id: uuidv4(),
+      timestamp: new Date().toISOString(),
+      data: {
+        ...payload,
+        ...(args.channelId ? { channelId: args.channelId } : {}),
+      },
+    });
+  } catch { /* best-effort，与 workunit.execution.step 同一形态 */ }
+  // C3: 进程内当日预算计数器累加（口径与熔断扫描一致 = billed ?? total），
+  // 仅在落盘成功后计；未 bootstrap/跨天由 daily-token-budget 自重扫收敛。
+  noteTokensWritten(eventsFile, billedTokens ?? (args.injectedTokens + (executionTokens ?? 0)));
+  // #320: token 账本写侧记账（失败隔离，内部 catch；账本落后由读方 watermark 补扫自愈）
+  await noteTokenLedgerWritten(eventsFile);
+}
+
+// ─── tool:call event recording ───
+
+/**
+ * D18 事件入口统一: tool:call trace 写入统一事件文件
+ * （~/.studio/logs/studio-events.jsonl，测试期经 studio-log-path 隔离）。
+ * 懒解析以支持运行时/测试注入 env。
+ */
+export function resolveToolTraceFile(): string {
+  return resolveStudioEventsFile();
+}
+
+/**
+ * Write tool:call events extracted from pre-parsed stream events to a JSONL file.
+ * Returns the count of tool calls written.
+ * T-1.1: Wiring tool:call recording for PatternMiner data source.
+ * D18: StudioEvent 形态（payload 嵌套），与 daemon/task-executor 的 tool:call 一致。
+ * #453: 签名从原始 stdout 深化为已解析 StreamEvent[]——成功路径由 agent-loop 统一解析一次，
+ * 本函数与 execution_step 提炼共享同一份解析产物，不再各自全量 split + JSON.parse。
+ * #602 D4: success 取真实 tool_result 配对结果（extractToolCalls 已带），无配对 → 键缺省
+ * （旧行为恒 true / caller 恒 'agent-loop' 是埋点 bug：E1 (c) 按 caller+success 统计恒拿不到真值）。
+ */
+export function writeToolCallEvents(events: StreamEvent[], filePath: string, opts?: { caller?: string }): number {
+  const toolCalls = extractToolCalls(events);
+  if (toolCalls.length === 0) return 0;
+
+  const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  const now = Date.now();
+  const caller = opts?.caller ?? 'agent-loop';
+  for (const call of toolCalls) {
+    const event = JSON.stringify({
+      type: 'tool:call',
+      source: 'agent-loop',
+      // #172（#60 决策 Q2）：tool:call 为噪声 → debug（直写路径不走 writeStudioEvent，显式落字段）
+      level: 'debug',
+      payload: JSON.stringify({
+        tool: call.name,
+        ...(call.success !== undefined ? { success: call.success } : {}),
+        durationMs: 0,
+        timestamp: now,
+        caller,
+      }),
+      createdAt: new Date(now).toISOString(),
+    });
+    appendFileSync(filePath, event + '\n', 'utf-8');
+  }
+
+  return toolCalls.length;
+}

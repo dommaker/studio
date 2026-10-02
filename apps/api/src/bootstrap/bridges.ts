@@ -7,7 +7,7 @@ import { logger } from '@dommaker/studio-shared';
 export async function initEventSubscriptions(): Promise<void> {
   // AC-4.1: ReviewDispatcher subscribes to workunit.status_changed
   try {
-    const { getReviewDispatcher } = await import('../modules/agents/index.js');
+    const { getReviewDispatcher } = await import('../modules/agent-loop/index.js');
     getReviewDispatcher().subscribeToEvents();
     logger.info('[ReviewDispatcher] Subscribed to workunit.status_changed');
   } catch (e) { logger.warn('[ReviewDispatcher] Failed to subscribe', { error: String(e) }); }

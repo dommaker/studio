@@ -71,7 +71,7 @@ vi.mock('../../audit-logs/agent-decision.js', () => ({ recordAgentDecision: deci
 
 import { postWuSystemMessage } from '../wu-messenger.js';
 import { claimWorkUnitAndAnnounce } from '../claim-announce.js';
-import { AgentLoop } from '../../agents/loop/agent-loop.js';
+import { AgentLoop } from '../../agent-loop/agent-loop.js';
 
 const nowIso = () => new Date().toISOString();
 

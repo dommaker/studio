@@ -21,7 +21,7 @@ import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
 import { appendTranscriptStep, transcriptsDir } from '../../transcripts/transcript-archive.js';
 import { roleMemoryRoot, roleMemoryStore } from '../role-memory.js';
-import { resetDailyTokenBudgetState } from '../../agents/loop/daily-token-budget.js';
+import { resetDailyTokenBudgetState } from '../../agent-loop/daily-token-budget.js';
 
 const { mockRun, mockSubmit } = vi.hoisted(() => ({ mockRun: vi.fn(), mockSubmit: vi.fn() }));
 

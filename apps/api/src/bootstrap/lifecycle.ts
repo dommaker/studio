@@ -50,7 +50,7 @@ export function registerShutdown(server: Server): void {
   const shutdown = async () => {
     // F1: unmount all AgentLoops
     try {
-      const { agentLoopRegistry } = await import('../modules/agents/index.js');
+      const { agentLoopRegistry } = await import('../modules/agent-loop/index.js');
       agentLoopRegistry.unmountAll();
     } catch {}
 

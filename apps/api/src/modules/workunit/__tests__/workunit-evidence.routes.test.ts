@@ -22,7 +22,7 @@ const { mockDispatchReviewNow } = vi.hoisted(() => ({
   mockDispatchReviewNow: vi.fn(),
 }));
 
-vi.mock('../../agents/loop/review-dispatcher.js', () => ({
+vi.mock('../../agent-loop/review-dispatcher.js', () => ({
   getReviewDispatcher: () => ({ dispatchReviewNow: mockDispatchReviewNow }),
 }));
 

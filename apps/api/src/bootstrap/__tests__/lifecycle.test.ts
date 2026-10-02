@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const calls = vi.hoisted(() => [] as string[]);
 
-vi.mock('../../modules/agents/loop/agent-loop-registry.js', () => ({
+vi.mock('../../modules/agent-loop/index.js', () => ({
   agentLoopRegistry: { unmountAll: () => calls.push('unmountAll') },
 }));
 vi.mock('@dommaker/studio-agent', () => ({

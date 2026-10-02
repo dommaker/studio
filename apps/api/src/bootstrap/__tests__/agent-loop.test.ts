@@ -20,7 +20,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
     sweepEmptyAgentDirs = vi.fn(async () => ({ removed: state.sweptRemoved }));
   },
 }));
-vi.mock('../../modules/agents/loop/agent-loop-registry.js', () => ({
+vi.mock('../../modules/agent-loop/index.js', () => ({
   agentLoopRegistry: {
     subscribeToEvents: () => calls.push('registry.subscribeToEvents'),
     mount: vi.fn(async (p: { name: string }) => { calls.push(`mount:${p.name}`); return { status: 'running' }; }),
