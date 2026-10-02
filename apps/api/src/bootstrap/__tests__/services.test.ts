@@ -19,7 +19,7 @@ vi.mock('../../modules/requirements/rollup.js', () => ({
 vi.mock('../../modules/pmo/progress-rollup.js', () => ({
   initPmoProgressRollup: () => calls.push('pmo-rollup'),
 }));
-vi.mock('../../modules/agents/ops/ops.service.js', () => ({
+vi.mock('../../modules/agent-ops/index.js', () => ({
   createOpsService: () => ({ start: () => calls.push('ops') }),
 }));
 vi.mock('../../modules/knowledge/evolution-scheduler.js', () => ({

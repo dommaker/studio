@@ -27,7 +27,7 @@ export async function startCoreServices(): Promise<void> {
   } catch (e) { logger.warn('[PMO] Progress rollup init failed', { error: String(e) }); }
   // ── Ops Service: runtime health loop ──
   try {
-    const { createOpsService } = await import('../modules/agents/index.js');
+    const { createOpsService } = await import('../modules/agent-ops/index.js');
     const opsService = createOpsService();
     opsService.start();
   } catch (e) { logger.warn('[OpsService] Failed to start', { error: String(e) }); }

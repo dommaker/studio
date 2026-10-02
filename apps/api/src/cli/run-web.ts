@@ -86,7 +86,7 @@ export async function studioRunWeb(rawArgs: string[]): Promise<void> {
 
   // 6. 首启默认数据（默认频道 + admin，幂等）
   try {
-    const { createOpsService } = await import('../modules/agents/index.js');
+    const { createOpsService } = await import('../modules/agent-ops/index.js');
     const defaults = await createOpsService(resolved.port).ensureDefaults();
     console.log(`Defaults: ${defaults.channels} channels, admin ${defaults.admin ? 'exists' : 'created'}`);
   } catch (e: any) {

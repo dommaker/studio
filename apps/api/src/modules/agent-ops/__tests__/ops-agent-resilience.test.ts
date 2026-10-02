@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { createOpsService, OpsService } from '../ops/ops.service.js';
+import { createOpsService, OpsService } from '../ops.service.js';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 const { mockReadDiskUsage, mockReadMemoryUsage, mockLoadRaw, mockExecSync, mockExec } = vi.hoisted(() => ({
@@ -20,7 +20,7 @@ const { mockReadDiskUsage, mockReadMemoryUsage, mockLoadRaw, mockExecSync, mockE
 }));
 
 // #344: getStatus 探测委托 proc-probes 单出口，mock 掉 /proc 读取以固定格式断言
-vi.mock('../ops/proc-probes.js', () => ({
+vi.mock('../../../core/proc-probes.js', () => ({
   readDiskUsage: mockReadDiskUsage,
   readMemoryUsage: mockReadMemoryUsage,
   readLoadAvgRaw: mockLoadRaw,

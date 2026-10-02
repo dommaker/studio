@@ -12,10 +12,10 @@ import * as path from 'path';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { loadRules, type OpsRules } from './ops-rules.js';
-import { readDiskUsage, readMemoryUsage, readLoadAvgRaw, countProcessesByCmdline, listPidsByCmdline } from './proc-probes.js';
-import { hashPassword } from '../../auth/index.js';
-import { resolveStudioEventsFile } from '../../../utils/studio-events.js';
-import { ensureFrontendDist } from '../../../utils/frontend-dist.js';
+import { readDiskUsage, readMemoryUsage, readLoadAvgRaw, countProcessesByCmdline, listPidsByCmdline } from '../../core/proc-probes.js';
+import { hashPassword } from '../auth/index.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { ensureFrontendDist } from '../../utils/frontend-dist.js';
 
 const execAsync = promisify(exec);
 
@@ -206,7 +206,7 @@ export class OpsService {
         logger.error('[OpsService] CRITICAL: API not responding on port', { port: this.port });
         // B13-009: Record incident to KnowledgeService
         try {
-          const { knowledgeService } = await import('../../knowledge/index.js');
+          const { knowledgeService } = await import('../knowledge/index.js');
           knowledgeService.recordIncident({
             title: 'API not responding',
             content: `API on port ${this.port} is not responding. Time: ${new Date().toISOString()}`,
@@ -239,7 +239,7 @@ export class OpsService {
         }
         // Push alert to #系统 Channel
         try {
-          const { channelMessageService } = await import('../../channels/index.js');
+          const { channelMessageService } = await import('../channels/index.js');
           const sysChannel = (await this.fileStore.listChannels({ name: '#系统' }))[0] ?? null;
           if (sysChannel) {
             await channelMessageService.createAgentMessage(sysChannel.id, 'OpsAgent',
@@ -256,7 +256,7 @@ export class OpsService {
         logger.error('[OpsService] CRITICAL: Disk nearly full', { usePercent: status.disk.usePercent });
         // B13-009: Record incident to KnowledgeService
         try {
-          const { knowledgeService } = await import('../../knowledge/index.js');
+          const { knowledgeService } = await import('../knowledge/index.js');
           knowledgeService.recordIncident({
             title: 'Disk nearly full',
             content: `Disk usage at ${status.disk.usePercent}% (threshold: ${this.rules.checks.disk_threshold_critical}%). Time: ${new Date().toISOString()}`,
@@ -515,7 +515,7 @@ export function createOpsService(port?: number): OpsService {
 
 // ── Health endpoint factory ──
 import { Router, Request, Response } from 'express';
-import { getStore } from '../../../core/store.js';
+import { getStore } from '../../core/store.js';
 
 export function createHealthRoutes(ops: OpsService): Router {
   const router = Router();

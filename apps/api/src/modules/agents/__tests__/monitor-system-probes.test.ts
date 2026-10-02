@@ -51,7 +51,7 @@ vi.mock('os', async (importOriginal) => {
 vi.mock('child_process', () => ({ execSync: mockExecSync, exec: mockExec }));
 
 // B4 #344: 系统探测委托 ops proc-probes 单出口，mock 掉 /proc 读取
-vi.mock('../ops/proc-probes.js', () => ({
+vi.mock('../../../core/proc-probes.js', () => ({
   readDiskUsage: mockReadDiskUsage,
   readMemoryUsage: mockReadMemoryUsage,
   countZombieProcesses: mockCountZombies,

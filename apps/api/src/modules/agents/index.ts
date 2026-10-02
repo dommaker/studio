@@ -20,8 +20,6 @@ export { getReviewDispatcher } from './loop/review-dispatcher.js';
 export { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from './loop/wu-verification.js';
 export { dispatchMonitorAlerts, emitMonitorEvent } from './monitor/monitor-alerts.js';
 export { monitorService } from './monitor/monitor.service.js';
-export { createOpsService } from './ops/ops.service.js';
-export { countProcessesByCmdline } from './ops/proc-probes.js';
 export { sessionSummaryService } from './session-summary.service.js';
 export { getSystemExecutor, StudioRoleNotConfiguredError } from './system-executor.js';
 export { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';

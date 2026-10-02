@@ -22,7 +22,7 @@ import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@domma
 import { sharedStore, sharedLifecycle } from '../../knowledge/index.js';
 import { knowledgeSync } from '../../knowledge/index.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
-import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../ops/proc-probes.js';
+import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../../../core/proc-probes.js';
 import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 
 // #611: knowledge:consumption 连续 N 天为 0 → 消费链路疑似断裂（probe 去假绿后此告警才可信）
