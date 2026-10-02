@@ -29,10 +29,12 @@ import { loadManifest } from './manifest-loader.js';
 import { getSkillReviewAdapter } from './review-adapter.js';
 import { promoteSkill } from './skill-promotion.js';
 import { channelMessageService } from '../channels/index.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（GET 读，含 /discover /manifest /:id /stats，注册顺序保持原样含 /:id 遮蔽）
+// / write（registry 挂 authNotGuest）拆 router，路由内不再挂鉴权。
+const openRoutes = Router();
+const writeRoutes = Router();
 
 // ─── CRUD ───
 
@@ -40,7 +42,7 @@ const router = Router();
  * GET /api/v1/skills
  * 列表（分页、过滤）
  */
-router.get('/', defineRoute({ query: listSkillsQuerySchema }, async (_req, _res, { query }) => {
+openRoutes.get('/', defineRoute({ query: listSkillsQuerySchema }, async (_req, _res, { query }) => {
   const { companyId, status, category, roleId, page = '1', limit = '20' } = query;
   const filter: Record<string, string> = {};
   if (companyId) filter.companyId = companyId;
@@ -84,7 +86,7 @@ router.get('/', defineRoute({ query: listSkillsQuerySchema }, async (_req, _res,
  * GET /api/v1/skills/discover
  * Agent 可发现性 — 查询可用 skills
  */
-router.get('/discover', defineRoute({ query: discoverSkillsQuerySchema }, async (_req, _res, { query }) => {
+openRoutes.get('/discover', defineRoute({ query: discoverSkillsQuerySchema }, async (_req, _res, { query }) => {
   const { companyId, category, roleId, q, limit = '20' } = query;
   const filter: Record<string, unknown> = { status: 'published' };
   if (companyId) filter.companyId = companyId;
@@ -105,7 +107,7 @@ router.get('/discover', defineRoute({ query: discoverSkillsQuerySchema }, async 
  * consumers 含 'loop' 的 hub-service skill 不参与注入，不进候选（与 selectSkillsForInjection 口径一致）。
  * 必须注册在 /:id 之前，否则被参数路由吞掉。
  */
-router.get('/manifest', defineRoute({}, async () => {
+openRoutes.get('/manifest', defineRoute({}, async () => {
   return loadManifest()
     .filter(s => !(Array.isArray(s.consumers) && s.consumers.some(c => c.toLowerCase() === 'loop')))
     .map(s => ({
@@ -119,7 +121,7 @@ router.get('/manifest', defineRoute({}, async () => {
 /**
  * GET /api/v1/skills/:id
  */
-router.get('/:id', defineRoute({ params: skillIdParamsSchema }, async (_req, _res, { params }) => {
+openRoutes.get('/:id', defineRoute({ params: skillIdParamsSchema }, async (_req, _res, { params }) => {
   const skill = skillStore.get(params.id);
   if (!skill) throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Skill not found');
 
@@ -145,7 +147,7 @@ router.get('/:id', defineRoute({ params: skillIdParamsSchema }, async (_req, _re
 /**
  * POST /api/v1/skills
  */
-router.post('/', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/', defineRoute(
   { body: createSkillBodySchema },
   { status: 201 },
   async (_req, _res, { body }) => {
@@ -161,7 +163,7 @@ router.post('/', requireAuth(), requireNotGuest(), defineRoute(
 /**
  * PATCH /api/v1/skills/:id
  */
-router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.patch('/:id', defineRoute(
   { params: skillIdParamsSchema, body: updateSkillBodySchema },
   async (_req, _res, { params, body }) => {
     const { name, category, description, metadata, roleId } = body;
@@ -177,7 +179,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
 /**
  * DELETE /api/v1/skills/:id
  */
-router.delete('/:id', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.delete('/:id', defineRoute(
   { params: skillIdParamsSchema },
   async (_req, _res, { params }) => {
     const deleted = skillStore.delete(params.id);
@@ -193,7 +195,7 @@ router.delete('/:id', requireAuth(), requireNotGuest(), defineRoute(
  * draft → published（D11 promote 门禁：SKILL.md 存在 + frontmatter 三要素 + 引用路径真实，
  * 任一不满足拒绝并说明原因；通过后磁盘 frontmatter 同步 published 进匹配池）
  */
-router.post('/:id/publish', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/publish', defineRoute(
   { params: skillIdParamsSchema },
   async (_req, res, { params }) => {
     const skill = skillStore.get(params.id);
@@ -217,7 +219,7 @@ router.post('/:id/publish', requireAuth(), requireNotGuest(), defineRoute(
  * POST /api/v1/skills/:id/deprecate
  * published → deprecated
  */
-router.post('/:id/deprecate', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/deprecate', defineRoute(
   { params: skillIdParamsSchema },
   async (_req, _res, { params }) => {
     const skill = skillStore.get(params.id);
@@ -237,7 +239,7 @@ router.post('/:id/deprecate', requireAuth(), requireNotGuest(), defineRoute(
  * （经 updateMessageMeta → SSE channel.message_updated，非阻断——卡片找不到不拖垮状态迁移）。
  * #524 P1-1：body.channelId 可选透传 → 回写按频道直查免全频道扇出（缺省保留扇出兼容）。
  */
-router.post('/:id/retract/decide', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/retract/decide', defineRoute(
   { params: skillIdParamsSchema, body: retractDecideBodySchema },
   async (_req, _res, { params, body }) => {
     const { decision, messageId, channelId } = body;
@@ -271,7 +273,7 @@ router.post('/:id/retract/decide', requireAuth(), requireNotGuest(), defineRoute
  * POST /api/v1/skills/:id/restore
  * deprecated → draft
  */
-router.post('/:id/restore', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/restore', defineRoute(
   { params: skillIdParamsSchema },
   async (_req, _res, { params }) => {
     const skill = skillStore.get(params.id);
@@ -293,7 +295,7 @@ router.post('/:id/restore', requireAuth(), requireNotGuest(), defineRoute(
  * POST /api/v1/skills/:id/usage
  * 记录一次使用，自动更新统计
  */
-router.post('/:id/usage', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/usage', defineRoute(
   { params: skillIdParamsSchema, body: recordSkillUsageBodySchema },
   async (_req, _res, { params, body }) => {
     const { success, durationMs } = body;
@@ -322,7 +324,7 @@ router.post('/:id/usage', requireAuth(), requireNotGuest(), defineRoute(
  * 注意：注册在 GET /:id 之后是历史遮蔽 bug（实际请求被 /:id 以 id='stats' 吞掉），
  * 迁移保持原注册顺序，行为不变（见 CONTEXT.md 遗留）。
  */
-router.get('/stats', defineRoute({ query: skillsStatsQuerySchema }, async (_req, _res, { query }) => {
+openRoutes.get('/stats', defineRoute({ query: skillsStatsQuerySchema }, async (_req, _res, { query }) => {
   const filter = query.company_id ? { companyId: query.company_id } : {};
 
   const skills = skillStore.list(filter);
@@ -362,4 +364,4 @@ router.get('/stats', defineRoute({ query: skillsStatsQuerySchema }, async (_req,
   };
 }));
 
-export default router;
+export { openRoutes as skillsOpenRoutes, writeRoutes as skillsWriteRoutes };

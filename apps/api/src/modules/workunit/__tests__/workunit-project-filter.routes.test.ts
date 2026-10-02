@@ -28,7 +28,8 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-import router from '../workunit.routes.js';
+import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 describe('GET / projectId 参数透传（#456）', () => {
   let server: Server;
@@ -40,7 +41,8 @@ describe('GET / projectId 参数透传（#456）', () => {
 
     const app = express();
     app.use(express.json());
-    app.use('/workunits', router);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });

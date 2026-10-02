@@ -28,7 +28,7 @@ import {
 } from '@dommaker/studio-contract';
 import { sharedStore, publishKnowledgeEntryChanged } from './knowledge-singletons.js';
 // P2-c 拆环：getSystemExecutor 转函数内动态 import（knowledge→agents 静态边清零）
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { requireNotGuest } from '../../middleware/auth.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { defineRoute } from '../../core/http.js';
 
@@ -75,7 +75,7 @@ entriesRoutes.get('/export', defineRoute({ query: knowledgeExportQuerySchema }, 
  * Body: { question: string, types?: string[], limit?: number }
  * Returns: { data: { answer: string, sources: Array<{ id, title, type }> } }
  */
-entriesRoutes.post('/ask', requireAuth(), requireNotGuest(), defineRoute(
+entriesRoutes.post('/ask', requireNotGuest(), defineRoute(
   { body: knowledgeAskBodySchema },
   async (_req, _res, { body }) => {
     const { question, types, limit = 10 } = body;
@@ -194,7 +194,7 @@ entriesRoutes.get('/unified', defineRoute({ query: unifiedKnowledgeQuerySchema }
  * Body: { type, title, content, consumptionMode, applicableAgents?, tags? }
  * （必填四件套原手写 400 → zod 400）
  */
-entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), defineRoute(
+entriesRoutes.post('/unified', requireNotGuest(), defineRoute(
   { body: createUnifiedEntryBodySchema },
   { status: 201 },
   async (req, _res, { body }) => {

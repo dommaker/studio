@@ -19,15 +19,16 @@ import {
   ERROR_CODES,
 } from '@dommaker/studio-contract';
 import { demotionProposalStore, scanSkillDemotions, approveDemotion, rejectDemotion } from './skill-demotion.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（GET 列表）/ write（approve/reject，registry 挂 authNotGuest）拆 router。
+const openRoutes = Router();
+const writeRoutes = Router();
 
 /**
  * GET / — 降级提案列表；?scan=true 先触发一次扫描（无调度器，手动触发口径）
  */
-router.get('/', defineRoute({ query: listDemotionProposalsQuerySchema }, async (_req, _res, { query }) => {
+openRoutes.get('/', defineRoute({ query: listDemotionProposalsQuerySchema }, async (_req, _res, { query }) => {
   if (query.scan === 'true') {
     await scanSkillDemotions();
   }
@@ -37,7 +38,7 @@ router.get('/', defineRoute({ query: listDemotionProposalsQuerySchema }, async (
 /**
  * POST /:id/approve — 批准：frontmatter status → archived（正文不动）
  */
-router.post('/:id/approve', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/approve', defineRoute(
   { params: demotionProposalIdParamsSchema },
   async (_req, _res, { params }) => {
     const success = await approveDemotion(params.id);
@@ -51,7 +52,7 @@ router.post('/:id/approve', requireAuth(), requireNotGuest(), defineRoute(
 /**
  * POST /:id/reject — 拒绝：只改提案状态
  */
-router.post('/:id/reject', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/reject', defineRoute(
   { params: demotionProposalIdParamsSchema },
   async (_req, _res, { params }) => {
     const success = await rejectDemotion(params.id);
@@ -62,4 +63,4 @@ router.post('/:id/reject', requireAuth(), requireNotGuest(), defineRoute(
   },
 ));
 
-export default router;
+export { openRoutes as skillDemotionOpenRoutes, writeRoutes as skillDemotionWriteRoutes };

@@ -16,7 +16,8 @@ vi.mock('../workunit.service.js', () => ({
   ANALYSIS_TASKS_MAX: 8,
 }));
 
-import router from '../workunit.routes.js';
+import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 describe('#463 review-passed confirm body（结构化评审表单序列化）', () => {
   let server: Server;
@@ -26,7 +27,8 @@ describe('#463 review-passed confirm body（结构化评审表单序列化）', 
     mockReviewPassed.mockResolvedValue({ id: 'wu-1', status: 'done' });
     const app = express();
     app.use(express.json());
-    app.use('/workunits', router);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });

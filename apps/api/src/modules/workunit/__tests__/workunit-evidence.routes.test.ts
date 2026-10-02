@@ -26,7 +26,8 @@ vi.mock('../../agent-loop/review-dispatcher.js', () => ({
   getReviewDispatcher: () => ({ dispatchReviewNow: mockDispatchReviewNow }),
 }));
 
-import router from '../workunit.routes.js';
+import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => {
   let server: Server;
@@ -35,7 +36,8 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    app.use('/workunits', router);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });

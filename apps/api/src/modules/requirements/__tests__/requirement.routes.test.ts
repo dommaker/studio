@@ -36,7 +36,10 @@ beforeAll(async () => {
 
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/requirements', createRequirementRoutes(fileStore));
+  // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+  const { openRoutes, writeRoutes } = createRequirementRoutes(fileStore);
+  const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
+  app.use('/api/v1/requirements', openRoutes, requireAuth(), requireNotGuest(), writeRoutes);
   // 与生产一致的兜底错误形状
   app.use((err: any, _req: any, res: any, _next: any) => {
     res.status(500).json({ success: false, error: err?.message ?? 'Internal error' });

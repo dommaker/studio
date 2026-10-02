@@ -26,7 +26,7 @@ import { saveChannelImage, resolveChannelImage, ATTACHMENT_BODY_LIMIT } from './
 import { routeMessage, resolveMergeTarget } from './message-routing.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { requireAuth } from '../../middleware/auth.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
 import { ProjectDiscoveryService } from '../projects/index.js';
 import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
@@ -39,7 +39,12 @@ import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
 
 
-const router = Router();
+// P2-e 鉴权声明式统一：read（GET 读，registry 挂 requireAuth）/ write（registry 挂 authNotGuest）拆 router，
+// 路由内不再挂鉴权。唯一例外 = 附件 GET（channelAttachmentRoutes，文件尾部）：<img> 的 ?token= 需
+// tokenQueryToHeader 先于 requireAuth 执行，route-registry 无 per-route 前置 middleware 能力，
+// 该单条鉴权保留路由内（registry 先挂 attachment 小 router 再挂 read router，姿态注释见 entry）。
+const readRoutes = Router();
+const writeRoutes = Router();
 const convertToTaskService = new ConvertToTaskService(getStore());
 const projectDiscoveryService = new ProjectDiscoveryService();
 
@@ -64,15 +69,15 @@ async function translating<T>(p: Promise<T>): Promise<T> {
 }
 
 // GET /api/v1/channels — list all non-archived channels
-// 2026-09-14：读侧与写侧对称补 requireAuth
-router.get('/', requireAuth(), apiCache(CACHE_CONFIG.medium), defineRoute({}, async () => {
+// 2026-09-14：读侧与写侧对称补 requireAuth（P2-e 起挂载上移至 route-registry）
+readRoutes.get('/', apiCache(CACHE_CONFIG.medium), defineRoute({}, async () => {
   return channelService.listVisibleChannels();
 }));
 
 // POST /api/v1/channels — create a new channel (B2-007)
 // Also supports creating initial agents: { agents: [{ name, description? }] }
 // #272（决策 #251 Q7）：创建表单可选「默认工程」（本地 repo 路径，可留空）
-router.post('/', requireAuth(), requireNotGuest(), defineRoute({ body: createChannelBodySchema }, { status: 201 }, async (_req, _res, { body }) => {
+writeRoutes.post('/', defineRoute({ body: createChannelBodySchema }, { status: 201 }, async (_req, _res, { body }) => {
   const defaultPathValue = typeof body.defaultPath === 'string' && body.defaultPath.trim() ? body.defaultPath.trim() : null;
   return translating(channelService.create({
     name: body.name,
@@ -87,14 +92,14 @@ router.post('/', requireAuth(), requireNotGuest(), defineRoute({ body: createCha
 // GET /api/v1/channels/:id — get channel detail
 // B8（2026-09-16 channel 性能审计）：去掉 prisma 时代遗留的 `_count.ChannelMessage`
 // （全仓无消费方，每请求 O(热文件行数) 全量计数纯浪费；计数方法已随 B4 清扫删除）
-router.get('/:id', requireAuth(), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
+readRoutes.get('/:id', defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   return translating(channelService.getOrThrow(params.id));
 }));
 
 // GET /api/v1/channels/:id/current-pmo — #272（决策 #251 Q6）：顶栏「当前 PMO」chip
 // 派生概念不落库：最近挂接 REQ 所属 PMO → 杂务 PMO 反推 → null（见 current-pmo.ts）。
 // B7：派生链为 N+1 全量读取，挂短 TTL apiCache（5s 档，同 GET / 列表先例）。
-router.get('/:id/current-pmo', requireAuth(), apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
+readRoutes.get('/:id/current-pmo', apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   await translating(channelService.getOrThrow(params.id));
   return deriveChannelCurrentPmo(params.id);
 }));
@@ -102,7 +107,7 @@ router.get('/:id/current-pmo', requireAuth(), apiCache(CACHE_CONFIG.short), defi
 // GET /api/v1/channels/:id/pmo-candidates — #638：`#` 触发 PMO 自动补全弹框的候选集。
 // 当前 PMO 置顶 + 挂接 REQ 所属 PMO（seq 降序去重，pmoNumber 为空过滤）；派生不落库，
 // 与 current-pmo 同为 N+1 全量读取挂短 TTL apiCache；派生内部容错绝不抛出（无来源 → []）。
-router.get('/:id/pmo-candidates', requireAuth(), apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
+readRoutes.get('/:id/pmo-candidates', apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   await translating(channelService.getOrThrow(params.id));
   return deriveChannelPmoCandidates(params.id);
 }));
@@ -111,7 +116,7 @@ router.get('/:id/pmo-candidates', requireAuth(), apiCache(CACHE_CONFIG.short), d
 // 不落库、按当前事实现算；fail-closed（前置不满足/拿不准不出）。本票只交付 status
 // 只读状态说明形态（自动评审在途）；action/prompt 形态见 #444/#445/#446（见 suggestions.ts）。
 // B2：前端每条 agent 消息都重拉、每次全量 WU 派生，挂短 TTL apiCache（5s 档，同 current-pmo 先例）。
-router.get('/:id/suggestions', requireAuth(), apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
+readRoutes.get('/:id/suggestions', apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   await translating(channelService.getOrThrow(params.id));
   return deriveChannelSuggestions(params.id, { fileStore: getStore() });
 }));
@@ -119,7 +124,7 @@ router.get('/:id/suggestions', requireAuth(), apiCache(CACHE_CONFIG.short), defi
 // GET /api/v1/channels/:id/merge-target — #632：发送前归属预览（只读）。
 // 与 routeMessage 无地址路径共用 resolveMergeTarget 判定，保证「预览所见 = 实际路由」：
 // unique 附 workUnit{id,title}（标题 = WU scope）；ambiguous 不暴露并入目标。
-router.get('/:id/merge-target', requireAuth(), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
+readRoutes.get('/:id/merge-target', defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   await translating(channelService.getOrThrow(params.id));
   const wuService = new WorkUnitService(getStore());
   const resolution = await resolveMergeTarget(params.id, getStore(), wuService);
@@ -132,7 +137,7 @@ router.get('/:id/merge-target', requireAuth(), defineRoute({ params: channelIdPa
 
 // GET /api/v1/channels/:id/messages — paginated messages
 // #319：before = 锚点消息 id 游标（原 timestamp 游标同毫秒撞车会漏/重）；分页半下沉到存储层（queryMessagesPage 切片）
-router.get('/:id/messages', requireAuth(), defineRoute(
+readRoutes.get('/:id/messages', defineRoute(
   { params: channelIdParamsSchema, query: listChannelMessagesQuerySchema },
   async (_req, _res, { params, query }) => {
     const take = Math.min(Number(query.limit ?? '50'), 100);
@@ -160,7 +165,7 @@ router.get('/:id/messages', requireAuth(), defineRoute(
 // 候选集 = 频道相关工程（默认工程 ∪ REQ 挂接 PMO ∪ 杂务 PMO，最近使用优先），
 // 各仓 git ls-files + 内存缓存（见 file-ref-vocabulary.ts）。
 // B7：挂短 TTL apiCache（5s 档）——词表进程缓存之外再挡一层 HTTP 级重复派生。
-router.get('/:id/file-vocabulary', requireAuth(), apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
+readRoutes.get('/:id/file-vocabulary', apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   await translating(channelService.getOrThrow(params.id));
   try {
     return await getChannelFileVocabulary(params.id);
@@ -171,7 +176,7 @@ router.get('/:id/file-vocabulary', requireAuth(), apiCache(CACHE_CONFIG.short), 
 }));
 
 // POST /api/v1/channels/:id/messages — send a message
-router.post('/:id/messages', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/messages', defineRoute(
   { params: channelIdParamsSchema, body: sendChannelMessageBodySchema },
   { status: 201 },
   async (req, _res, { params, body }) => {
@@ -207,7 +212,7 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), defineRoute(
 // POST /api/v1/channels/:id/attachments — 频道图片上传（2026-09，「频道里加上截图」）
 // JSON base64 体（不引 multipart 依赖）；该路由单独放大 json limit（8mb，全局 2mb 不动）——
 // app.ts 在全局 parser 前对同路径预解析，此处路由级再挂保直挂测试自足（已解析请求自动跳过）。
-router.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), defineRoute(
   { params: channelIdParamsSchema, body: uploadAttachmentBodySchema },
   { status: 201 },
   async (_req, _res, { params, body }) => {
@@ -222,43 +227,27 @@ router.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), requireA
 ));
 
 // GET /api/v1/channels/:id/attachments/:attachmentId — 取图
-// <img> 无法带 Authorization 头：?token= 携带 JWT（SSE /events/stream 同款），
-// 映射进 header 后复用 requireAuth 语义；id 白名单校验防路径穿越（attachments.ts）。
-// 二进制流例外路径：handler 自写响应（pipe 至 finish 才返回，否则 defineRoute 会在
-// headersSent 之前 end() 截断流），defineRoute 见 headersSent 直返。
-router.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), defineRoute({ params: attachmentParamsSchema }, async (_req, res, { params }) => {
-  const resolved = await resolveChannelImage(params.id, params.attachmentId);
-  if (!resolved.ok) {
-    throw new HttpError(resolved.status!, resolved.status === 404 ? ERROR_CODES.NOT_FOUND : ERROR_CODES.BAD_REQUEST, resolved.error!);
-  }
-  res.setHeader('Content-Type', resolved.value!.mime);
-  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
-  await new Promise<void>((resolve, reject) => {
-    createReadStream(resolved.value!.filePath).pipe(res).on('finish', resolve).on('error', reject);
-  });
-  return undefined;
-}));
 
 // DELETE /api/v1/channels/:id — delete channel (B2-012: Goal fallback to #研发)
-router.delete('/:id', requireAuth(), requireNotGuest(), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
+writeRoutes.delete('/:id', defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   const { fallbackChannelId } = await translating(channelService.deleteWithFallback(params.id));
   return { deleted: true, fallbackChannelId };
 }));
 
 // PUT /api/v1/channels/:id/archive — archive a channel (B1-011)
-router.put('/:id/archive', requireAuth(), requireNotGuest(), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
+writeRoutes.put('/:id/archive', defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   const newName = await translating(channelService.archive(params.id));
   return { archived: true, newName };
 }));
 
 // PUT /api/v1/channels/:id/restore — restore an archived channel (B1-011)
-router.put('/:id/restore', requireAuth(), requireNotGuest(), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
+writeRoutes.put('/:id/restore', defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
   const name = await translating(channelService.restore(params.id));
   return { restored: true, name };
 }));
 
 // PATCH /api/v1/channels/:id — update channel settings
-router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.patch('/:id', defineRoute(
   { params: channelIdParamsSchema, body: updateChannelBodySchema },
   async (req, _res, { params, body }) => {
     // #632：defaultProfileId（决策12 频道默认角色）已退役——不再接受该字段（定制文案，zod 不收）
@@ -292,7 +281,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
 ));
 
 // PATCH /api/v1/channels/:id/members — update channel members (AC-B2)
-router.patch('/:id/members', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.patch('/:id/members', defineRoute(
   { params: channelIdParamsSchema, body: updateChannelMembersBodySchema },
   async (_req, _res, { params, body }) => {
     const members = await translating(channelService.updateMembers(params.id, { add: body.add, remove: body.remove }));
@@ -309,7 +298,7 @@ router.patch('/:id/members', requireAuth(), requireNotGuest(), defineRoute(
 ));
 
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task (AC-E1)
-router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/messages/:messageId/convert-to-task', defineRoute(
   { params: channelMessageParamsSchema, body: convertToTaskBodySchema },
   {
     status: 201,
@@ -324,7 +313,7 @@ router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNo
 ));
 
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task/suggest (AC-E2)
-router.post('/:id/messages/:messageId/convert-to-task/suggest', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/messages/:messageId/convert-to-task/suggest', defineRoute(
   { params: channelMessageParamsSchema },
   async (_req, _res, { params }) => {
     try {
@@ -357,7 +346,7 @@ router.post('/:id/messages/:messageId/convert-to-task/suggest', requireAuth(), r
   },
 ));
 
-export default router;
+
 
 /** <img>/EventSource 无法带 Authorization 头：?token= → header 后走 requireAuth（optionalAuth 同款先例） */
 function tokenQueryToHeader(req: import('express').Request, _res: import('express').Response, next: import('express').NextFunction) {
@@ -366,3 +355,28 @@ function tokenQueryToHeader(req: import('express').Request, _res: import('expres
   }
   next();
 }
+
+/**
+ * 附件 GET 专用小 router（P2-e）：?token= 需 tokenQueryToHeader 先于 requireAuth，
+ * route-registry 支持不了 per-route 前置 middleware，此单条鉴权保留路由内。
+ * registry 须先于 channelReadRoutes 挂载。
+ */
+export const channelAttachmentRoutes = Router();
+// <img> 无法带 Authorization 头：?token= 携带 JWT（SSE /events/stream 同款），
+// 映射进 header 后复用 requireAuth 语义；id 白名单校验防路径穿越（attachments.ts）。
+// 二进制流例外路径：handler 自写响应（pipe 至 finish 才返回，否则 defineRoute 会在
+// headersSent 之前 end() 截断流），defineRoute 见 headersSent 直返。
+channelAttachmentRoutes.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), defineRoute({ params: attachmentParamsSchema }, async (_req, res, { params }) => {
+  const resolved = await resolveChannelImage(params.id, params.attachmentId);
+  if (!resolved.ok) {
+    throw new HttpError(resolved.status!, resolved.status === 404 ? ERROR_CODES.NOT_FOUND : ERROR_CODES.BAD_REQUEST, resolved.error!);
+  }
+  res.setHeader('Content-Type', resolved.value!.mime);
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  await new Promise<void>((resolve, reject) => {
+    createReadStream(resolved.value!.filePath).pipe(res).on('finish', resolve).on('error', reject);
+  });
+  return undefined;
+}));
+
+export { readRoutes as channelReadRoutes, writeRoutes as channelWriteRoutes };

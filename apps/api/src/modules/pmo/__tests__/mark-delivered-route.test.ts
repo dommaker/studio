@@ -16,7 +16,7 @@ vi.mock('../delivery.js', () => ({
   markProjectDelivered: mockMark,
 }));
 
-import router from '../routes.js';
+import { pmoWriteRoutes as router } from '../routes.js';
 
 function createReq(body: Record<string, unknown>, headers: Record<string, unknown> = {}) {
   return { method: 'POST', url: '/project/p1/mark-delivered', headers, query: {}, params: { id: 'p1' }, body, get: () => undefined } as any;

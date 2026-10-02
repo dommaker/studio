@@ -21,7 +21,7 @@ import {
   ERROR_CODES,
 } from '@dommaker/studio-contract';
 import * as os from 'os';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 
 export const filesRoutes = Router();
@@ -109,7 +109,7 @@ filesRoutes.get('/requirements', defineRoute({}, async () => {
  * - 路径必须在允许的目录范围内（ALLOWED_DIRS 配置）
  * - 文件必须是 .md/.txt/.json 格式
  */
-filesRoutes.post('/read-file', requireAuth(), requireNotGuest(), defineRoute(
+filesRoutes.post('/read-file', requireNotGuest(), defineRoute(
   { body: readKnowledgeFileBodySchema },
   async (_req, _res, { body }) => {
     const fs = require('fs');

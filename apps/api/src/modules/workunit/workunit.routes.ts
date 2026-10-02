@@ -77,12 +77,15 @@ import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './wai
 import { claimWorkUnitAndAnnounce } from './claim-announce.js';
 import { listWorkUnitsChangedFiles } from './wu-changed-files.js';
 import { parsePagination } from '../../utils/pagination.js';
-import { requireAuth, requireNotGuest, type AuthRequest } from '../../middleware/auth.js';
+import { type AuthRequest } from '../../middleware/auth.js';
 import { defineRoute, paginated, HttpError, requireHuman } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
 
 
-const router = Router();
+// P2-e 鉴权声明式统一：读（open，生产 Lurk Wall 兜底）/ 写（registry 挂 authNotGuest）拆 router，
+// 路由内不再挂 requireAuth/requireNotGuest；requireHuman 守卫（authorType=agent 拒绝）非鉴权声明，保留路由内。
+const openRoutes = Router();
+const writeRoutes = Router();
 const service = new WorkUnitService(getStore());
 // #387: 单次批量 id 上限（调用方单页规模 ≤ 数十，留余量；超出静默截断）
 const MAX_BATCH_IDS = 100;
@@ -104,7 +107,7 @@ function callerName(req: Request): string {
 }
 
 /** GET / — list WorkUnits */
-router.get('/', defineRoute(
+openRoutes.get('/', defineRoute(
   { query: listWorkUnitsQuerySchema },
   async (req, _res, input) => {
     const { type, status, assigneeId, channelId, parentId, attributed, projectId, q } = input.query;
@@ -139,7 +142,7 @@ router.get('/', defineRoute(
 ));
 
 /** POST / — create WorkUnit */
-router.post('/', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/', defineRoute(
   { body: createWorkUnitBodySchema },
   { status: 201 },
   async (_req, _res, input) =>
@@ -148,7 +151,7 @@ router.post('/', requireAuth(), requireNotGuest(), defineRoute(
 ));
 
 /** POST /from-message — convert ChannelMessage to WorkUnit (emergence path) */
-router.post('/from-message', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/from-message', defineRoute(
   { body: fromMessageBodySchema },
   {
     status: 201,
@@ -173,7 +176,7 @@ router.post('/from-message', requireAuth(), requireNotGuest(), defineRoute(
  * （done/completed，completedAt ?? updatedAt 降序取首条；无完成记录 → null）。
  * roster 空闲卡「最近完成」专用，消逐实例 GET /workunits?assigneeId= 的 N+1。
  */
-router.get('/last-done', defineRoute(
+openRoutes.get('/last-done', defineRoute(
   { query: lastDoneQuerySchema },
   async (_req, _res, input) => {
     const ids = input.query.assigneeIds.split(',').map(s => s.trim()).filter(s => s.length > 0);
@@ -190,7 +193,7 @@ router.get('/last-done', defineRoute(
  * 空 ids → 空映射；单项无数据/整体读取失败 → 该 WU 空数组（chip 降级候选集词表）。
  * 须注册在 /:id 之前（同 /last-done 先例）。只读，匿名公开（与 GET /:id/changed-files 同口径）。
  */
-router.get('/changed-files', defineRoute(
+openRoutes.get('/changed-files', defineRoute(
   { query: changedFilesQuerySchema },
   async (_req, _res, input) => {
     const ids = (input.query.ids ?? '').split(',').map(s => s.trim()).filter(s => s.length > 0);
@@ -200,13 +203,13 @@ router.get('/changed-files', defineRoute(
 ));
 
 /** GET /:id — get WorkUnit by id */
-router.get('/:id', defineRoute(
+openRoutes.get('/:id', defineRoute(
   { params: wuIdParamsSchema },
   async (_req, _res, input) => mustGetWu(input.params.id),
 ));
 
 /** PUT /:id — update WorkUnit */
-router.put('/:id', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.put('/:id', defineRoute(
   { params: wuIdParamsSchema, body: updateWorkUnitBodySchema },
   { errors: [{ match: 'not found', status: 404, code: 'NOT_FOUND' }] },
   // metadata/日期字段的 service 侧类型（WorkUnitMetadata/Date）与 wire 形状不同构，边界处一次性断言
@@ -223,14 +226,14 @@ const OPPORTUNITY_ERRORS = [
   { match: 'not an inspection', status: 409, code: 'INVALID_STATE' },
 ] as const;
 
-router.post('/:id/opportunities/:oppId/adopt', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/opportunities/:oppId/adopt', defineRoute(
   { params: opportunityParamsSchema },
   { status: 201, errors: OPPORTUNITY_ERRORS },
   async (_req, _res, input) => adoptInspectionOpportunity(service, input.params.id, input.params.oppId),
 ));
 
 /** #163（T8-E2）：巡检机会忽略——终态，可附理由（body.reason，下轮巡检不重复上报的判据） */
-router.post('/:id/opportunities/:oppId/ignore', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/opportunities/:oppId/ignore', defineRoute(
   { params: opportunityParamsSchema, body: ignoreOpportunityBodySchema },
   { errors: OPPORTUNITY_ERRORS },
   async (_req, _res, input) =>
@@ -238,7 +241,7 @@ router.post('/:id/opportunities/:oppId/ignore', requireAuth(), requireNotGuest()
 ));
 
 /** GET /:id/tree-tokens - 树级 token 开销聚合（AC-5.4, §8.4.4） */
-router.get('/:id/tree-tokens', defineRoute(
+openRoutes.get('/:id/tree-tokens', defineRoute(
   { params: wuIdParamsSchema },
   async (_req, _res, input) => {
     const wu = await mustGetWu(input.params.id);
@@ -251,7 +254,7 @@ router.get('/:id/tree-tokens', defineRoute(
 ));
 
 /** DELETE /:id — delete WorkUnit */
-router.delete('/:id', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.delete('/:id', defineRoute(
   { params: wuIdParamsSchema },
   {
     status: 204,
@@ -267,7 +270,7 @@ router.delete('/:id', requireAuth(), requireNotGuest(), defineRoute(
 ));
 
 /** POST /:id/claim — claim WorkUnit（flock 悲观互斥锁）；#445：认领即发声原语接入（与 loop 自动认领同路径） */
-router.post('/:id/claim', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/claim', defineRoute(
   { params: wuIdParamsSchema, body: claimBodySchema },
   { errors: [{ match: 'Claim failed', status: 409, code: 'CLAIM_FAILED' }] },
   async (req, _res, input) => {
@@ -286,14 +289,14 @@ router.post('/:id/claim', requireAuth(), requireNotGuest(), defineRoute(
 ));
 
 /** POST /:id/unclaim — unclaim WorkUnit */
-router.post('/:id/unclaim', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/unclaim', defineRoute(
   { params: wuIdParamsSchema },
   { errors: [{ match: 'not found', status: 404, code: 'NOT_FOUND' }] },
   async (_req, _res, input) => service.unclaim(input.params.id),
 ));
 
 /** POST /:id/review-passed — review approved (in_review → done) */
-router.post('/:id/review-passed', requireAuth(), requireNotGuest(), requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
+writeRoutes.post('/:id/review-passed', requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
   { params: wuIdParamsSchema, body: reviewPassedBodySchema },
   {
     errors: [
@@ -330,7 +333,7 @@ router.post('/:id/review-passed', requireAuth(), requireNotGuest(), requireHuman
 ));
 
 /** POST /:id/review-rejected — review rejected (in_review → active, or blocked after 3) */
-router.post('/:id/review-rejected', requireAuth(), requireNotGuest(), requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
+writeRoutes.post('/:id/review-rejected', requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
   { params: wuIdParamsSchema, body: reviewRejectedBodySchema },
   {
     errors: [
@@ -353,7 +356,7 @@ router.post('/:id/review-rejected', requireAuth(), requireNotGuest(), requireHum
  * #551：业务下沉 WorkUnitService.verifyManually（脱 HTTP 可直测），本层只映射 kind → 响应。
  * no-commands 是 422 业务结果（非异常），handler 自写响应（同样包 { data } 壳）。
  */
-router.post('/:id/verify', requireAuth(), requireNotGuest(), requireHuman('Verify actions are human-only (authorType=agent rejected)'), defineRoute(
+writeRoutes.post('/:id/verify', requireHuman('Verify actions are human-only (authorType=agent rejected)'), defineRoute(
   { params: wuIdParamsSchema, body: verifyBodySchema },
   async (req, res, input) => {
     const bodyCommands = (input.body.commands ?? []).filter(c => c.trim().length > 0);
@@ -390,7 +393,7 @@ router.post('/:id/verify', requireAuth(), requireNotGuest(), requireHuman('Verif
  * 父 WU 被人工直推 done（或 in_review 但评审子 WU 缺失）时补建 review 子 WU，
  * 走与 ReviewDispatcher 路径 A 相同的未指派涌现 + excludeAssignee/自评兜底逻辑。
  */
-router.post('/:id/dispatch-review', requireAuth(), requireNotGuest(), requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
+writeRoutes.post('/:id/dispatch-review', requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
   { params: wuIdParamsSchema },
   {
     errors: [
@@ -415,7 +418,7 @@ router.post('/:id/dispatch-review', requireAuth(), requireNotGuest(), requireHum
  * timeoutReleaseCount 终身保留），pendingReplies 注入固定占位文案；复活后发 Studio 系统消息里程碑。
  * 分类型显示是 UI 层决策（D3），端点不设类型门槛；归属等待型按回复语义不被纯授权复活 → 409。
  */
-router.post('/:id/resume', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/resume', defineRoute(
   { params: wuIdParamsSchema },
   async (_req, _res, input) => {
     const wu = await mustGetWu(input.params.id);
@@ -437,7 +440,7 @@ router.post('/:id/resume', requireAuth(), requireNotGuest(), defineRoute(
  * （decisions[] + fog resolved/open）+ 组合裁决结果文本复活同会话（pendingReplies 注入）。
  * 前置守卫：仅 blocked 且 metadata.planRulings 非空（裁决轮挂起中）；载荷非法 → 400。
  */
-router.post('/:id/ruling', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/ruling', defineRoute(
   { params: wuIdParamsSchema, body: planRulingPayloadSchema },
   async (_req, _res, input) => {
     // P2-c 拆环：动态 import + try/catch 等价原 errors 映射（PlanRulingError → 400 INVALID_RULING）
@@ -467,7 +470,7 @@ router.post('/:id/ruling', requireAuth(), requireNotGuest(), defineRoute(
  * （decisions[] 追加「方向：…（人锁定）」结论）+ 组合选定文本复活同会话（pendingReplies 注入）。
  * 前置守卫：仅 blocked 且 metadata.planDirections 非空（方向锁定挂起中）；载荷非法 → 400。
  */
-router.post('/:id/direction', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/direction', defineRoute(
   { params: wuIdParamsSchema, body: planDirectionPayloadSchema },
   async (_req, _res, input) => {
     // P2-c 拆环：动态 import + try/catch 等价原 errors 映射（PlanDirectionError → 400 INVALID_DIRECTION）
@@ -495,7 +498,7 @@ router.post('/:id/direction', requireAuth(), requireNotGuest(), defineRoute(
  * 复用 #57 D4 关闭路径：显式状态迁移 + 频道通知 + workunit:closed 结构化事件（不靠文本魔法串）。
  * decision/spec 裁剪状态机无 closed → 409 NO_CLOSED_STATE（拒绝说明已同步发到频道）。
  */
-router.post('/:id/close', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/close', defineRoute(
   { params: wuIdParamsSchema },
   async (_req, _res, input) => {
     const wu = await mustGetWu(input.params.id);
@@ -520,7 +523,7 @@ router.post('/:id/close', requireAuth(), requireNotGuest(), defineRoute(
  * reviewPassed/reviewRejected 落账），故收口。agent 内部合法迁移走服务层
  * transitionStatus，不经 REST，不受影响。
  */
-router.post('/:id/status', requireAuth(), requireNotGuest(), requireHuman('Status transitions are human-only (authorType=agent rejected)'), defineRoute(
+writeRoutes.post('/:id/status', requireHuman('Status transitions are human-only (authorType=agent rejected)'), defineRoute(
   { params: wuIdParamsSchema, body: transitionStatusBodySchema },
   {
     errors: [
@@ -535,7 +538,7 @@ router.post('/:id/status', requireAuth(), requireNotGuest(), requireHuman('Statu
 // ── 讨论空间 (AS-025 §5.16) ──
 
 /** GET /:id/messages — list messages in discussion space (workUnitId grouping) */
-router.get('/:id/messages', defineRoute(
+openRoutes.get('/:id/messages', defineRoute(
   { params: wuIdParamsSchema, query: listMessagesQuerySchema },
   async (_req, _res, input) => {
     const take = Math.min(Number(input.query.limit ?? '50'), 100);
@@ -560,7 +563,7 @@ router.get('/:id/messages', defineRoute(
 ));
 
 /** POST /:id/messages — send message in discussion space (auto-associate workUnitId) */
-router.post('/:id/messages', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/messages', defineRoute(
   { params: wuIdParamsSchema, body: postMessageBodySchema },
   { status: 201 },
   async (_req, _res, input) => {
@@ -594,7 +597,7 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), defineRoute(
 ));
 
 /** PATCH /:id/messages/:messageId — edit message in discussion space */
-router.patch('/:id/messages/:messageId', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.patch('/:id/messages/:messageId', defineRoute(
   { params: messageParamsSchema, body: patchMessageBodySchema },
   { errors: [{ match: 'not found', status: 404, code: 'NOT_FOUND' }] },
   async (_req, _res, input) => {
@@ -624,4 +627,4 @@ router.patch('/:id/messages/:messageId', requireAuth(), requireNotGuest(), defin
   },
 ));
 
-export default router;
+export { openRoutes as workunitOpenRoutes, writeRoutes as workunitWriteRoutes };

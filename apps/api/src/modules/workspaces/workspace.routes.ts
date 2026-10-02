@@ -16,7 +16,7 @@
  * 契约驱动迁移（2026-10 批次 2/7）：全部端点走 core/http.ts defineRoute——
  * 统一 envelope（{ data }；原 `{ success, data, total }` 的 total 与平铺错误壳
  * `{ error: string, code }` 退役，404 走 HttpError NOT_FOUND，500 兜底统一 INTERNAL）。
- * 鉴权挂载保持原样（requireAuth/requireAdmin 声明式统一是 Phase 2 的事）。
+ * 鉴权（P2-e 声明式统一）：route-registry /api/v1/workspaces 挂 admin（requireAuth+requireAdmin），路由内不再挂载。
  */
 
 import { Router } from 'express';
@@ -28,7 +28,6 @@ import {
 } from '@dommaker/studio-contract';
 
 import { logger } from '../../utils/logger.js';
-import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 import { apiCache } from '../../middleware/api-cache.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -87,14 +86,14 @@ async function deleteWorkspaceDir(id: string): Promise<void> {
 // ─── GET /api/v1/workspaces ───
 // List all workspaces (JWT auth)
 
-router.get('/', requireAuth(), requireAdmin(), defineRoute({}, async () => {
+router.get('/', defineRoute({}, async () => {
   return listWorkspaces();
 }));
 
 // ─── GET /api/v1/workspaces/runtimes ───
 // （须注册在 /:id 之前——'runtimes' 单段会被 :id 吞掉，旧路由顺序如此）
 
-router.get('/runtimes', requireAuth(), requireAdmin(), apiCache(60), defineRoute({}, async () => {
+router.get('/runtimes', apiCache(60), defineRoute({}, async () => {
   // 本机 CLI 清单，供角色创建候选列表使用（原 AC-2.6「聚合所有 workspace」语义已废弃，见下）
   // 2026-07：聚合前先重扫本地 CLI（best-effort），保证本地 runtime 新鲜可见
   // #403（缓存 seam 决策树第 2 问）：响应为 HTTP GET、秒级陈旧可接受 → 挂 apiCache 60s。
@@ -130,7 +129,7 @@ router.get('/runtimes', requireAuth(), requireAdmin(), apiCache(60), defineRoute
 
 // ─── DELETE /api/v1/workspaces/:id ───
 
-router.delete('/:id', requireAuth(), requireAdmin(), defineRoute({ params: workspaceIdParamsSchema }, async (_req, _res, { params }) => {
+router.delete('/:id', defineRoute({ params: workspaceIdParamsSchema }, async (_req, _res, { params }) => {
   const workspace = await readWorkspace(params.id);
   if (!workspace) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Workspace not found');
@@ -142,7 +141,7 @@ router.delete('/:id', requireAuth(), requireAdmin(), defineRoute({ params: works
 
 // ─── GET /api/v1/workspaces/:id/runtimes ───
 
-router.get('/:id/runtimes', requireAuth(), requireAdmin(), defineRoute({ params: workspaceIdParamsSchema }, async (_req, _res, { params }) => {
+router.get('/:id/runtimes', defineRoute({ params: workspaceIdParamsSchema }, async (_req, _res, { params }) => {
   const workspace = await readWorkspace(params.id);
   if (!workspace) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Workspace not found');
@@ -155,7 +154,7 @@ router.get('/:id/runtimes', requireAuth(), requireAdmin(), defineRoute({ params:
 
 // ─── GET /api/v1/workspaces/:id ───
 
-router.get('/:id', requireAuth(), requireAdmin(), defineRoute({ params: workspaceIdParamsSchema }, async (_req, _res, { params }) => {
+router.get('/:id', defineRoute({ params: workspaceIdParamsSchema }, async (_req, _res, { params }) => {
   const workspace = await readWorkspace(params.id);
   if (!workspace) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Workspace not found');

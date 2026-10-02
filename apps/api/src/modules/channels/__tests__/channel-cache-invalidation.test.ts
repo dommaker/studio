@@ -9,7 +9,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 import { FileStore } from '@dommaker/studio-shared';
-import channelRoutes from '../channel.routes.js';
+import { channelReadRoutes, channelWriteRoutes, channelAttachmentRoutes } from '../channel.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 import { clearCache } from '../../../middleware/api-cache.js';
 
 let server: Server;
@@ -20,7 +21,8 @@ beforeAll(async () => {
   fileStore = new FileStore();
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/channels', channelRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（attachment 先挂 + read 挂 requireAuth + write 挂 authNotGuest）
+  app.use('/api/v1/channels', channelAttachmentRoutes, requireAuth(), channelReadRoutes, requireNotGuest(), channelWriteRoutes);
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', () => resolve());
   });

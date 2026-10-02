@@ -15,11 +15,14 @@ import {
   legacyAgentIdParamsSchema,
   legacyAgentVersionQuerySchema,
 } from '@dommaker/studio-contract';
-import { requireAuth, requireNotGuest, requireRole } from '../../middleware/auth.js';
 import { memoryStore } from '@dommaker/studio-shared';
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（GET 读）/ write（registry 挂 authNotGuest）/ admin（DELETE，registry 挂
+// requireAuth+requireAdmin）三档拆 router，路由内不再挂鉴权。
+const openRoutes = Router();
+const writeRoutes = Router();
+const adminRoutes = Router();
 
 // 延迟初始化：首次请求时创建 AgentRegistry 实例
 let registry: InstanceType<typeof AgentRegistry>;
@@ -33,7 +36,7 @@ async function initRegistry() {
 }
 
 // 获取 Agent 列表
-router.get('/', defineRoute({ query: legacyAgentListQuerySchema }, async (_req, _res, { query }) => {
+openRoutes.get('/', defineRoute({ query: legacyAgentListQuerySchema }, async (_req, _res, { query }) => {
   const reg = await initRegistry();
   const page = parseInt(query.page ?? '1');
   const limit = parseInt(query.limit ?? '20');
@@ -54,7 +57,7 @@ router.get('/', defineRoute({ query: legacyAgentListQuerySchema }, async (_req, 
 }));
 
 // 注册新 Agent
-router.post('/', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/', defineRoute(
   { body: legacyAgentRegisterBodySchema },
   {
     status: 201,
@@ -68,7 +71,7 @@ router.post('/', requireAuth(), requireNotGuest(), defineRoute(
 ));
 
 // 获取 Agent 详情
-router.get('/:agentId', defineRoute(
+openRoutes.get('/:agentId', defineRoute(
   { params: legacyAgentIdParamsSchema, query: legacyAgentVersionQuerySchema },
   async (_req, _res, { params, query }) => {
     const reg = await initRegistry();
@@ -83,7 +86,7 @@ router.get('/:agentId', defineRoute(
 ));
 
 // 更新 Agent
-router.put('/:agentId', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.put('/:agentId', defineRoute(
   { params: legacyAgentIdParamsSchema, query: legacyAgentVersionQuerySchema, body: legacyAgentUpdateBodySchema },
   async (_req, _res, { params, query, body }) => {
     const reg = await initRegistry();
@@ -98,7 +101,7 @@ router.put('/:agentId', requireAuth(), requireNotGuest(), defineRoute(
 
 // 删除 Agent
 // 🆕 SEC-002: Admin only
-router.delete('/:agentId', requireRole('Admin'), defineRoute(
+adminRoutes.delete('/:agentId', defineRoute(
   { params: legacyAgentIdParamsSchema, query: legacyAgentVersionQuerySchema },
   { status: 204 },
   async (_req, _res, { params, query }) => {
@@ -112,4 +115,4 @@ router.delete('/:agentId', requireRole('Admin'), defineRoute(
   },
 ));
 
-export default router;
+export { openRoutes as agentOpenRoutes, writeRoutes as agentWriteRoutes, adminRoutes as agentAdminRoutes };

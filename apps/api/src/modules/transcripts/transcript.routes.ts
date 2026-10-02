@@ -11,7 +11,6 @@
  */
 
 import { Router } from 'express';
-import { requireAuth } from '../../middleware/auth.js';
 import { readTranscript } from './transcript-archive.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { defineRoute } from '../../core/http.js';
@@ -24,7 +23,7 @@ const router = Router();
  * Query: offset（默认 0）、limit（默认 20，上限 100 — #359 起统一 parsePagination，原上限 50）
  * 响应：{ data: { workUnitId, total, offset, limit, entries } }
  */
-router.get('/:workUnitId', requireAuth(), defineRoute(
+router.get('/:workUnitId', defineRoute(
   { params: transcriptParamsSchema, query: transcriptQuerySchema },
   async (req, _res, { params }) => {
     const { workUnitId } = params;

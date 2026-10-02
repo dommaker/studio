@@ -36,9 +36,11 @@ beforeAll(async () => {
   process.env.HOME = tmpHome;
 
   const { entriesRoutes } = await import('../entries.routes.js');
+  const { requireAuth } = await import('../../../middleware/auth.js');
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/knowledge', entriesRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（/api/v1/knowledge 挂 requireAuth）
+  app.use('/api/v1/knowledge', requireAuth(), entriesRoutes);
   await new Promise<void>(resolve => { server = app.listen(0, '127.0.0.1', () => resolve()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/knowledge`;
 });

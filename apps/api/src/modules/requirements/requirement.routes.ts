@@ -12,6 +12,10 @@
  * 契约驱动迁移（2026-09 批次 1/7）：全部端点走 core/http.ts defineRoute——
  * zod 校验入参（手写 guard 收进 schema）、统一 envelope（{ data }）、
  * 错误映射 options.errors（'Project not found' → 400 先于 'not found' → 404）。
+ *
+ * 鉴权（P2-e 声明式统一）：路由文件内不再挂鉴权中间件——openRoutes（GET，开放读，
+ * 生产 Lurk Wall 兜底）与 writeRoutes（写，route-registry 挂 authNotGuest）拆分导出，
+ * 姿态唯一来源 = route-registry 对应 entry。
  */
 import { Router } from 'express';
 import {
@@ -24,22 +28,29 @@ import {
 } from '@dommaker/studio-contract';
 import { FileStore } from '@dommaker/studio-shared';
 import { RequirementService } from './requirement.service.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 
-export function createRequirementRoutes(fileStore?: FileStore): Router {
-  const router = Router();
+export interface RequirementRouters {
+  /** GET 读端点（无鉴权声明，挂载方决定） */
+  openRoutes: Router;
+  /** 写端点（route-registry 挂 authNotGuest） */
+  writeRoutes: Router;
+}
+
+export function createRequirementRoutes(fileStore?: FileStore): RequirementRouters {
+  const openRoutes = Router();
+  const writeRoutes = Router();
   const service = new RequirementService(fileStore);
   // #387: 单次批量 id 上限（PMO 单页 ≤ 20 项目，留余量；超出静默截断）
   const MAX_BATCH_IDS = 100;
 
   /** GET / — list requirements（status/channelId 过滤；status 非法值 zod 400） */
-  router.get('/', defineRoute({ query: listRequirementsQuerySchema }, async (_req, _res, { query }) => {
+  openRoutes.get('/', defineRoute({ query: listRequirementsQuerySchema }, async (_req, _res, { query }) => {
     return service.list({ status: query.status, channelId: query.channelId });
   }));
 
   /** POST / — 手动创建需求（B3a: projectId 挂接 PMO 项目，不存在 → 400） */
-  router.post('/', requireAuth(), requireNotGuest(), defineRoute(
+  writeRoutes.post('/', defineRoute(
     { body: createRequirementBodySchema },
     {
       status: 201,
@@ -62,20 +73,20 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
    * （finished = workFinished 口径，服务端同源计算）。PMO 卡片专用，消逐项目
    * getChain 的 N+1；不存在的需求不出现在结果里（前端徽章静默缺省）。
    */
-  router.get('/chain-stats', defineRoute({ query: chainStatsQuerySchema }, async (_req, _res, { query }) => {
+  openRoutes.get('/chain-stats', defineRoute({ query: chainStatsQuerySchema }, async (_req, _res, { query }) => {
     const ids = query.reqIds.split(',').map(s => s.trim()).filter(s => s.length > 0);
     return service.getChainStats(ids.slice(0, MAX_BATCH_IDS));
   }));
 
   /** GET /:id — get requirement by id */
-  router.get('/:id', defineRoute({ params: requirementIdParamsSchema }, async (_req, _res, { params }) => {
+  openRoutes.get('/:id', defineRoute({ params: requirementIdParamsSchema }, async (_req, _res, { params }) => {
     const data = await service.get(params.id);
     if (!data) throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Requirement not found: ${params.id}`);
     return data;
   }));
 
   /** PATCH /:id — 更新 status/title/docs/description/projectId */
-  router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
+  writeRoutes.patch('/:id', defineRoute(
     { params: requirementIdParamsSchema, body: updateRequirementBodySchema },
     {
       errors: [
@@ -96,13 +107,14 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
   ));
 
   /** GET /:id/chain — 全链路数据（需求 + WorkUnit id/title/status/assignee） */
-  router.get('/:id/chain', defineRoute({ params: requirementIdParamsSchema }, async (_req, _res, { params }) => {
+  openRoutes.get('/:id/chain', defineRoute({ params: requirementIdParamsSchema }, async (_req, _res, { params }) => {
     const chain = await service.getChain(params.id);
     if (!chain) throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Requirement not found: ${params.id}`);
     return chain;
   }));
 
-  return router;
+  return { openRoutes, writeRoutes };
 }
 
-export default createRequirementRoutes();
+const { openRoutes: requirementOpenRoutes, writeRoutes: requirementWriteRoutes } = createRequirementRoutes();
+export { requirementOpenRoutes, requirementWriteRoutes };

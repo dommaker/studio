@@ -25,16 +25,17 @@ import {
 } from '@dommaker/studio-contract';
 import { AgentProfileService, listRolePresets, type CreateAgentProfileInput, type UpdateAgentProfileInput } from './agent-profile.service.js';
 import { parsePagination } from '../../utils/pagination.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
 
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（GET 读）/ write（registry 挂 authNotGuest）拆 router，路由内不再挂鉴权。
+const openRoutes = Router();
+const writeRoutes = Router();
 const service = new AgentProfileService(getStore());
 
 /** GET / — list AgentProfiles */
-router.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (req, _res, { query }) => {
+openRoutes.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (req, _res, { query }) => {
   const { page, limit } = parsePagination(req);
 
   const result = await service.list({
@@ -55,7 +56,7 @@ router.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (req, 
 }));
 
 /** POST / — create AgentProfile */
-router.post('/', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/', defineRoute(
   { body: createAgentProfileBodySchema },
   {
     status: 201,
@@ -69,10 +70,10 @@ router.post('/', requireAuth(), requireNotGuest(), defineRoute(
 
 /** GET /presets — 角色 preset 清单（#633「从模板开始」数据源；只回 name + description，死字段不浮出）。
  *  须注册在 /:id 之前，否则 'presets' 被当 id 匹配。 */
-router.get('/presets', defineRoute({}, async () => listRolePresets()));
+openRoutes.get('/presets', defineRoute({}, async () => listRolePresets()));
 
 /** GET /:id — get AgentProfile by id */
-router.get('/:id', defineRoute({ params: agentProfileIdParamsSchema }, async (_req, _res, { params }) => {
+openRoutes.get('/:id', defineRoute({ params: agentProfileIdParamsSchema }, async (_req, _res, { params }) => {
   const profile = await service.getById(params.id);
   if (!profile) {
     throw new HttpError(404, 'NOT_FOUND', `AgentProfile ${params.id} not found`);
@@ -81,7 +82,7 @@ router.get('/:id', defineRoute({ params: agentProfileIdParamsSchema }, async (_r
 }));
 
 /** PATCH /:id — update AgentProfile */
-router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.patch('/:id', defineRoute(
   { params: agentProfileIdParamsSchema, body: updateAgentProfileBodySchema },
   {
     errors: [
@@ -97,7 +98,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
 ));
 
 /** DELETE /:id — delete AgentProfile */
-router.delete('/:id', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.delete('/:id', defineRoute(
   { params: agentProfileIdParamsSchema },
   {
     status: 204,
@@ -111,4 +112,4 @@ router.delete('/:id', requireAuth(), requireNotGuest(), defineRoute(
   },
 ));
 
-export default router;
+export { openRoutes as agentProfileOpenRoutes, writeRoutes as agentProfileWriteRoutes };

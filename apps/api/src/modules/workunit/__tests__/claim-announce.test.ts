@@ -256,10 +256,12 @@ describe('REST claim 端点（认领即发声接入）', () => {
   beforeAll(async () => {
     fileStore = new FileStore(envRoot);
     wuService = new WorkUnitService(fileStore);
-    const { default: workunitRoutes } = await import('../workunit.routes.js');
+    const { workunitOpenRoutes, workunitWriteRoutes } = await import('../workunit.routes.js');
+    const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
     const app = express();
     app.use(express.json());
-    app.use('/workunits', workunitRoutes);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });

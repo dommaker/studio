@@ -27,6 +27,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 ### 运行时约定
 
+- **鉴权（P2-e 声明式统一）**：routes.ts 拆 open（status 只读，route-registry 挂 auth）/ write（approve/reject，挂 authNotGuest）双 router，路由内零鉴权挂载。
 - adapter 在运行时装配时注册（如 distill-runtime `getDistillService`）；同 kind 重复注册后者生效。
 - `ApproveOutcome` 四态：executed（落墓碑+data 透传）/ failed（落墓碑+500）/ pending+skipped（熔断不落墓碑，提案可重试）/ aborted（前置条件不可用，不落墓碑+500，装配修复后可重试）。
 - 去重（pending 不重复发卡）归业务触发侧，正本只管生命周期一致。

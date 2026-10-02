@@ -9,7 +9,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi, afterEach } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
-import pmoRoutes from '../routes.js';
+import { pmoOpenRoutes, pmoWriteRoutes, pmoAdminRoutes } from '../routes.js';
+import { requireAuth, requireNotGuest, requireAdmin } from '../../../middleware/auth.js';
 import { okrService } from '../okr.service.js';
 import { clearCache } from '../../../middleware/api-cache.js';
 
@@ -23,7 +24,8 @@ function uniqueQuarter(): string {
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/pmo', pmoRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest + admin 挂 requireAuth+requireAdmin）
+  app.use('/api/v1/pmo', pmoOpenRoutes, requireAuth(), requireNotGuest(), pmoWriteRoutes, requireAdmin(), pmoAdminRoutes);
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', () => resolve());
   });

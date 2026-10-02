@@ -3,7 +3,7 @@
 // 契约驱动迁移（2026-10 批次 2/7）：全部端点走 core/http.ts defineRoute——
 // zod 校验入参（title/status/channelId/command/commit/companyId/deliveryPolicy/gitRepos
 // 等手写 guard 收进 schema）、统一 envelope（{ data }）、错误映射 options.errors。
-// 鉴权挂载保持原样（requireAuth/requireNotGuest/requireRole 声明式统一是 Phase 2 的事）；
+// 鉴权已随 P2-e 声明式统一上移至 route-registry（open/write/admin 三 entry），路由内不再挂载；
 // local 复制的 authorType 守卫删除，改用 core/http.ts 的 requireHuman（deliver/mark-delivered
 // human-only，挂在 defineRoute 之前读原始 body.authorType）。
 // deliver/mark-delivered 的 409 拒绝体带 missing/conflictFiles 扩展字段（前端 DeliveryPanel
@@ -30,14 +30,19 @@ import { projectService, parsePmoNumberFromCommand, type UpdateProjectInput } fr
 import { getDeliveryStatus, deliverProject, markProjectDelivered } from './delivery.js';
 import { syncProjectProgress } from './progress-rollup.js';
 import { logger } from '../../utils/logger.js';
-import { requireAuth, requireNotGuest, requireRole, type AuthRequest } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
+import { type AuthRequest } from '../../middleware/auth.js';
 import { apiCache, CACHE_CONFIG, clearCache } from '../../middleware/api-cache.js';
 import { defineRoute, HttpError, requireHuman } from '../../core/http.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parsePagination } from '../../utils/pagination.js';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（GET 读 + parse-command，生产 Lurk Wall 兜底）/ write（registry 挂
+// authNotGuest）/ admin（DELETE，registry 挂 requireAuth+requireAdmin）三档拆 router，
+// 路由内不再挂鉴权；requireHuman 交付守卫（非鉴权声明）保留路由内。
+const openRoutes = Router();
+const writeRoutes = Router();
+const adminRoutes = Router();
 
 /** deliver/mark-delivered 共用的 human-only 守卫文案（原内联守卫同款） */
 const DELIVERY_HUMAN_ONLY_MESSAGE = 'Delivery is human-only (authorType=agent rejected)';
@@ -93,7 +98,7 @@ function assertGitReposAllowed(body: { gitRepo?: unknown; gitRepos?: unknown }):
  * GET /api/v1/pmo/project
  * 获取项目列表（limit/page 走 parsePagination clamp 1..100，缺省 20 与既有口径一致）
  */
-router.get('/project', defineRoute({ query: listProjectsQuerySchema }, async (req, _res, { query }) => {
+openRoutes.get('/project', defineRoute({ query: listProjectsQuerySchema }, async (req, _res, { query }) => {
   // #359：统一 parsePagination（clamp 1..100），缺省 20 与既有口径一致
   const { limit } = parsePagination(req);
   return projectService.list({
@@ -108,7 +113,7 @@ router.get('/project', defineRoute({ query: listProjectsQuerySchema }, async (re
  * POST /api/v1/pmo/project
  * 创建项目（自动生成 PMO 号）
  */
-router.post('/project', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/project', defineRoute(
   { body: createProjectBodySchema },
   { status: 201 },
   async (_req, _res, { body }) => {
@@ -133,7 +138,7 @@ router.post('/project', requireAuth(), requireNotGuest(), defineRoute(
  * GET /api/v1/pmo/project/by-pmo/:pmoNumber
  * 通过 PMO 号获取项目（须注册在 /project/:id 之前，防止 by-pmo 被 :id 吞掉——旧路由顺序如此）
  */
-router.get('/project/by-pmo/:pmoNumber', defineRoute({ params: pmoNumberParamsSchema }, async (_req, _res, { params }) => {
+openRoutes.get('/project/by-pmo/:pmoNumber', defineRoute({ params: pmoNumberParamsSchema }, async (_req, _res, { params }) => {
   const project = await projectService.getByPmoNumber(params.pmoNumber);
   if (!project) throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Project not found');
   return project;
@@ -143,7 +148,7 @@ router.get('/project/by-pmo/:pmoNumber', defineRoute({ params: pmoNumberParamsSc
  * GET /api/v1/pmo/project/:id
  * 获取项目详情
  */
-router.get('/project/:id', defineRoute({ params: projectIdParamsSchema }, async (req, _res, { params }) => {
+openRoutes.get('/project/:id', defineRoute({ params: projectIdParamsSchema }, async (req, _res, { params }) => {
   // 读取时重算进度（best-effort）：analysis 派生链无 Requirement 归属，事件入口此前接不上，存量项目进度滞留
   await syncProjectProgress(params.id).catch(err =>
     logger.warn({ projectId: params.id, error: String(err) }, '[PMO] Progress resync on read failed (non-blocking)'));
@@ -156,7 +161,7 @@ router.get('/project/:id', defineRoute({ params: projectIdParamsSchema }, async 
  * GET /api/v1/pmo/project/:id/delivery
  * PMO-b：交付台账（WU 汇总 + 证据齐缺 + deliverable 标记；branch-only 交付的就是这份回答）
  */
-router.get('/project/:id/delivery', defineRoute({ params: projectIdParamsSchema }, async (_req, _res, { params }) => {
+openRoutes.get('/project/:id/delivery', defineRoute({ params: projectIdParamsSchema }, async (_req, _res, { params }) => {
   const status = await getDeliveryStatus(params.id);
   if (!status) throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Project not found');
   return status;
@@ -167,7 +172,7 @@ router.get('/project/:id/delivery', defineRoute({ params: projectIdParamsSchema 
  * PMO-b：auto-merge 交付（human-only）——证据齐才把 PMO 分支合入默认分支（本地，不 push）。
  * 缺证据 409 硬拒；branch-only 409 并附分支名（交付动作在下游发布链路，studio 不碰）。
  */
-router.post('/project/:id/deliver', requireAuth(), requireNotGuest(), requireHuman(DELIVERY_HUMAN_ONLY_MESSAGE), defineRoute(
+writeRoutes.post('/project/:id/deliver', requireHuman(DELIVERY_HUMAN_ONLY_MESSAGE), defineRoute(
   { params: projectIdParamsSchema },
   async (req, res, { params }) => {
     const user = (req as AuthRequest).user;
@@ -198,7 +203,7 @@ router.post('/project/:id/deliver', requireAuth(), requireNotGuest(), requireHum
  * （deliveredAt/deliveredBy/deliverCommit），交付闭环在系统内留痕。commit 必填（400）；
  * auto-merge 项目 / 已落档 → 409。
  */
-router.post('/project/:id/mark-delivered', requireAuth(), requireNotGuest(), requireHuman(DELIVERY_HUMAN_ONLY_MESSAGE), defineRoute(
+writeRoutes.post('/project/:id/mark-delivered', requireHuman(DELIVERY_HUMAN_ONLY_MESSAGE), defineRoute(
   { params: projectIdParamsSchema, body: markDeliveredBodySchema },
   async (req, res, { params, body }) => {
     const user = (req as AuthRequest).user;
@@ -224,7 +229,7 @@ router.post('/project/:id/mark-delivered', requireAuth(), requireNotGuest(), req
  * PUT /api/v1/pmo/project/:id
  * 更新项目（service 整体展开 body；'Project not found' 等服务错误旧行为即 500，保持不映射）
  */
-router.put('/project/:id', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.put('/project/:id', defineRoute(
   { params: projectIdParamsSchema, body: updateProjectBodySchema },
   async (_req, _res, { params, body }) => {
     assertGitReposAllowed(body);
@@ -238,7 +243,7 @@ router.put('/project/:id', requireAuth(), requireNotGuest(), defineRoute(
  * PUT /api/v1/pmo/project/:id/status
  * 更新项目状态（状态机非法迁移/不存在旧行为即 500，保持不映射）
  */
-router.put('/project/:id/status', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.put('/project/:id/status', defineRoute(
   { params: projectIdParamsSchema, body: updateProjectStatusBodySchema },
   async (_req, _res, { params, body }) => {
     return projectService.updateStatus(params.id, body.status);
@@ -250,7 +255,7 @@ router.put('/project/:id/status', requireAuth(), requireNotGuest(), defineRoute(
  * 删除项目（仅 pending/cancelled 状态）
  * 🆕 SEC-002: Admin only
  */
-router.delete('/project/:id', requireRole('Admin'), defineRoute(
+adminRoutes.delete('/project/:id', defineRoute(
   { params: projectIdParamsSchema },
   {
     errors: [
@@ -267,7 +272,7 @@ router.delete('/project/:id', requireRole('Admin'), defineRoute(
  * POST /api/v1/pmo/project/:id/publish
  * 发布 PMO 到 Channel，创建 plan WorkUnit
  */
-router.post('/project/:id/publish', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/project/:id/publish', defineRoute(
   { params: projectIdParamsSchema, body: publishProjectBodySchema },
   {
     errors: [
@@ -291,7 +296,7 @@ router.post('/project/:id/publish', requireAuth(), requireNotGuest(), defineRout
  * GET /api/v1/pmo/project/:id/sdd
  * 查询与 PMO 关联的 SDD 条目
  */
-router.get('/project/:id/sdd', defineRoute(
+openRoutes.get('/project/:id/sdd', defineRoute(
   { params: projectIdParamsSchema },
   { errors: [{ match: 'not found', status: 404, code: ERROR_CODES.NOT_FOUND }] },
   async (_req, _res, { params }) => {
@@ -303,7 +308,7 @@ router.get('/project/:id/sdd', defineRoute(
  * POST /api/v1/pmo/project/parse-command
  * 解析 CEO 指令中的 PMO 号
  */
-router.post('/project/parse-command', defineRoute({ body: parsePmoCommandBodySchema }, async (_req, _res, { body }) => {
+openRoutes.post('/project/parse-command', defineRoute({ body: parsePmoCommandBodySchema }, async (_req, _res, { body }) => {
   return parsePmoNumberFromCommand(body.command);
 }));
 
@@ -315,7 +320,7 @@ router.post('/project/parse-command', defineRoute({ body: parsePmoCommandBodySch
  * GET /api/v1/pmo/okr
  * 获取 OKR 列表
  */
-router.get('/okr', apiCache(CACHE_CONFIG.medium), defineRoute({ query: listOkrsQuerySchema }, async (_req, _res, { query }) => {
+openRoutes.get('/okr', apiCache(CACHE_CONFIG.medium), defineRoute({ query: listOkrsQuerySchema }, async (_req, _res, { query }) => {
   return okrService.list(query.companyId, { status: query.status });
 }));
 
@@ -323,7 +328,7 @@ router.get('/okr', apiCache(CACHE_CONFIG.medium), defineRoute({ query: listOkrsQ
  * POST /api/v1/pmo/okr
  * 创建 OKR（需要管理员权限；每季度唯一约束撞重 → 409）
  */
-router.post('/okr', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/okr', defineRoute(
   { body: createOkrBodySchema },
   {
     status: 201,
@@ -356,7 +361,7 @@ router.post('/okr', requireAuth(), requireNotGuest(), defineRoute(
  * GET /api/v1/pmo/okr/:id
  * 获取 OKR 详情
  */
-router.get('/okr/:id', defineRoute(
+openRoutes.get('/okr/:id', defineRoute(
   { params: okrIdParamsSchema },
   { errors: [{ match: 'OKR not found', status: 404, code: ERROR_CODES.NOT_FOUND }] },
   async (_req, _res, { params }) => {
@@ -368,7 +373,7 @@ router.get('/okr/:id', defineRoute(
  * PUT /api/v1/pmo/okr/:id
  * 更新 OKR（'OKR not found' 旧行为即 500，保持不映射）
  */
-router.put('/okr/:id', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.put('/okr/:id', defineRoute(
   { params: okrIdParamsSchema, body: updateOkrBodySchema },
   async (req, _res, { params, body }) => {
     // z.infer 嵌套退化可选（坑①），body 已过 zod，路由边界显式收回为 service 入参类型
@@ -404,7 +409,7 @@ router.put('/okr/:id', requireAuth(), requireNotGuest(), defineRoute(
  * 删除 OKR（需要管理员权限；服务错误旧行为即 500，保持不映射）
  * 🆕 SEC-002: Admin only
  */
-router.delete('/okr/:id', requireRole('Admin'), defineRoute(
+adminRoutes.delete('/okr/:id', defineRoute(
   { params: okrIdParamsSchema },
   async (req, _res, { params }) => {
     const result = await okrService.delete(params.id);
@@ -414,4 +419,4 @@ router.delete('/okr/:id', requireRole('Admin'), defineRoute(
   },
 ));
 
-export default router;
+export { openRoutes as pmoOpenRoutes, writeRoutes as pmoWriteRoutes, adminRoutes as pmoAdminRoutes };

@@ -23,14 +23,17 @@ import {
 } from '@dommaker/studio-contract';
 import { AgentInstanceService, type CreateInstanceInput, type UpdateInstanceInput } from './agent-instance.service.js';
 import { parsePagination } from '../../utils/pagination.js';
-import { requireAuth, requireAdmin, requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（GET 读）/ write（registry 挂 authNotGuest）/ admin（terminate，registry 挂
+// requireAuth+requireAdmin）三档拆 router，路由内不再挂鉴权。
+const openRoutes = Router();
+const writeRoutes = Router();
+const adminRoutes = Router();
 const service = new AgentInstanceService();
 
 /** GET / — list RuntimeInstances */
-router.get('/', defineRoute({ query: agentInstanceListQuerySchema }, async (req, _res, { query }) => {
+openRoutes.get('/', defineRoute({ query: agentInstanceListQuerySchema }, async (req, _res, { query }) => {
   const { page, limit } = parsePagination(req);
 
   const result = await service.list({
@@ -48,7 +51,7 @@ router.get('/', defineRoute({ query: agentInstanceListQuerySchema }, async (req,
 }));
 
 /** POST / — create RuntimeInstance */
-router.post('/', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/', defineRoute(
   { body: createAgentInstanceBodySchema },
   {
     status: 201,
@@ -64,7 +67,7 @@ router.post('/', requireAuth(), requireNotGuest(), defineRoute(
 ));
 
 /** GET /:id — get RuntimeInstance by id */
-router.get('/:id', defineRoute({ params: agentInstanceIdParamsSchema }, async (_req, _res, { params }) => {
+openRoutes.get('/:id', defineRoute({ params: agentInstanceIdParamsSchema }, async (_req, _res, { params }) => {
   const instance = await service.getById(params.id);
   if (!instance) {
     throw new HttpError(404, 'NOT_FOUND', `RuntimeInstance ${params.id} not found`);
@@ -73,7 +76,7 @@ router.get('/:id', defineRoute({ params: agentInstanceIdParamsSchema }, async (_
 }));
 
 /** PATCH /:id — update RuntimeInstance */
-router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.patch('/:id', defineRoute(
   { params: agentInstanceIdParamsSchema, body: updateAgentInstanceBodySchema },
   {
     errors: [
@@ -87,7 +90,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), defineRoute(
 ));
 
 /** POST /:id/terminate — 强制停止实例：unclaim 当前 WorkUnit 并置 blocked 转人工（2026-07 §4 语义修正，活 loop 不会重新认领）+ 实例置 terminated */
-router.post('/:id/terminate', requireAuth(), requireAdmin(), defineRoute(
+adminRoutes.post('/:id/terminate', defineRoute(
   { params: agentInstanceIdParamsSchema },
   { errors: [{ match: 'not found', status: 404, code: 'NOT_FOUND' }] },
   async (_req, _res, { params }) => {
@@ -95,4 +98,4 @@ router.post('/:id/terminate', requireAuth(), requireAdmin(), defineRoute(
   },
 ));
 
-export default router;
+export { openRoutes as agentInstanceOpenRoutes, writeRoutes as agentInstanceWriteRoutes, adminRoutes as agentInstanceAdminRoutes };

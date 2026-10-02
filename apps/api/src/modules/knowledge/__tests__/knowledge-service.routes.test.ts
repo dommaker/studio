@@ -57,10 +57,12 @@ beforeAll(async () => {
   sharedStore = singletons.sharedStore;
 
   const routes = (await import('../knowledge-service.routes.js')).knowledgeServiceRoutes;
+  const { requireAuth } = await import('../../../middleware/auth.js');
   knowledgeServiceRoutes = routes;
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/knowledge-service', routes);
+  // P2-e：镜像 route-registry 挂载姿态（/api/v1/knowledge-service 挂 requireAuth）
+  app.use('/api/v1/knowledge-service', requireAuth(), routes);
   await new Promise<void>(resolve => { server = app.listen(0, '127.0.0.1', () => resolve()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/knowledge-service`;
 });

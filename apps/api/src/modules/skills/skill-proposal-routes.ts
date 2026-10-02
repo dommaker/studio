@@ -26,18 +26,19 @@ import { skillExtractionService } from './skill-extraction.service.js';
 import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/index.js';
 import { skillStore } from './skill-store.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
 
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（GET 列表）/ write（scan/extract/retract，registry 挂 authNotGuest）拆 router。
+const openRoutes = Router();
+const writeRoutes = Router();
 
 /**
  * GET /api/v1/skills/proposals
  * 获取待审批的 Skill 提案
  */
-router.get('/', defineRoute({ query: listSkillProposalsQuerySchema }, async (_req, _res, { query }) => {
+openRoutes.get('/', defineRoute({ query: listSkillProposalsQuerySchema }, async (_req, _res, { query }) => {
   return skillExtractionService.getPendingProposals(query.companyId!);
 }));
 
@@ -45,7 +46,7 @@ router.get('/', defineRoute({ query: listSkillProposalsQuerySchema }, async (_re
  * POST /api/v1/skills/proposals/scan
  * 触发批量扫描提取
  */
-router.post('/scan', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/scan', defineRoute(
   { body: scanSkillProposalsBodySchema },
   async (_req, _res, { body }) => {
     const proposals = await skillExtractionService.scanForPatterns(body.companyId!);
@@ -69,7 +70,7 @@ router.post('/scan', requireAuth(), requireNotGuest(), defineRoute(
  * POST /api/v1/skills/proposals/extract/:executionId
  * 从指定执行提取 Skill
  */
-router.post('/extract/:executionId', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/extract/:executionId', defineRoute(
   { params: executionIdParamsSchema },
   async (_req, _res, { params }) => {
     const proposal = await skillExtractionService.extractFromWorkUnit(params.executionId);
@@ -89,7 +90,7 @@ router.post('/extract/:executionId', requireAuth(), requireNotGuest(), defineRou
  * 将 Skill 状态设为 under_review，推确认卡片到 #系统 Channel。
  * 人点击确认→deprecated，点击拒绝→恢复 published。
  */
-router.post('/:id/retract', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/retract', defineRoute(
   { params: skillIdParamsSchema },
   async (_req, _res, { params }) => {
     const skill = skillStore.get(params.id);
@@ -121,4 +122,4 @@ router.post('/:id/retract', requireAuth(), requireNotGuest(), defineRoute(
   },
 ));
 
-export default router;
+export { openRoutes as skillProposalOpenRoutes, writeRoutes as skillProposalWriteRoutes };

@@ -37,10 +37,12 @@ beforeAll(async () => {
   process.env.STUDIO_DATA_DIR = tmpDir;
   fileStore = new FileStore(tmpDir);
 
-  const { default: channelRoutes } = await import('../channel.routes.js');
+  const { channelReadRoutes, channelWriteRoutes, channelAttachmentRoutes } = await import('../channel.routes.js');
+  const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/channels', channelRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（attachment 先挂 + read 挂 requireAuth + write 挂 authNotGuest）
+  app.use('/api/v1/channels', channelAttachmentRoutes, requireAuth(), channelReadRoutes, requireNotGuest(), channelWriteRoutes);
   await new Promise<void>(resolve => {
     server = app.listen(0, '127.0.0.1', () => resolve());
   });

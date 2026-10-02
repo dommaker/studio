@@ -13,7 +13,7 @@ vi.mock('../project.service.js', () => ({
   parsePmoNumberFromCommand: vi.fn(),
 }));
 
-import router from '../routes.js';
+import { pmoOpenRoutes as router } from '../routes.js';
 
 function createReq(query: Record<string, unknown>) {
   return { method: 'GET', url: '/project', headers: {}, query, params: {}, body: {}, get: () => undefined } as any;

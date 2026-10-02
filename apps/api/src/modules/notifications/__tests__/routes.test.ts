@@ -63,6 +63,7 @@ vi.mock('@dommaker/studio-shared', () => ({
 }));
 
 import '../routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 function mockRes() {
   return {
@@ -90,7 +91,9 @@ async function invoke(method: string, path: string, reqOverrides: Record<string,
   const req: Record<string, unknown> = { params, query: {}, headers: {}, ...reqOverrides };
   const res = mockRes();
   let nexted = false;
-  for (const mw of route!.middlewares) {
+  // P2-e：鉴权挂载上移至 route-registry（authNotGuest），路由内 middlewares 已空——
+  // 测试侧前置同一对（mock 版）中间件，镜像 registry 挂载姿态
+  for (const mw of [requireAuth(), requireNotGuest(), ...route!.middlewares]) {
     let called = false;
     await mw(req as Request, res, () => { called = true; });
     if (!called) return { res, nexted: false };

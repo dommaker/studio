@@ -24,7 +24,8 @@ vi.mock('../waiting-input.js', () => ({
   closeBlockedWorkUnitFromWeb: mockCloseFromWeb,
 }));
 
-import router from '../workunit.routes.js';
+import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 const blockedWu = (metadata: Record<string, unknown> = {}) => ({
   id: 'wu-1',
@@ -41,7 +42,8 @@ describe('#185（决策 #87 D2）：/resume + /close 路由（Web 按钮通道�
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    app.use('/workunits', router);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });

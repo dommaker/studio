@@ -17,13 +17,15 @@
  */
 import { Router } from 'express';
 import { reviewProposalParamsSchema, ERROR_CODES } from '@dommaker/studio-contract';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { approveProposal, rejectProposal, getProposalStatus } from './service.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（status 只读，registry 挂 auth）/ write（approve/reject，registry 挂
+// authNotGuest）拆 router，路由内不再挂鉴权。
+const openRoutes = Router();
+const writeRoutes = Router();
 
-router.post('/:kind/:id/approve', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:kind/:id/approve', defineRoute(
   { params: reviewProposalParamsSchema },
   async (_req, _res, { params }) => {
     const result = await approveProposal(params.kind, params.id);
@@ -41,7 +43,7 @@ router.post('/:kind/:id/approve', requireAuth(), requireNotGuest(), defineRoute(
   },
 ));
 
-router.post('/:kind/:id/reject', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:kind/:id/reject', defineRoute(
   { params: reviewProposalParamsSchema },
   async (_req, _res, { params }) => {
     const result = await rejectProposal(params.kind, params.id);
@@ -53,8 +55,8 @@ router.post('/:kind/:id/reject', requireAuth(), requireNotGuest(), defineRoute(
   },
 ));
 
-/** GET /:kind/:id/status → { data: { status } }（unknown = 查无此提案）；只读不要求 requireNotGuest */
-router.get('/:kind/:id/status', requireAuth(), defineRoute(
+/** GET /:kind/:id/status → { data: { status } }（unknown = 查无此提案）；只读，姿态 = 登录即可（registry auth） */
+openRoutes.get('/:kind/:id/status', defineRoute(
   { params: reviewProposalParamsSchema },
   async (_req, _res, { params }) => {
     const result = await getProposalStatus(params.kind, params.id);
@@ -63,4 +65,4 @@ router.get('/:kind/:id/status', requireAuth(), defineRoute(
   },
 ));
 
-export default router;
+export { openRoutes as reviewProposalOpenRoutes, writeRoutes as reviewProposalWriteRoutes };

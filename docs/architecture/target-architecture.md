@@ -42,7 +42,7 @@ apps/api（Express 5）
 
 ## 鉴权
 
-- 鉴权姿态只在 route-registry 声明（auth/admin/localhost 三档），路由文件内不再自行挂 `requireAuth()`。
+- 鉴权姿态只在 route-registry 声明（open / auth / authNotGuest / admin / localhost 五档；读开放的 GET 走 open 无 middleware entry，生产 Lurk Wall 兜底），路由文件内不再自行挂 `requireAuth()`。粒度过细无法声明的单条例外（channels 附件 GET 的 `?token=` 前置、auth/mcp/executions 的混合面）在对应 entry 注释注明（P2-e 落地）。
 
 ## 性能预算
 

@@ -65,10 +65,12 @@ beforeAll(async () => {
     onApprove: mockOnApprove,
     onReject: mockOnReject,
   });
-  const routes = (await import('../routes.js')).default;
+  const { reviewProposalOpenRoutes, reviewProposalWriteRoutes } = await import('../routes.js');
+  const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/review-proposals', routes);
+  // P2-e：镜像 route-registry 挂载姿态（open 挂 auth + write 挂 authNotGuest）
+  app.use('/api/v1/review-proposals', requireAuth(), reviewProposalOpenRoutes, requireNotGuest(), reviewProposalWriteRoutes);
   await new Promise<void>(resolve => { server = app.listen(0, '127.0.0.1', () => resolve()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/review-proposals`;
 });

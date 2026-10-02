@@ -33,7 +33,7 @@ import {
 } from '@dommaker/studio-contract';
 import { knowledgeService } from './knowledge-service.js';
 import { eventBus, logger } from '@dommaker/studio-shared';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { requireNotGuest } from '../../middleware/auth.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import type { KnowledgeEntry } from '@dommaker/harness';
@@ -78,7 +78,7 @@ knowledgeServiceRoutes.get('/entries/:id', defineRoute({ params: knowledgeEntryI
   return entry;
 }));
 
-knowledgeServiceRoutes.post('/entries', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.post('/entries', requireNotGuest(), defineRoute(
   { body: createKnowledgeEntryBodySchema },
   { status: 201 },
   async (_req, _res, { body }) => {
@@ -89,7 +89,7 @@ knowledgeServiceRoutes.post('/entries', requireAuth(), requireNotGuest(), define
   },
 ));
 
-knowledgeServiceRoutes.put('/entries/:id', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.put('/entries/:id', requireNotGuest(), defineRoute(
   { params: knowledgeEntryIdParamsSchema, body: updateKnowledgeEntryBodySchema },
   async (_req, _res, { params, body }) => {
     const updated = await knowledgeService.update(params.id, body as Partial<KnowledgeEntry>);
@@ -98,7 +98,7 @@ knowledgeServiceRoutes.put('/entries/:id', requireAuth(), requireNotGuest(), def
   },
 ));
 
-knowledgeServiceRoutes.delete('/entries/:id', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.delete('/entries/:id', requireNotGuest(), defineRoute(
   { params: knowledgeEntryIdParamsSchema },
   async (_req, _res, { params }) => {
     const deleted = await knowledgeService.delete(params.id);
@@ -115,7 +115,7 @@ knowledgeServiceRoutes.get('/entries/stats', defineRoute({}, async () => {
 
 // ── Produce ──
 
-knowledgeServiceRoutes.post('/pattern', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.post('/pattern', requireNotGuest(), defineRoute(
   { body: recordPatternBodySchema },
   { status: 201 },
   async (_req, _res, { body }) => {
@@ -128,7 +128,7 @@ knowledgeServiceRoutes.post('/pattern', requireAuth(), requireNotGuest(), define
   },
 ));
 
-knowledgeServiceRoutes.post('/incident', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.post('/incident', requireNotGuest(), defineRoute(
   { body: recordIncidentBodySchema },
   { status: 201 },
   async (_req, _res, { body }) => {
@@ -138,7 +138,7 @@ knowledgeServiceRoutes.post('/incident', requireAuth(), requireNotGuest(), defin
   },
 ));
 
-knowledgeServiceRoutes.post('/trend', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.post('/trend', requireNotGuest(), defineRoute(
   { body: recordTrendBodySchema },
   { status: 201 },
   async (_req, _res, { body }) => {
@@ -181,7 +181,7 @@ knowledgeServiceRoutes.post('/match-resolutions', defineRoute({ body: matchResol
 
 // ── Track ──
 
-knowledgeServiceRoutes.post('/record-outcome', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.post('/record-outcome', requireNotGuest(), defineRoute(
   { body: recordOutcomeBodySchema },
   { status: 201 },
   async (_req, _res, { body }) => {
@@ -196,7 +196,7 @@ knowledgeServiceRoutes.post('/record-outcome', requireAuth(), requireNotGuest(),
 
 // ── Lifecycle ──
 
-knowledgeServiceRoutes.post('/promote', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.post('/promote', requireNotGuest(), defineRoute(
   { body: knowledgeLifecycleBodySchema },
   async (_req, _res, { body }) => {
     await knowledgeService.promote(body.entryId);
@@ -205,7 +205,7 @@ knowledgeServiceRoutes.post('/promote', requireAuth(), requireNotGuest(), define
 ));
 
 // 审核闭环 reject 端点：draft → archived（与 /promote 对称）
-knowledgeServiceRoutes.post('/demote', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.post('/demote', requireNotGuest(), defineRoute(
   { body: knowledgeLifecycleBodySchema },
   async (_req, _res, { body }) => {
     await knowledgeService.demote(body.entryId);
@@ -213,7 +213,7 @@ knowledgeServiceRoutes.post('/demote', requireAuth(), requireNotGuest(), defineR
   },
 ));
 
-knowledgeServiceRoutes.post('/decay', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.post('/decay', requireNotGuest(), defineRoute(
   { body: knowledgeLifecycleBodySchema },
   async (_req, _res, { body }) => {
     await knowledgeService.decay(body.entryId);
@@ -221,7 +221,7 @@ knowledgeServiceRoutes.post('/decay', requireAuth(), requireNotGuest(), defineRo
   },
 ));
 
-knowledgeServiceRoutes.post('/merge', requireAuth(), requireNotGuest(), defineRoute(
+knowledgeServiceRoutes.post('/merge', requireNotGuest(), defineRoute(
   { body: mergeKnowledgeBodySchema },
   async (_req, _res, { body }) => {
     await knowledgeService.merge(body.sourceId, body.targetId);

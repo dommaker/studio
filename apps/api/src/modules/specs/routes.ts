@@ -24,9 +24,11 @@ import {
   gateCheckerService,
 } from '@dommaker/studio-spec';
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（读 + analyze-change，registry 挂 auth）/ write（changes validate +
+// changes import，registry 挂 authNotGuest）拆 router，路由内不再挂鉴权。
+const openRoutes = Router();
+const writeRoutes = Router();
 
 // ========================================
 // 变更分析 API
@@ -36,7 +38,7 @@ const router = Router();
  * POST /api/v1/specs/:id/analyze-change
  * 分析变更级别
  */
-router.post('/:id/analyze-change', defineRoute(
+openRoutes.post('/:id/analyze-change', defineRoute(
   { params: specIdParamsSchema, body: analyzeChangeBodySchema },
   async (_req, _res, { params, body }) => {
     return changeAnalyzerService.analyze({
@@ -55,7 +57,7 @@ router.post('/:id/analyze-change', defineRoute(
  * GET /api/v1/specs/changes/:changeId
  * 获取变更详情
  */
-router.get('/changes/:changeId', defineRoute(
+openRoutes.get('/changes/:changeId', defineRoute(
   { params: changeIdParamsSchema },
   async (_req, _res, { params }) => {
     const record = changeHistoryService.get(params.changeId);
@@ -72,7 +74,7 @@ router.get('/changes/:changeId', defineRoute(
  * POST /api/v1/specs/changes/:changeId/validate
  * 门禁验证
  */
-router.post('/changes/:changeId/validate', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/changes/:changeId/validate', defineRoute(
   { params: changeIdParamsSchema, body: validateChangeBodySchema },
   async (_req, _res, { params, body }) => {
     const { checkpoints, harnessConfigs, strictMode } = body;
@@ -89,7 +91,7 @@ router.post('/changes/:changeId/validate', requireAuth(), requireNotGuest(), def
  * GET /api/v1/specs/gates/:level
  * 获取门禁策略
  */
-router.get('/gates/:level', defineRoute(
+openRoutes.get('/gates/:level', defineRoute(
   { params: gateLevelParamsSchema },
   async (_req, _res, { params }) => {
     return gateCheckerService.getPolicy(params.level as ChangeLevel);
@@ -100,7 +102,7 @@ router.get('/gates/:level', defineRoute(
  * GET /api/v1/specs/gates
  * 获取所有门禁策略
  */
-router.get('/gates', defineRoute({}, async () => {
+openRoutes.get('/gates', defineRoute({}, async () => {
   return gateCheckerService.getAllPolicies();
 }));
 
@@ -112,7 +114,7 @@ router.get('/gates', defineRoute({}, async () => {
  * GET /api/v1/specs/:id/changes
  * 获取 Spec 的变更历史
  */
-router.get('/:id/changes', defineRoute(
+openRoutes.get('/:id/changes', defineRoute(
   { params: specIdParamsSchema, query: listSpecChangesQuerySchema },
   async (_req, _res, { params, query }) => {
     // 与 utils/pagination.ts parsePagination 同口径（clamp 1..100，缺省 1/20）
@@ -132,7 +134,7 @@ router.get('/:id/changes', defineRoute(
  * GET /api/v1/specs/:id/changes/stats
  * 获取变更统计
  */
-router.get('/:id/changes/stats', defineRoute(
+openRoutes.get('/:id/changes/stats', defineRoute(
   { params: specIdParamsSchema },
   async (_req, _res, { params }) => {
     return changeHistoryService.getStats(params.id);
@@ -143,7 +145,7 @@ router.get('/:id/changes/stats', defineRoute(
  * GET /api/v1/specs/:id/changes/export
  * 导出变更历史（附件下载，handler 自写 res 不进 envelope）
  */
-router.get('/:id/changes/export', defineRoute(
+openRoutes.get('/:id/changes/export', defineRoute(
   { params: specIdParamsSchema },
   async (_req, res, { params }) => {
     const data = changeHistoryService.export(params.id);
@@ -158,7 +160,7 @@ router.get('/:id/changes/export', defineRoute(
  * POST /api/v1/specs/:id/changes/import
  * 导入变更历史
  */
-router.post('/:id/changes/import', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/:id/changes/import', defineRoute(
   { params: specIdParamsSchema, body: importChangesBodySchema },
   async (_req, _res, { params, body }) => {
     const count = changeHistoryService.import(params.id, body.data!);
@@ -166,4 +168,4 @@ router.post('/:id/changes/import', requireAuth(), requireNotGuest(), defineRoute
   },
 ));
 
-export default router;
+export { openRoutes as specsOpenRoutes, writeRoutes as specsWriteRoutes };

@@ -13,14 +13,14 @@
  * 唯一口径，含字符串 '{}' 语义）与写盘被拒保留 HttpError 显式文案；响应统一 `{ data }`
  * 壳（原裸对象/平铺进壳）；错误统一 `{ error: { code, message } }`（原 `{ error: string }`
  * 与 agent-events 的 `{ error, details }` 退役；500 文案由固定串变为实际错误消息）。
- * 鉴权挂载（requireAuth/requireNotGuest）与 route-registry 注册顺序（sseRoutes 先于
- * 本 router 挂在 /api/v1/events）保持原样；SSE /events/stream 不在本文件、不迁。
+ * 鉴权（P2-e 声明式统一）：open（GET /，registry 挂 auth）/ write（POST /、/agent-events，registry 挂 authNotGuest）拆 router；
+ * 注册顺序（sseRoutes 先于本 router 挂在 /api/v1/events）保持原样；
+ * SSE /events/stream 不在本文件、不迁。
  */
 
 import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import { generateSessionSummary } from './session-summary-generator.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import {
   writeStudioEvent,
   isEmptyEventPayload,
@@ -38,7 +38,10 @@ import {
   agentEventBatchBodySchema,
 } from '@dommaker/studio-contract';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（GET /，registry 挂 auth）/ write（POST /、/agent-events，registry 挂
+// authNotGuest）拆 router，路由内不再挂鉴权。
+const openRoutes = Router();
+const writeRoutes = Router();
 
 /**
  * POST /api/v1/events
@@ -46,7 +49,7 @@ const router = Router();
  * Body: { type: string, source: string, payload: Record<string, unknown> }
  * D18：payload 为空（{} / null / undefined）拒绝落盘 → 400（调用方自查）。
  */
-router.post('/', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/', defineRoute(
   { body: createStudioEventBodySchema },
   { status: 201 },
   async (_req, _res, { body }) => {
@@ -86,7 +89,7 @@ router.post('/', requireAuth(), requireNotGuest(), defineRoute(
  */
 const EVENT_LEVELS: StudioEventLevel[] = ['debug', 'info', 'warning', 'critical'];
 
-router.get('/', requireAuth(), defineRoute(
+openRoutes.get('/', defineRoute(
   { query: listStudioEventsQuerySchema },
   async (_req, _res, { query }) => {
     const { type, since, until, level: levelStr, keyword, workUnitId, limit: limitStr, cursor } = query;
@@ -139,7 +142,7 @@ router.get('/', requireAuth(), defineRoute(
  * （zod 校验非空数组 / ≤500 上限 / 逐条必填字段；原「Validation failed + details[]」
  * 聚合错误体随之退役为 zod 首错格式）
  */
-router.post('/agent-events', requireAuth(), requireNotGuest(), defineRoute(
+writeRoutes.post('/agent-events', defineRoute(
   { body: agentEventBatchBodySchema },
   { status: 201 },
   async (_req, _res, { body: events }) => {
@@ -169,4 +172,4 @@ router.post('/agent-events', requireAuth(), requireNotGuest(), defineRoute(
   },
 ));
 
-export default router;
+export { openRoutes as eventOpenRoutes, writeRoutes as eventWriteRoutes };

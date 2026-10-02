@@ -66,9 +66,11 @@ beforeAll(async () => {
   fs.mkdirSync(wsDir, { recursive: true });
 
   const { default: workspaceRoutes } = await import('../workspace.routes.js');
+  const { requireAuth, requireAdmin } = await import('../../../middleware/auth.js');
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/workspaces', workspaceRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（/api/v1/workspaces 挂 requireAuth+requireAdmin）
+  app.use('/api/v1/workspaces', requireAuth(), requireAdmin(), workspaceRoutes);
   await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/workspaces/runtimes`;
 });

@@ -23,7 +23,8 @@ vi.mock('../../pmo/plan-direction.js', async (importOriginal) => {
   return { ...orig, applyPlanDirection: mockApplyPlanDirection };
 });
 
-import router from '../workunit.routes.js';
+import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 const DIRECTIONS = {
   question: '自研还是引入依赖？',
@@ -51,7 +52,8 @@ describe('#567 POST /workunits/:id/direction（方向锁定提交）', () => {
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    app.use('/workunits', router);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });

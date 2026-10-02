@@ -2,8 +2,7 @@
  * 通知 API 路由
  *
  * #274: 身份源从 x-user-id header 切换为登录态 JWT claims（req.user.id），
- * 读写端点鉴权行为一致（requireAuth + requireNotGuest）。
- * 挂载层（route-registry /api/v1/notifications）另有 requireAuth，此处为端点级自持。
+ * 鉴权（P2-e 声明式统一）：route-registry /api/v1/notifications 挂 authNotGuest（requireAuth+requireNotGuest），路由内不再挂载。
  *
  * 契约驱动迁移（2026-10 批次 5/7）：走 core/http.ts defineRoute——响应统一
  * `{ data }` 壳（GET / 裸数组、GET /unread-count 与写端点平铺全进壳）；错误统一
@@ -16,7 +15,7 @@ import { Router, Request } from 'express';
 import { NotificationService } from '@dommaker/studio-notification';
 
 import { createLazyService } from '../../utils/services.js';
-import { requireAuth, requireNotGuest, AuthRequest } from '../../middleware/auth.js';
+import { AuthRequest } from '../../middleware/auth.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import {
   ERROR_CODES,
@@ -45,7 +44,7 @@ function resolveUserId(req: Request): string {
  * GET /api/v1/notifications
  * 获取通知列表
  */
-router.get('/', requireAuth(), requireNotGuest(), defineRoute(
+router.get('/', defineRoute(
   { query: listNotificationsQuerySchema },
   async (req, _res, { query }) => {
     const userId = resolveUserId(req);
@@ -60,7 +59,7 @@ router.get('/', requireAuth(), requireNotGuest(), defineRoute(
  * GET /api/v1/notifications/unread-count
  * 获取未读数量
  */
-router.get('/unread-count', requireAuth(), requireNotGuest(), defineRoute({}, async (req) => {
+router.get('/unread-count', defineRoute({}, async (req) => {
   const userId = resolveUserId(req);
   const count = await getNotificationService().getUnreadCount(userId);
   return { count };
@@ -70,7 +69,7 @@ router.get('/unread-count', requireAuth(), requireNotGuest(), defineRoute({}, as
  * POST /api/v1/notifications/:id/read
  * 标记已读
  */
-router.post('/:id/read', requireAuth(), requireNotGuest(), defineRoute(
+router.post('/:id/read', defineRoute(
   { params: notificationIdParamsSchema },
   async (req, _res, { params }) => {
     const userId = resolveUserId(req);
@@ -83,7 +82,7 @@ router.post('/:id/read', requireAuth(), requireNotGuest(), defineRoute(
  * POST /api/v1/notifications/read-all
  * 标记全部已读
  */
-router.post('/read-all', requireAuth(), requireNotGuest(), defineRoute({}, async (req) => {
+router.post('/read-all', defineRoute({}, async (req) => {
   const userId = resolveUserId(req);
   await getNotificationService().markAllAsRead(userId);
   return { success: true };

@@ -11,6 +11,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 import { WorkUnitService } from '../../workunit/workunit.service.js';
 import { actionCenterRoutes } from '../routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 let server: Server;
 let base: string;
@@ -67,7 +68,8 @@ beforeAll(async () => {
 
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/action-center', actionCenterRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（authNotGuest）
+  app.use('/api/v1/action-center', requireAuth(), requireNotGuest(), actionCenterRoutes);
   await new Promise<void>(resolve => { server = app.listen(0, '127.0.0.1', () => resolve()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/action-center`;
 });
