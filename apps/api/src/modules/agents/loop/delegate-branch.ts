@@ -15,8 +15,8 @@ import { logger, FileStore, type AgentProfileData } from '@dommaker/studio-share
 import {
   checkDelegation, effectiveParentCollab, resolveMaxDepth,
   type CollabMeta,
-} from '../../workunit/delegation-gate.js';
-import type { WorkUnitData, WorkUnitService } from '../../workunit/workunit.service.js';
+} from '../../workunit/index.js';
+import type { WorkUnitData, WorkUnitService } from '../../workunit/index.js';
 import type { StepResult } from './agent-loop.types.js';
 
 /** DELEGATE 分支输入。仅在 action === 'delegate' 且 result.delegate 存在时由 recordResult 调用。 */

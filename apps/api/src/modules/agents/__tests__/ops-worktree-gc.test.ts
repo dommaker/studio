@@ -35,7 +35,7 @@ vi.mock('child_process', () => ({
   exec: vi.fn((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => cb(null, '')),
 }));
 
-vi.mock('@dommaker/studio-shared', () => ({
+vi.mock('@dommaker/studio-shared', () => ({ stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), FileStore: class {},
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
@@ -45,7 +45,7 @@ vi.mock('@dommaker/harness', () => ({
   ReferenceTracker: class {},
 }));
 
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(),
   sharedStore: {},
   sharedLifecycle: {},
 }));

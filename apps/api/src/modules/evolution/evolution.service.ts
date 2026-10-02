@@ -33,8 +33,8 @@ import {
   type ConstraintProposal,
   type ConstraintScanResult,
 } from './constraint-adapter.js';
-import type { ReviewProposalAdapter } from '../review-proposal/registry.js';
-import { sharedStore } from '../knowledge/knowledge-singletons.js';
+import type { ReviewProposalAdapter } from '../review-proposal/index.js';
+import { sharedStore } from '../knowledge/index.js';
 import type { KnowledgeEntry } from '@dommaker/harness';
 import { resolveEvolutionPaths, type EvolutionPaths } from './signals.js';
 import { getErrorMessage } from '../../utils/errors.js';

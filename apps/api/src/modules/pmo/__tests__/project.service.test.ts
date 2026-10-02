@@ -33,7 +33,7 @@ const {
 }));
 
 // ── Mock FileStore ──
-vi.mock('@dommaker/studio-shared', () => ({
+vi.mock('@dommaker/studio-shared', () => ({ createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), stripTrailingSlashes: (s) => s,
   FileStore: vi.fn().mockImplementation(function () { return {
     readJson: mockReadJson,
     writeJson: mockWriteJson,

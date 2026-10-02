@@ -9,7 +9,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../utils/logger.js';
-import { verifyToken, type UserData, type SessionData } from '../modules/auth/service.js';
+import { verifyToken, type UserData, type SessionData } from '../modules/auth/index.js';
 import crypto from 'crypto';
 import * as path from 'node:path';
 import { studioDir } from '@dommaker/studio-shared/studio-dir';

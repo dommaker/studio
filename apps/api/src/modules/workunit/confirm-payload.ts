@@ -20,8 +20,8 @@
  */
 
 import { ANALYSIS_TASKS_MAX } from './workunit.service.js';
-import { MAP_OPENING_FOG_MAX } from '../pmo/map-opening.js';
-import { SPEC_TASKS_MAX, serializeSpecTasks, type SpecTaskSpec } from '../pmo/spec-materialization.js';
+// P2-c 拆环：FOG 上限常量与 TASK 物化行 codec 改引 studio-shared 正本（workunit→pmo 静态边清零）
+import { MAP_OPENING_FOG_MAX, SPEC_TASKS_MAX, serializeSpecTasks, type SpecTaskSpec } from '@dommaker/studio-shared';
 
 export class ConfirmPayloadError extends Error {}
 

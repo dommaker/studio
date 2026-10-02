@@ -18,7 +18,7 @@ import { FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
-import { buildAssigneeProfileResolver } from '../workunit/assignee-resolver.js';
+import { buildAssigneeProfileResolver } from '../workunit/index.js';
 import { aggregateOverview, aggregateCacheHitRate, aggregateSectionTrim, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
 import type { OverviewMetrics, EfficiencyMetrics } from './metrics.types.js';
 import { getStore } from '../../core/store.js';

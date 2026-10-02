@@ -11,4 +11,5 @@ export { resolvePmoBranchForWU, resolvePmoProjectIdForWU } from './pmo-branch-re
 export { resolveReqIdForDispatch } from './req-binding.js';
 export { RequirementService, TERMINAL_WORKUNIT_STATUSES } from './requirement.service.js';
 export type { RequirementWithProject } from './requirement.service.js';
+export { initRequirementRollup } from './rollup.js';
 export { parseWuPmoId } from './wu-pmo-attribution.js';

@@ -9,10 +9,10 @@ import { getStore } from '../core/store.js';
 
 export async function startAgentLoops(): Promise<void> {
   try {
-    const { agentLoopRegistry } = await import('../modules/agents/loop/agent-loop-registry.js');
-    const { registerDefaultTriggers } = await import('../modules/agents/default-triggers.js');
-    const { getTriggerScheduler } = await import('../modules/triggers/trigger-registry.js');
-    const { ensureStudioProfile } = await import('../modules/agents/agent-profile.service.js');
+    const { agentLoopRegistry } = await import('../modules/agents/index.js');
+    const { registerDefaultTriggers } = await import('../modules/agents/index.js');
+    const { getTriggerScheduler } = await import('../modules/triggers/index.js');
+    const { ensureStudioProfile } = await import('../modules/agents/index.js');
 
     const fileStore = getStore();
     // AC-1.1: 启动时幂等创建内置 studio 角色（系统任务执行身份）
@@ -23,7 +23,7 @@ export async function startAgentLoops(): Promise<void> {
     // 内置三角色 seed（B4a 决策 D7）已随 reviewer/pm 解锚退役（F4/F5）——
     // 角色创建走用户入口（FirstRoleSetupModal / 角色向导 / preset 模板），不再系统 seed。
     try {
-      const { backfillProfileProviders } = await import('../modules/agents/default-provider.js');
+      const { backfillProfileProviders } = await import('../modules/agents/index.js');
       const stamped = await backfillProfileProviders(fileStore);
       if (stamped > 0) logger.info('[DefaultProvider] Startup backfill done', { stamped });
     } catch (e) { logger.warn('[DefaultProvider] Backfill failed', { error: String(e) }); }
@@ -65,7 +65,7 @@ export async function startAgentLoops(): Promise<void> {
       // 否则建出的指名 WU 是结构性死单（doc-semantic-review 滞留 143h 事故）。
       // 仅 agentLoopEnabled 实例执行（standby 实例不挂 loop，自检必然误报）。
       try {
-        const { checkTriggerAssignees } = await import('../modules/triggers/trigger-assignee-check.js');
+        const { checkTriggerAssignees } = await import('../modules/triggers/index.js');
         const problems = await checkTriggerAssignees(
           scheduler.getStates().map(s => s.config),
           { fileStore, getLoopEntry: (id) => agentLoopRegistry.get(id) },

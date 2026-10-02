@@ -68,11 +68,12 @@ import { parseWuMetadata } from './wu-metadata.js';
 import { resolveClaimable, buildStatusById } from './wu-dependencies.js';
 import { adoptInspectionOpportunity, ignoreInspectionOpportunity } from './inspection-opportunities.js';
 import { resolveReviewConfirm, ConfirmPayloadError } from './confirm-payload.js';
-import { aggregateTreeTokens } from '../agents/token-usage.service.js';
-import { channelMessageService, type MessageMeta } from '../channels/channel-message.service.js';
+// P2-c 拆环：aggregateTreeTokens 转路由处理器内动态 import（workunit→agents 静态边清零）
+import type { MessageMeta } from '../channels/index.js';
+// P2-c 拆环：channelMessageService 值引用转处理器内动态 import（workunit→channels 静态边清零）
 import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './waiting-input.js';
-import { applyPlanRuling, validateRulingItems, PlanRulingError } from '../pmo/plan-ruling.js';
-import { applyPlanDirection, validateDirectionPick, PlanDirectionError } from '../pmo/plan-direction.js';
+// P2-c 拆环：plan ruling/direction 应用函数与错误类转路由处理器内动态 import
+// （errors 映射改处理器内 try/catch 等价实现；workunit→pmo 静态边清零）
 import { claimWorkUnitAndAnnounce } from './claim-announce.js';
 import { listWorkUnitsChangedFiles } from './wu-changed-files.js';
 import { parsePagination } from '../../utils/pagination.js';
@@ -243,6 +244,8 @@ router.get('/:id/tree-tokens', defineRoute(
     const wu = await mustGetWu(input.params.id);
     const meta = parseWuMetadata(wu.metadata);
     const rootId = meta.collab?.rootId ?? wu.id;
+    // P2-c 拆环：workunit→agents 静态边转函数内动态 import
+    const { aggregateTreeTokens } = await import('../agents/index.js');
     return aggregateTreeTokens(rootId, getStore());
   },
 ));
@@ -400,7 +403,7 @@ router.post('/:id/dispatch-review', requireAuth(), requireNotGuest(), requireHum
   },
   async (_req, _res, input) => {
     // 与 index.ts 启动时同款动态 import：避免路由模块加载时拉起整个 agents 模块图
-    const { getReviewDispatcher } = await import('../agents/loop/review-dispatcher.js') as typeof import('../agents/loop/review-dispatcher.js');
+    const { getReviewDispatcher } = await import('../agents/index.js') as typeof import('../agents/index.js');
     const child = await getReviewDispatcher().dispatchReviewNow(input.params.id);
     return { reviewWorkUnitId: child.id };
   },
@@ -436,18 +439,24 @@ router.post('/:id/resume', requireAuth(), requireNotGuest(), defineRoute(
  */
 router.post('/:id/ruling', requireAuth(), requireNotGuest(), defineRoute(
   { params: wuIdParamsSchema, body: planRulingPayloadSchema },
-  { errors: [{ match: PlanRulingError, status: 400, code: 'INVALID_RULING' }] },
   async (_req, _res, input) => {
-    const wu = await mustGetWu(input.params.id);
-    if (wu.status !== 'blocked') {
-      throw new HttpError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked（裁决轮挂起）可提交裁决`);
+    // P2-c 拆环：动态 import + try/catch 等价原 errors 映射（PlanRulingError → 400 INVALID_RULING）
+    const { applyPlanRuling, validateRulingItems, PlanRulingError } = await import('../pmo/index.js');
+    try {
+      const wu = await mustGetWu(input.params.id);
+      if (wu.status !== 'blocked') {
+        throw new HttpError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked（裁决轮挂起）可提交裁决`);
+      }
+      const meta = parseWuMetadata(wu.metadata);
+      if (!Array.isArray(meta.planRulings) || meta.planRulings.length === 0) {
+        throw new HttpError(409, 'NO_PENDING_RULING', '该任务无待裁的裁决轮（planRulings 为空）');
+      }
+      const items = validateRulingItems(input.body.items);
+      return applyPlanRuling(input.params.id, items, getStore());
+    } catch (err) {
+      if (err instanceof PlanRulingError) throw new HttpError(400, 'INVALID_RULING', (err as Error).message);
+      throw err;
     }
-    const meta = parseWuMetadata(wu.metadata);
-    if (!Array.isArray(meta.planRulings) || meta.planRulings.length === 0) {
-      throw new HttpError(409, 'NO_PENDING_RULING', '该任务无待裁的裁决轮（planRulings 为空）');
-    }
-    const items = validateRulingItems(input.body.items);
-    return applyPlanRuling(input.params.id, items, getStore());
   },
 ));
 
@@ -460,18 +469,24 @@ router.post('/:id/ruling', requireAuth(), requireNotGuest(), defineRoute(
  */
 router.post('/:id/direction', requireAuth(), requireNotGuest(), defineRoute(
   { params: wuIdParamsSchema, body: planDirectionPayloadSchema },
-  { errors: [{ match: PlanDirectionError, status: 400, code: 'INVALID_DIRECTION' }] },
   async (_req, _res, input) => {
-    const wu = await mustGetWu(input.params.id);
-    if (wu.status !== 'blocked') {
-      throw new HttpError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked（方向锁定挂起）可提交方向选定`);
+    // P2-c 拆环：动态 import + try/catch 等价原 errors 映射（PlanDirectionError → 400 INVALID_DIRECTION）
+    const { applyPlanDirection, validateDirectionPick, PlanDirectionError } = await import('../pmo/index.js');
+    try {
+      const wu = await mustGetWu(input.params.id);
+      if (wu.status !== 'blocked') {
+        throw new HttpError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked（方向锁定挂起）可提交方向选定`);
+      }
+      const meta = parseWuMetadata(wu.metadata);
+      if (!meta.planDirections || !Array.isArray(meta.planDirections.options) || meta.planDirections.options.length === 0) {
+        throw new HttpError(409, 'NO_PENDING_DIRECTION', '该任务无待选的方向锁定（planDirections 为空）');
+      }
+      const pick = validateDirectionPick(input.body, meta.planDirections);
+      return applyPlanDirection(input.params.id, pick, getStore());
+    } catch (err) {
+      if (err instanceof PlanDirectionError) throw new HttpError(400, 'INVALID_DIRECTION', (err as Error).message);
+      throw err;
     }
-    const meta = parseWuMetadata(wu.metadata);
-    if (!meta.planDirections || !Array.isArray(meta.planDirections.options) || meta.planDirections.options.length === 0) {
-      throw new HttpError(409, 'NO_PENDING_DIRECTION', '该任务无待选的方向锁定（planDirections 为空）');
-    }
-    const pick = validateDirectionPick(input.body, meta.planDirections);
-    return applyPlanDirection(input.params.id, pick, getStore());
   },
 ));
 
@@ -529,6 +544,7 @@ router.get('/:id/messages', defineRoute(
     // #529：从 WU 解析频道归属（一等列 channelId，与写侧 POST /:id/messages 同字段、
     // 读写对称）传给直查；wu 不存在或无 channelId（legacy/手工单）→ undefined 走扇出 fallback。
     const wu = await service.getById(input.params.id);
+    const { channelMessageService } = await import('../channels/index.js'); // P2-c 拆环
     const result = await channelMessageService.listByWorkUnitId(input.params.id, {
       channelId: wu?.channelId ?? undefined,
       before: beforeDate,
@@ -564,6 +580,7 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), defineRoute(
       channelId = sysChannel.id;
     }
 
+    const { channelMessageService } = await import('../channels/index.js'); // P2-c 拆环
     if (authorType === 'agent' && agentName) {
       return channelMessageService.createAgentMessage(
         channelId, agentName, content,
@@ -599,6 +616,7 @@ router.patch('/:id/messages/:messageId', requireAuth(), requireNotGuest(), defin
       throw new HttpError(400, 'INVALID_INPUT', 'Message does not belong to this WorkUnit');
     }
 
+    const { channelMessageService } = await import('../channels/index.js'); // P2-c 拆环
     return channelMessageService.updateMessage(input.params.messageId, {
       content,
       meta: meta as MessageMeta | undefined,

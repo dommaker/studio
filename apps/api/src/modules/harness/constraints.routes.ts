@@ -51,10 +51,10 @@ import { sanitizeConstraintContext, downgradeAnnotation, violationAsPartialView,
 import {
   getConstraintReviewAdapter,
   submitConstraintUpgradeProposal,
-} from '../evolution/constraint-adapter.js';
-import { resolveHarnessBin, runCmd } from '../evolution/applier.js';
-import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge/knowledge-singletons.js';
-import { formatConstraintStats } from '../evolution/format-constraint-stats.js';
+} from '../evolution/index.js';
+import { resolveHarnessBin, runCmd } from '../evolution/index.js';
+import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge/index.js';
+import { formatConstraintStats } from '../evolution/index.js';
 
 export const constraintsRoutes = Router();
 

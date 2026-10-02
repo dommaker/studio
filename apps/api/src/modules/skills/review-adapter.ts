@@ -24,9 +24,9 @@ import {
   registerReviewProposalAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
-} from '../review-proposal/registry.js';
-import { submitProposal } from '../review-proposal/service.js';
-import type { ReviewProposalBase } from '../review-proposal/store.js';
+} from '../review-proposal/index.js';
+import { submitProposal } from '../review-proposal/index.js';
+import type { ReviewProposalBase } from '../review-proposal/index.js';
 import { skillStore } from './skill-store.js';
 import { getStore } from '../../core/store.js';
 

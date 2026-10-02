@@ -154,7 +154,7 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
       // #538（ADR 2026-09-15 决策 3）：筛选逻辑留本调用方，
       // 删除循环走 service.delete 单口——墓碑单点构造 + workunit:removed 出声。
       // 动态引入避环（agents → workunit 静态链会经 channels 绕回 agents）
-      const { WorkUnitService } = await import('../../workunit/workunit.service.js');
+      const { WorkUnitService } = await import('../../workunit/index.js');
       const workUnitService = new WorkUnitService(fileStore);
       for (const wu of toDelete) {
         await workUnitService.delete(wu.id, { reason: 'monitor TTL: terminal WorkUnit older than 90 days' });

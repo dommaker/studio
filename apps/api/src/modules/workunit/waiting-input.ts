@@ -42,10 +42,10 @@ import { PLAN_STEP_LIMIT } from './workunit.types.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { withBlockedCta } from './blocked-cta.js';
-import { ProjectDiscoveryService, matchProjectByReply, type LocalProject } from '../projects/project-discovery.service.js';
-import { RequirementService } from '../requirements/requirement.service.js';
-import { projectService } from '../pmo/project.service.js';
-import type { MessageMeta } from '../channels/channel-message.service.js';
+import { ProjectDiscoveryService, matchProjectByReply, type LocalProject } from '../projects/index.js';
+import { RequirementService } from '../requirements/index.js';
+// P2-c 拆环：projectService 转函数内动态 import（workunit→pmo 静态边清零）
+import type { MessageMeta } from '../channels/index.js';
 import { getStore } from '../../core/store.js';
 
 
@@ -541,6 +541,8 @@ async function bindRequirementToProject(reqId: string, hit: LocalProject, fileSt
   const reqService = new RequirementService(fileStore);
   const requirement = await reqService.get(reqId);
   if (!requirement) return;
+  // P2-c 拆环：workunit→pmo 静态边转函数内动态 import
+  const { projectService } = await import('../pmo/index.js');
 
   if (requirement.projectId) {
     // 别名/已挂接：PMO 缺 gitRepo 才补写（不覆盖既有锚点）

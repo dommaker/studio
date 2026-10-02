@@ -13,13 +13,13 @@
  */
 import { logger, FileStore, parseChannels, type ChannelData } from '@dommaker/studio-shared';
 import { channelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import { resumeWaitingWorkUnit } from '../workunit/waiting-input.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import { postWuSystemMessage } from '../workunit/wu-messenger.js';
-import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
-import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/ownership-resolver.js';
-import { STUDIO_ROLE_NAME, isSystemRole } from '../agents/system-role.js';
+import { WorkUnitService } from '../workunit/index.js';
+import { resumeWaitingWorkUnit } from '../workunit/index.js';
+import { parseWuMetadata } from '../workunit/index.js';
+import { postWuSystemMessage } from '../workunit/index.js';
+import { resolveReqIdForDispatch } from '../requirements/index.js';
+import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/index.js';
+import { STUDIO_ROLE_NAME, isSystemRole } from '../../core/system-role.js'; // P2-c 拆环：纯原语自 agents 下沉 core，channels→agents 此边清零
 import {
   validateFileRefs,
   type FileRef,
@@ -27,7 +27,7 @@ import {
   type FileRefVocabularyDeps,
 } from './file-ref-vocabulary.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
-import { recordAgentDecision } from '../audit-logs/agent-decision.js';
+import { recordAgentDecision } from '../audit-logs/index.js';
 import { getStore } from '../../core/store.js';
 
 

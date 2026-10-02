@@ -5,7 +5,7 @@
  * 均 exposure='external' 外放。写操作（create/update 等）维持 REST 面不进 MCP。
  */
 
-import { RequirementService } from '../requirements/requirement.service.js';
+import { RequirementService } from '../requirements/index.js';
 import type { RegisteredTool } from './tool-registry.js';
 import { fileStore } from './tool-store.js';
 

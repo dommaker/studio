@@ -36,7 +36,7 @@ import type {
 } from '@dommaker/harness';
 import { estimateTokens } from '@dommaker/harness';
 import { logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
-import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
+// P2-c 拆环：getSystemExecutor/StudioRoleNotConfiguredError 改函数内动态 import（见 extractFromConversation）
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import type { CreateResolutionInput } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync, ingestWithQualityGate, publishKnowledgeEntryChanged } from './knowledge-singletons.js';
@@ -356,6 +356,8 @@ export class KnowledgeService {
       logger.info('[KnowledgeService] extractFromConversation skipped: STUDIO_KNOWLEDGE_EXTRACTION=false', { source });
       return;
     }
+    // P2-c 拆环：knowledge→agents 静态边转函数内动态 import（置于 try 外，catch 的 instanceof 也要用）
+    const { getExtractFromTextSystemPrompt, getSystemExecutor, StudioRoleNotConfiguredError } = await import('../agents/index.js');
     try {
       const transcript = buildConversationTranscript(messages);
       if (!transcript) return;
@@ -363,7 +365,6 @@ export class KnowledgeService {
       // 复用 KnowledgeCurator 的提取 prompt（动态 import 避免静态循环依赖：
       // knowledge-curator.service 已静态引用本模块的 validateKnowledgeForm/writeTrendData）
       // E1: 经 getter 取值以支持 prompt-override 文件覆盖（约束进化提案生效路径）
-      const { getExtractFromTextSystemPrompt } = await import('../agents/knowledge/knowledge-curator.service.js');
 
       const startMs = Date.now();
       const execResult = await getSystemExecutor().run(transcript, {

@@ -1,7 +1,7 @@
 // Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6)
 import { FileStore } from '@dommaker/studio-shared';
-import type { AuditReport, FlywheelMetrics } from '../knowledge/knowledge-service.js';
-import type { ProjectData } from '../pmo/project.service.js';
+import type { AuditReport, FlywheelMetrics } from '../knowledge/index.js';
+import type { ProjectData } from '../pmo/index.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
 // #342：窗口读口（尾部倒读 + 窗口外早停）——getOverheadStats 事件读切到此读口
@@ -151,7 +151,7 @@ export class MonitoringService {
   /** 缺省取生产 knowledgeService 单例（lazy import，避免模块加载期副作用/循环依赖） */
   private async getKnowledge(): Promise<KnowledgeMetricsSource> {
     if (!this.knowledge) {
-      const mod = await import('../knowledge/knowledge-service.js');
+      const mod = await import('../knowledge/index.js');
       this.knowledge = mod.knowledgeService;
     }
     return this.knowledge;
@@ -160,7 +160,7 @@ export class MonitoringService {
   /** 全量 PMO 项目读取（deps 注入优先；缺省 lazy import 生产单例，理由同 getKnowledge） */
   private async listProjects(): Promise<ProjectData[]> {
     if (this.deps?.listProjects) return this.deps.listProjects();
-    const mod = await import('../pmo/project.service.js');
+    const mod = await import('../pmo/index.js');
     return mod.projectService.list({ limit: 100000 });
   }
 

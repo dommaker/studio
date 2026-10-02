@@ -10,6 +10,7 @@
 
 | 文件 | 职责 |
 |------|------|
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | workspace.routes.ts | Workspace 只读查询（list/get/runtimes）+ 删除 API |
 | local-workspace.ts | VPS 本地 Workspace 自动注册 + 本地 CLI 运行时扫描（`rescanLocalRuntimes` 供按需重扫） |
 | workspace-store.ts | 记录读取与 root 解析（`getWorkspaceRecord`/`resolveWorkspaceRoot`），仅供 wu-verification 的 workspace 级 `verifyCommands` 覆盖、file-ref-vocabulary 候选集与 channel.routes 绑定存在性校验使用（**无执行语义**） |

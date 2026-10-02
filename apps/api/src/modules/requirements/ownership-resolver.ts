@@ -22,7 +22,7 @@
  * （与 task.parameters.workspaceRoot 消费方式兼容，不经 workspace 记录解析）。
  */
 import { logger, FileStore, stripTrailingSlashes, type ChannelData } from '@dommaker/studio-shared';
-import { projectService } from '../pmo/project.service.js';
+// P2-c 拆环：projectService 转闭包内动态 import（requirements→pmo 静态边清零）
 import type { RequirementWithProject } from './requirement.service.js';
 import { getStore } from '../../core/store.js';
 
@@ -73,7 +73,7 @@ export async function resolveWorkspaceForWU(input: ResolveWorkspaceInput): Promi
       const requirement = (await fileStore.getRequirement(input.reqId)) as RequirementWithProject | null;
       const projectId = requirement?.projectId ?? null;
       if (projectId) {
-        const getProject = input.getProject ?? (async (id: string) => projectService.get(id));
+        const getProject = input.getProject ?? (async (id: string) => (await import('../pmo/index.js')).projectService.get(id));
         const project = await getProject(projectId);
         if (project?.gitRepo) {
           return { source: 'requirement', workspaceRoot: project.gitRepo, projectId };

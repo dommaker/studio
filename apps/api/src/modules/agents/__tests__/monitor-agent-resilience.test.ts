@@ -17,7 +17,7 @@ const {
   mockCommitSnapshot: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('@dommaker/studio-shared', () => ({
+vi.mock('@dommaker/studio-shared', () => ({ stripTrailingSlashes: (s: string) => s,
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   // #575：workunit.service 模块级 createSettledTracker()（经 monitor-probes 导入链拉到），wholesale mock 需补齐
   createSettledTracker: () => ({ track: vi.fn(), waitForSettled: vi.fn(() => Promise.resolve()) }),

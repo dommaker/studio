@@ -62,7 +62,7 @@ afterAll(() => {
   for (const d of [tmpWorktrees, tmpRepo]) fs.rmSync(d, { recursive: true, force: true });
 });
 
-vi.mock('@dommaker/studio-shared', () => ({ logger: mockLogger }));
+vi.mock('@dommaker/studio-shared', () => ({ stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), FileStore: class {}, logger: mockLogger }));
 
 vi.mock('@dommaker/harness', () => ({
   KnowledgeLinter: class { run() { return { fixed: 0 }; } validateEntry() { return []; } },
@@ -70,7 +70,7 @@ vi.mock('@dommaker/harness', () => ({
   ReferenceTracker: class {},
 }));
 
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(),
   sharedStore: { list: mockStoreList },
   sharedLifecycle: { tryPromote: mockTryPromote, runDecayCycle: mockRunDecayCycle },
 }));

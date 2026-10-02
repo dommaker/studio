@@ -14,7 +14,9 @@ import os from 'node:os';
 
 // knowledge-bus 依赖 studio-shared（其模块级初始化需要真实 @dommaker/harness），
 // 此处将其 mock 掉，使 harness 导入失败仅作用于 runtime.ts 的动态 import。
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({
+// P2-c：runtime.ts 改引模块根 barrel——mock 目标同步改到 barrel
+// （深路径 mock 挡不住 barrel 拉起的兄弟文件在 @dommaker/harness throw-mock 下炸链）。
+vi.mock('../../knowledge/index.js', () => ({
   UNIFIED_KNOWLEDGE_DIR: '/tmp/harness-runtime-test-knowledge',
 }));
 

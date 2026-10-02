@@ -31,8 +31,8 @@ import {
   registerReviewProposalAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
-} from '../review-proposal/registry.js';
-import { submitProposal } from '../review-proposal/service.js';
+} from '../review-proposal/index.js';
+import { submitProposal } from '../review-proposal/index.js';
 import { resolveHarnessBin, runCmd } from './applier.js';
 
 /** 约束提案载荷（行形态：{ kind:'proposal', ... } 落 constraint-proposals.jsonl） */
@@ -250,7 +250,7 @@ async function postUpgradeMaterialNote(
       '',
       '下一步：请人工确认材料无应用内部信息（params 正则/glob 为原文带出），然后拿材料去 harness 仓开 issue——不自动开。',
     ].join('\n');
-    const { channelMessageService } = await import('../channels/channel-message.service.js');
+    const { channelMessageService } = await import('../channels/index.js');
     await channelMessageService.createAgentMessage(channel.id, 'Evolution', content);
   } catch (err) {
     logger.warn('[Constraint] 升级材料回帖失败（不阻断 executed 结果）', { id: p.id, error: String(err) });

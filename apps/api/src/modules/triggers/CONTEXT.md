@@ -6,6 +6,7 @@ Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus�
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `trigger.types.ts` — Trigger 类型定义（SCHEDULE + EVENT 判别联合）
 - `cron-matcher.ts` — 最小 cron 表达式求值器
 - `trigger-store.ts` — YAML 持久化

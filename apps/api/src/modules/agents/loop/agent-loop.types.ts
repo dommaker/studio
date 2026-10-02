@@ -2,7 +2,7 @@
 // StepResult/Observations/Target/RuntimeInstanceRow。
 // 纯类型模块，零运行时依赖；agent-loop.ts re-export 保持对外导出语义不变。
 // KnowledgeSearchAnalysis 零生产调用方，工单 43 随 knowledge-search-analysis 一并删除。
-import type { WorkUnitMetadata, WorkUnitData } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadata, WorkUnitData } from '../../workunit/index.js';
 import type { ChannelMessageData } from '@dommaker/studio-shared';
 
 /** Agent output action after parsing */

@@ -12,6 +12,7 @@ session:start/end 事件链路（#174）：agent-loop 把 `transcriptPath(wu.id)
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `transcriptPath` | `transcript-archive.ts` | 归档文件路径：生产 `studioPath('transcripts', '<workUnitId>.jsonl')`，测试改写隔离目录（纯函数，按 workUnitId 确定性推导） |
 | `transcriptsDir` | `transcript-archive.ts` | 归档根目录：测试 → `os.tmpdir()/studio-test-transcripts/<per-进程子目录>`（#135）；生产 → `studioPath('transcripts')` |
 | `isTestEnv` | `transcript-archive.ts` | 测试环境判定（`VITEST`/`NODE_ENV=test`），同 studio-log-path |

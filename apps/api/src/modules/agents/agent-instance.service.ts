@@ -12,7 +12,7 @@
  */
 
 import { FileStore, type RuntimeStateData } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit/workunit.service.js';
+import { WorkUnitService } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
 
 

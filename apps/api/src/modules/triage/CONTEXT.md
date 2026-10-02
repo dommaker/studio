@@ -8,6 +8,7 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `ErrorClass` | error-class.ts | 八类错误标签（syntax_error 等） |
 | `Severity` | error-class.ts | 严重度等级（low / medium / high） |
 | `TriageResult` | error-class.ts | 错误分类结果（含 class、severity、summary、strategy） |

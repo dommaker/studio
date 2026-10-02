@@ -14,7 +14,7 @@
  * 单跳 IO 失败（撕裂读取等瞬态）只记日志不停跳——fencing 不漏判：真正易主时下一跳仍会命中。
  */
 import { logger, type FileStore } from '@dommaker/studio-shared';
-import { WU_LEASE_TTL_MS } from '../../workunit/workunit.types.js';
+import { WU_LEASE_TTL_MS } from '../../workunit/index.js';
 
 /** #63 决议 1：租约心跳间隔 30s（10 跳缺席 = 5min TTL 耗尽才释放） */
 export const LEASE_HEARTBEAT_INTERVAL_MS = 30_000;

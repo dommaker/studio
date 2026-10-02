@@ -11,7 +11,7 @@ const { mockExecSh, mockGetWorkspaceRecord } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
   mockGetWorkspaceRecord: vi.fn(),
 }));
-vi.mock('@dommaker/studio-shared/node', () => ({ execSh: mockExecSh }));
+vi.mock('@dommaker/studio-shared/node', () => ({ resolveWorkspacesDir: () => '/tmp/studio-test-workspaces', execSh: mockExecSh }));
 vi.mock('../../workspaces/workspace-store', () => ({ getWorkspaceRecord: mockGetWorkspaceRecord }));
 
 import {

@@ -1,8 +1,8 @@
 // Triage Service — incident response: diagnose → classify → act → resolve/escalate
 import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
-import { classifySystemError } from '../../triage/error-class.js';
-import { knowledgeService } from '../../knowledge/knowledge-service.js';
-import type { SystemTriageResult } from '../../triage/error-class.js';
+import { classifySystemError } from '../../triage/index.js';
+import { knowledgeService } from '../../knowledge/index.js';
+import type { SystemTriageResult } from '../../triage/index.js';
 import type { TriageIncidentInput, TriageLogEntry } from '../types.js';
 import { appendIncidentUpdate } from './incident-store.js';
 import { persistIncidentNotification } from './incident-notification.js';
@@ -281,7 +281,7 @@ class TriageService {
     // B11-007: Resolution 查询 — 已知解法匹配
     let resolutionHint = '';
     try {
-      const { resolutionService } = await import('../../knowledge/resolution.service.js');
+      const { resolutionService } = await import('../../knowledge/index.js');
       const matched = await resolutionService.matchResolutions({ errorMessage: input.message });
       if (matched.resolutions.length > 0) {
         resolutionHint = matched.resolutions[0].fix;

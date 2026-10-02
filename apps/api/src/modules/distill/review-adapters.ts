@@ -15,12 +15,12 @@ import {
   registerReviewProposalAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
-} from '../review-proposal/registry.js';
+} from '../review-proposal/index.js';
 import type {
   ReviewProposalBase,
   ReviewProposalRecord,
   ReviewProposalStore,
-} from '../review-proposal/store.js';
+} from '../review-proposal/index.js';
 import type { GcCandidate } from './gc-candidates.js';
 
 /** 蒸馏提案载荷（行形态与旧 distill-store proposals.jsonl 一致） */

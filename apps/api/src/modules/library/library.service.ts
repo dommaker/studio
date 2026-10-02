@@ -24,7 +24,7 @@ import {
   readLegacySddDoc,
 } from '@dommaker/studio-shared';
 import { legacySddDir } from '@dommaker/studio-shared/studio-dir';
-import { projectService, type ProjectData } from '../pmo/project.service.js';
+import { projectService, type ProjectData } from '../pmo/index.js';
 import { getStore } from '../../core/store.js';
 
 

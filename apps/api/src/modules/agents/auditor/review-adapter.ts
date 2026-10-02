@@ -24,9 +24,9 @@ import {
   registerReviewProposalAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
-} from '../../review-proposal/registry.js';
-import { submitProposal } from '../../review-proposal/service.js';
-import type { ReviewProposalBase, ReviewProposalRecord } from '../../review-proposal/store.js';
+} from '../../review-proposal/index.js';
+import { submitProposal } from '../../review-proposal/index.js';
+import type { ReviewProposalBase, ReviewProposalRecord } from '../../review-proposal/index.js';
 import { parseMessageMeta } from '../../../utils/message-meta.js';
 import { getErrorMessage } from '../../../utils/errors.js';
 import type { Suggestion } from './auditor-rules.js';
@@ -108,7 +108,7 @@ async function executeAuditorApproval(
     ].join('\n');
     const scopeSource = detailLines.map(l => l.replace(/^- \[[^\]]*\]\s*/, '')).join('；');
 
-    const { WorkUnitService } = await import('../../workunit/workunit.service.js');
+    const { WorkUnitService } = await import('../../workunit/index.js');
     const workUnit = await new WorkUnitService(fileStore).create({
       scope: `审计建议：${scopeSource}`.slice(0, 500),
       channelId: channel.id,

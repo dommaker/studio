@@ -44,7 +44,7 @@ afterAll(() => {
   for (const d of [tmpHome, tmpProject]) fs.rmSync(d, { recursive: true, force: true });
 });
 
-vi.mock('@dommaker/studio-shared', () => ({ logger: mockLogger }));
+vi.mock('@dommaker/studio-shared', () => ({ resolveStudioLogFile: (f) => "/tmp/studio-test-dir/" + f, resolveStudioLogsDir: () => "/tmp/studio-test-dir", isTestEnv: () => true, testTmpRoot: () => "/tmp/studio-test-dir", stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), FileStore: class {}, logger: mockLogger }));
 
 vi.mock('@dommaker/harness', () => ({
   ColdStartImporter: vi.fn().mockImplementation(function (config: any) {
@@ -53,7 +53,7 @@ vi.mock('@dommaker/harness', () => ({
   }),
 }));
 
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedStore: {} }));
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(), sharedLifecycle: vi.fn(), sharedStore: {} }));
 
 vi.mock('../../../utils/discord-notifier.js', () => ({
   discordNotifier: { sendText: mockDiscordSendText },

@@ -70,7 +70,7 @@ async function createCompany(name: string): Promise<Company> {
   await getStore().writeJson(companyPath(id), company);
 
   // 🆕 AS-016: 自动创建默认 OKR
-  const { okrService } = await import('../pmo/okr.service.js');
+  const { okrService } = await import('../pmo/index.js');
   try {
     await okrService.createDefaultOKR(company.id);
   } catch (okrError) {

@@ -19,9 +19,9 @@
  *   - l3 对所有已完成 WU 要求（验收权只在人）。
  */
 import { deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import { MANUAL_GATE_TYPES } from '../workunit/workunit.types.js';
+import { parseWuPmoId } from '../requirements/index.js';
+import { parseWuMetadata } from '../workunit/index.js';
+import { MANUAL_GATE_TYPES } from '../workunit/index.js';
 import type { DeliveryLeg } from './project.service.js';
 
 /**
@@ -29,8 +29,10 @@ import type { DeliveryLeg } from './project.service.js';
  * requirements/wu-pmo-attribution.ts（零依赖叶子——本模块不能传递依赖
  * pmo-branch-resolver → project.service → workunit.service，会成循环）。
  * 2026-08 归因统一后口径放宽为 pmoId ‖ legacy ownershipProjectId 同级（pmoId 优先）。
+ * P2-c：从直接赋值改为调用期转发——直接赋值在模块初始化期解引用跨模块绑定，
+ * barrel 收口后 requirements↔pmo 环的初始化序下会拿到 undefined（TDZ 崩溃）。
  */
-export const parseWuMetaPmoId = parseWuPmoId;
+export const parseWuMetaPmoId: typeof parseWuPmoId = (...args) => parseWuPmoId(...args);
 
 /**
  * 证据/归约口径消费的最小 WU 字段集（#410）：summarizeEvidence / partitionSnapshotsByLeg /
@@ -42,8 +44,12 @@ export type EvidenceWuInput = Pick<WorkUnitSnapshot, 'id' | 'status' | 'type' | 
 /** 代码类 WU（与 agent-loop CODE_WORKTREE_TYPES 同集——有专属 worktree 才跑自动验证） */
 export const CODE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
 
-/** L2 豁免集：ReviewDispatcher 不派自动评审的类型（review + 人工验收类 MANUAL_GATE_TYPES，#471 含 plan） */
-const L2_EXEMPT_TYPES = new Set(['review', ...MANUAL_GATE_TYPES]);
+/** L2 豁免集：ReviewDispatcher 不派自动评审的类型（review + 人工验收类 MANUAL_GATE_TYPES，#471 含 plan）
+ *  P2-c：延迟求值——模块顶层展开 MANUAL_GATE_TYPES 会在初始化期解引用 workunit barrel 绑定（环序 TDZ）。 */
+let _l2ExemptTypes: Set<string> | null = null;
+function l2ExemptTypes(): Set<string> {
+  return (_l2ExemptTypes ??= new Set(['review', ...MANUAL_GATE_TYPES]));
+}
 
 /** 项目证据汇总（deliverable = 有 WU 且全部完成且三层证据齐） */
 export interface EvidenceSummary {
@@ -126,7 +132,7 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
     finished++;
     if (CODE_TYPES.has(s.type) && !d.evidence.l1) l1Missing.push(s.id);
     // review/analysis 豁免 L2：dispatcher 不派自动评审，验收闸是人工 L3
-    if (!L2_EXEMPT_TYPES.has(s.type) && !d.evidence.l2) l2Missing.push(s.id);
+    if (!l2ExemptTypes().has(s.type) && !d.evidence.l2) l2Missing.push(s.id);
     if (!d.evidence.l3) l3Missing.push(s.id);
     if (d.evidence.selfReview) selfReviewCount++;
   }

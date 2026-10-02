@@ -26,6 +26,7 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `routes.ts` default export：express Router（32 个端点，见门面注释）
 
 ### 依赖关系

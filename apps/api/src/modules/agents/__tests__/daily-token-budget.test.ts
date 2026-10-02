@@ -11,7 +11,7 @@ import fs from 'node:fs';
 const { mockExecSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
 }));
-vi.mock('child_process', () => ({ execSync: mockExecSync }));
+vi.mock('child_process', () => ({ exec: vi.fn(), execSync: mockExecSync }));
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({ mockExecuteLightweight: vi.fn() }));
 vi.mock('@dommaker/studio-agent', () => ({

@@ -24,9 +24,9 @@
  */
 import { execFile } from 'node:child_process';
 import { logger, FileStore, stripTrailingSlashes } from '@dommaker/studio-shared';
-import { projectService } from '../pmo/project.service.js';
-import { resolveWorkspaceRoot as defaultResolveWorkspaceRoot } from '../workspaces/workspace-store.js';
-import { listChannelReqPmoProjects, type ChannelReqPmoLink, type ProjectLike } from '../requirements/channel-req-pmo.js';
+// P2-c 拆环：projectService 转闭包内动态 import（channels→pmo 静态边清零）
+import { resolveWorkspaceRoot as defaultResolveWorkspaceRoot } from '../workspaces/index.js';
+import { listChannelReqPmoProjects, type ChannelReqPmoLink, type ProjectLike } from '../requirements/index.js';
 import { getStore } from '../../core/store.js';
 
 
@@ -157,8 +157,8 @@ async function computeCandidateReposFresh(
   deps: FileRefVocabularyDeps = {},
 ): Promise<string[]> {
   const fileStore = deps.fileStore ?? getStore();
-  const getProject = deps.getProject ?? (async (id: string) => projectService.get(id));
-  const findChoreProject = deps.findChoreProject ?? (async (id: string) => projectService.findChoreProject(id));
+  const getProject = deps.getProject ?? (async (id: string) => (await import('../pmo/index.js')).projectService.get(id));
+  const findChoreProject = deps.findChoreProject ?? (async (id: string) => (await import('../pmo/index.js')).projectService.findChoreProject(id));
   const resolveRoot = deps.resolveWorkspaceRoot ?? defaultResolveWorkspaceRoot;
 
   // 基础序：默认工程（#272：defaultPath=本地 repo 优先，defaultWorkspaceId 执行机器根保留）→ REQ 挂接 PMO（含多腿）→ 杂务 PMO

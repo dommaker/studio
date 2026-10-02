@@ -111,7 +111,7 @@ export class ChannelMessageService {
     this.publishSSE('channel.message_sent', { channelId, message: shaped });
 
     // T-1.4: Wire preference observer — update active hours
-    import('../knowledge/preference-observer.js').then(({ preferenceObserver }) => {
+    import('../knowledge/index.js').then(({ preferenceObserver }) => {
       preferenceObserver.updateActiveHours([{ createdAt: new Date(now) }]).catch(() => {});
     }).catch(() => {});
 
@@ -147,7 +147,7 @@ export class ChannelMessageService {
     this.publishSSE('channel.message_sent', { channelId, message: shaped });
 
     // T-1.4: Wire preference observer — update response style
-    import('../knowledge/preference-observer.js').then(({ preferenceObserver }) => {
+    import('../knowledge/index.js').then(({ preferenceObserver }) => {
       preferenceObserver.updateResponseStyle([{ content: trimmed }]).catch(() => {});
     }).catch(() => {});
 

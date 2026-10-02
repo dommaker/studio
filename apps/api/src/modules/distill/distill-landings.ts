@@ -14,11 +14,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { logger, type FileStore } from '@dommaker/studio-shared';
-import { skillStore } from '../skills/skill-store.js';
-import { submitSkillProposal } from '../skills/review-adapter.js';
-import { type MemoryKind } from '../role-memory/role-memory.js';
-import { submitMemoryProposal } from '../role-memory/review-adapter.js';
-import { ensureStudioProfile } from '../agents/agent-profile.service.js';
+import { skillStore } from '../skills/index.js';
+import { submitSkillProposal } from '../skills/index.js';
+import { type MemoryKind } from '../role-memory/index.js';
+import { submitMemoryProposal } from '../role-memory/index.js';
+import { ensureStudioProfile } from '../agents/index.js';
 import type { DistillLanding } from './distill-service.js';
 
 /** companies 目录取第一家可用公司 id（skill 记录必填 companyId；无公司 → null，调用方回落）。

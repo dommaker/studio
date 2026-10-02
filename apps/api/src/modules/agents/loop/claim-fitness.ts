@@ -24,8 +24,8 @@
  * wu-completion-extraction 同款机制），经 getSystemExecutor() 懒单例；测试注入 run 替代。
  */
 import type { AgentProfileData } from '@dommaker/studio-shared';
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
-import type { UnfitRoleEntry } from '../../workunit/workunit.types.js';
+import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
+import type { UnfitRoleEntry } from '../../workunit/index.js';
 import { getSystemExecutor } from '../system-executor.js';
 
 /** 适任判断输入的 scope 截断上限（字符）——轻量 prompt，控制单次调用规模 */

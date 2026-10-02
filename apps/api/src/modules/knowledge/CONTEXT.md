@@ -15,6 +15,7 @@
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `knowledge-singletons` | `knowledge-singletons.ts` | 共享单例唯一所有者（sharedStore 等）+ 向量库同步 + 统一质量门（R4）+ `publishKnowledgeEntryChanged`（条目变更 SSE 广播，见注意事项 Step 2 条）；sharedInjector 自 2026-09-30 起为本地 `KnowledgeInjector`（harness 侧类移除收口） |
 | `KnowledgeInjector` | `knowledge-injector.ts` | 知识注入策略本地正本（harness KnowledgeInjector 收口承接，ADR-0031~0034 分工：消费编排归 studio）：按阶段/预算查询 → exclude 去重 → 预算不足摘要降级 → ContextSource（本地同构类型）；token 尺子用 harness `estimateTokens`；EXTERNAL_SOURCE_MARKER 自 harness 2.0.0 起 import 包根正本并 re-export；formatEntry/formatEntrySummary 为本地复刻（harness formatForPrompt 是简化格式，与注入路径富格式不等价） |
 | `MtimeMemoKnowledgeStore` | `knowledge-store-memo.ts` | sharedStore 的 mtime 校验聚合 memo 包装（#343，缓存 seam ADR 外部包条款）：mtime+size 指纹兜底跨进程外部写 + 本进程写穿透失效；命中深克隆保持「每次读全新对象」契约；readEntriesFromDisk/snapshot 直通不缓存；harness 1.8.0 起补齐 KnowledgeStore 15 成员——`applyAll`（写穿透失效，与 saveAll 同口径）+ `getConsumptionStats`（直通不缓存：stats 文件不在 .md/index.json 指纹内，缓存必过期） |

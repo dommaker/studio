@@ -20,7 +20,7 @@ import { executeCreateAction, executeExecuteAction } from './trigger-action.js';
 import { parseStudioEventPayload } from '../../utils/studio-events.js';
 // #342/#654：窗口读口（尾部倒读 + 窗口外早停；file 缺省即 resolveStudioEventsFile()）
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
-import { recordAgentDecision } from '../audit-logs/agent-decision.js';
+import { recordAgentDecision } from '../audit-logs/index.js';
 import { randomUUID } from 'node:crypto';
 import type { TriggerConfig } from './trigger.types.js';
 import { defineRoute, HttpError } from '../../core/http.js';

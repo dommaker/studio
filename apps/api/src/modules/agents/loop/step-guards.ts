@@ -16,8 +16,8 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { PLAN_STEP_LIMIT } from '../../workunit/workunit.types.js';
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { PLAN_STEP_LIMIT } from '../../workunit/index.js';
+import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
 import type { StepResult } from './agent-loop.types.js';
 import { testWuGuardEnabled, isTestLikeWorkUnit } from './agent-loop-guards.js';
 import {

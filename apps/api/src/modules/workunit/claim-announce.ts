@@ -11,7 +11,7 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitService, WorkUnitData } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { recordAgentDecision } from '../audit-logs/agent-decision.js';
+import { recordAgentDecision } from '../audit-logs/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
 

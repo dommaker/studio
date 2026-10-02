@@ -304,7 +304,7 @@ export async function runGC(): Promise<GCResult> {
   try {
     // #538（ADR 2026-09-15 决策 3）：筛选逻辑留本调用方（done/closed 且 completedAt >30 天照旧），
     // 删除循环走 service.delete 单口——墓碑单点构造 + workunit:removed 出声
-    const { WorkUnitService } = await import('../../workunit/workunit.service.js');
+    const { WorkUnitService } = await import('../../workunit/index.js');
     const fileStore = getStore();
     const workUnitService = new WorkUnitService(fileStore);
     const snapshots = await fileStore.getIndex();

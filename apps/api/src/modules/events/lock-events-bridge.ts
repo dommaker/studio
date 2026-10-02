@@ -12,7 +12,7 @@
  */
 
 import { eventBus, logger } from '@dommaker/studio-shared';
-import { dispatchMonitorAlerts, emitMonitorEvent } from '../agents/monitor/monitor-alerts.js';
+import { dispatchMonitorAlerts, emitMonitorEvent } from '../agents/index.js';
 
 const FORWARDED_EVENTS = ['lock.stale_reclaimed', 'lock.acquire_timeout'] as const;
 

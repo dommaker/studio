@@ -7,7 +7,7 @@
  */
 
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { sharedStore, scheduleVectorDbSync } from '../knowledge/knowledge-singletons.js';
+import { sharedStore, scheduleVectorDbSync } from '../knowledge/index.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { DistillService } from './distill-service.js';
 import { createSkillLanding, createMemoryLanding } from './distill-landings.js';

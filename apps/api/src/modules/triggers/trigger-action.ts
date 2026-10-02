@@ -2,8 +2,8 @@
 // Supports: CREATE WorkUnit, EXECUTE handler, UPDATE entity
 import { FileStore, logger } from '@dommaker/studio-shared';
 import type { TriggerAction, TriggerExecuteHandler } from './trigger.types.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import type { WorkUnitMetadata } from '../workunit/workunit.service.js';
+import { WorkUnitService } from '../workunit/index.js';
+import type { WorkUnitMetadata } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
 
 
@@ -69,7 +69,12 @@ export function unregisterExecuteHandler(target: string): void {
 }
 
 let fileStore = getStore();
-let workUnitService = new WorkUnitService();
+// P2-c：延迟构造——模块顶层 new WorkUnitService() 会在初始化期解引用 workunit barrel 绑定，
+// triggers↔workunit 环序下拿到 undefined（TDZ）。改为首次调用期构造。
+let workUnitService: WorkUnitService | null = null;
+function getWorkUnitService(): WorkUnitService {
+  return (workUnitService ??= new WorkUnitService(fileStore));
+}
 
 /** 测试用：替换 FileStore/WorkUnitService 实例（同 channelMessageService.setFileStore 模式） */
 export function setTriggerActionFileStore(fs: FileStore): void {
@@ -160,7 +165,7 @@ export async function executeCreateAction(
     ...(opts?.traceId ? { traceId: opts.traceId } : {}),
   };
 
-  const workUnit = await workUnitService.create({
+  const workUnit = await getWorkUnitService().create({
     type,
     scope,
     channelId: channelId || null,
@@ -275,11 +280,11 @@ export async function executeUpdateAction(
         input[key] = (key === 'timeoutAt' || key === 'completedAt') ? coerceDateField(raw) : raw;
       }
       if (Object.keys(input).length > 0) {
-        await workUnitService.update(s.id, input);
+        await getWorkUnitService().update(s.id, input);
       }
       if (metadata !== undefined) {
         // metadata 增量合并（#554：走 service 语义口，锁内基于最新 metadata 并入，既有键保留）
-        await workUnitService.updateMetadata(s.id, metadata as WorkUnitMetadata);
+        await getWorkUnitService().updateMetadata(s.id, metadata as WorkUnitMetadata);
       }
     }
   } else {

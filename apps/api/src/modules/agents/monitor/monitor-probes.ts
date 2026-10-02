@@ -19,12 +19,12 @@ import {
 } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { MonitorAlert } from '../types.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
-import { buildDeadLetterNotice } from '../../workunit/blocked-cta.js';
-import { parseWuMetadata } from '../../workunit/wu-metadata.js';
-import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
-import { snapshotToData } from '../../workunit/workunit-crud.js';
-import { DECISION_SPEC_TYPES } from '../../workunit/workunit.types.js';
+import { WorkUnitService } from '../../workunit/index.js';
+import { buildDeadLetterNotice } from '../../workunit/index.js';
+import { parseWuMetadata } from '../../workunit/index.js';
+import { postWuSystemMessage } from '../../workunit/index.js';
+import { snapshotToData } from '../../workunit/index.js';
+import { DECISION_SPEC_TYPES } from '../../workunit/index.js';
 import { getStudioEventTime, parseStudioEventPayload } from '../../../utils/studio-events.js';
 import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 
@@ -477,7 +477,7 @@ export async function checkSessionFileHealth(): Promise<MonitorAlert[]> {
 export async function checkToolPatterns(): Promise<MonitorAlert[]> {
   const alerts: MonitorAlert[] = [];
   try {
-    const { toolRegistry } = await import('../../mcp/tool-registry.js');
+    const { toolRegistry } = await import('../../mcp/index.js');
     const allStats = toolRegistry.getStats();
 
     for (const [toolName, stats] of Object.entries(allStats)) {

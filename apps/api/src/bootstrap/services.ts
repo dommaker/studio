@@ -2,9 +2,9 @@
 // P2-a：自 apps/api/src/index.ts 拆出。调用顺序与原 index.ts 逐行一致：
 // monitor → auditor → RequirementRollup → PmoProgressRollup → OpsService → EvolutionScheduler。
 import { logger } from '@dommaker/studio-shared';
-import { startEvolutionScheduler } from '../modules/knowledge/evolution-scheduler.js';
-import { monitorService } from '../modules/agents/monitor/monitor.service.js';
-import { auditorService } from '../modules/agents/auditor/auditor.service.js';
+import { startEvolutionScheduler } from '../modules/knowledge/index.js';
+import { monitorService } from '../modules/agents/index.js';
+import { auditorService } from '../modules/agents/index.js';
 
 export async function startCoreServices(): Promise<void> {
   monitorService.start();
@@ -15,19 +15,19 @@ export async function startCoreServices(): Promise<void> {
   // 三件套删除后无任何消费者，一并删除（2026-08-04 第一性复审）。
   // REQ 需求编号体系（vision §5.3）：WorkUnit 终态 → Requirement done 状态汇总
   try {
-    const { initRequirementRollup } = await import('../modules/requirements/rollup.js');
+    const { initRequirementRollup } = await import('../modules/requirements/index.js');
     initRequirementRollup();
     logger.info('[Requirement] Rollup subscribed (workunit.status_changed → done)');
   } catch (e) { logger.warn('[Requirement] Rollup init failed', { error: String(e) }); }
   // B3a 工程归属链（决策 D2）：WorkUnit 状态 → PMO 项目进度回写
   try {
-    const { initPmoProgressRollup } = await import('../modules/pmo/progress-rollup.js');
+    const { initPmoProgressRollup } = await import('../modules/pmo/index.js');
     initPmoProgressRollup();
     logger.info('[PMO] Progress rollup subscribed (workunit.status_changed → project progress)');
   } catch (e) { logger.warn('[PMO] Progress rollup init failed', { error: String(e) }); }
   // ── Ops Service: runtime health loop ──
   try {
-    const { createOpsService } = await import('../modules/agents/ops/ops.service.js');
+    const { createOpsService } = await import('../modules/agents/index.js');
     const opsService = createOpsService();
     opsService.start();
   } catch (e) { logger.warn('[OpsService] Failed to start', { error: String(e) }); }

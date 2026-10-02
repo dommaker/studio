@@ -10,6 +10,7 @@ Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线
 
 | 模块 | 导出 | 职责 |
 |------|------|------|
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | channel-message.service.ts | `channelMessageService` / `ChannelMessageService` | 消息创建/更新/删除 + event/SSE 发布（系统消息唯一发布路径） |
 | channel.service.ts | `channelService` / `ChannelService` / `ChannelError` / `validateDefaultWorkspaceId()` | #532 频道记录读写收口：404 判定单点（getOrThrow）、写路径内部失效列表缓存（create/update/archive/restore/deleteWithFallback/updateMembers）、初始 agent 创建 |
 | message-routing.ts | `routeMessage()` / `detectMention()` / `DispatchContext` / `resolveMergeTarget()` / `getMergeWindowMs()` | 消息路由：replyTo 线程回复 → @mention 派单 → 合并窗口（#632 解耦：唯一在途并入 / 歧义守卫 fail-closed / 纯存储；intent=new-task 显式建单） |

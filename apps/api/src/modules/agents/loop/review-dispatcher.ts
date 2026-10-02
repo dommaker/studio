@@ -21,12 +21,12 @@
  */
 
 import { eventBus, logger, parseChannels, deriveDisplayState, createSettledTracker, type FileStore, type AgentProfileData, type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
-import { MANUAL_GATE_TYPES } from '../../workunit/workunit.types.js';
-import { readCollab } from '../../workunit/delegation-gate.js';
-import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
-import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/wu-metadata.js';
-import { resolveOrNotice } from '../../channels/routing.js';
+import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../../workunit/index.js';
+import { MANUAL_GATE_TYPES } from '../../workunit/index.js';
+import { readCollab } from '../../workunit/index.js';
+import { postWuSystemMessage } from '../../workunit/index.js';
+import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/index.js';
+import { resolveOrNotice } from '../../channels/index.js';
 import { isSystemRole } from '../system-role.js';
 import type { ParsedReviewReport } from './review-contract.js';
 import { getStore } from '../../../core/store.js';
@@ -501,7 +501,7 @@ let _reviewDispatcher: ReviewDispatcher | null = null;
 export function getReviewDispatcher(): ReviewDispatcher {
   if (!_reviewDispatcher) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
-    const { WorkUnitService } = require('../../workunit/workunit.service.js') as typeof import('../../workunit/workunit.service.js');
+    const { WorkUnitService } = require('../../workunit/index.js') as typeof import('../../workunit/index.js');
     const fileStore = getStore();
     const workUnitService = new WorkUnitService(fileStore);
     _reviewDispatcher = new ReviewDispatcher(fileStore, workUnitService);

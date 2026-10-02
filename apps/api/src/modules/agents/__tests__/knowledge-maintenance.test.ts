@@ -25,7 +25,7 @@ const {
   mockGitLog: { stdout: '' as string | Error },
 }));
 
-vi.mock('@dommaker/studio-shared', () => ({
+vi.mock('@dommaker/studio-shared', () => ({ resolveStudioLogFile: (f) => "/tmp/studio-test-dir/" + f, resolveStudioLogsDir: () => "/tmp/studio-test-dir", isTestEnv: () => true, testTmpRoot: () => "/tmp/studio-test-dir", stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), FileStore: class {},
   logger: mockLogger,
 }));
 
@@ -33,7 +33,7 @@ vi.mock('../system-executor.js', () => ({
   getSystemExecutor: () => ({ runJson: mockRunJson }),
 }));
 
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(), sharedLifecycle: vi.fn(),
   sharedStore: { list: mockStoreList, get: mockStoreGet, update: mockStoreUpdate },
 }));
 

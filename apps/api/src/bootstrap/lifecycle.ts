@@ -5,9 +5,9 @@
 import { createServer, type Server } from 'http';
 import type { Express } from 'express';
 import { logger } from '@dommaker/studio-shared';
-import { stopEvolutionScheduler } from '../modules/knowledge/evolution-scheduler.js';
-import { monitorService } from '../modules/agents/monitor/monitor.service.js';
-import { auditorService } from '../modules/agents/auditor/auditor.service.js';
+import { stopEvolutionScheduler } from '../modules/knowledge/index.js';
+import { monitorService } from '../modules/agents/index.js';
+import { auditorService } from '../modules/agents/index.js';
 import { handleServerListenError } from '../utils/listen-error.js';
 import { stopTunnel } from './tunnel.js';
 
@@ -50,7 +50,7 @@ export function registerShutdown(server: Server): void {
   const shutdown = async () => {
     // F1: unmount all AgentLoops
     try {
-      const { agentLoopRegistry } = await import('../modules/agents/loop/agent-loop-registry.js');
+      const { agentLoopRegistry } = await import('../modules/agents/index.js');
       agentLoopRegistry.unmountAll();
     } catch {}
 

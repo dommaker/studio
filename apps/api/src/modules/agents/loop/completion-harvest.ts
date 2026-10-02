@@ -15,12 +15,12 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import type { WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../../workunit/index.js';
 import {
   parseReviewReport, parseTaskBreakdown, parseOpportunities, parseDecisionConclusion,
 } from './agent-loop-parsers.js';
-import { parseMapOpening } from '../../pmo/map-opening.js';
-import { parseSpecTasks } from '../../pmo/spec-materialization.js';
+import { parseMapOpening } from '../../pmo/index.js';
+import { parseSpecTasks } from '../../pmo/index.js';
 
 export interface CompletionHarvestContext {
   wuId: string;

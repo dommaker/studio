@@ -25,10 +25,10 @@ import {
   registerReviewProposalAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
-} from '../review-proposal/registry.js';
-import { submitProposal } from '../review-proposal/service.js';
+} from '../review-proposal/index.js';
+import { submitProposal } from '../review-proposal/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
-import type { ReviewProposalBase, ReviewProposalRecord } from '../review-proposal/store.js';
+import type { ReviewProposalBase, ReviewProposalRecord } from '../review-proposal/index.js';
 import { getStore } from '../../core/store.js';
 
 

@@ -8,6 +8,7 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `requirement.service.ts` — Requirement Service（REQ CRUD 与编号分配；B3a: projectId 挂接 PMO 项目；决策 4 别名层 get/list/update/getChain 别名感知；createFromDispatch：#636 A′ 裁决——无 token 派单先派生频道当前 PMO 第一级（最近挂接 REQ 所属非杂务 PMO），命中新 REQ 挂接其 projectId；派生落杂务/无结果/失败降级决策 2 杂务归集（只查不建）→ 孤儿新建）
 - `requirement.routes.ts` — Requirement API 路由
 - `req-binding.ts` — REQ 绑定解析（显式 reqId > #REQ-XXXX token > #PMO-n/#PM-n token（决策 4 别名层解析，无别名存量拒绝歧义降级）> 自动新建（含 #636 当前 PMO 挂接）），@mention 派发 / convert-to-task 共用

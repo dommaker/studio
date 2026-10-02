@@ -6,7 +6,7 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { skillStore } from '../skills/skill-store.js';
+import { skillStore } from '../skills/index.js';
 import { sharedStore } from './knowledge-singletons.js';
 import { listInteractionPatterns, parsePatternContent } from './pattern-entry.js';
 import {
@@ -124,7 +124,7 @@ export class PatternMiner {
           .slice(0, 3);
 
         if (activePatterns.length > 0) {
-          const { channelMessageService } = await import('../channels/channel-message.service.js');
+          const { channelMessageService } = await import('../channels/index.js');
           const sysChannels = await getStore().listChannels({ name: '#系统' });
           const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {

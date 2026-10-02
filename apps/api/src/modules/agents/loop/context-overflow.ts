@@ -8,7 +8,7 @@
  * 「只摘要会话内对话历史」：progressLog 是会话内逐步 action summary 的滚动记录，
  * 不递归摘要（不 LLM 摘要摘要）、不建语义搜索（YAGNI，选最简可靠来源）。
  */
-import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitMetadata } from '../../workunit/index.js';
 
 /**
  * 溢出错误识别正则（与 session-resume 的 RESUME_FAILURE_RE「会话不存在」是不同失败类型，别混）。

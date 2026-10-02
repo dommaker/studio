@@ -27,10 +27,10 @@
  */
 
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../workunit/workunit.service.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import { resumeWaitingWorkUnit } from '../workunit/waiting-input.js';
-import { postWuSystemMessage } from '../workunit/wu-messenger.js';
+import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
+import { parseWuMetadata } from '../workunit/index.js';
+import { resumeWaitingWorkUnit } from '../workunit/index.js';
+import { postWuSystemMessage } from '../workunit/index.js';
 import { projectService, type PmoMap } from './project.service.js';
 import { MAP_OPENING_FOG_MAX } from './map-opening.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';

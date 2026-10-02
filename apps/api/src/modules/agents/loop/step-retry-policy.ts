@@ -20,7 +20,7 @@
 import { randomUUID } from 'crypto';
 import { logger } from '@dommaker/studio-shared';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
 import type { StepResult } from './agent-loop.types.js';
 import { RESUME_FAILURE_RE } from './session-resume.js';
 import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';

@@ -119,7 +119,7 @@ export async function studioUp(configPath?: string) {
   // ── Ops Pre-flight Guard ──
   // 存储/前端产物/进程/磁盘等启动检查；端口检查已收编 cli/port-probe（#573）
   try {
-    const { createOpsService } = await import('../modules/agents/ops/ops.service.js');
+    const { createOpsService } = await import('../modules/agents/index.js');
     const ops = createOpsService(port);
     const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
     const preflight = await ops.preflight(process.env.REPO_DIR, frontendDist);

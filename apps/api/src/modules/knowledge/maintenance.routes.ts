@@ -11,13 +11,15 @@
  * （原 `{ error: { message } }` 补 code）。
  */
 import { Router } from 'express';
-import { knowledgeCurator } from '../agents/knowledge/knowledge-curator.service.js';
+// P2-c 拆环：knowledgeCurator 转函数内动态 import（knowledge→agents 静态边清零）
 import { defineRoute } from '../../core/http.js';
 
 const router = Router();
 
 /** POST /api/v1/knowledge/maintenance/run — 手动运行 F1 知识库维护 */
 router.post('/maintenance/run', defineRoute({}, async () => {
+  // P2-c 拆环：knowledge→agents 静态边转函数内动态 import
+  const { knowledgeCurator } = await import('../agents/index.js');
   return knowledgeCurator.runDailyMaintenance();
 }));
 

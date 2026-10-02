@@ -10,8 +10,10 @@ export { buildDeadLetterNotice, summarizeBlockReason, withBlockedCta } from './b
 export { claimWorkUnitAndAnnounce } from './claim-announce.js';
 export { checkDelegation, effectiveParentCollab, MAX_DELEGATIONS_PER_PARENT, readCollab, resolveMaxDepth, TREE_TOKEN_BUDGET } from './delegation-gate.js';
 export type { CollabMeta } from './delegation-gate.js';
-export { MAX_TIMEOUT_RELEASES, pidStartMatchesInstance } from './timeout-release.js';
-export { resumeWaitingWorkUnit } from './waiting-input.js';
+export { scanGateEscalationReminders } from './gate-escalation.js';
+export { initInReviewInbox } from './in-review-inbox.js';
+export { MAX_TIMEOUT_RELEASES, pidStartMatchesInstance, scanTimedOutWorkUnits } from './timeout-release.js';
+export { resumeWaitingWorkUnit, scanWaitingForInputReminders } from './waiting-input.js';
 export { snapshotToData } from './workunit-crud.js';
 export { ANALYSIS_TASKS_MAX, INSPECTION_OPPORTUNITIES_MAX, WorkUnitService } from './workunit.service.js';
 export type { WorkUnitData } from './workunit.service.js';

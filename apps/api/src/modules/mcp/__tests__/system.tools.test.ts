@@ -13,7 +13,7 @@ import os from 'node:os';
 const mockList = vi.fn();
 const mockFreshness = vi.fn();
 
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(), sharedLifecycle: vi.fn(),
   sharedStore: { list: mockList },
 }));
 vi.mock('../../knowledge/knowledge-design-doc.js', () => ({

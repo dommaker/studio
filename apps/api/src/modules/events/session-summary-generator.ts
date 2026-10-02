@@ -8,7 +8,7 @@
 import { logger } from '@dommaker/studio-shared';
 import * as os from 'os';
 import * as path from 'path';
-import { skillStore } from '../skills/skill-store.js';
+import { skillStore } from '../skills/index.js';
 // #342：窗口读口（尾部倒读 + 窗口外早停）——两个事件读点切到此读口；
 // #654：file 缺省即 resolveStudioEventsFile()（调用时解析，认 STUDIO_EVENTS_FILE）
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';

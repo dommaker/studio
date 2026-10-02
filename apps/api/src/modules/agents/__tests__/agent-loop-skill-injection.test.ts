@@ -38,7 +38,7 @@ const { mockExecSync, mockExecuteLightweight, mockInjectContext } = vi.hoisted((
   mockInjectContext: vi.fn().mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] }),
 }));
 
-vi.mock('child_process', () => ({
+vi.mock('child_process', () => ({ exec: vi.fn(),
   execSync: mockExecSync,
 }));
 

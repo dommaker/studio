@@ -25,7 +25,7 @@ vi.mock('@dommaker/harness', () => ({
   CheckpointValidator: { getInstance: () => ({ validate: () => [] }) },
 }));
 
-vi.mock('@dommaker/studio-shared', () => ({
+vi.mock('@dommaker/studio-shared', () => ({ stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   FileStore: class {
     getIndex = vi.fn(() => Promise.resolve([]));

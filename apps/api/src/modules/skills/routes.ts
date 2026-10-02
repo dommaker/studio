@@ -28,7 +28,7 @@ import { skillStore } from './skill-store.js';
 import { loadManifest } from './manifest-loader.js';
 import { getSkillReviewAdapter } from './review-adapter.js';
 import { promoteSkill } from './skill-promotion.js';
-import { channelMessageService } from '../channels/channel-message.service.js';
+import { channelMessageService } from '../channels/index.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
 

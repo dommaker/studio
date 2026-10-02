@@ -20,8 +20,8 @@
  * vi.mock 模块工厂（对称 completion-gates / step-guards 的可测试性契约）。
  */
 
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
-import { parseWuMetadata } from '../../workunit/wu-metadata.js';
+import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
+import { parseWuMetadata } from '../../workunit/index.js';
 import type { StepResult } from './agent-loop.js';
 
 /** #95: progressLog 环形簿记——保留最近成功步条数上限 */

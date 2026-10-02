@@ -7,7 +7,7 @@
 
 import { logger } from '@dommaker/studio-shared';
 import { ColdStartImporter } from '@dommaker/harness';
-import { sharedStore } from '../../knowledge/knowledge-singletons.js';
+import { sharedStore } from '../../knowledge/index.js';
 import * as os from 'os';
 import * as path from 'path';
 

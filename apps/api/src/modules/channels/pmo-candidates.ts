@@ -15,9 +15,9 @@
  * REQ 列表读取失败记日志降级——返回已得结果（仅 current 或 []），绝不抛出。
  */
 import { logger } from '@dommaker/studio-shared';
-import { projectService } from '../pmo/project.service.js';
+// P2-c 拆环：projectService 转闭包内动态 import（channels→pmo 静态边清零）
 import type { CurrentPmoDeps, CurrentPmoProject } from './current-pmo.js';
-import { listChannelReqPmoProjects } from '../requirements/channel-req-pmo.js';
+import { listChannelReqPmoProjects } from '../requirements/index.js';
 
 /** `#` 自动补全弹框的候选项形状（前端 channelApi ChannelPmoCandidate 同构） */
 export interface ChannelPmoCandidate {
@@ -55,7 +55,7 @@ export async function deriveChannelPmoCandidates(
   let current: ChannelPmoCandidate | null = links.length > 0 ? toCandidate(links[0].project) : null;
   if (!current && links.length === 0) {
     const findChoreProject = deps.findChoreProject
-      ?? (async (id: string) => projectService.findChoreProject(id));
+      ?? (async (id: string) => (await import('../pmo/index.js')).projectService.findChoreProject(id));
     try {
       const chore = await findChoreProject(channelId);
       current = chore ? toCandidate(chore) : null;

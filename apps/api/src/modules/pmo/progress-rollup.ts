@@ -59,7 +59,7 @@
  *     现状全量读。已知接受项：WU delete 无事件，memo 靠冷启动/复核/直调回源自愈。
  */
 import { eventBus, FileStore, logger, createSettledTracker, deriveDisplayState } from '@dommaker/studio-shared';
-import { RequirementService, TERMINAL_WORKUNIT_STATUSES } from '../requirements/requirement.service.js';
+import { RequirementService, TERMINAL_WORKUNIT_STATUSES } from '../requirements/index.js';
 import { projectService, resolveDeliveries, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type ProjectData } from './project.service.js';
 import {
   parseWuMetaPmoId,
@@ -69,7 +69,7 @@ import {
   buildReqProjectMap,
   type EvidenceWuInput,
 } from './evidence-summary.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
+import { parseWuMetadata } from '../workunit/index.js';
 import { parseSpecTasks } from './spec-materialization.js';
 import { postProjectMilestone } from './delivery-notify.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';

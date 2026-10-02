@@ -209,7 +209,7 @@ export async function postToSystemChannel(fileStore: FileStore, content: string)
       return;
     }
 
-    const { channelMessageService } = await import('../../channels/channel-message.service.js');
+    const { channelMessageService } = await import('../../channels/index.js');
     await channelMessageService.createAgentMessage(
       channel.id,
       'Auditor',

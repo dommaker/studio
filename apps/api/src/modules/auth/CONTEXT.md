@@ -8,6 +8,7 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `register` | service.ts | 用户注册，返回用户、会话及 JWT 令牌 |
 | `getOrCreateSession` | service.ts | 根据 guestId 创建或复用 Guest Session |
 | `getCurrentUser` | service.ts | 通过 sessionId 获取当前用户信息 |

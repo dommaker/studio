@@ -13,6 +13,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 
 | 导出 | 文件 | 说明 |
 |------|------|------|
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | loadManifest, SkillEntry | manifest-loader.ts | 扫描技能目录，读取 SKILL.md frontmatter（name/description/agentTypes/status/triggers/consumers）构建技能条目；status 显式非 published 跳过 |
 | generateManifest | manifest-generator.ts | 从 frontmatter 重新生成 SKILLS_DIR/MANIFEST.md（GENERATED 文件，best-effort 不 throw）；skill-store 写 SKILL.md 后自动调用 |
 | registerSkillReviewAdapter, getSkillReviewAdapter, submitSkillProposal, SkillReviewProposal | review-adapter.ts | #354：提案审批 adapter（kind='skill'），接线 review-proposal 正本；卡片渲染（extraction/distill 两种旧卡文案）+ onApprove（skill→draft + 生成 SKILL.md）；存取物化 <dataDir>/skill-proposals.jsonl |

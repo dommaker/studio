@@ -21,7 +21,7 @@
  */
 import { FileStore, logger, type ChannelMessageData } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { ChannelMessageService, type MessageMeta, type MessageRecord } from '../channels/channel-message.service.js';
+import type { MessageMeta, MessageRecord } from '../channels/index.js';
 import { parseWuMetadata, parseWuTitle } from './wu-metadata.js';
 import type { WorkUnitData } from './workunit.service.js';
 import { getStore } from '../../core/store.js';
@@ -60,7 +60,7 @@ async function findAnchorMessage(workUnitId: string, channelId: string, fileStor
  */
 async function milestoneMeta(wu: WorkUnitData, fileStore: FileStore): Promise<MessageMeta> {
   try {
-    const { resolvePmoProjectIdForWU } = await import('../requirements/pmo-branch-resolver.js');
+    const { resolvePmoProjectIdForWU } = await import('../requirements/index.js');
     const pmoId = await resolvePmoProjectIdForWU(
       { reqId: wu.reqId ?? null, metadata: wu.metadata },
       fileStore,
@@ -120,7 +120,7 @@ export async function postWuSystemMessage(
     ? { ...await milestoneMeta(wu, fileStore), ...opts?.meta }
     : opts?.meta;
 
-  const record = await new ChannelMessageService(fileStore).createAgentMessage(
+  const record = await new (await import('../channels/index.js')).ChannelMessageService(fileStore).createAgentMessage(
     wu.channelId,
     opts?.agentName ?? 'Studio',
     trimmed,

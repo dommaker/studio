@@ -9,7 +9,7 @@
  */
 import { logger, FileStore, writeStudioEvent } from '@dommaker/studio-shared';
 import { randomUUID } from 'crypto';
-import { getSystemExecutor } from '../agents/system-executor.js';
+// P2-c 拆环：getSystemExecutor 转函数内动态 import（skills→agents 静态边清零）
 import { skillStore } from './skill-store.js';
 import { getSkillReviewAdapter, submitSkillProposal } from './review-adapter.js';
 import { getStore } from '../../core/store.js';
@@ -242,7 +242,7 @@ Similar successful executions: ${similar.map((s, i) => `\n${i + 1}. ${s.acs}`).j
 
 Output JSON: {"hasPattern": bool, "name": "pattern name", "description": "description", "category": "code_gen|testing|review|refactor|config|docs", "pattern": "injectable Agent prompt template", "confidence": 0.8}`;
 
-    const r = await getSystemExecutor().runJson<{ hasPattern: boolean; name?: string; description?: string; category?: string; pattern?: string; confidence?: number }>(prompt, { systemPrompt: 'You are a Skill extraction analyst.', eventSource: 'skill-extraction' });
+    const r = await (await import('../agents/index.js')).getSystemExecutor().runJson<{ hasPattern: boolean; name?: string; description?: string; category?: string; pattern?: string; confidence?: number }>(prompt, { systemPrompt: 'You are a Skill extraction analyst.', eventSource: 'skill-extraction' });
 
     if (!r.hasPattern || !r.name) return null;
     return { id: '', skillId: '', companyId, name: r.name, description: r.description || '', category: r.category || 'general', pattern: r.pattern || '', sourceGoalIds: [], confidence: r.confidence || 0.5, status: 'pending', createdAt: new Date() };

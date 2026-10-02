@@ -25,7 +25,7 @@ const syncMock = vi.hoisted(() => ({ scheduleVectorDbSync: vi.fn() }));
 // retire 知识条目落点镜像（harness #177 起 KNOWLEDGE_BASE_DIR 真实生效）：
 // 每个用例前后清空，防夹具目录跨用例/跨轮次累积
 const FIXTURE_KB_DIR = vi.hoisted(() => '/tmp/studio-knowledge-test');
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(), sharedLifecycle: vi.fn(), sharedStore: vi.fn(),
   scheduleVectorDbSync: syncMock.scheduleVectorDbSync,
   UNIFIED_KNOWLEDGE_DIR: FIXTURE_KB_DIR,
 }));

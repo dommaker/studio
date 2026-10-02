@@ -6,4 +6,6 @@
  */
 export { resolveHarnessBin, runCmd } from './applier.js';
 export { getConstraintReviewAdapter, submitConstraintUpgradeProposal } from './constraint-adapter.js';
+export { getEvolutionService } from './evolution.service.js';
 export { formatConstraintStats } from './format-constraint-stats.js';
+export { registerEvolutionReviewAdapter } from './review-adapter.js';

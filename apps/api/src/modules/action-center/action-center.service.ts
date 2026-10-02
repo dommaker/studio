@@ -8,9 +8,9 @@
  */
 import { FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import { MANUAL_GATE_TYPES } from '../workunit/workunit.types.js';
-import { parseWuMetadata, parseWuTitle } from '../workunit/wu-metadata.js';
+import { WorkUnitService } from '../workunit/index.js';
+import { MANUAL_GATE_TYPES } from '../workunit/index.js';
+import { parseWuMetadata, parseWuTitle } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
 
 

@@ -6,6 +6,7 @@ WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 N
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `workunit.service.ts` - Service 门面: CRUD + Claim + 状态机, claim 写 5min 租约(持有方 30s 心跳推前; 2026-09-24 起 timeoutAt 经 claimWorkUnit opts 锁内一次写入, 不再二次 flock + updated 事件), 收口 reviewPassed/reviewRejected/attestation 幂等补写/markMergeConflict/blockForManualRelease + close(#550: 系统侧关闭唯一入口, 收编 wu-closure——状态机校验 + 统一尾部 + workunit:closed 事件 + 频道说明, 已 closed 幂等直返) + verifyManually(#551: POST /:id/verify 业务下沉——守卫链 存在性→代码类type→worktree落档→可跑命令 以 ManualVerifyResult 判别联合 kind 返回不抛错, 命令执行后无论成败落台账 l1, HTTP 语义归路由层)。导出 `waitForReviewPassSettled()` 供测试等待异步自动合并收尾。
 - `workunit.types.ts` - 类型契约 + 状态机表: WorkUnitMetadata / VALID_TRANSITIONS / TYPE_VALID_TRANSITIONS + resolveValidTransitions / WU_LEASE_TTL_MS(5min) / ANALYSIS_TASKS_MAX(8) / INSPECTION_OPPORTUNITIES_MAX / MANUAL_GATE_TYPES(#471: 人工 L3 验收类 = analysis/decision/spec/plan, 不派自动评审 + 豁免 l2 + 不出评审建议片的单一事实源) / PLAN_STEP_LIMIT(#471: plan 步数额度 60, agent-loop 前置守卫与 waiting-input 续期双消费) / WORKUNIT_CLOSED_EVENT_TYPE + WorkUnitClosedBy + CloseWorkUnitOptions(#550 自 wu-closure 归置, close() 入参与事件词表)。DTO(CreateWorkUnitInput/UpdateWorkUnitInput/WorkUnitData)唯一正本在 workunit-crud.ts(#537 删漂移副本)。
 - `workunit.mappers.ts` - 快照 <-> DTO 转换: snapshotToData / inputToSnapshot / patchSnapshot。

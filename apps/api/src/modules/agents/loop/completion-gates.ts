@@ -29,7 +29,7 @@ import {
   type TddChainResult,
 } from '@dommaker/harness';
 import { CODE_WORKTREE_TYPES, runWuVerification, type WuVerifyOutcome } from './wu-verification.js';
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
 import type { StepResult } from './agent-loop.js';
 import { writeStudioEvent } from '../../../utils/studio-events.js';
 

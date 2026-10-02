@@ -6,6 +6,7 @@ Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息�
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `project-discovery.service.ts` — Project Discovery Service（AC-D1+D3；#266 排除清单分层来源 + PMO 绑定排序）
 - `project-exclude-config.ts` — #266（决策 #258）归属候选排除清单读写（`projects-exclude.json`，load 失败降级空清单）
 - `project.routes.ts` — Project Discovery API（AC-D3；#266 GET/PUT `/exclude` 排除清单 CRUD）

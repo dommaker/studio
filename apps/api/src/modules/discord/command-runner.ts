@@ -5,8 +5,8 @@
  * reuse this logic to submit a requirement to #研发 and create a WorkUnit.
  */
 import { logger } from '@dommaker/studio-shared';
-import { channelMessageService } from '../channels/channel-message.service.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
+import { channelMessageService } from '../channels/index.js';
+import { WorkUnitService } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
 
 

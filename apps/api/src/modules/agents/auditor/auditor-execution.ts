@@ -16,10 +16,10 @@ import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { skillStore } from '../../skills/skill-store.js';
+import { skillStore } from '../../skills/index.js';
 import { classifyError } from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
-import { recordAgentDecision } from '../../audit-logs/agent-decision.js';
+import { recordAgentDecision } from '../../audit-logs/index.js';
 import { randomUUID } from 'node:crypto';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
@@ -140,7 +140,7 @@ export async function autoCreateResolutions(
 ): Promise<void> {
   const opsErrorClasses = new Set(['permission', 'docker', 'git/worktree', 'port_conflict', 'llm/model']);
   try {
-    const { resolutionService } = await import('../../knowledge/resolution.service.js');
+    const { resolutionService } = await import('../../knowledge/index.js');
 
     for (const e of recentExecs) {
       if (e.status !== 'closed' || !e.error) continue;
@@ -258,7 +258,7 @@ export async function generateEvalCases(recentExecs: Array<{
   if (failures.length === 0) return;
 
   try {
-    const { evalCaseGenerator } = await import('../../knowledge/eval-case-generator.js');
+    const { evalCaseGenerator } = await import('../../knowledge/index.js');
     await evalCaseGenerator.generateFromFailures(failures);
   } catch (err) {
     logger.warn('[AuditorService] Eval case generation failed', { error: String(err) });

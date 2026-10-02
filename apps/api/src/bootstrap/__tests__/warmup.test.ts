@@ -19,14 +19,17 @@ const spies = vi.hoisted(() => ({
   ensureLocalWorkspace: vi.fn(async () => {}),
 }));
 
-vi.mock('../../modules/knowledge/knowledge-singletons.js', () => ({
+// P2-c：warmup.ts 全部走模块根 barrel 动态 import——mock 目标同步改到 barrel
+// （深路径 mock 挡不住 barrel 拉起的兄弟文件炸链，mock 边界模块才能阻断整条真 chain）
+vi.mock('../../modules/knowledge/index.js', () => ({
   verifyConsumptionChain: spies.verifyConsumptionChain,
-}));
-vi.mock('../../modules/knowledge/resolution.service.js', () => ({
   resolutionService: { ensureSeedResolutions: spies.ensureSeedResolutions },
+  ruleScanner: { fullScan: spies.fullScan },
+  envSnapper: { startPeriodicSnapshots: spies.startPeriodicSnapshots },
 }));
-vi.mock('../../modules/agents/session-summary.service.js', () => ({
+vi.mock('../../modules/agents/index.js', () => ({
   sessionSummaryService: { summarize: spies.summarize },
+  knowledgeCurator: { coldStartAll: spies.coldStartAll },
 }));
 vi.mock('../../utils/studio-events-rotation.js', () => ({
   rotateStudioEvents: spies.rotateStudioEvents,
@@ -39,19 +42,10 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   FileStore: class { archiveChannelMessages = spies.archiveChannelMessages; },
 }));
-vi.mock('../../modules/knowledge/rule-scanner.js', () => ({
-  ruleScanner: { fullScan: spies.fullScan },
-}));
-vi.mock('../../modules/knowledge/env-snapper.js', () => ({
-  envSnapper: { startPeriodicSnapshots: spies.startPeriodicSnapshots },
-}));
-vi.mock('../../modules/agents/knowledge/knowledge-curator.service.js', () => ({
-  knowledgeCurator: { coldStartAll: spies.coldStartAll },
-}));
-vi.mock('../../modules/channels/migrate-members.js', () => ({
+vi.mock('../../modules/channels/index.js', () => ({
   migrateProfileChannelsToMembers: spies.migrateProfileChannelsToMembers,
 }));
-vi.mock('../../modules/workspaces/local-workspace.js', () => ({
+vi.mock('../../modules/workspaces/index.js', () => ({
   ensureLocalWorkspace: spies.ensureLocalWorkspace,
 }));
 

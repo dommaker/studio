@@ -11,7 +11,7 @@
  */
 
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { knowledgeService } from '../../knowledge/knowledge-service.js';
+import { knowledgeService } from '../../knowledge/index.js';
 import * as rules from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
 import * as execution from './auditor-execution.js';

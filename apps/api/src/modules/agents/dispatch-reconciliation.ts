@@ -25,11 +25,11 @@
  * 从 apps/api/src/bootstrap/handlers.ts 注册 handler，便于服务级测试。
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import { MANUAL_GATE_TYPES } from '../workunit/workunit.types.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import { postWuSystemMessage } from '../workunit/wu-messenger.js';
-import { AnalysisHandoff } from '../pmo/analysis-handoff.js';
+import { WorkUnitService } from '../workunit/index.js';
+import { MANUAL_GATE_TYPES } from '../workunit/index.js';
+import { parseWuMetadata } from '../workunit/index.js';
+import { postWuSystemMessage } from '../workunit/index.js';
+import { AnalysisHandoff } from '../pmo/index.js';
 import { ReviewDispatcher } from './loop/review-dispatcher.js';
 import { dispatchMonitorAlerts } from './monitor/monitor-alerts.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';

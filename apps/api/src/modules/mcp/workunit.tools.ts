@@ -5,7 +5,7 @@
  * P2（#566）：补只读查询 getWorkUnit/listWorkUnits，均 exposure='external' 外放。
  */
 
-import { WorkUnitService } from '../workunit/workunit.service.js';
+import { WorkUnitService } from '../workunit/index.js';
 import type { RegisteredTool } from './tool-registry.js';
 import { fileStore } from './tool-store.js';
 

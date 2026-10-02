@@ -47,7 +47,7 @@ import {
   type EvolutionProposalData,
 } from '@dommaker/studio-shared';
 import type { EvolutionPaths } from './signals.js';
-import { scheduleVectorDbSync, UNIFIED_KNOWLEDGE_DIR } from '../knowledge/knowledge-singletons.js';
+import { scheduleVectorDbSync, UNIFIED_KNOWLEDGE_DIR } from '../knowledge/index.js';
 
 /** M3.5 生效留痕结果：commit 失败不阻断生效（config 已生效是事实），经 trail 暴露失败状态 */
 export interface CommitTrail {

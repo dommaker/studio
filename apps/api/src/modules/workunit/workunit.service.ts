@@ -22,9 +22,9 @@ import { snapshotToData } from './workunit.mappers.js';
 import { WorkUnitCrudService, type WorkUnitData } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
-import { recordAgentDecision, type AuditActor } from '../audit-logs/agent-decision.js';
+import { recordAgentDecision, type AuditActor } from '../audit-logs/index.js';
 // #428：未归属口径的戳解析复用 requirements 的零依赖叶子（无循环依赖风险，见该文件头注释）
-import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
+import { parseWuPmoId } from '../requirements/index.js';
 
 // re-export：保持既有消费方（agent-loop / routes / 测试等）从 workunit.service 导入的路径不变
 export { snapshotToData } from './workunit.mappers.js';
@@ -124,8 +124,8 @@ export class WorkUnitService extends WorkUnitCrudService {
       // 动态引入避环：静态 requirement.service → project.service → workunit.service 成循环
       // （同 wu-messenger / merge-on-review-pass 的避环约定）
       const [{ RequirementService }, { selectProjectSnapshots }] = await Promise.all([
-        import('../requirements/requirement.service.js'),
-        import('../pmo/evidence-summary.js'),
+        import('../requirements/index.js'),
+        import('../pmo/index.js'),
       ]);
       const requirements = await new RequirementService(this.fileStore).list();
       snapshots = selectProjectSnapshots(projectId, requirements, snapshots);
@@ -465,7 +465,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     if (!wu) return { kind: 'not-found' };
 
     const { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } =
-      await import('../agents/loop/wu-verification.js');
+      await import('../agents/index.js');
 
     if (!CODE_WORKTREE_TYPES.has(wu.type)) return { kind: 'not-code-type', wuType: wu.type };
 

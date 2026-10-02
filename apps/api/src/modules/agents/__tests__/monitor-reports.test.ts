@@ -32,7 +32,7 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: () => tmpHome };
 });
 
-vi.mock('child_process', () => ({ execFileSync: mockExecFileSync, execFile: mockExecFile }));
+vi.mock('child_process', () => ({ exec: vi.fn(), execFileSync: mockExecFileSync, execFile: mockExecFile }));
 
 // 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
 afterAll(() => {

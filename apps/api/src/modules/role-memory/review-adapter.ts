@@ -17,19 +17,19 @@
 import fs from 'node:fs';
 import * as path from 'node:path';
 import { FileStore, logger } from '@dommaker/studio-shared';
-import { postReviewProposalCard } from '../review-proposal/card.js';
+import { postReviewProposalCard } from '../review-proposal/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import {
   getReviewProposalAdapter,
   registerReviewProposalAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
-} from '../review-proposal/registry.js';
+} from '../review-proposal/index.js';
 import {
   ReviewProposalStore,
   type ReviewProposalRecord,
   type ReviewProposalStatus,
-} from '../review-proposal/store.js';
+} from '../review-proposal/index.js';
 import {
   foldDraftRows,
   resolveTopicSlug,

@@ -21,10 +21,12 @@ vi.mock('@dommaker/studio-shared', () => {
 
 // #538：runGC 的 WU 删除改走 service.delete 单口——本套件只钉「委托语义 + 筛选口径」，
 // 墓碑/reason/workunit:removed 不变式由 workunit-crud.test.ts 锁定（模块边界单测，不重复钉）。
-// 真 chain 在本 mock 下不可达：studio-shared 整体替换后 workunit.service 的传递 import
+// 真 chain 在本 mock 下不可达：studio-shared 整体替换后 workunit 子树的传递 import
 //（routing.parseChannels / withAttestation 等）缺导出会在 import 期炸。
+// P2-c：mock 目标从深路径改模块根 barrel（runGC 动态 import 的就是 barrel；
+// mock 边界模块可阻断整条真 chain 加载，深路径 mock 挡不住 barrel 拉起的兄弟文件）。
 const mockWuDelete = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-vi.mock('../../workunit/workunit.service.js', () => ({
+vi.mock('../../workunit/index.js', () => ({
   WorkUnitService: vi.fn(function () { return { delete: mockWuDelete }; }),
 }));
 

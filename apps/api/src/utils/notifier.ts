@@ -18,10 +18,10 @@
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { ChannelMessageService } from '../modules/channels/channel-message.service.js';
-import { loadNotifyChannelsConfig, resolveWeComWebhookUrl } from '../modules/notify-channels/config-store.js';
-import { sendText } from '../modules/notify-channels/clawbot-client.js';
-import { postWeComMarkdown } from '../modules/notify-channels/wecom-client.js';
+import { ChannelMessageService } from '../modules/channels/index.js';
+import { loadNotifyChannelsConfig, resolveWeComWebhookUrl } from '../modules/notify-channels/index.js';
+import { sendText } from '../modules/notify-channels/index.js';
+import { postWeComMarkdown } from '../modules/notify-channels/index.js';
 import { getStore } from '../core/store.js';
 
 

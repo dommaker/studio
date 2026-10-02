@@ -21,11 +21,11 @@
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 import { projectService, resolveDeliveries, resolveDeliveryPolicy, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type DeliveryLegStatus, type DeliveryPolicy, type ProjectData } from './project.service.js';
-import { RequirementService } from '../requirements/requirement.service.js';
+import { RequirementService } from '../requirements/index.js';
 import { selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg, type EvidenceSummary } from './evidence-summary.js';
 import { postProjectMilestone } from './delivery-notify.js';
-import { sumTokensForWorkUnits } from '../agents/token-usage.service.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
+// P2-c 拆环：sumTokensForWorkUnits 转调用点动态 import（pmo→agents 静态边清零）
+import { parseWuMetadata } from '../workunit/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
 
@@ -174,7 +174,9 @@ export async function getDeliveryStatus(
   const getIndex = deps?.getIndex ?? (async () => fs.getIndex());
 
   const snapshots = selectProjectSnapshots(projectId, await listRequirements(), await getIndex());
-  const sumTokens = deps?.sumTokens ?? sumTokensForWorkUnits;
+  // P2-c 拆环：pmo→agents 静态边转动态 import（包装保持 sumTokens 注入签名不变）
+  const sumTokens = deps?.sumTokens
+    ?? (async (workUnitIds: Set<string>) => (await import('../agents/index.js')).sumTokensForWorkUnits(workUnitIds));
   const ledger = await buildLedger(snapshots, sumTokens);
   const { summary } = ledger;
 

@@ -4,6 +4,7 @@
  * 跨模块只允许 import 本文件（模块根）；深路径 import 由 eslint local/no-deep-module-import 拦截。
  * 公共面 = 生成时实际被模块外消费的符号；新增跨模块消费时在此补导出。
  */
-export { submitMemoryProposal } from './review-adapter.js';
+export { initWuCompletionExtraction } from './completion-extraction.js';
+export { registerMemoryReviewAdapter, submitMemoryProposal } from './review-adapter.js';
 export { roleMemoryStore } from './role-memory.js';
 export type { MemoryKind } from './role-memory.js';

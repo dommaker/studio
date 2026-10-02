@@ -12,8 +12,8 @@ import * as fs from 'fs';
 import { logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
-import { knowledgeService } from '../../knowledge/knowledge-service.js';
-import { preferenceObserver } from '../../knowledge/preference-observer.js';
+import { knowledgeService } from '../../knowledge/index.js';
+import { preferenceObserver } from '../../knowledge/index.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
 import { execFileAsync } from './exec-async.js';
 import {
@@ -313,7 +313,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     // #559：去掉 as any——新版签名类型完整，编译期可拦签名漂移。
     try {
       const { KnowledgeAudit } = await import('@dommaker/harness');
-      const { sharedStore } = await import('../../knowledge/knowledge-singletons.js');
+      const { sharedStore } = await import('../../knowledge/index.js');
       const audit = new KnowledgeAudit(sharedStore);
       const report = audit.run({ autoFix: true });
       if (report.totalEntries > 0) {
@@ -341,7 +341,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     // 5b. Knowledge index snapshot (for KR4 30d survival rate)
     // #343 review：走 sharedStore 直通路径，不再裸建 FileKnowledgeStore 实例
     try {
-      const { sharedStore } = await import('../../knowledge/knowledge-singletons.js');
+      const { sharedStore } = await import('../../knowledge/index.js');
       sharedStore.snapshot();
     } catch { /* best-effort */ }
 
@@ -369,7 +369,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
           if (sorted.length > 0) {
             lines.push('', '### 周交互画像');
             lines.push(`- Top 模式: ${sorted.slice(0, 3).map(([t, c]) => `${t}(${c})`).join(', ')}`);
-            const { sharedStore } = await import('../../knowledge/knowledge-singletons.js');
+            const { sharedStore } = await import('../../knowledge/index.js');
             const prefEntries = sharedStore.list({ tags: ['preference', 'user-default'] });
             const prefData = prefEntries.length > 0 ? JSON.parse((prefEntries[0] as any).content || '{}') : {};
             const preferredRaw = prefData.preferredPatternTypes;
@@ -389,7 +389,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       const sysChannels = await fileStore.listChannels({ name: '#系统' });
       const sysChannel = sysChannels[0] ?? null;
       if (sysChannel) {
-        const { channelMessageService } = await import('../../channels/channel-message.service.js');
+        const { channelMessageService } = await import('../../channels/index.js');
         await channelMessageService.createAgentMessage(sysChannel.id, 'DailyReflection', content, {
           meta: { cardType: 'daily_reflection', date: today },
         });

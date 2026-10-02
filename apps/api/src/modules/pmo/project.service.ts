@@ -7,9 +7,9 @@
 
 import { FileStore, generateId, parseFrontmatter } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
-import { channelMessageService } from '../channels/channel-message.service.js';
-import { resolveOrNotice } from '../channels/routing.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
+import { channelMessageService } from '../channels/index.js';
+import { resolveOrNotice } from '../channels/index.js';
+import { WorkUnitService } from '../workunit/index.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { studioPath, specsDir } from '@dommaker/studio-shared/studio-dir';

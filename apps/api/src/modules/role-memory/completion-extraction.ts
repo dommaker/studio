@@ -16,18 +16,14 @@
 import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { getErrorMessage } from '../../utils/errors.js';
-import { WorkUnitService, type WorkUnitData } from '../workunit/workunit.service.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import { readTranscript, type TranscriptEntry } from '../transcripts/transcript-archive.js';
+import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
+import { parseWuMetadata } from '../workunit/index.js';
+import { readTranscript, type TranscriptEntry } from '../transcripts/index.js';
 import { roleMemoryStore } from './role-memory.js';
 import type { AppendDraftInput, MemoryDraftEntry } from './role-memory.js';
 import { registerMemoryReviewAdapter, submitMemoryProposal } from './review-adapter.js';
-import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
-import {
-  tokenBudgetGuardEnabled,
-  resolveDailyTokenBudget,
-  getDailyTokenUsage,
-} from '../agents/loop/daily-token-budget.js';
+// P2-c 拆环：agents 引用（getSystemExecutor/StudioRoleNotConfiguredError/token 预算三件套）
+// 全部转函数内动态 import，role-memory→agents 静态边清零。
 import { getStore } from '../../core/store.js';
 
 
@@ -174,6 +170,8 @@ export class WuCompletionExtractor {
 
   /** 每日 token 预算熔断判定：守卫关闭 / 预算 <=0 → 不熔断；当日已耗 ≥ 预算 → true */
   private async isBudgetExhausted(): Promise<boolean> {
+    // P2-c 拆环：role-memory→agents 静态边转函数内动态 import
+    const { tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage } = await import('../agents/index.js');
     if (!tokenBudgetGuardEnabled()) return false;
     const budget = resolveDailyTokenBudget();
     if (budget <= 0) return false;
@@ -187,6 +185,8 @@ export class WuCompletionExtractor {
    */
   private async extractAndDraft(wu: WorkUnitData, roleId: string): Promise<void> {
     const startMs = Date.now();
+    // P2-c 拆环：role-memory→agents 静态边转函数内动态 import（置于 try 外，catch 的 instanceof 也要用）
+    const { getSystemExecutor, StudioRoleNotConfiguredError } = await import('../agents/index.js');
     try {
       const transcript = buildTranscriptText(await readTranscript(wu.id));
       if (!transcript) {

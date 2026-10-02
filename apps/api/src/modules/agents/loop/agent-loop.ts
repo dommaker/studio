@@ -24,22 +24,22 @@ import { randomUUID } from 'crypto';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommaker/studio-agent';
 import { LocalExecutor, type Executor } from './executor.js';
-import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service.js';
-import { claimWorkUnitAndAnnounce } from '../../workunit/claim-announce.js';
+import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/index.js';
+import { claimWorkUnitAndAnnounce } from '../../workunit/index.js';
 import type { AgentProfileData, ChannelMessageData } from '@dommaker/studio-shared';
 import { isSystemRole } from '../system-role.js';
-import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
-import { knowledgeService } from '../../knowledge/knowledge-service.js';
-import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
-import type { MessageMeta } from '../../channels/channel-message.service.js';
-import { withBlockedCta } from '../../workunit/blocked-cta.js';
-import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
-import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
-import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
+import { getTriggerScheduler } from '../../triggers/index.js';
+import { knowledgeService } from '../../knowledge/index.js';
+import { postWuSystemMessage } from '../../workunit/index.js';
+import type { MessageMeta } from '../../channels/index.js';
+import { withBlockedCta } from '../../workunit/index.js';
+import { parseWuMetadata, mergedWuView } from '../../workunit/index.js';
+import { hasUnfinishedDeps, buildStatusById } from '../../workunit/index.js';
+import { resolvePmoBranchForWU } from '../../requirements/index.js';
 import { writeStudioEvent, resolveStudioEventsFile } from '../../../utils/studio-events.js';
 import { getErrorMessage } from '../../../utils/errors.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart, emitWorkUnitFailedEvent } from './execution-step-events.js';
-import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/current-wu-context.js';
+import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/index.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
 import { prepareRecordBookkeeping } from './result-bookkeeping.js';
@@ -62,7 +62,7 @@ import { handleDelegateBranch } from './delegate-branch.js';
 import { shouldResumeSession } from './session-resume.js';
 import { runStepRetry, resetUnestablishedSessionBookkeeping, MAX_SESSIONS_PER_WU } from './step-retry-policy.js';
 import { WuLeaseTracker } from './wu-lease.js';
-import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcript-archive.js';
+import { appendTranscriptStep, transcriptPath } from '../../transcripts/index.js';
 import { getStore } from '../../../core/store.js';
 
 
@@ -615,7 +615,7 @@ export class AgentLoop {
       // project.service 走动态 import：避免与 pmo/workunit 模块链形成加载期循环依赖（同 monitoring.service 的 lazy 惯例）
       const ctx = currentWorkUnitId
         ? (await loadCurrentWuContexts(this.fileStore, [currentWorkUnitId], async () => {
-            const mod = await import('../../pmo/project.service.js');
+            const mod = await import('../../pmo/index.js');
             return mod.projectService.list({ limit: 100000 });
           }).catch(() => new Map())).get(currentWorkUnitId) ?? null
         : null;

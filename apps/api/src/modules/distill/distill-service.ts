@@ -48,19 +48,19 @@ import {
   type DistillReviewAdapters,
   type GcProposal,
 } from './review-adapters.js';
-import { submitProposal } from '../review-proposal/service.js';
-import type { ApproveOutcome } from '../review-proposal/registry.js';
-import type { ReviewProposalRecord } from '../review-proposal/store.js';
+import { submitProposal } from '../review-proposal/index.js';
+import type { ApproveOutcome } from '../review-proposal/index.js';
+import type { ReviewProposalRecord } from '../review-proposal/index.js';
 import { generateGcCandidates } from './gc-candidates.js';
-import { getSystemExecutor } from '../agents/system-executor.js';
+import { getSystemExecutor } from '../agents/index.js';
 import {
   tokenBudgetGuardEnabled,
   resolveDailyTokenBudget,
   getDailyTokenUsage,
-} from '../agents/loop/daily-token-budget.js';
+} from '../agents/index.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
 import { getErrorMessage } from '../../utils/errors.js';
-import type { WorkUnitData } from '../workunit/workunit.service.js';
+import type { WorkUnitData } from '../workunit/index.js';
 
 export type { DistillRun } from './distill-runs.js';
 export type { GcCandidate } from './gc-candidates.js';

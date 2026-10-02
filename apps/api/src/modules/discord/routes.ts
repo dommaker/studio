@@ -8,7 +8,7 @@
 import express, { Router, Request, Response } from 'express';
 
 import { logger } from '../../utils/logger.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
+import { WorkUnitService } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
 
 const router = express.Router();

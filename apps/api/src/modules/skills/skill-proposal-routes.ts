@@ -24,7 +24,7 @@ import {
 } from '@dommaker/studio-contract';
 import { skillExtractionService } from './skill-extraction.service.js';
 import { logger } from '@dommaker/studio-shared';
-import { channelMessageService } from '../channels/channel-message.service.js';
+import { channelMessageService } from '../channels/index.js';
 import { skillStore } from './skill-store.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { defineRoute, HttpError } from '../../core/http.js';

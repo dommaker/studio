@@ -17,8 +17,8 @@
  * 如需收紧另议。
  */
 import { eventBus, logger, writeStudioEvent } from '@dommaker/studio-shared';
-import { readTranscript } from '../transcripts/transcript-archive.js';
-import type { WorkUnitData } from '../workunit/workunit.service.js';
+import { readTranscript } from '../transcripts/index.js';
+import type { WorkUnitData } from '../workunit/index.js';
 
 /**
  * skill 全文路径痕迹：匹配 `skills/<name>/SKILL.md`（绝对/相对路径均可命中）。

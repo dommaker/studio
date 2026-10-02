@@ -10,7 +10,7 @@ export async function seedBuiltinSkillsStep(): Promise<void> {
     const { seedBuiltinSkills } = await import('@dommaker/studio-skill');
     const seeded = seedBuiltinSkills();
     if (seeded.copied.length || seeded.upgraded.length) {
-      const { generateManifest } = await import('../modules/skills/manifest-generator.js');
+      const { generateManifest } = await import('../modules/skills/index.js');
       generateManifest();
     }
     logger.info('[Skills] Builtin seed done', {

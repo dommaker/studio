@@ -11,7 +11,7 @@
  */
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { ChannelMessageService } from '../channels/channel-message.service.js';
+import { ChannelMessageService } from '../channels/index.js';
 import { getStore } from '../../core/store.js';
 
 

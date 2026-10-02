@@ -6,8 +6,8 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { ANALYSIS_TASKS_MAX, INSPECTION_OPPORTUNITIES_MAX, type WorkUnitData } from '../../workunit/workunit.service.js';
-import { MAP_OPENING_FOG_MAX } from '../../pmo/map-opening.js';
+import { ANALYSIS_TASKS_MAX, INSPECTION_OPPORTUNITIES_MAX, type WorkUnitData } from '../../workunit/index.js';
+import { MAP_OPENING_FOG_MAX } from '../../pmo/index.js';
 import type { ParsedReviewReport } from './review-contract.js';
 import type { StepResult, Observations, Target } from './agent-loop.types.js';
 

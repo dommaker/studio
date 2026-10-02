@@ -14,7 +14,7 @@ const { mockExecSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
 }));
 
-vi.mock('child_process', () => ({
+vi.mock('child_process', () => ({ exec: vi.fn(),
   execSync: mockExecSync,
 }));
 

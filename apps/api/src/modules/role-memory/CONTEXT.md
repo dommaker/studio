@@ -10,6 +10,7 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `RoleMemoryStore` / `roleMemoryStore` | `role-memory.ts` | 存储服务类 + 模块单例 |
 | `readIndex` / `readTopic` | `role-memory.ts` | 读索引/读 topic；不存在返回 `''`/`null` |
 | `appendDraft` | `role-memory.ts` | 追加草稿（JSONL）；kind 白名单；review 档位 auto/manual；可选 `sourceRefs` |

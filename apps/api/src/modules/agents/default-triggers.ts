@@ -1,5 +1,5 @@
 // Default Triggers — 10 system triggers for Agent Network
-import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
+import { TriggerScheduler } from '../triggers/index.js';
 
 /** Register the 10 default system triggers */
 export function registerDefaultTriggers(registry: TriggerScheduler): void {

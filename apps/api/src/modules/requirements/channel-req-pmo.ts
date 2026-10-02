@@ -12,7 +12,7 @@
  *   （与 current-pmo「各来源独立容错、派生绝不抛出」同原则）。
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { projectService } from '../pmo/project.service.js';
+// P2-c 拆环：projectService 转闭包内动态 import（requirements→pmo 静态边清零）
 import { getStore } from '../../core/store.js';
 
 
@@ -45,7 +45,7 @@ export async function listChannelReqPmoProjects<P extends ProjectLike>(
 ): Promise<ChannelReqPmoLink<P>[]> {
   const fileStore = deps.fileStore ?? getStore();
   const getProject = deps.getProject
-    ?? (async (id: string) => (await projectService.get(id)) as unknown as P | null);
+    ?? (async (id: string) => (await (await import('../pmo/index.js')).projectService.get(id)) as unknown as P | null);
   const requirements = await fileStore.listRequirements({ channelId });
   const results = await Promise.all(requirements.map(async (req): Promise<ChannelReqPmoLink<P> | null> => {
     const projectId = (req as { projectId?: string | null }).projectId;
@@ -79,7 +79,7 @@ export async function deriveChannelReqPmo<P extends ProjectLike>(
 ): Promise<P | null> {
   const fileStore = deps.fileStore ?? getStore();
   const getProject = deps.getProject
-    ?? (async (id: string) => (await projectService.get(id)) as unknown as P | null);
+    ?? (async (id: string) => (await (await import('../pmo/index.js')).projectService.get(id)) as unknown as P | null);
   let requirements: Awaited<ReturnType<FileStore['listRequirements']>>;
   try {
     requirements = await fileStore.listRequirements({ channelId });

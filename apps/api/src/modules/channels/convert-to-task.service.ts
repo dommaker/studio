@@ -6,11 +6,11 @@
  * studio 角色绑定的 CLI；角色未配置或调用失败时 suggest 返回空建议，非阻断).
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import type { WorkUnitData } from '../workunit/workunit.service.js';
+import { WorkUnitService } from '../workunit/index.js';
+import type { WorkUnitData } from '../workunit/index.js';
 import { ChannelMessageService, channelMessageService } from './channel-message.service.js';
-import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
-import { getSystemExecutor } from '../agents/system-executor.js';
+import { resolveReqIdForDispatch } from '../requirements/index.js';
+// P2-c 拆环：getSystemExecutor 转函数内动态 import（channels→agents 静态边清零）
 import { getStore } from '../../core/store.js';
 
 
@@ -140,6 +140,7 @@ ${projectList || '(none)'}
 Return JSON only: {"title":"...","description":"...","suggestedAssigneeId":"...","suggestedProjectPath":"..."}`;
 
     // LLM 调用走 SystemExecutor（studio 角色绑定的 CLI）；角色未配置/失败由 suggest() 兜空
+    const { getSystemExecutor } = await import('../agents/index.js');
     const parsed = await getSystemExecutor().runJson<{
       title?: string;
       description?: string;

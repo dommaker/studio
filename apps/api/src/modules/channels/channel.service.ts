@@ -4,8 +4,8 @@
 import { randomUUID } from 'crypto';
 import { logger, FileStore, type ChannelData } from '@dommaker/studio-shared';
 import { clearCache } from '../../middleware/api-cache.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
+import { WorkUnitService } from '../workunit/index.js';
+import { getWorkspaceRecord } from '../workspaces/index.js';
 import { getStore } from '../../core/store.js';
 
 

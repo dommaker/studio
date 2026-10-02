@@ -13,7 +13,7 @@ const { mockExecSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
 }));
 
-vi.mock('child_process', () => ({
+vi.mock('child_process', () => ({ exec: vi.fn(),
   execSync: mockExecSync,
 }));
 
