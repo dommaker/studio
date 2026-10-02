@@ -11,6 +11,7 @@ import { auditLogger } from './middleware/audit-logger.js';
 import { optionalAuth } from './middleware/auth.js';
 import { getMetrics } from './monitoring/index.js';
 import { buildRouteTable } from './route-registry.js';
+import { mountApiDocs } from './openapi/index.js';
 import { isAllowedOrigin } from './cors-origin.js';
 import { apiRateLimit } from './middleware/rate-limit.js';
 
@@ -120,6 +121,9 @@ export async function registerRoutes(): Promise<void> {
       app.use(entry.path, entry.router);
     }
   }
+
+  // OpenAPI 文档（Phase 4：/api/docs 复活——contract zod schema 派生，路由表为端点源）
+  mountApiDocs(app, routes);
 
   // 404 处理 - 必须在所有路由之后
   app.use((req: any, res: any) => {

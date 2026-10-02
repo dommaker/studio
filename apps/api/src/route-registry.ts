@@ -52,6 +52,34 @@ export function assertRouteOrder(table: RouteEntry[], constraints: RouteOrderCon
 }
 
 /**
+ * 鉴权姿态五档（target-architecture.md §鉴权）。模块级共享数组——中间件是无状态闭包，
+ * 提升出 buildRouteTable 后行为不变，且数组引用稳定 → describeEntryAuth 可按引用判别姿态。
+ */
+const AUTH = [requireAuth()];
+// 2026-07 API 鉴权收紧（姿态 A：保持 Lurk Wall，收紧写操作+敏感信息，详见 docs/plans/2026-07-api-auth-tightening.md）
+// P2-e 声明式统一：写端点通用姿态 = 登录 + 非 Guest；读开放的路由走 open entry（生产 Lurk Wall 兜底）。
+const AUTH_NOT_GUEST = [requireAuth(), requireNotGuest()];
+const ADMIN = [requireAuth(), requireAdmin()];
+const LOCALHOST = [requireLocalhost()];
+
+export type AuthPosture = 'open' | 'auth' | 'authNotGuest' | 'admin' | 'localhost';
+
+/**
+ * 判别 entry 的鉴权姿态（OpenAPI 派生用）：entry.middleware 与模块级姿态数组同一引用即该档；
+ * 无 middleware = open（含混合粒度留路由内的例外面，语义见各 entry 注释）。
+ */
+export function describeEntryAuth(entry: Pick<RouteEntry, 'middleware'>): AuthPosture {
+  const mw = entry.middleware;
+  if (!mw || mw.length === 0) return 'open';
+  if (mw === AUTH) return 'auth';
+  if (mw === AUTH_NOT_GUEST) return 'authNotGuest';
+  if (mw === ADMIN) return 'admin';
+  if (mw === LOCALHOST) return 'localhost';
+  // 兜底：非共享数组的自定义组合（当前不存在，防御未来绕过姿态声明直挂 middleware）
+  return 'open';
+}
+
+/**
  * 构建完整路由表（延迟加载，避免循环依赖）
  */
 export async function buildRouteTable(): Promise<RouteEntry[]> {
@@ -196,12 +224,10 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // #525 P2-6: 通知渠道配置（/settings「通知渠道」配置区，消费方 = notifyAlert 告警外推）
   const { default: notifyChannelRoutes } = await import('./modules/notify-channels/routes.js') as { default: Router };
 
-  const auth = [requireAuth()];
-  // 2026-07 API 鉴权收紧（姿态 A：保持 Lurk Wall，收紧写操作+敏感信息，详见 docs/plans/2026-07-api-auth-tightening.md）
-  // P2-e 声明式统一：写端点通用姿态 = 登录 + 非 Guest；读开放的路由走 open entry（生产 Lurk Wall 兜底）。
-  const authNotGuest = [requireAuth(), requireNotGuest()];
-  const admin = [requireAuth(), requireAdmin()];
-  const localhost = [requireLocalhost()];
+  const auth = AUTH;
+  const authNotGuest = AUTH_NOT_GUEST;
+  const admin = ADMIN;
+  const localhost = LOCALHOST;
 
   const table: RouteEntry[] = [
     // 认证

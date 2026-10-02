@@ -64,6 +64,17 @@ export interface RouteOptions {
 }
 
 /**
+ * defineRoute 挂在返回 handler 上的 schema 元数据（OpenAPI 派生用，apps/api openapi/）。
+ * 非枚举 Symbol 键，不影响序列化与中间件组合行为。
+ */
+export const ROUTE_SCHEMA_META: unique symbol = Symbol('studio.routeSchemaMeta');
+export interface RouteSchemaMeta {
+  schema: RouteSchema;
+  /** 成功状态码（RouteOptions.status，缺省 200；204 = 无响应体） */
+  status: number;
+}
+
+/**
  * A2A §4.4: 调用方 authorType 识别（body.authorType 优先，其次 x-author-type header）。
  * 与讨论空间发帖的 authorType 字段同约定；UI/人类调用不发送该字段 → 'human'。
  * （自 workunit/http-helpers.ts 上浮——workunit 域迁移契约驱动后，human-only 守卫
@@ -140,7 +151,7 @@ export function defineRoute<S extends RouteSchema>(
   const opts: RouteOptions = typeof options === 'function' ? {} : options;
   const fn = (typeof options === 'function' ? options : handler)!;
 
-  return async (req: Request, res: Response): Promise<void> => {
+  const wrapped = async (req: Request, res: Response): Promise<void> => {
     try {
       const input = {
         params: schema.params ? schema.params.parse(req.params) : req.params,
@@ -171,4 +182,8 @@ export function defineRoute<S extends RouteSchema>(
       sendMappedError(res, error, opts.errors ?? []);
     }
   };
+  // OpenAPI 派生：schema/成功状态码随 handler 走，openapi/discover.ts 从路由栈读回
+  const meta: RouteSchemaMeta = { schema, status: opts.status ?? 200 };
+  Object.defineProperty(wrapped, ROUTE_SCHEMA_META, { value: meta });
+  return wrapped;
 }

@@ -10,6 +10,7 @@
  */
 
 export * from './envelope.js';
+export * from './openapi.js';
 export * from './workunit.js';
 export * from './channels.js';
 export * from './requirements.js';
