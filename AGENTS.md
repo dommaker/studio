@@ -122,7 +122,12 @@ pnpm start  # 启动生产服务
 |------|------|
 | `apps/api/src/modules/action-center` | 统一行动中心（#468）：一个端点回答「现在需要我做什么」。GET /api/v1/action-center（requireAuth + requireNotGuest）返回三段：stateItems（状态派生：reply=bloc... |
 | `apps/api/src/modules/admin` | 提供 REST API 端点检查 CLAUDE.md 和 CAPABILITIES.md 的文档新鲜度，包括文件是否存在、最近修改时间、harness 约束检查结果，用于监控文档同步状态。 |
-| `apps/api/src/modules/agents` | Agent 配置（profile）、运行实例（instance）、决策循环（loop）及内部审计 Agent（Auditor/Monitor/Knowledge/Triage/Ops）编排。REST API CRUD + 事件驱动自动... |
+| `apps/api/src/modules/agent-auditor` | Auditor Agent（P2-d 刀4 自 modules/agents/auditor 提升为顶层模块）：24h 日审跨任务审计——错误归类/技能建议/知识健康 → 低风险自动应用 / 人审确认卡片 / Resolution /... |
+| `apps/api/src/modules/agent-knowledge` | 知识维护 Agent（P2-d 刀7 自 modules/agents/knowledge 提升为顶层模块）：知识库冷启动导入 + 每日维护。命名 agent-knowledge 以区别于顶层 knowledge 模块（知识引擎：Pr... |
+| `apps/api/src/modules/agent-loop` | 决策循环与 WU 执行链（P2-d 刀5 自 modules/agents/loop 提升为顶层模块）：AgentLoop 循环编排（observe → 过滤 → claim → agentStep → recordResult →... |
+| `apps/api/src/modules/agent-monitor` | Monitor Agent（P2-d 刀6 自 modules/agents/monitor 提升为顶层模块）：5min 轮询健康监控 + 渐进告警 + 轨迹评估/每日洞察 + 知识沉淀闸门与每日 TTL 清理 + 实例超时巡检。命名... |
+| `apps/api/src/modules/agent-ops` | 进程级守护（P2-d 刀3 自 modules/agents/ops 提升为顶层模块）：preflight 启动检查、health 轮询自愈、代理守护、默认数据 ensure。OpsService 由 bootstrap/servic... |
+| `apps/api/src/modules/agents` | Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言门面、default-provid... |
 | `apps/api/src/modules/audit-logs` | 提供审计日志的查询与统计 API 端点，支持按用户、角色、公司、操作类型、资源、状态、时间范围等条件过滤，并支持分页查询和统计汇总。 |
 | `apps/api/src/modules/auth` | 负责 API 用户认证与会话管理，包括注册、登录、Guest Session 创建、认证状态查询及 JWT 令牌管理。同时集成 OAuth 认证流程（参见 oauth.routes.ts 与 oauth.service.ts）和邮件验... |
 | `apps/api/src/modules/builtin-tools` | 提供一组内置工具（文件操作、搜索、执行、通信）的元数据定义与 RESTful 路由，供上层服务注册和调用。工具列表静态注册在 routes.ts 中，每个工具包含名称、描述、分类、输入 schema 与启用状态。 |
@@ -152,7 +157,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/skills` | skills 模块负责技能（Skill）的完整生命周期管理，包括基于文件的技能元数据存储（SkillStore）、技能目录扫描与加载（manifest-loader）、基于描述的技能匹配（skill-selector）、从 WorkU... |
 | `apps/api/src/modules/specs` | 提供 Specs 模块的 HTTP API 路由，包括变更分析、变更历史查询和门禁验证。遵循 SP-002 变更分级流程，通过调用外部 SDK 中的服务处理 Spec 变更相关的业务逻辑。 |
 | `apps/api/src/modules/transcripts` | transcript 归档器（#97，#88 子票）：把会话原文落盘到数据区（经 studioDir()/studioPath()），供四个消费方共用——#99 WU 收尾批量提取（要全文）、handoff 摘要（要对话）、#85 执... |
-| `apps/api/src/modules/triage` | 实现错误的分类（triage）与严重度评估，提供策略路由（auto_retry / manual_fix / escalate / ignore），支持开发者错误和系统级事件的分类。 |
+| `apps/api/src/modules/triage` | 错误分类（triage）与严重度评估 + Triage Agent 事件响应。两层同域合并（P2-d 刀2，agents 超级域拆分）： |
 | `apps/api/src/modules/triggers` | Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus）两类条件的触发器调度与持久化，动作包括 CREATE WorkUnit / UPDATE / EXECUTE。系统默... |
 | `apps/api/src/modules/workspaces` | 本机 Workspace 记录的自动注册与查询（只读 list/get + 删除）、CLI 运行时清单扫描。Token 管理已随 #481 退役删除。 |
 | `apps/api/src/modules/workunit` | WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 NEED_INPUT 挂起/恢复与超时提醒。 |

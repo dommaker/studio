@@ -2,34 +2,34 @@
 
 ### 职责
 
-Agent 配置（profile）、运行实例（instance）、决策循环（loop）及内部审计 Agent（Auditor/Monitor/Knowledge/Triage/Ops）编排。REST API CRUD + 事件驱动自动挂载/运行/终止。
+Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言门面、default-provider/default-triggers、session-summary）。REST API CRUD + 事件驱动自动挂载/运行/终止。
+
+P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 超级域五个子系统 + Triage 已拆分为顶层模块——决策循环 `modules/agent-loop`、健康监控 `modules/agent-monitor`（含 instance-timeout-scan）、日审 `modules/agent-auditor`、进程守护 `modules/agent-ops`、知识维护 `modules/agent-knowledge`、Triage 并入 `modules/triage`。
 
 ### 目录结构
 
-- `loop/` - ~~决策循环与 WU 执行链~~（P2-d 刀5 已提升为顶层 modules/agent-loop，dispatch-reconciliation 随迁）
-- `auditor/` - ~~Auditor Agent~~（P2-d 刀4 已提升为顶层 modules/agent-auditor）
-- `monitor/` - ~~Monitor Agent~~（P2-d 刀6 已提升为顶层 modules/agent-monitor，instance-timeout-scan 随迁）
-- `ops/` - ~~进程级守护~~（P2-d 刀3 已提升为顶层 modules/agent-ops）
-- `knowledge/` - ~~知识维护 Agent~~（P2-d 刀7 已提升为顶层 modules/agent-knowledge）
-- `triage/` - ~~Triage Agent~~（P2-d 刀2 已并入顶层 modules/triage：triage.service；incident-store = incidents.jsonl append-only；#468 incident-notification.ts：incident.created/escalated 落 NotificationService type=incident（severity 进 content 首行），取代断裂的 SSE 桥）
-- 根目录 - 共享与 CRUD：routes、agent-profile/*、agent-instance/*、token-usage/*、default-provider、default-triggers、system-executor、session-summary.service、requirement-gate（P2-d 刀1：types.ts 拆分删除——Triage 类型归 triage/types.ts、MonitorAlert 类型归 monitor/types.ts；exec-async 下沉 core/；死文件 wu-test-guards/agent-knowledge-analysis 删除）
+- `agent-profile.routes.ts` / `agent-profile.service.ts` — profile CRUD + 角色 preset 浮出水面 + 删除反向收敛引用
+- `agent-instance.routes.ts` / `agent-instance.service.ts` — 运行实例 CRUD + isOnline/最新 error 聚合（summarizeRoleStates 单源）
+- `token-usage.routes.ts` / `token-usage.service.ts` — 角色级 token 视图（30d 窗口读口）
+- `routes.ts` — ⚠️ LEGACY agents-registry 路由（web 消费方已清 #347，勿扩展）
+- `default-provider.ts` — provider 默认选取 + backfillProfileProviders
+- `default-triggers.ts` — 10 个系统 trigger（inspection-scan/dispatch-reconciliation/doc-semantic-review/#523 workunit-gate-escalation 等）
+- `system-executor.ts` — SystemExecutor 系统级 LLM 直调（读 studio 角色 provider，轻量 spawn 无状态；6+ 模块经 barrel 消费）
+- `system-role.ts` — 系统角色断言门面（正本 core/system-role.ts）
+- `session-summary.service.ts` — 会话级知识提取（daemon 启动/6h 增量，纯代码无 LLM）
 
 ### 核心导出
 
-- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
-- `monitor/` - ~~monitor 全系~~（P2-d 刀6 迁出至 modules/agent-monitor，详目见该模块 CONTEXT；门面，5min 轮询健康监控+渐进告警）、monitor-probes（WU 级探测：失败趋势/停滞/超时/池停滞/评审停滞/僵尸认领守卫——#464 起 stale_claim_guard 命中除告警外同步向 WU 所在频道发「已沉睡」milestone 提醒，频率同 staleGuardBlockedAt 标记生命周期；#610 起 expireTriggerPendingWorkUnits——trigger 建单（metadata.triggerSource==='trigger-registry'）pending 超期未确认自动关闭，阈值 TRIGGER_PENDING_EXPIRY_DAYS 默认 7 天，先 updateMetadata 落 autoClosedBy/autoClosedAt 留痕再走 close 单口，人工建的 pending 单不受影响，decision/spec/plan 豁免（裁剪状态机无 closed 边））、monitor-system-probes（系统/知识级探测与自修复；#409 起 worktree GC 唯一入口 gcStaleWorktrees——7d 阈值、目录按调用时解析 WORKTREES_DIR>~/worktrees、prune 走 execAsync、不调 git worktree remove；#611 起 checkKnowledgeHealth 日级门控含 consumption 归零告警——连续 3 天无 knowledge:consumption 事件 → monitor:alert warning，source=knowledge_consumption_silence）、monitor-alerts（告警分发/Triage 升级，指纹冷却去重 w4h/c1h）、monitor-reports（轨迹评估/每日洞察/交互观察）、monitor-lifecycle（知识沉淀闸门+每日 TTL 清理；#653 起 studio-events.jsonl 的 7d 截断/30d 已沉淀清理/每日 precipitated 打标三处全量重写已删——与 #173 轮转冲突且非原子无锁，事件保留执法归 studio-events-rotation 单口，本模块不再读写事件文件）
-- `ops/` - ~~ops.service~~（P2-d 刀3 迁出至 modules/agent-ops，详目见该模块 CONTEXT；preflight 启动检查/health 轮询自愈/代理守护/默认数据 ensure；#409 起 worktree GC 已归一到 monitor-system-probes.gcStaleWorktrees 单实现，Ops 版 cleanupWorktrees 及其 hourly 挂载删除；#571 起 frontend dist 检查委托 utils/frontend-dist.ts——npm 形态缺 dist = 包损坏 critical abort，auto-build 仅 monorepo dev 形态保留）、createHealthRoutes（/healthz 健康端点）、proc-probes（#344：/proc 系统探测单出口——statfs 磁盘/meminfo 内存//proc/*/stat 僵尸//proc/loadavg，零子进程；#374 起 ops.getStatus、monitor systemHealthCheck、ops preflight 磁盘检查三处同源委托；#418 起 +readProcessCmdline/countProcessesByCmdline/listPidsByCmdline/listZombieProcesses 四导出，triage.service 与 knowledge/env-snapper 探测同源）
-- `auditor/` - ~~auditor.service~~（P2-d 刀4 迁出至 modules/agent-auditor，详目见该模块 CONTEXT；门面，24h 日审跨任务审计）、auditor-rules（错误归类/技能建议/知识健康；#523 起 OKR 低达成建 okr_proposal 单收口 WorkUnitService.create——原 commitSnapshot 直写不发 eventBus 事件，对唤醒体系隐形）、auditor-execution（低风险自动应用/确认卡片经 review-proposal 正本发卡/Resolution/Triage 升级；#439 起铃铛通知 link 带消息粒度——发卡后按 proposalId 反查卡消息拼 `?highlight=<mid>`，link 构造唯一出口 `buildAuditorNotificationLink`，反查不到降级频道粒度不阻断；#591 起低风险自动应用逐建议落 auto_apply 决策埋点——audit-logs 轨，一次运行共享 runId=requestId，依据=risk+detail 摘要，失败 status=failure 不阻断后续建议）、auditor-reports（行为趋势/七日趋势/tier 反馈）、review-adapter（#356：auditor_suggestion 卡接线 review-proposal 正本，kind=auditor，onApprove 建未指派 task 工单——自旧 channels/card-decision.service 搬入；审批走通用端点 /review-proposals/auditor/:id/*；`findAuditorCardMessageId` = 按提案 id 反查卡消息唯一出口，onApprove 原卡链接与 #439 通知 link 共用）
-- `knowledge/` - ~~knowledge-curator 全系~~（P2-d 刀7 迁出至 modules/agent-knowledge，详目见该模块 CONTEXT；门面，冷启动+每日维护）、knowledge-extraction（提取 prompt 单一来源）、knowledge-cold-start（四源导入 docs/code/git/manual）、knowledge-maintenance（语义去重/质量评估/过期验证/矛盾审查）
-- `loop/` - ~~agent-loop 全系~~（P2-d 刀5 迁出至 modules/agent-loop，详目见该模块 CONTEXT；循环编排，导出面 = AgentLoop + StepResult；#544 拆除 re-export 门面，子模块符号由真属主直出；#363：原 start() 同角色 terminated 启动清理已拆除，回收归 instance-timeout-scan）、agent-loop.types（类型契约，纯类型零运行时）、agent-loop-registry（profileId→running AgentLoop 注册表，profile 生命周期事件驱动挂载/卸载；#634：active→active 且 changedFields 含 provider → 重挂——停旧 loop、waitForStop 等当前步跑完+terminated 落盘后读 store 现值重挂，per-profile 串行链排队，探测失败落 failed 不回退，等待期间停用/删除则放弃重挂）、agent-loop-parsers（输出解析+prompt 模板纯函数）、agent-loop-events（tokens/tool:call 落盘，provider 分流 usage；#602 D4：tool:call 写真实 success（tool_result 配对，无配对缺省不编造）+ caller=role.id——旧恒 true/agent-loop 是埋点 bug；#320 起 workunit:tokens 落盘后顺带 `noteTokenLedgerWritten` 更新 token 账本 `utils/token-ledger`，失败隔离）、agent-loop-guards（测试 WU 守卫+excludeAssignee）、step-guards（#541 入口守卫链：B2 测试 WU / #585 需求+AC / C3 日预算 / #162 WU 预算 / #471 plan 额度，Ctx/Deps/Outcome 对称 completion-gates，agentStep 注入副作用 deps）、step-retry-policy（#543 步执行重试策略：#94 续用丢失降级 + #96 上下文溢出两段孪生骨架收敛为 runStepRetry 一份，Ctx/Deps/Outcome 同 step-guards，MAX_SESSIONS_PER_WU 与 resetUnestablishedSessionBookkeeping 正本在此，fake executor 直测占额/簿记）、claim-fitness（认领前适任判断，决策 14；2026-09-25 起 ensureClaimFit 对每次涌现判定落 `agent:claim_fitness` 台账事件——fit/reason/durationMs/roleId/wuType，fire-and-forget，为后续生产侧路由/单候选豁免/轻模型三方向攒裁决数据）、daily-token-budget（每日 token 预算熔断，C3）、delegate-branch（A2A DELEGATE 分支委派政策判定）、prompt-composer（prompt/上下文组装，分段软定额截断）、session-resume（会话续用判定，#94）、wu-lease（WU 租约/fencing 追踪器，#209）、lease-heartbeat（WU 租约心跳 30s，fencing 校验）、context-overflow（溢出识别+滚动摘要）、executor（Executor 接口，LocalExecutor 委托 agentRunner）、execution-step-events（步级事件落盘+步内流式 SSE）、wu-verification（自动验证可复用实现）、completion-gates（收口守卫链：提交/子任务/空diff/契约产物/验证/软观测）、result-bookkeeping（#655 recordResult 簿记段：stepCount/consecutiveStuck 推导、F5 挂起标记、B4 blocked 原因、#170 锁内合并 mutator 工厂，纯函数零 deps；mutator 引用闭包 guardUpdates 保真 F6-c 后置 mutate）、completion-harvest（#542 per-WU-type COMPLETE 收割注册表：type→收割器组，review/analysis|plan/decision/spec 五键，新 type=注册一行，单收割器抛错仅跳过）、review-contract（verdict 语义单一来源 pass/reject/needs-info）、review-dispatcher（状态机驱动 review 系统代派，AC-4.1~4.5）
-- 根目录 - default-triggers（10 个系统 trigger：inspection-scan/dispatch-reconciliation/doc-semantic-review/#523 workunit-gate-escalation 等）、default-provider（provider 默认选取）、instance-timeout-scan（心跳过期 5min 扫描+pid 复核；#363：统一回收 terminated 实例——跨角色 deleteState 连带判空删目录，闭环实例目录生命周期）、dispatch-reconciliation（派工/评审断链 5min 对账；#523 起自愈补建/重派成功本频道出声「断链已自愈」，告警/失败仍只走 #62 告警管线）
+- `index.ts` — 模块公共出口 barrel：`AgentInstanceService`/`INSTANCE_ALIVE_TIMEOUT_MS`/`summarizeRoleStates`、`ensureStudioProfile`、`backfillProfileProviders`、`registerDefaultTriggers`、`sessionSummaryService`、`getSystemExecutor`/`StudioRoleNotConfiguredError`、`isSystemRole`/`STUDIO_ROLE_NAME`、`aggregateTreeTokens`/`sumTokensForWorkUnits`
 
 ### 依赖关系
 
-- 上游：`@dommaker/studio-shared`（eventBus/FileStore/logger/memoryStore）、`@dommaker/studio-agent`（agentRunner/AgentTask）、`../workunit`/`../knowledge`/`../triggers`/`../workspaces`、子模块 auditor/*
-- 下游：`apps/api/src`（路由挂载+启动初始化）、`modules/knowledge`（依赖 knowledge-agent.service）、`modules/workunit`（waiting-input.ts 引用 agent 实例）
+- 上游：`@dommaker/studio-shared`、`@dommaker/studio-agent`（routes.ts legacy registry）、`core/`（store/system-role）、`modules/workunit`（实例-WU 聚合、token 聚合）、`modules/triggers`（default-triggers）、`middleware/`、`utils/`
+- 下游：`route-registry.ts`（legacy routes + profile/instance/token-usage 三条路由线挂载）、`bootstrap/`（agent-loop/handlers/warmup 装配）、`modules/agent-loop`/`modules/agent-knowledge`（system-executor）、`modules/agent-monitor`（agent-instance 聚合）、`modules/channels`/`modules/knowledge`/`modules/distill`/`modules/role-memory`/`modules/skills`（system-executor/summarizeRoleStates 等，部分动态）
 
 ### 注意事项
+
+> P2-d 注：下列注意事项多数条目描述的运行口径（决策循环/派单链/唤醒/租约/审计/监控探测）现属各新顶层模块——循环执行见 `modules/agent-loop/CONTEXT.md`、健康监控见 `modules/agent-monitor/CONTEXT.md`、日审见 `modules/agent-auditor/CONTEXT.md`、进程守护见 `modules/agent-ops/CONTEXT.md`、知识维护见 `modules/agent-knowledge/CONTEXT.md`、Triage 见 `modules/triage/CONTEXT.md`；条目原文保留于此作详目档案，新增条目请落对应模块。
 
 - **Ops 看门狗探针语义（2026-09-21，生产假阴性自杀循环事故修复）**：`ops.service getStatus()` 探针打免鉴权 `/health`（app.ts 注册于鉴权中间件之前，不依赖任何业务路由），**收到任何 HTTP 响应（含 401/403/5xx）即判活，只有连接失败/超时才判死**——严禁改回「业务路由 + statusCode===200」判定（2026-09-15 /api/v1/channels 加 requireAuth 后恒 401 → apiResponding 恒 false → healthCheck 每 5 分钟 process.exit(1) → systemd 拉起，单日 193 次重启、真实流量物理不可达）。防回归测试：`ops/__tests__/ops-health-probe.test.ts`。已知残留假阴性面（未修，仅记录）：判死后 daemon-busy 豁免检查的 `fileStore.getIndex` 读失败被 catch 静默吞掉 → 有活跃执行 session 也照 exit
 - **Resolution 写入值域（M1，2026-09-21）**：auditor-execution `autoCreateResolutions` 与 triage.service B13-002 回写的 `createResolution` 调用，layer 一律写 harness StorageLayer 合法值 `'project'`，原 L3/L4 分层值挪进 tags 保信息（值域正本与理由见 knowledge/CONTEXT.md 同名条目）

@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-30
+> 最后更新: 2026-10-02
 
 ---
 
@@ -22,11 +22,6 @@
 | services | packages/studio-spec/src/services/ | ChangeAnalyzerService 单元测试 |
 | types | packages/studio-spec/src/types/ | Spec 变更分级类型定义 |
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
-| auditor | apps/api/src/modules/agents/auditor/ | Auditor Service — 跨任务审计 + 周期洞察 |
-| knowledge | apps/api/src/modules/agents/knowledge/ | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
-| monitor | apps/api/src/modules/agents/monitor/ | Monitor Service - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
-| ops | apps/api/src/modules/agents/ops/ | Ops Service — 系统生命周期守护 |
-| triage.service | apps/api/src/modules/agents/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | auth | apps/api/src/modules/auth/ | POST /api/v1/auth/guest-session |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
@@ -56,7 +51,6 @@
 | workspaces | apps/api/src/modules/workspaces/ | Local Workspace Registration — AS-020 P2-04 |
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
-| loop | apps/api/src/modules/agents/loop/ | Analyze agent log for knowledge search behavior. |
 | monitoring | apps/api/src/modules/monitoring/ | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | triggers | apps/api/src/modules/triggers/ | Cron Matcher — minimal cron expression evaluator (3.28c-4) |
 | workunit | apps/api/src/modules/workunit/ | WorkUnit API 路由 (AS-025 §3.28c-1, §5.16) |
@@ -152,7 +146,6 @@
 | routes | apps/api/src/modules/review-proposal/routes.ts | review-proposal/routes (#351) — 人审提案卡通用端点（approve/reject/status，kind 走注册表分发） |
 | service | apps/api/src/modules/review-proposal/service.ts | review-proposal/service (#351) — 人审提案卡生命周期（唯一正本） |
 | store | apps/api/src/modules/review-proposal/store.ts | review-proposal/store (#351) — 人审提案卡通用存取（append-only JSONL + 状态墓碑折叠） |
-| review-adapter | apps/api/src/modules/agents/auditor/review-adapter.ts | review-adapter (#356) — auditor_suggestion 提案卡 adapter（接线 review-proposal 正本） |
 | review-adapter | apps/api/src/modules/knowledge/review-adapter.ts | review-adapter (#355) — knowledge 提案审批 adapter（接线 review-proposal 正本） |
 | review-adapter | apps/api/src/modules/role-memory/review-adapter.ts | review-adapter (#353) — role-memory 人审提案 adapter（接线 review-proposal 正本） |
 | review-adapter | apps/api/src/modules/skills/review-adapter.ts | review-adapter (#354) — skills 提案审批 adapter（接线 review-proposal 正本） |
@@ -250,5 +243,12 @@
 | services | apps/api/src/bootstrap/services.ts | ── 核心服务启动（监控/审计/rollup/巡检/进化调度）── |
 | tunnel | apps/api/src/bootstrap/tunnel.ts | ── Cloudflared Tunnel — 自动重启守护 + URL 变化通知 ── |
 | warmup | apps/api/src/bootstrap/warmup.ts | ── 冷启动异步任务（全部 fire-and-forget，不阻塞启动）── |
-| agent-loop | apps/api/src/modules/agents/loop/agent-loop.ts | agent.instance.status_changed 负载唯一构造出口（#312 契约 + #318 additive pmo/startedAt）—— |
+| types | packages/studio-agent/src/services/types.ts | Executor 公共类型 |
+| types | packages/studio-agent/src/types.ts | studio-agent 类型定义 |
+| types | packages/studio-skill/src/types.ts | Skill 定义类型 |
+| incident-notification | apps/api/src/modules/triage/incident-notification.ts | incident 落通知（#468 行动中心）：incident.created/escalated 处理点同步写 |
+| incident-store | apps/api/src/modules/triage/incident-store.ts | incident-store（#255）— incidents.jsonl append-only 存储语义 |
+| triage.service | apps/api/src/modules/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
+| types | apps/api/src/modules/triage/types.ts | Triage Agent 类型定义（P2-d 自 agents/types.ts 拆分，随 triage 子系统归属） |
+| types | apps/web/src/components/pmo/types.ts | PMO 页面共享领域类型 — KR / OKR / Project |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |
