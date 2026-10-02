@@ -2,7 +2,6 @@
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useChannelStream } from '../hooks/useChannelStream';
 import { useMessageLocate } from '../hooks/useMessageLocate';
@@ -18,9 +17,8 @@ import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
 import { navigableIdsOf } from '../utils/streamView';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
-import { ChannelTopbarMenu } from '../components/channel/ChannelTopbarMenu';
-import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
-import { ChannelNeedInputChip } from '../components/channel/ChannelNeedInputChip';
+import { ChannelTopbar } from '../components/channel/ChannelTopbar';
+import { ChannelStreamHead } from '../components/channel/ChannelStreamHead';
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
@@ -30,7 +28,6 @@ import { renderSuggestionCopy } from '../utils/suggestionCopy';
 import { toast } from '../utils/toast';
 import { getSuggestionAction } from '../utils/suggestionActions';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { SkeletonText } from '../components/ui';
 import axios from 'axios';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
@@ -44,14 +41,6 @@ import type { Requirement } from '../api/requirements';
 import type { ChannelMessage, ChannelSuggestion, FileRef, SendIntent } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 import { markPageEntry, emitPageFirstRender, emitReceiptRendered } from '../utils/clientPerf';
-
-/** 视觉批次 2 ⑥：空频道态示例提示——点击走既有 prefill 通道填入输入框（不自动发送）。
- *  文案按产品 agent 命名风格（pm-agent / dev-agent / reviewer-agent），仅作起点提示，用户可改 */
-const EMPTY_EXAMPLE_PROMPTS = [
-  '@pm-agent 帮我拆解需求：',
-  '@dev-agent 修复问题：',
-  '@reviewer-agent 评审这段改动：',
-];
 
 /** #444：动作片执行错误文案——优先服务端 error 信封 message（409 拒绝原因对人可读） */
 function suggestionActionErrorMessage(e: unknown): string {
@@ -488,26 +477,14 @@ export function ChannelDetailPage() {
 
       {/* 中栏：对话流 */}
       <main className="mc-main">
-        <div className="mc-topbar">
-          <h1 className="mc-topbar-name">{formatChannelName(channel?.name || id.slice(0, 8))}</h1>
-          <span className="mc-topbar-type">
-            {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
-          </span>
-          <div className="mc-topbar-actions">
-            {/* #474：「当前 PMO」提升为顶栏可见位（原藏 ⋯ 菜单）——频道上下文标识与待办信号同排可见 */}
-            <ChannelCurrentPmoChip channelId={id} />
-            {/* #279（决策 #250 D4）/ #468：NEED_INPUT 待办 chip——数据源 = 行动中心 stateItems 投影
-                （本频道 reply 项）；E1 起为顶栏唯一待办信号位（消息头 badge 已删，见 ChannelMessageItem） */}
-            <ChannelNeedInputChip items={waitingWus} onLocate={locateWaitingQuestion} />
-            {/* E1（2026-09 页面重设计）：顶栏收敛 ⋯ 菜单——成员管理/默认工程/频道动态入口（<1024）
-                收纳进菜单；主行动点保持输入框「发送」唯一 accent */}
-            <ChannelTopbarMenu
-              channelId={id}
-              defaultPath={channel?.defaultPath}
-              onOpenActivity={() => setActRailOpen(true)}
-            />
-          </div>
-        </div>
+        {/* P3-b：顶栏装配切出 ChannelTopbar（频道名/类型 + PMO chip + 待办 chip + ⋯ 菜单） */}
+        <ChannelTopbar
+          channelId={id}
+          channel={channel}
+          waitingWus={waitingWus}
+          onLocateWaiting={locateWaitingQuestion}
+          onOpenActivity={() => setActRailOpen(true)}
+        />
 
         {/* 频道工作条（合并 #242/#322 live 实况条 + #440/#447 阶段条，docs/plans/2026-09-channel-workbar.md）：
             一条横带回答「这个频道的工作现在什么状态」；hook 自持有，step 事件只重渲该组件边界；
@@ -520,60 +497,21 @@ export function ChannelDetailPage() {
             头部高度经 streamHeadRef 量作 virtualizer scrollMargin（组合层内）；
             #531：消息体结构分支（virtual/non-virtual + spacer/translateY）在 ChannelStreamBody */}
         <div className="mc-stream" ref={streamRef} onScroll={handleStreamScroll}>
-          {/* mc-stream-head：滚动测量容器（streamHeadRef 挂点），无样式需求，结构化 hook（#431 定性保留） */}
-          <div className="mc-stream-head" ref={streamHeadRef}>
-            {loading && messages.length === 0 && (
-              // 批次 F-3：消息流首拉骨架（批次 E-2 ui/Skeleton 正本）——消息行形态
-              <SkeletonText lines={5} widths={['40%', '65%', '55%', '70%', '45%']} className="space-y-4 p-4" />
-            )}
-            {!loading && error && messages.length === 0 && (
-              // #482：首拉/兜底轮询失败——错误态 + 重试入口，与真空频道区分（原呈假空态，
-              // 用户会把加载故障误判为空频道）；已有消息时轮询失败不整屏替换，消息流保留
-              <div className="mc-stream-empty" role="alert">
-                <p>消息加载失败</p>
-                <button type="button" className="mc-empty-chip" onClick={() => { void refresh(); }}>重试</button>
-              </div>
-            )}
-            {!loading && !error && messages.length === 0 && (
-              <div className="mc-stream-empty">
-                <p>发送消息开始对话</p>
-                <p>@Agent 提及 Agent 创建任务</p>
-                {/* 视觉批次 2 ⑥：示例提示 chip——点击经既有 prefill 通道填入输入框（不自动发送），
-                    空态仅此一处渲染点（虚拟化/非虚拟化共用同一 .mc-stream 头块） */}
-                <div className="mc-empty-examples">
-                  {EMPTY_EXAMPLE_PROMPTS.map(text => (
-                    <button
-                      key={text}
-                      type="button"
-                      className="mc-empty-chip"
-                      onClick={() => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
-                    >
-                      {text}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* B2-002: Load more */}
-            {hasMore && (
-              <button onClick={handleLoadMore} className="mc-loadmore">
-                加载更早的消息
-              </button>
-            )}
-
-            {/* B2-006: collapse completed toggle */}
-            {!showCompleted && completedCount > 2 && (
-              <button onClick={() => setShowCompleted(true)} className="mc-collapse-toggle">
-                显示 {completedCount - 2} 条已完成消息
-              </button>
-            )}
-            {showCompleted && completedCount > 2 && (
-              <button onClick={() => setShowCompleted(false)} className="mc-collapse-toggle">
-                收起已完成消息
-              </button>
-            )}
-          </div>
+          {/* P3-b：头块（首拉骨架/#482 错误态/空态示例 chip/加载更早/折叠 toggle）切出
+              ChannelStreamHead——.mc-stream-head 测量容器契约（streamHeadRef 挂点）随组件承载 */}
+          <ChannelStreamHead
+            ref={streamHeadRef}
+            loading={loading}
+            error={error}
+            isEmpty={messages.length === 0}
+            onRetry={() => { void refresh(); }}
+            onPickExample={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
+            hasMore={hasMore}
+            onLoadMore={handleLoadMore}
+            completedCount={completedCount}
+            showCompleted={showCompleted}
+            onToggleCompleted={setShowCompleted}
+          />
           {/* #531：items → DOM 结构分支（virtual/non-virtual + spacer/translateY + 三 kind 分派 +
               skeleton 占位）收编 ChannelStreamBody；renderMessageItem 与 highlightId 由本页注入 */}
           {/* #547：频道消息环境 Provider——横切值经 Context 下发到每条消息项（value 全稳定引用，见上方 useMemo） */}
