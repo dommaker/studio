@@ -29,6 +29,7 @@ import type {
   CreateUnifiedEntryResult,
   ReviewProposalApproveResult,
   ReviewProposalStatusResult,
+  ReviewProposalStatusValue,
   KnowledgeSuccessResult,
 } from '@dommaker/studio-contract';
 import { api } from './index';
@@ -39,7 +40,7 @@ export type ResolutionItem = Resolution;
 /** 统一知识条目（GET /knowledge/unified 的 entries 元素） */
 export type UnifiedEntry = UnifiedKnowledgeEntry;
 /** 提案状态（与 review-proposal 正本状态词表对齐；unknown = 查无此提案） */
-export type KnowledgeProposalStatus = ReviewProposalStatusResult['status'];
+export type KnowledgeProposalStatus = ReviewProposalStatusValue;
 
 export const knowledgeApi = {
   /** proposal 待审列表（maturity=draft，按服务端默认排序） */

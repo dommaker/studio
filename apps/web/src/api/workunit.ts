@@ -41,18 +41,10 @@ export type { InspectionOpportunity as Opportunity } from '@dommaker/studio-cont
 /** 分页壳别名 = 契约 PaginatedBody（后端 formatPaginatedResponse 同形状） */
 export type PaginatedResponse<T> = PaginatedBody<T>;
 
-/** M2 成本红线度量：agent-loop 写入的 workunit:tokens 事件（payload 解析后） */
-export interface WorkunitTokenEvent {
-  workUnitId: string;
-  executionId?: string;
-  /** 注入上下文估算 tokens（estimateTokens 口径） */
-  injectedTokens: number;
-  /** 执行总 tokens；CLI 未回报 usage 时为 null（不编造 0） */
-  executionTokens: number | null;
-  executionSource?: string;
-  totalTokens: number;
-  createdAt?: string;
-}
+// 事件负载类型（WorkunitTokenEvent/ExecutionStepToolCall/ExecutionStepEvent/ExecutionStreamChunk）
+// P3-a 迁至 src/types/workunit.ts（api 层不声明导出类型），此处仅 re-export，消费方 import 路径不变。
+import type { WorkunitTokenEvent, ExecutionStepToolCall, ExecutionStepEvent, ExecutionStreamChunk } from '../types/workunit';
+export type { WorkunitTokenEvent, ExecutionStepToolCall, ExecutionStepEvent, ExecutionStreamChunk };
 
 /**
  * 从 GET /events?type=workunit:tokens 的响应行中解析某个 WorkUnit 的 token 事件。
@@ -82,37 +74,6 @@ export function parseWorkunitTokenEvents(
     }
   }
   return out;
-}
-
-/** WU 过程可视化：agent-loop 每步执行结束写入的 workunit:execution_step 事件（payload 解析后） */
-export interface ExecutionStepToolCall {
-  tool: string;
-  /** 面向人读的输入摘要（file_path / command / pattern…，已截断） */
-  summary: string;
-}
-
-export interface ExecutionStepEvent {
-  workUnitId: string;
-  executionId: string;
-  sessionId?: string;
-  /** 1 基步号 */
-  step: number;
-  action?: string;
-  /** #172（#60 决策 Q1）：本步成败（历史事件无该字段 → 缺省 success） */
-  status: 'success' | 'failed';
-  /** #172: 失败步错误分类（execution_failed 等） */
-  errorType?: string;
-  /** #172: 失败步错误详情（已截断） */
-  errorDetail?: string;
-  /** 模型思考摘要（≤3 条，已截断） */
-  thinking: string[];
-  /** 本步工具调用（≤30 条） */
-  toolCalls: ExecutionStepToolCall[];
-  /** 本步注入的 skill 名单 */
-  skills: string[];
-  text?: string;
-  usage?: { inputTokens: number; outputTokens: number; model?: string };
-  at: string;
 }
 
 /**
@@ -159,22 +120,6 @@ export function parseExecutionStepEvents(
   return out;
 }
 
-
-/** Layer B 步内流式 chunk（SSE `workunit.execution.stream`，SSE-only 无 REST 回放——落盘归档是 execution_step 的事） */
-export interface ExecutionStreamChunk {
-  workUnitId: string;
-  executionId: string;
-  step: number;
-  /** #240: 增加 tool-result（user 事件 tool_result 块提炼，与 tool chunk 按 toolUseId 配对） */
-  kind: 'step-start' | 'thinking' | 'text' | 'tool' | 'tool-result' | 'result';
-  text?: string;
-  tool?: string;
-  summary?: string;
-  /** #240: tool/tool-result 配对锚点（tool_use.id ↔ tool_result.tool_use_id） */
-  toolUseId?: string;
-  isError?: boolean;
-  at: string;
-}
 
 /**
  * 解析 SSE 信封 data → ExecutionStreamChunk（损坏/缺关键字段 → null，跳过不编造）。

@@ -15,7 +15,7 @@ import type {
 import { api } from './index';
 
 /** approve 响应 data（adapter data 透传：proposalId/appliedAt） */
-export type EvolutionApproveResponse = ReviewProposalApproveResult & {
+type EvolutionApproveResponse = ReviewProposalApproveResult & {
   proposalId?: string;
   appliedAt?: string | null;
 };

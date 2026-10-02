@@ -15,14 +15,10 @@ function buildSseUrl(): string {
   return token ? `${base}/events/stream?token=${encodeURIComponent(token)}` : `${base}/events/stream`;
 }
 
-export interface WebSocketMessage {
-  event_id: string;
-  event_type: string;
-  timestamp: string;
-  data: unknown;
-}
-
-export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+// WebSocketMessage/WebSocketStatus：P3-a 迁至 src/types/websocket.ts（api 层不声明导出类型），
+// 此处仅 re-export，消费方 import 路径不变。
+import type { WebSocketMessage, WebSocketStatus } from '../types/websocket';
+export type { WebSocketMessage, WebSocketStatus };
 
 interface UseSSEOptions {
   url?: string;

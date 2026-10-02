@@ -14,7 +14,7 @@ import type {
 import { api } from './index';
 
 /** approve 响应 data（adapter data 透传：constraintId/committed） */
-export type ConstraintApproveResponse = ReviewProposalApproveResult & {
+type ConstraintApproveResponse = ReviewProposalApproveResult & {
   constraintId?: string;
   committed?: boolean;
 };

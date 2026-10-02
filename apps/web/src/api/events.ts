@@ -14,7 +14,7 @@ import { api } from './index';
 
 export type { StudioEventLevel, StudioEventItem, EventSearchResult };
 
-export interface EventSearchParams {
+interface EventSearchParams {
   type?: string;
   level?: StudioEventLevel;
   since?: string;

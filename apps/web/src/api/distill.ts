@@ -23,7 +23,7 @@ export type DistillProposalStatus = ReviewProposalStatus;
 export type GcProposalStatus = ReviewProposalStatus;
 
 /** approve 响应 data（adapter data 透传：productIds；预算熔断 skipped） */
-export type DistillApproveResponse = ReviewProposalApproveResult & {
+type DistillApproveResponse = ReviewProposalApproveResult & {
   productIds?: string[];
   /** 预算熔断：提案保持 pending，可次日重试 */
   skipped?: 'budget-exhausted';
