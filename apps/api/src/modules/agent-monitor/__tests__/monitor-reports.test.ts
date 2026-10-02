@@ -69,7 +69,7 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
   };
 });
 
-import { evaluateTrajectory, dailyReflection } from '../monitor/monitor-reports.js';
+import { evaluateTrajectory, dailyReflection } from '../monitor-reports.js';
 
 function readEventLines(): any[] {
   if (!fs.existsSync(eventsFile)) return [];
@@ -206,7 +206,7 @@ describe('dailyReflection', () => {
       },
     }));
     vi.resetModules();
-    const { dailyReflection: dr } = await import('../monitor/monitor-reports.js');
+    const { dailyReflection: dr } = await import('../monitor-reports.js');
 
     await dr(fileStore, { lastDailyReflectionTs: 0 });
 
@@ -243,7 +243,7 @@ describe('dailyReflection', () => {
       },
     }));
     vi.resetModules();
-    const { dailyReflection: dr } = await import('../monitor/monitor-reports.js');
+    const { dailyReflection: dr } = await import('../monitor-reports.js');
 
     const fileStore = makeFileStore({
       listChannels: vi.fn(async () => [{ id: 'ch-sys', name: '#系统' }]),

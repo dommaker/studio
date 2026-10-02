@@ -9,7 +9,7 @@ export async function registerScanHandlers(): Promise<void> {
 
   // ── Agent Timeout Scan（超时释放 handler）──
   registerExecuteHandler('agent-timeout-scan', async () => {
-    const { scanStaleAgentInstances } = await import('../modules/agents/index.js');
+    const { scanStaleAgentInstances } = await import('../modules/agent-monitor/index.js');
     const result = await scanStaleAgentInstances(getStore());
     if (result.terminated > 0) logger.info(`[AgentTimeout] Terminated ${result.terminated} stale instances`);
   });

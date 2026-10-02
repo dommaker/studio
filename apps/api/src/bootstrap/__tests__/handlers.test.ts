@@ -13,7 +13,7 @@ const spies = vi.hoisted(() => ({
 vi.mock('../../modules/triggers/trigger-action.js', () => ({
   registerExecuteHandler: (name: string, fn: () => Promise<void>) => registry.set(name, fn),
 }));
-vi.mock('../../modules/agents/instance-timeout-scan.js', () => ({
+vi.mock('../../modules/agent-monitor/index.js', () => ({
   scanStaleAgentInstances: spies.scanStaleAgentInstances,
 }));
 vi.mock('../../modules/evolution/evolution.service.js', () => ({

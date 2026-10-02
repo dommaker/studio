@@ -14,8 +14,8 @@
  * 从 apps/api/src/index.ts 内联 handler 抽出，便于服务级测试。
  */
 import { logger, type FileStore } from '@dommaker/studio-shared';
-import { AgentInstanceService, INSTANCE_ALIVE_TIMEOUT_MS } from './agent-instance.service.js';
-import { dispatchMonitorAlerts, filterCooldownAlerts } from './monitor/monitor-alerts.js';
+import { AgentInstanceService, INSTANCE_ALIVE_TIMEOUT_MS } from '../agents/index.js';
+import { dispatchMonitorAlerts, filterCooldownAlerts } from './monitor-alerts.js';
 import { pidStartMatchesInstance, MAX_TIMEOUT_RELEASES } from '../workunit/index.js';
 import { WorkUnitService, type WorkUnitMetadata } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';

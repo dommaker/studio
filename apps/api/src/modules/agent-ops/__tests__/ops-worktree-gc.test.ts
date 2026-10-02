@@ -58,11 +58,11 @@ vi.mock('../../triage/index.js', () => ({
   triageService: {},
 }));
 
-vi.mock('../../agents/monitor/monitor-alerts.js', () => ({
+vi.mock('../../agent-monitor/monitor-alerts.js', () => ({
   emitMonitorEvent: vi.fn(),
 }));
 
-import { gcStaleWorktrees } from '../../agents/monitor/monitor-system-probes.js';
+import { gcStaleWorktrees } from '../../agent-monitor/monitor-system-probes.js';
 
 afterAll(() => {
   if (savedHome === undefined) delete process.env.HOME;

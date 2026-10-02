@@ -31,9 +31,9 @@ import { parseWuMetadata } from '../workunit/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
 import { AnalysisHandoff } from '../pmo/index.js';
 import { ReviewDispatcher } from './review-dispatcher.js';
-import { dispatchMonitorAlerts } from '../agents/index.js';
+import { dispatchMonitorAlerts } from '../agent-monitor/index.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
-import type { MonitorAlertSource } from '../agents/index.js';
+import type { MonitorAlertSource } from '../agent-monitor/index.js';
 import { getStore } from '../../core/store.js';
 
 

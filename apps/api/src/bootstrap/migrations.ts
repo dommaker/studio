@@ -30,7 +30,7 @@ export async function reconcileWorkUnitIndex(): Promise<void> {
     const recon = await new ReconFileStore().reconcileIndex();
     if (recon.rebuilt) {
       logger.warn('[WorkUnit] Startup reconcile: events/index diverged — index rebuilt from events', recon);
-      const { dispatchMonitorAlerts } = await import('../modules/agents/index.js');
+      const { dispatchMonitorAlerts } = await import('../modules/agent-monitor/index.js');
       dispatchMonitorAlerts([{
         source: 'wu_index_reconcile',
         level: 'warning',

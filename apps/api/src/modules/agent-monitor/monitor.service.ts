@@ -25,7 +25,7 @@ import * as systemProbes from './monitor-system-probes.js';
 import * as alerting from './monitor-alerts.js';
 import * as reports from './monitor-reports.js';
 import * as lifecycle from './monitor-lifecycle.js';
-import { getStore } from '../../../core/store.js';
+import { getStore } from '../../core/store.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 

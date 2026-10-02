@@ -134,7 +134,7 @@ export class AnalysisHandoff {
   private postConfirmGuidanceToInbox(wu: WorkUnitData, isTrigger: boolean): void {
     const hasTasks = this.taskScopes(this.readMeta(wu)).length > 0;
     // P2-c 拆环：pmo→agents 静态边转动态 import（fire-and-forget，方法签名不变）
-    void import('../agents/index.js').then(({ dispatchMonitorAlerts }) => dispatchMonitorAlerts([{
+    void import('../agent-monitor/index.js').then(({ dispatchMonitorAlerts }) => dispatchMonitorAlerts([{
       source: 'analysis_confirm',
       level: 'warning',
       relatedTaskIds: [wu.id],

@@ -11,8 +11,9 @@ import { FileStore } from '@dommaker/studio-shared';
 
 const { mockDispatch } = vi.hoisted(() => ({ mockDispatch: vi.fn() }));
 
-vi.mock('../../agents/index.js', () => ({
+vi.mock('../../agent-monitor/index.js', () => ({
   // P2-c：in-review-inbox 改经模块根 barrel 动态 import——mock 目标同步改到 barrel
+  // P2-d 刀6：dispatchMonitorAlerts 随 monitor 迁出，barrel 同步改 agent-monitor
   dispatchMonitorAlerts: (...args: unknown[]) => mockDispatch(...args),
 }));
 

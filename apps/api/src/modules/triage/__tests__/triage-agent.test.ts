@@ -40,7 +40,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 // Use dynamic import after mock setup
 const { triageService } = await import('../triage.service.js');
-const { systemHealthCheck } = await import('../../agents/monitor/monitor-system-probes.js');
+const { systemHealthCheck } = await import('../../agent-monitor/monitor-system-probes.js');
 const { foldIncidentRows } = await import('../incident-store.js');
 
 describe('TriageService + MonitorService', () => {

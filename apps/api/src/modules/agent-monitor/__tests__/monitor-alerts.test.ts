@@ -60,7 +60,7 @@ import {
   dispatchMonitorAlerts,
   escalateToTriage,
   recordAlertPatterns,
-} from '../monitor/monitor-alerts.js';
+} from '../monitor-alerts.js';
 
 function readEventLines(): any[] {
   if (!fs.existsSync(eventsFile)) return [];

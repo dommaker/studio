@@ -15,7 +15,7 @@ import { MAX_TIMEOUT_RELEASES } from '../../workunit/timeout-release.js';
 
 const { mockDispatch } = vi.hoisted(() => ({ mockDispatch: vi.fn() }));
 
-vi.mock('../monitor/monitor-alerts.js', () => ({
+vi.mock('../monitor-alerts.js', () => ({
   dispatchMonitorAlerts: mockDispatch,
   // #220：scan 侧 dispatch 前过冷却；此处透传，冷却本体由 monitor-alert-cooldown.test.ts 覆盖
   filterCooldownAlerts: (alerts: unknown[]) => alerts,

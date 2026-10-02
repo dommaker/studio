@@ -60,7 +60,7 @@ vi.mock('../../knowledge/knowledge-sync.service.js', () => ({ knowledgeSync: {} 
 vi.mock('../../knowledge/preference-observer.js', () => ({ preferenceObserver: { record: vi.fn() } }));
 vi.mock('../../triage/index.js', () => ({ triageService: { handleAlert: vi.fn() } }));
 
-import { monitorService } from '../monitor/monitor.service.js';
+import { monitorService } from '../monitor.service.js';
 import { agentRunner } from '@dommaker/studio-agent';
 
 /** Create minimal WorkUnitSnapshot for test fixtures */

@@ -83,7 +83,7 @@ vi.mock('../../triage/index.js', () => ({
   triageService: { handleAlert: mockHandleAlert },
 }));
 
-vi.mock('../monitor/monitor-alerts.js', () => ({
+vi.mock('../monitor-alerts.js', () => ({
   emitMonitorEvent: mockEmitEvent,
 }));
 
@@ -91,7 +91,7 @@ vi.mock('../../../utils/studio-events-tail.js', () => ({
   readStudioEventsSince: mockReadStudioEventsSince,
 }));
 
-vi.mock('../knowledge/knowledge-curator.service.js', () => ({
+vi.mock('../../agents/knowledge/knowledge-curator.service.js', () => ({
   knowledgeCurator: { runDailyMaintenance: mockRunDailyMaintenance },
 }));
 
@@ -102,7 +102,7 @@ import {
   runCircuitCheckAndRepair,
   gcStaleWorktrees,
   knowledgeMaintenanceEnabled,
-} from '../monitor/monitor-system-probes.js';
+} from '../monitor-system-probes.js';
 
 function stubProbes(diskUsePercent: number) {
   mockReadDiskUsage.mockReturnValue({

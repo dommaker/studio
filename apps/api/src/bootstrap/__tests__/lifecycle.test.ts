@@ -22,7 +22,7 @@ vi.mock('../../modules/knowledge/evolution-scheduler.js', () => ({
   startEvolutionScheduler: vi.fn(),
   stopEvolutionScheduler: () => calls.push('stopEvolutionScheduler'),
 }));
-vi.mock('../../modules/agents/monitor/monitor.service.js', () => ({
+vi.mock('../../modules/agent-monitor/index.js', () => ({
   monitorService: { start: vi.fn(), stop: () => calls.push('monitor.stop') },
 }));
 vi.mock('../../modules/agent-auditor/index.js', () => ({

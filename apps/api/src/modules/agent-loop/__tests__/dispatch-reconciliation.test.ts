@@ -18,7 +18,7 @@ import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../..
 
 const { mockDispatch } = vi.hoisted(() => ({ mockDispatch: vi.fn() }));
 
-vi.mock('../../agents/monitor/monitor-alerts.js', () => ({
+vi.mock('../../agent-monitor/monitor-alerts.js', () => ({
   dispatchMonitorAlerts: mockDispatch,
 }));
 

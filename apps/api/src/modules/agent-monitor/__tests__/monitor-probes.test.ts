@@ -88,7 +88,7 @@ import {
   expireTriggerPendingWorkUnits,
   checkSessionFileHealth,
   checkToolPatterns,
-} from '../monitor/monitor-probes.js';
+} from '../monitor-probes.js';
 
 function makeFileStore(overrides: Record<string, unknown> = {}): any {
   return {

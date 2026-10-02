@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const calls = vi.hoisted(() => [] as string[]);
 
-vi.mock('../../modules/agents/monitor/monitor.service.js', () => ({
+vi.mock('../../modules/agent-monitor/index.js', () => ({
   monitorService: { start: () => calls.push('monitor'), stop: vi.fn() },
 }));
 vi.mock('../../modules/agent-auditor/index.js', () => ({

@@ -33,7 +33,7 @@ export function initInReviewInbox(): void {
     if (wu.channelId || HANDLED_ELSEWHERE.has(wu.type)) return;
 
     // P2-c 拆环：workunit→agents 静态边转动态 import（回调转 async，fire-and-forget 语义不变）
-    const { dispatchMonitorAlerts } = await import('../agents/index.js');
+    const { dispatchMonitorAlerts } = await import('../agent-monitor/index.js');
     dispatchMonitorAlerts([{
       source: 'in_review_orphan',
       level: 'warning',

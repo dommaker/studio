@@ -63,7 +63,7 @@ vi.mock('../../triage/index.js', () => ({
   triageService: { handleAlert: vi.fn() },
 }));
 
-import { systemHealthCheck } from '../monitor/monitor-system-probes.js';
+import { systemHealthCheck } from '../monitor-system-probes.js';
 
 describe('MonitorService CPU load monitoring', () => {
   beforeEach(() => {

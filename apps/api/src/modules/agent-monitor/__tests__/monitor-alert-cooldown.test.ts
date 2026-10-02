@@ -35,8 +35,8 @@ import {
   alertCooldownState,
   alertFingerprint,
   filterCooldownAlerts,
-} from '../monitor/monitor-alerts.js';
-import type { MonitorAlert } from '../monitor/types.js';
+} from '../monitor-alerts.js';
+import type { MonitorAlert } from '../types.js';
 
 const T0 = 1_760_000_000_000;
 
