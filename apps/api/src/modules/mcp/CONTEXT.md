@@ -40,6 +40,7 @@
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `getToolSchemas(audience?)` — 获取 tool 的 JSON schema（不含 handler）；audience='external' 只出 exposure=external 子集，缺省全量
 - `executeTool(name, input, roleId?, traceCtx?)` — 按名称执行 tool（含权限检查 + 限流 + 审计）
 - `MCPToolRegistry` / `toolRegistry` — Tool 注册与生命周期管理

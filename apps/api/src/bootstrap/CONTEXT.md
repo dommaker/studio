@@ -10,7 +10,7 @@
 - `config.ts` — `initConfig()`（PORT/HOST 解析 → warnIfNonProdUsesProdRoot → loadConfig 注入 STUDIO_CONFIG_DIR .env）+ `getPort()/getHost()`
 - `migrations.ts` — `runDataMigrations()`（数据区 schema 迁移，失败抛 MigrationError = 拒启）+ `reconcileWorkUnitIndex()`（#170 启动对账，失败不阻断）
 - `seed.ts` — `seedBuiltinSkillsStep()`（#223 内置 skill 播种，best-effort）
-- `warmup.ts` — `startWarmupTasks()`（冷启动异步任务：GAP-16/RKB/SessionSummary/#173/#213/#327/G-002/G-003/P1b）+ `startPostRoutesWarmup()`（§9.5 members 迁移 / AS-020 本地 workspace 注册）
+- `warmup.ts` — `startWarmupTasks()`（冷启动异步任务：GAP-16/RKB/SessionSummary/#173/#213/#327/G-002/G-003/P1b；P2-c 起同一 barrel 的多次动态 import 合并为单次——少一次重复模块求值，并消除 vitest 同模块并发动态 import 的 mock 竞态）+ `startPostRoutesWarmup()`（§9.5 members 迁移 / AS-020 本地 workspace 注册）
 - `services.ts` — `startCoreServices()`（monitor → auditor → RequirementRollup → PmoProgressRollup → OpsService → EvolutionScheduler）
 - `bridges.ts` — `initEventSubscriptions()`（ReviewDispatcher → DistillLoop 共 11 项 workunit.status_changed 等事件订阅，单项失败不阻断）
 - `agent-loop.ts` — `startAgentLoops()`（AS-026：内置角色幂等创建 → provider 回填 → scheduler.start → 注册系统触发器（standby 跳过）→ bridges → 挂载 loop → assignee 自检）+ `sweepEmptyAgentDirs()`（#363）

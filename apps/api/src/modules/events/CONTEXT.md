@@ -8,6 +8,7 @@
 
 | 模块 | 路由 | 用途 |
 |------|------|------|
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | event.routes.ts | POST /api/v1/events | 创建 StudioEvent |
 | event.routes.ts | GET /api/v1/events | 查询 StudioEvent（requireAuth；#180 起：type/since/until/level/keyword/workUnitId 过滤 + 尾部倒读游标分页 `cursor`→`nextCursor`，替代全文件线性扫 + 200 硬顶；level 缺省 ≥info，level=debug 看全部；倒读实现 `../../utils/studio-events-tail.ts`） |
 | event.routes.ts | POST /api/v1/events/agent-events | 批量写入 AgentEvent[] |

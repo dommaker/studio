@@ -10,6 +10,7 @@ GC 候选清单：蒸馏运行后按周期计龄--reference/context 层连续 3 
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `distill-threshold.ts` -- 门槛检测纯函数 + 阈值常量（3/5/7/20）
 - `distill-service.ts` -- 编排（subscribe/maybePropose/runGcCheck）+ prompt + 产出解析 + 两 adapter 审批后动作（executeDistill/executeGc + reject 留痕）
 - `distill-landings.ts` -- 两通道落地实现：skills 提案 / 角色记忆草稿
