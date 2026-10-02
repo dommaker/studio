@@ -29,6 +29,7 @@ P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 
 
 ### 注意事项
 
+- **fs 直写保留理由（P2-e 登记）**：`session-summary.service.ts` 的 `session-checkpoint.json`（根级检查点，契约 §8 登记条目）为同步写，布局冻结不改 FileStore 域方法；路径经 `studioPath()`。
 > P2-d 注：下列注意事项多数条目描述的运行口径（决策循环/派单链/唤醒/租约/审计/监控探测）现属各新顶层模块——循环执行见 `modules/agent-loop/CONTEXT.md`、健康监控见 `modules/agent-monitor/CONTEXT.md`、日审见 `modules/agent-auditor/CONTEXT.md`、进程守护见 `modules/agent-ops/CONTEXT.md`、知识维护见 `modules/agent-knowledge/CONTEXT.md`、Triage 见 `modules/triage/CONTEXT.md`；条目原文保留于此作详目档案，新增条目请落对应模块。
 
 - **Ops 看门狗探针语义（2026-09-21，生产假阴性自杀循环事故修复）**：`ops.service getStatus()` 探针打免鉴权 `/health`（app.ts 注册于鉴权中间件之前，不依赖任何业务路由），**收到任何 HTTP 响应（含 401/403/5xx）即判活，只有连接失败/超时才判死**——严禁改回「业务路由 + statusCode===200」判定（2026-09-15 /api/v1/channels 加 requireAuth 后恒 401 → apiResponding 恒 false → healthCheck 每 5 分钟 process.exit(1) → systemd 拉起，单日 193 次重启、真实流量物理不可达）。防回归测试：`ops/__tests__/ops-health-probe.test.ts`。已知残留假阴性面（未修，仅记录）：判死后 daemon-busy 豁免检查的 `fileStore.getIndex` 读失败被 catch 静默吞掉 → 有活跃执行 session 也照 exit

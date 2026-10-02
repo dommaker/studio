@@ -16,8 +16,9 @@
  *
  * 读路径（#404，缓存 seam 决策树第 1 问）：索引/topic 正文/目录清单全部走 FileStore
  * 读穿 seam（readDoc/mdCache + getStore().readdir/dirCache，mtime 校验），模块内无裸 fs 读；
- * 命中返回结构克隆（#343 语义基线，调用方原地改返回对象不污染缓存）。写路径不动
- * （mergeIntoTopic/rebuildIndex 裸 writeFile），失效靠 mtime 校验兜底。
+ * 命中返回结构克隆（#343 语义基线，调用方原地改返回对象不污染缓存）。写路径（P2-e）：
+ * topic 正文走 writeDoc seam（写后失效缓存，与读路径闭环）；MEMORY.md 索引保留裸 fs 写
+ * ——无 frontmatter，writeDoc 会强加空 fence 改变形态（详见 rebuildIndex 注释）。
  *
  * 容量上限 + GC：超限只提醒（checkCapacity 返回结构化 signal），不落新人罪（不拒绝写入）、
  * 不自动删。GC 最简 = 超限提醒人合并 topic / 淘汰草稿。
@@ -33,7 +34,7 @@
 import fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { FileStore, foldJsonlById, serializeFrontmatter } from '@dommaker/studio-shared';
+import { foldJsonlById } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { isTestEnv, testTmpRoot } from '../../utils/studio-log-path.js';
 import { getStore } from '../../core/store.js';
@@ -292,10 +293,6 @@ export class RoleMemoryStore {
     return path.join(roleMemoryDir(roleId), 'topics');
   }
 
-  private topicPath(roleId: string, slug: string): string {
-    return path.join(this.topicsDir(roleId), `${sanitizeTopicSlug(slug)}.md`);
-  }
-
   private draftPath(roleId: string): string {
     return path.join(roleMemoryDir(roleId), 'draft.jsonl');
   }
@@ -476,7 +473,6 @@ export class RoleMemoryStore {
    * 失败时条目仍 pending，重试 promote 依赖此跳过避免段落重复。
    */
   private async mergeIntoTopic(roleId: string, slug: string, entries: MemoryDraftRow[]): Promise<void> {
-    const filePath = this.topicPath(roleId, slug);
     // #404：旧正文读取走 FileStore 读穿 seam（readDoc/mdCache）。此处虽在 withRoleLock 内，
     // 但锁是模块自有 per-role 互斥（非 #314 D1 的 FileStore 锁内读例外场景）：读穿缓存
     // mtime 校验与同锁串行写兼容， miss/写后重读由 mtime 变化保证。
@@ -500,11 +496,17 @@ export class RoleMemoryStore {
     const sections = fresh.map(e => `## ${e.title}\n\n${e.content}`).join('\n\n');
     body = body ? `${body}\n\n${sections}` : sections;
 
-    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.promises.writeFile(filePath, serializeFrontmatter(meta, body), 'utf-8');
+    // P2-e：写路径也走 FileStore seam（writeDoc = ensureDir + serializeFrontmatter + 写后失效
+    // 缓存），替代裸 fs.writeFile——与同模块读路径（readDoc/mdCache）闭环，不再只靠 mtime
+    // 校验兜底。meta 恒非空（updatedAt 必写），writeDoc 序列化形态与原 serializeFrontmatter 直写一致。
+    await getStore().writeDoc(this.topicsDir(roleId), slug, meta, body);
   }
 
-  /** 从全部 topic 的 frontmatter 重建 MEMORY.md 索引（每 topic 一行：路径 + 摘要）。 */
+  /**
+   * 从全部 topic 的 frontmatter 重建 MEMORY.md 索引（每 topic 一行：路径 + 摘要）。
+   * 保留裸 fs 写：MEMORY.md 无 frontmatter，writeDoc 会强加空 fence（serializeFrontmatter
+   * 空 meta 也产 `---\n\n---`），形态即契约不能变。
+   */
   private async rebuildIndex(roleId: string): Promise<void> {
     const metas = await this.readTopicMetas(roleId);
     const lines = ['# Role Memory Index', '', '<!-- auto-generated: do not edit -->', ''];

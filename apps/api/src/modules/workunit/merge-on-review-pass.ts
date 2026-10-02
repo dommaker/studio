@@ -40,17 +40,16 @@
  */
 import { logger, type FileStore } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { ensurePmoIntegrationWorktree } from '@dommaker/studio-agent';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import type { WorkUnitService, WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
-/** worktrees 根目录（与 agent-loop.resolveWorktreesDir 同口径：WORKTREES_DIR > ~/worktrees） */
+/** worktrees 根目录（与 agent-loop.resolveWorktreesDir 同口径：WORKTREES_DIR > studioPath('worktrees')，契约 §8 双口径收编） */
 function resolveWorktreesDir(): string {
-  return process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+  return process.env.WORKTREES_DIR || studioPath('worktrees');
 }
 
 /** git 操作超时：merge 60s / rebase 120s / 其余轻量命令 15s */

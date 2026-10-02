@@ -252,9 +252,9 @@ export async function runGC(): Promise<GCResult> {
   let cleaned = 0;
 
   // Clean stale worktrees (> 7 days)
-  // 目录口径与 agent-loop.resolveWorktreesDir 一致（WORKTREES_DIR > ~/worktrees）
+  // 目录口径与 agent-loop.resolveWorktreesDir 一致（WORKTREES_DIR > studioPath('worktrees')，契约 §8 双口径收编）
   try {
-    const worktreesDir = process.env.WORKTREES_DIR || `${os.homedir()}/worktrees`;
+    const worktreesDir = process.env.WORKTREES_DIR || studioPath('worktrees');
     const fs = await import('fs');
     if (fs.existsSync(worktreesDir)) {
       const entries = fs.readdirSync(worktreesDir);

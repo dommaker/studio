@@ -24,7 +24,7 @@
 
 - 本模块标记为 LEGACY surface，迁移前请勿在此扩展新功能。
 - 所有数据读写均基于本地文件系统（`~/.studio/logs/executions.jsonl` 和 `~/.studio/data/tasks/`），不依赖数据库。
-- `findTaskByExecutionId` 辅助函数会遍历 `TASKS_DIR` 下的所有 JSON 文件，需注意文件数量较多时的性能。
+- `findTaskByExecutionId` 辅助函数会遍历 `TASKS_DIR` 下的所有 JSON 文件，需注意文件数量较多时的性能。P2-e：遍历走 FileStore `listJsonInDir` seam，executions.jsonl 状态同步全量重写走 `writeJsonl`（原子写），模块内已无裸 fs。
 - 路由 GET / 默认按 `createdAt` 降序排列，分页参数为 `page` 和 `limit`（默认 1/20）。
 - 该模块的长期规划是废弃并被 agent-profiles / workunit API 替代（见 `docs/vision-2026.md`）。
 - **已修复（2026-08-25）**：POST /events 已挂 requireLocalhost（内部 runtime 回调假设坐实：全仓无远程调用方）；GET /:executionId 回显服务器绝对路径（POST /:executionId/archive 已随工单 20 删除）。

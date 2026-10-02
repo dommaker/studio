@@ -31,6 +31,7 @@
 
 ### 注意事项
 
+- **worktrees 目录口径（P2-e，契约 §8 双口径收编）**：`resolveWorktreesDir` fallback 为 `WORKTREES_DIR > studioPath('worktrees')`（原 `~/worktrees`），与 bootstrap/config.ts 注入值同源；merge-on-review-pass / monitor-system-probes / system-health / discord / studio-agent agent-runner 同口径。
 > 详细运行口径（派单链/唤醒加固/三层超时/租约心跳/#585 需求守卫/prompt 注入/会话术语等）随 agents/CONTEXT.md 注意事项区维护；以下为本模块强相关条目摘要。
 
 - **多实例单活**：`STUDIO_AGENT_LOOP_ENABLED=false` 实例 standby；`AgentLoop.start()` 内置同角色单活守卫

@@ -8,6 +8,7 @@
 import express, { Router, Request, Response } from 'express';
 
 import { logger } from '../../utils/logger.js';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { WorkUnitService } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
 
@@ -141,8 +142,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
           try {
             const fs = await import('fs');
             const path = await import('path');
-            const os = await import('os');
-            const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+            const WORKTREES_DIR = process.env.WORKTREES_DIR || studioPath('worktrees');
 
             const allActive = await getStore().getIndex({ status: 'active' });
             const runningExecs = allActive

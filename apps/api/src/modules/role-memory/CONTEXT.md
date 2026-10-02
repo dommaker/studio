@@ -35,7 +35,7 @@
 - 路径经 `studioPath()`（读 `STUDIO_HOME`）；禁硬编码 `~/.studio`。测试走 `isTestEnv` tmpdir。
 - KnowledgeSync cycle 事件仅在有 stale/unmonitored 时落库，全零只写日志。
 - `readIndex`/`readDraft`/`readTopic` 不存在文件返回 `''`/`[]`/`null`（不抛）。
-- #404：模块内裸 fs 读清零——索引/topic 正文走 FileStore 读穿 seam（`readDoc`/mdCache，mtime 校验），目录清单走 `store.readdir`（dirCache）；命中返回结构克隆（#343 语义基线）。写路径（mergeIntoTopic/rebuildIndex 裸 writeFile）不动，靠 mtime 校验兜底失效。
+- #404：模块内裸 fs 读清零——索引/topic 正文走 FileStore 读穿 seam（`readDoc`/mdCache，mtime 校验），目录清单走 `store.readdir`（dirCache）；命中返回结构克隆（#343 语义基线）。P2-e：topic 正文写也收口 `writeDoc` seam（写后失效缓存）；仅存裸 fs 写 = `rebuildIndex` 的 MEMORY.md 索引——无 frontmatter，`writeDoc` 会强加空 fence 改变形态，保留并在 rebuildIndex 注释注明。
 - `appendDraft` 写盘失败抛出，调用方 fire-and-forget 兜底。
 
 ### 依赖关系

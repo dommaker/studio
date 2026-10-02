@@ -23,6 +23,7 @@ import * as path from 'path';
 import * as fsSync from 'fs';
 import * as os from 'os';
 import { logger, type StreamEvent } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 import { executeLightweightSession } from './runner-lightweight.js';
 
@@ -50,7 +51,7 @@ export class AgentRunner {
   constructor(config?: Partial<ExecutorConfig>) {
     const homeDir = os.homedir();
     this.config = {
-      worktreesDir: config?.worktreesDir || process.env.WORKTREES_DIR || path.join(homeDir, 'worktrees'),
+      worktreesDir: config?.worktreesDir || process.env.WORKTREES_DIR || studioPath('worktrees'),
       repoDir: config?.repoDir || (() => {
         let dir = process.cwd();
         while (dir !== '/' && !fsSync.existsSync(path.join(dir, 'package.json'))) {

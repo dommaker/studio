@@ -25,6 +25,7 @@
 
 ### 注意事项
 
+- **worktrees 目录口径（P2-e）**：`progress` 子命令读 `<worktreesDir>/<execId>/.progress.json`，目录解析 `WORKTREES_DIR > studioPath('worktrees')`（契约 §8 双口径收编；progress 文件是 CLI 进程产物，FileStore 不管）。
 - 签名验证必须优先于任何业务逻辑，Discord 会通过无效签名请求检测服务器是否验证
 - 必须配置环境变量 `DISCORD_PUBLIC_KEY`，否则交互端点返回 500
 - `triggerRequirement` 依赖 `#研发` 频道存在，否则抛出错误

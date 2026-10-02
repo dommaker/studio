@@ -52,6 +52,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 ### 注意事项
 
 - 所有数据存储已从 Prisma 迁移至文件系统（D-005），无数据库依赖
+- **fs 直写保留理由（P2-e 登记）**：SkillStore（`skills-index.json`）与 DemotionProposalStore（`data/skills/demotion-proposals.json`）是模块自持同步 store（契约 §8/§2① 登记条目，布局冻结）；同步 API 全链路调用方未异步化，不改写为 FileStore 域方法。SKILL.md 读写/`_deprecated` 目录移动是 markdown/目录形态，FileStore 不管；路径均经 `studioPath()`/`SKILLS_DIR` env。
 - SKILL.md 文件采用 frontmatter 格式，存放于 `~/.studio/skills/` 目录；技能索引存于 `~/.studio/skills-index.json`；提案存取自 #354 起归 review-proposal 正本，落 `~/.studio/skill-proposals.jsonl`（append-only + 状态墓碑折叠，词表 pending|executed|rejected|failed|card-failed）。旧自持存储 `~/.studio/proposals.json` 随 proposal-store.ts 退役：历史文件不改写不迁移，其中存量 pending 提案不再进入待审列表
 - `loadManifest()` 使用内存缓存，变更需重启进程或重新调用清除缓存
 - 两个路由文件均导出 `Router` 实例，需分别挂载到 Express 应用的不同路径（/api/v1/skills 与 /api/v1/skills/proposals）

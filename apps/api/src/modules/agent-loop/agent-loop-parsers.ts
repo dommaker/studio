@@ -4,7 +4,6 @@
 // agent-loop.ts re-export 公开导出保持对外语义不变。
 import { existsSync } from 'fs';
 import { join } from 'path';
-import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { ANALYSIS_TASKS_MAX, INSPECTION_OPPORTUNITIES_MAX, type WorkUnitData } from '../workunit/index.js';
 import { MAP_OPENING_FOG_MAX } from '../pmo/index.js';
@@ -30,9 +29,9 @@ export function isGitRepoRoot(root: string): boolean {
   }
 }
 
-/** B3b-i: worktrees 根目录解析（与 AgentRunner config 口径一致：WORKTREES_DIR > ~/worktrees） */
+/** B3b-i: worktrees 根目录解析（与 AgentRunner config 口径一致：WORKTREES_DIR > studioPath('worktrees')，契约 §8 双口径收编） */
 export function resolveWorktreesDir(): string {
-  return process.env.WORKTREES_DIR || join(os.homedir(), 'worktrees');
+  return process.env.WORKTREES_DIR || studioPath('worktrees');
 }
 
 /** Resolve target from observations (pure code, zero LLM) */

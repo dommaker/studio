@@ -28,6 +28,7 @@ Monitor Agent（P2-d 刀6 自 modules/agents/monitor 提升为顶层模块）：
 
 ### 注意事项
 
+- **fs 直写保留理由（P2-e 登记）**：`gcStaleWorktrees` 的 worktrees 目录扫描/删除是目录级 GC 操作（FileStore 不管的形态）；目录口径 P2-e 起为 `WORKTREES_DIR > studioPath('worktrees')`（契约 §8 双口径收编，fallback 与 bootstrap 注入值同源）。
 - **周期循环 scan-sharing（候选 3，2026-09-08）**：monitor `check()` 一轮开头一次 `getIndex()`，快照作 caller-private 传给 6 个 WU 探针（收 `snapshots` 参数、内存 filter，不再各自 getIndex；动作前新鲜度复核 `getIndex({id})` 点读不受影响）——**新 WU 探针一律收快照不自己读**；跨 job 不共享
 - **monitor-round 零同步子进程（#374）**：全部同步 exec 收口 `core/exec-async.ts`（gcStaleWorktrees `git worktree prune`、dailyReflection git log/diff 等；fail-open 语义与超时不变）
 - **decision/spec 豁免超时巡检（#553 裁决）**：checkTotalExecutionTime 跳过 DECISION_SPEC_TYPES——裁剪状态机无 closed、决策/成文单可等关键人多天，语义选「跳过巡检」

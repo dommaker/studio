@@ -27,6 +27,7 @@ GC 候选清单：蒸馏运行后按周期计龄--reference/context 层连续 3 
 
 ### 运行时约定
 
+- **P2-e 存储收口**：`firstCompanyId` 的 companies 目录扫描改走 FileStore `readdir`/`readJson` seam（异步化），不再裸 fs 直读数据区。
 - 人审闸门：LLM 批处理永远有人确认。pending 期间不重复发卡；发卡失败标记 `card-failed`（终态不阻塞）。
 - 蒸馏即消费：approve 成功且产物 >=1 -> 原料 archived；空产出不消费。失败不阻塞（maybePropose 永不抛，失败推进熔断不推进消费基线）。
 - 预算守卫：approve 时查 daily-token-budget；耗尽跳过，提案保持 pending。

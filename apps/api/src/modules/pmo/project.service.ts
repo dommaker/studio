@@ -246,23 +246,9 @@ function projectPath(projectId: string): string {
 }
 
 async function readAllProjects(): Promise<ProjectData[]> {
-  try {
-    const dirents = await fs.promises.readdir(PROJECTS_DIR, { withFileTypes: true });
-    const files = dirents.filter(d => d.isFile() && d.name.endsWith('.json'));
-    const projects: ProjectData[] = [];
-    for (const f of files) {
-      const data = await getStore().readJson<ProjectData>(path.join(PROJECTS_DIR, f.name));
-      if (data) projects.push(withReadDefaults(data));
-    }
-    return projects;
-  } catch (err: unknown) {
-    if (isErrnoError(err) && err.code === 'ENOENT') return [];
-    throw err;
-  }
-}
-
-function isErrnoError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
+  // P2-e：目录清单走 FileStore listJsonInDir seam（ENOENT → []、损坏文件跳过，语义同原裸 readdir+readJson 循环）
+  const projects = await getStore().listJsonInDir<ProjectData>(PROJECTS_DIR);
+  return projects.map(withReadDefaults);
 }
 
 // ============================================

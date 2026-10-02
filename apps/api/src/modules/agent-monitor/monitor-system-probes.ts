@@ -28,10 +28,10 @@ import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 // #611: knowledge:consumption 连续 N 天为 0 → 消费链路疑似断裂（probe 去假绿后此告警才可信）
 const CONSUMPTION_SILENCE_DAYS = 3;
 
-// worktree GC 目录口径：WORKTREES_DIR > ~/worktrees，与 agent-loop.resolveWorktreesDir
-// 创建侧一致。按调用时解析（非模块加载期），保证 env 覆盖/HOME 变更当轮生效。
+// worktree GC 目录口径：WORKTREES_DIR > studioPath('worktrees')，与 agent-loop.resolveWorktreesDir
+// 创建侧一致（契约 §8 双口径收编）。按调用时解析（非模块加载期），保证 env 覆盖当轮生效。
 function resolveWorktreesDir(): string {
-  return process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+  return process.env.WORKTREES_DIR || studioPath('worktrees');
 }
 
 // 系统健康确认窗口计数器（3 checks × 60s window）

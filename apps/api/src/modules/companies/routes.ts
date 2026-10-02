@@ -17,10 +17,9 @@ import {
   ERROR_CODES,
   type Company,
 } from '@dommaker/studio-contract';
-import { FileStore, generateId } from '@dommaker/studio-shared';
+import { generateId } from '@dommaker/studio-shared';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import * as fs from 'node:fs';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
@@ -33,24 +32,9 @@ function companyPath(id: string): string {
   return path.join(COMPANIES_DIR, `${id}.json`);
 }
 
-async function ensureDir(dir: string): Promise<void> {
-  await fs.promises.mkdir(dir, { recursive: true });
-}
-
 async function listCompanies(): Promise<Company[]> {
-  try {
-    const entries = await fs.promises.readdir(COMPANIES_DIR, { withFileTypes: true });
-    const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
-    const companies: Company[] = [];
-    for (const f of files) {
-      const data = await getStore().readJson<Company>(path.join(COMPANIES_DIR, f.name));
-      if (data) companies.push(data);
-    }
-    return companies;
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
-  }
+  // P2-e：目录清单走 FileStore listJsonInDir seam（ENOENT → []、损坏文件跳过，语义同原裸 readdir+readJson 循环）
+  return getStore().listJsonInDir<Company>(COMPANIES_DIR);
 }
 
 const router = Router();
@@ -66,7 +50,6 @@ async function createCompany(name: string): Promise<Company> {
   const id = generateId('company');
   const now = new Date().toISOString();
   const company: Company = { id, name, size: 'custom', createdAt: now, updatedAt: now };
-  await ensureDir(COMPANIES_DIR);
   await getStore().writeJson(companyPath(id), company);
 
   // 🆕 AS-016: 自动创建默认 OKR

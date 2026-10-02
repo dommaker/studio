@@ -37,6 +37,7 @@
 ### 运行时约定
 
 - 项目数据存储在 `~/.studio/projects/{id}.json`，OKR 数据存储在 `~/.studio/okr/` JSONL 文件。所有服务基于 FileStore。
+- **P2-e 存储收口**：projects 目录清单走 FileStore `listJsonInDir` seam；executions.jsonl 解关联全量重写走 `writeJsonl`（原子写）。保留裸 fs：OKR md 删除（`fs.unlink`，FileStore 无删除原语）与 REQ 序号目录扫描（`scanMaxRequirementSeq`，序号匹配非实体读取）。
 - 统一编号：新 PMO 编号 = max(PM/PMO, REQ 两序列)+1，格式 PMO-<n>（分支名）；`reqAlias` 同号；存量 PM-XXX/REQ-XXXX 不迁移。
 - 交付策略 `deliveryPolicy`：`branch-only`（默认，只标记不碰链路）/ `auto-merge`（人工触发，证据齐才合并 PMO 分支 -> 默认分支，不 push）。
 - 杂务 PMO：`isChore + channelId` 联合标识，`findChoreProject` 只查不建（B4 清扫起创建端点 POST /channels/:id/chore-pmo 与 `ensureChoreProject` 已删——仓内零调用方；存量杂务 PMO 的读侧回退保留）。

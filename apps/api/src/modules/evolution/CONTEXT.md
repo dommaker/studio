@@ -93,6 +93,7 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 ### 注意事项
 
 - 保守策略：信号不足时零提案；`EVOLUTION_ENABLED=false` 关闭每日扫描 trigger（agents/default-triggers），不影响提案卡审批与 admin API
+- **fs 直写保留理由（P2-e 登记）**：applier.ts / constraint-adapter.ts 的裸 fs 全部落在**目标仓 `.harness/`**（config.yml / constraints.yml / reports，非数据区）与 `~/.studio/prompt-overrides/*.md`（markdown 形态 FileStore 不管，路径经 studio-shared `resolvePromptOverridesDir()` 统一入口）；备份/回滚/写后验证纪律要求文件级操作，不收 FileStore。
 - **harness 0.17.1 适配（2026-08-09，ADR-0001）**：E1 完整保留仅拆弹——存量 source='harness-autoEvolve' 提案仅为兼容保留。harness 侧 /evolve /degrade /schedule 端点已删除（见本文 `apps/api/src/modules/harness` 锚点）
 - **#602 Phase 1 全链路打通（2026-09-21）**：四断点全修——(a) 链路改吃 usage report 退役候选（harness 仓 5d0d84a 加公共导出，**ship 前须发布 harness patch 并 bump 本仓 lockfile**）；(b) override 文件接生产读者（knowledge-service injectContext「## 系统约束」段经 renderWithOverride，D3）；EP-0002 自锁修（TTL→stale，D2）；tool:call 埋点写真值（D4，见 agents/loop 锚点）。验收：scratch 环境五步全链路绿（信号→提案→人审→override 落盘→injectContext 消费；当时人审走频道，#623 起走正本卡片）
 - **#623 归位正本卡片（2026-09-22）**：频道文本审核通道（人类回复 approve/reject + EP 编号的文本解析）整体退役，提案改发 review-proposal 正本卡（cardType `evolution_proposal`）到 #系统，审批走通用端点 `/api/v1/review-proposals/evolution/:id/{approve,reject,status}`；存量 `evolution/` 数据零迁移（EP 编号体系保留，admin API decide 路径不动）

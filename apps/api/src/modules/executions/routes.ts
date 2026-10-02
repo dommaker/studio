@@ -6,9 +6,8 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
-import { FileStore, eventBus, logger } from '@dommaker/studio-shared';
+import { eventBus, logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import * as fs from 'fs';
 import {
   executionListQuerySchema,
   executionDetailParamsSchema,
@@ -24,15 +23,9 @@ const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
 const TASKS_DIR = studioPath('data', 'tasks');
 
 async function findTaskByExecutionId(executionId: string): Promise<{ id: string; status: string } | null> {
-  try {
-    const entries = await fs.promises.readdir(TASKS_DIR, { withFileTypes: true });
-    for (const e of entries) {
-      if (!e.isFile() || !e.name.endsWith('.json')) continue;
-      const task = await getStore().readJson<any>(path.join(TASKS_DIR, e.name));
-      if (task && task.executionId === executionId) return task;
-    }
-  } catch { /* dir may not exist */ }
-  return null;
+  // P2-e：目录清单走 FileStore listJsonInDir seam（dirCache + 读穿缓存），ENOENT → [] 语义不变
+  const tasks = await getStore().listJsonInDir<any>(TASKS_DIR);
+  return tasks.find(t => t && t.executionId === executionId) ?? null;
 }
 
 const router = Router();
@@ -133,8 +126,8 @@ router.post('/events', requireLocalhost(), defineRoute({ body: executionEventBod
               runtimeStatus: newStatus,
             }),
           };
-          await fs.promises.mkdir(path.dirname(EXECUTIONS_JSONL), { recursive: true });
-          await fs.promises.writeFile(EXECUTIONS_JSONL, allRows.map((r: any) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+          // P2-e：全量重写走 FileStore writeJsonl（原子写：tmp+rename），替代裸 fs.writeFile
+          await getStore().writeJsonl(EXECUTIONS_JSONL, allRows);
         }
         
         logger.info(`[Execution Sync] Updated ${studioExecution.id} to ${newStatus} (runtime event: ${eventType})`);

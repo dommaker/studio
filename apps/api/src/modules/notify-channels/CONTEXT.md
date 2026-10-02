@@ -19,6 +19,7 @@
 
 ### 注意事项
 
+- **fs 直写保留理由（P2-e 登记）**：`config-store.ts` 持久化根级 `notify-channels.json`（用户配置面，契约 §2② 登记；studioPath 拼接），同步读写自持 store，不收 FileStore。
 - **契约驱动迁移（2026-10 批次 5/7）**：七端点 defineRoute 化——`{ success, data }` 壳的 success 标志退役（响应统一 `{ data }`，原裸 `{ success: true }` → `{ data: { success } }`）；错误统一 `{ error: { code, message } }`（原 `{ success: false, error: string }` 退役；400 文案保留，502 上游失败 code = BAD_GATEWAY、errcode 透传保留）；契约正本 = `packages/studio-contract/src/notify-channels.ts`
 - **ClawBot 能力约束（公开协议拆解，未真机验证）**：接入域 `ilinkai.weixin.qq.com`，纯 HTTP/JSON 无需 OpenClaw 网关；主动推送受限——用户最后一条消息后 24h 内最多 10 条（context_token 可留空）；仅文本；errcode=-14 = 会话过期需重新扫码绑定。字段名/状态词表（wait/scaned/confirmed）来自协议拆解文档，实机有出入时改动面集中在 clawbot-client.ts 映射层
 - **企微测试消息的局限**：`POST /wecom/test` 只判 HTTP 2xx，不解析企微业务体 errcode（与 notifier 现有口径一致）——失效 key 也回 200，「测试成功」≠ key 有效

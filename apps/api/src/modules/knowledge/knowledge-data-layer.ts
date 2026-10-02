@@ -43,19 +43,8 @@ export function writeTrendData(filename: string, content: string): void {
 const RESOLUTIONS_DIR = studioPath('data', 'resolutions');
 
 async function listResolutions(): Promise<any[]> {
-  try {
-    const entries = await fs.promises.readdir(RESOLUTIONS_DIR, { withFileTypes: true });
-    const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
-    const results: any[] = [];
-    for (const f of files) {
-      const data = await getStore().readJson<any>(path.join(RESOLUTIONS_DIR, f.name));
-      if (data) results.push(data);
-    }
-    return results;
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
-  }
+  // P2-e：目录清单走 FileStore listJsonInDir seam（ENOENT → []、损坏文件跳过，语义同原裸 readdir+readJson 循环）
+  return getStore().listJsonInDir<any>(RESOLUTIONS_DIR);
 }
 
 export { RESOLUTIONS_DIR, listResolutions };
