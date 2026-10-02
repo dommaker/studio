@@ -14,7 +14,6 @@ const ChannelDetailPage = lazy(() => import('./pages/ChannelDetailPage').then(m 
 const LibraryPage = lazy(() => import('./pages/LibraryPage').then(m => ({ default: m.LibraryPage })));
 const LibraryDocPage = lazy(() => import('./pages/LibraryDocPage').then(m => ({ default: m.LibraryDocPage })));
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })));
-const OAuthCallback = lazy(() => import('./components/OAuthCallback').then(m => ({ default: m.OAuthCallback })));
 const WorkUnitListPage = lazy(() => import('./pages/WorkUnitListPage').then(m => ({ default: m.WorkUnitListPage })));
 const WorkUnitDetailPage = lazy(() => import('./pages/WorkUnitDetailPage').then(m => ({ default: m.WorkUnitDetailPage })));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(m => ({ default: m.NotFoundPage })));
@@ -22,8 +21,6 @@ const AgentDashboardPage = lazy(() => import('./pages/AgentDashboardPage').then(
 const AgentDetailPage = lazy(() => import('./pages/AgentDetailPage').then(m => ({ default: m.AgentDetailPage })));
 const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ default: m.MonitoringPage })));
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(m => ({ default: m.WorkspacePage })));
-const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
-const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
@@ -133,37 +130,6 @@ export default function App() {
       setFirstRoleSetupOpen(true);
     }
   }, [isAuthenticated, profiles, profilesLoadedOnce, token]);
-
-  // OAuth callback: bypass guest wall (user is returning from OAuth provider)
-  if (location.pathname === '/auth/callback') {
-    return (
-      <ThemeProvider>
-        <Suspense fallback={<PageLoader />}>
-          <OAuthCallback />
-        </Suspense>
-      </ThemeProvider>
-    );
-  }
-
-  // Forgot/reset password: bypass guest wall
-  if (location.pathname === '/forgot-password') {
-    return (
-      <ThemeProvider>
-        <Suspense fallback={<PageLoader />}>
-          <ForgotPasswordPage />
-        </Suspense>
-      </ThemeProvider>
-    );
-  }
-  if (location.pathname === '/reset-password') {
-    return (
-      <ThemeProvider>
-        <Suspense fallback={<PageLoader />}>
-          <ResetPasswordPage />
-        </Suspense>
-      </ThemeProvider>
-    );
-  }
 
   // Lurk Wall: guest sees LandingPage, admin sees full Studio
   if (isGuest) {

@@ -16,7 +16,7 @@ export const api = axios.create({
 // Reads localStorage directly (not authStore) to avoid circular dep:
 // authStore.ts imports from '../api', so api cannot import authStore.
 
-const AUTH_PATHS = ['/auth/login', '/auth/register', '/auth/guest-session', '/auth/refresh', '/auth/me', '/auth/forgot-password', '/auth/reset-password'];
+const AUTH_PATHS = ['/auth/login', '/auth/register', '/auth/guest-session', '/auth/refresh', '/auth/me'];
 
 function isAuthPath(url: string | undefined): boolean {
   if (!url) return false;

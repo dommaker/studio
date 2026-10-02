@@ -38,8 +38,6 @@ interface AuthState {
   getRole: () => string;
 
   // Actions
-  requestPasswordReset: (email: string) => Promise<string>;
-  resetPassword: (token: string, password: string) => Promise<string>;
   init: () => Promise<void>;
   createGuestSession: () => Promise<void>;
   checkAuth: () => Promise<void>;
@@ -75,31 +73,6 @@ export const useAuthStore = create<AuthState>()(
       getRole: () => get().user?.role || 'Guest',
 
       // Actions
-      requestPasswordReset: async (email: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const { data } = await authApi.forgotPassword(email);
-          set({ isLoading: false });
-          return data.message as string;
-        } catch (e) {
-          // 错误壳统一 { error: { code, message } }（契约驱动批次 6/7）
-          set({ error: e.response?.data?.error?.message || e.message || '请求失败', isLoading: false });
-          throw e;
-        }
-      },
-
-      resetPassword: async (token: string, password: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const { data } = await authApi.resetPassword(token, password);
-          set({ isLoading: false });
-          return data.message as string;
-        } catch (e) {
-          set({ error: e.response?.data?.error?.message || e.message || '重置失败', isLoading: false });
-          throw e;
-        }
-      },
-
       init: async () => {
         if (get().token) {
           await get().checkAuth();
