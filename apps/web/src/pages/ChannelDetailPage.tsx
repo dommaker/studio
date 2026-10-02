@@ -21,7 +21,7 @@ import { ChannelTopbar } from '../components/channel/ChannelTopbar';
 import { ChannelStreamHead } from '../components/channel/ChannelStreamHead';
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
-import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
+import { WorkUnitDrawer } from '../components/channel/WorkUnitDrawer';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import type { WorkUnit } from '../api/workunit';
 import { toast } from '../utils/toast';
@@ -29,14 +29,14 @@ import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { useChannelDataStore } from '../stores/channelDataStore';
 import { useChannelWorkStore, parseRequirementPayload, wuIdleOf } from '../stores/channelWorkStore';
-import { agentAnsweredOf } from '../stores/channelMessageStore';
 import { useFreshMessageIds } from '../hooks/useFreshMessageIds';
 import { useNeedInputView } from '../hooks/useNeedInputView';
 import { useChannelWorkStoreSync } from '../hooks/useChannelWorkStoreSync';
+import { useAwaitingAgent } from '../hooks/useAwaitingAgent';
+import { useChannelDrawers } from '../hooks/useChannelDrawers';
+import { useChannelPageTelemetry } from '../hooks/useChannelPageTelemetry';
 import type { Requirement } from '../api/requirements';
 import type { ChannelMessage, ChannelSuggestion, FileRef, SendIntent } from '../api/channel';
-import { saveLastChannelId } from '../utils/lastChannel';
-import { markPageEntry, emitPageFirstRender, emitReceiptRendered } from '../utils/clientPerf';
 
 /** store slice 缺键（未拉到）时的稳定空集回退——防下游 memo 因每渲染新引用失效 */
 const EMPTY_WUS: WorkUnit[] = [];
@@ -45,11 +45,6 @@ const EMPTY_SUGGESTIONS: ChannelSuggestion[] = [];
 
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
-  // #393：记录最近访问频道（/ 与 /channels 重定向落点，spec §2）
-  useEffect(() => { if (id) saveLastChannelId(id); }, [id]);
-
-  // #520 测量②：client.perf 埋点③起点——进页记时（埋点①在 ChannelInput，②起点在 useChannelMessages）
-  useEffect(() => { if (id) markPageEntry(id); }, [id]);
   const { messages, loading, error, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
   // B3：频道记录走 channelDataStore 门禁（ensureChannel：与成员面同响应一次拉取，TTL + single-flight）——
   // 原裸 channelApi.get 与 ChannelInput 的 ensureMembers 挂载并发双拉同一端点
@@ -60,27 +55,17 @@ export function ChannelDetailPage() {
   // 与 useStreamFollow ownSendPending 窗口同一局限）；首拉与翻页 prepend/水合归并的历史不标
   // （createdAt 早于到达前最新一条即历史）。2s 后移类，经 .mc-msg 基类过渡渐隐
   // #548：判定本体迁出页面——useFreshMessageIds（hooks/），本页只消费派生集合
-  // （声明位置提前：下方 receipt_render effect 同消费此集合）
   const freshMsgIds = useFreshMessageIds(messages);
 
-  // #520 测量②：渲染完成终点（effect 于提交后跑 = 渲染已完成）——
-  // ③ page_load：首屏消息渲染完成（每进页至多一次，起点消费后不再发；空频道不发属正常）；
-  // ② receipt_render：仅 SSE 到达时标记过的消息发事件（首拉/翻页/水合的历史消息无标记，天然跳过）。
-  // B6：只遍历 freshMsgIds（SSE 新到达集，与 markReceiptArrived 同口径），不再随 messages 变化
-  // O(n) 全量循环——历史消息本就无标记，全量扫是空转
-  useEffect(() => {
-    if (!id || loading || messages.length === 0) return;
-    emitPageFirstRender(id);
-    if (freshMsgIds.size === 0) return;
-    for (const m of messages) {
-      if (!freshMsgIds.has(m.id)) continue;
-      emitReceiptRendered({ messageId: m.id, channelId: id, workUnitId: m.workUnitId ?? null });
-    }
-  }, [id, loading, messages, freshMsgIds]);
+  // P3-b：进场/渲染埋点（#393 最近频道 + #520 page_load/receipt_render 链）切出
+  // useChannelPageTelemetry——emit 口径（空频道不发/fresh 集过滤）随 hook 承载
+  useChannelPageTelemetry(id, messages, loading, freshMsgIds);
+
   const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
-  // #493：线程回复送达后的轻量「已送达/等待 agent」状态（wuId + 送达时刻；agent 响应或超时清除）
-  const [awaitingAgent, setAwaitingAgent] = useState<{ wuId: string; since: number } | null>(null);
+  // P3-b：#493 线程回复送达「已送达/等待 agent」状态切出 useAwaitingAgent
+  // （answered 派生 + 30s 兜底自清随 hook 承载；发送链路经 notifyReplySent 置位）
+  const { awaiting: awaitingAgent, answered: agentAnswered, notifyReplySent } = useAwaitingAgent(messages);
   // #528：频道工作面 4 份服务端状态收编 channelWorkStore（ADR 2026-08-31 数据面模式）——
   // 本页退回纯订阅者：REQ 需求集（vision §5.3，#394 起喂右栏 REQ 链路卡）/ #440 本频道 WU 全集
   // （阶段条 WU 数据本体；status_changed 全量快照直替 + 重连强刷在 store/sync 层）/
@@ -93,12 +78,12 @@ export function ChannelDetailPage() {
   const currentWuId = suggestionsSlice?.currentWuId ?? null;
   // 输入框 prefill 通道（引导片 prompt 点击 / 空态示例 chip 共用；nonce 强制重触发同文案）
   const [inputPrefill, setInputPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined);
-  // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
-  const [drawer, setDrawer] = useState<DrawerState>(null);
-  // B3：AC-E3 转任务弹窗页面级单例——页面持目标消息，消息项经 env.onConvert 只回调打开
-  // （原每条可见消息各挂一个实例：关闭态仍跑 2 个 store 订阅 + key 比较，roster/members 更新扇出 N 份）
-  const [convertTarget, setConvertTarget] = useState<ChannelMessage | null>(null);
-  const openConvert = useCallback((m: ChannelMessage) => setConvertTarget(m), []);
+  // P3-b：右抽屉（WorkUnit 详情 / REQ 全链路 + 三种自动动作入口）与转任务弹窗页面级单例
+  // 切出 useChannelDrawers（#322 稳定 props 契约随 hook 空依赖 useCallback 承载）
+  const {
+    drawer, openWu, openWuConfirm, openWuRuling, openWuDirection, openReq, closeDrawer,
+    convertTarget, openConvert, closeConvert,
+  } = useChannelDrawers();
   // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
   // <1024 右栏卸载 → 顶栏「频道动态」入口 + 覆盖滑出抽屉（actRailOpen）。
   // matchMedia 缺失（jsdom）回落宽屏：内联三栏齐挂、覆盖层不开
@@ -241,15 +226,6 @@ export function ChannelDetailPage() {
 
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 
-  const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
-  // #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——打开即弹确认对话框
-  const openWuConfirm = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoApprove: true }), []);
-  // #467：plan_ruling 裁决轮接力卡「去裁决」——打开即弹 PlanRulingDialog
-  const openWuRuling = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoRuling: true }), []);
-  // #567：plan_direction 方向锁定接力卡「去选定」——打开即弹 PlanDirectionDialog
-  const openWuDirection = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoDirection: true }), []);
-  const openReq = useCallback((reqId: string) => setDrawer({ kind: 'req', id: reqId }), []);
-
   // #395：覆盖态频道动态里点 REQ/WU → 收起覆盖层再开详情抽屉（窄屏不叠加两层）；
   // 窗口拉宽回 ≥1024 时覆盖层状态一并复位（防再收窄时莫名重开）
   const openWuFromRailOverlay = useCallback((wuId: string) => { setActRailOpen(false); openWu(wuId); }, [openWu]);
@@ -345,33 +321,20 @@ export function ChannelDetailPage() {
         : await sendMessage(content, replyToId, undefined, intent);
       setReplyTo(null);
       // #493：线程回复送达且命中 WU（workUnitId 继承成功 = 会触达 agent）→ 轻量「已送达/等待 agent」状态
-      if (replyToId && sent?.workUnitId) setAwaitingAgent({ wuId: sent.workUnitId, since: Date.now() });
+      if (replyToId && sent?.workUnitId) notifyReplySent(sent.workUnitId);
     } catch (err) {
       ownSendPendingRef.current = false;
       throw err;
     } finally {
       setSending(false);
     }
-  }, [sendMessage, ownSendPendingRef]);
+  }, [sendMessage, ownSendPendingRef, notifyReplySent]);
 
   // F5: NEED_INPUT 卡片内嵌回复 —— 与回复按钮同链路（sendMessage + replyToId）
   // #276（P2 #15）：返回 Promise——子组件 await 真实发送结果后才置位「已回复」（不发假承诺）
   const handleInlineReply = useCallback((message: ChannelMessage, content: string) => {
     return handleSend(content, message.id);
   }, [handleSend]);
-
-  // #493：「等待 agent」状态条——agent 已响应（该 WU 的 agent 新消息到达）即 render 派生隐藏，
-  // 不做 effect 内同步 setState；state 本体由 30s 兜底定时器清理（agent 无响应时条不常住；
-  // 30s 口径 > 唤醒+认领秒级路径，loop 异常时由工作条/建议片承接下来）
-  // #548：判定本体迁出页面——agentAnsweredOf（channelMessageStore 旁挂纯函数），本页只消费派生结果
-  const agentAnswered = agentAnsweredOf(messages, awaitingAgent);
-  useEffect(() => {
-    if (!awaitingAgent) return;
-    const timer = setTimeout(() => setAwaitingAgent(null), 30_000);
-    return () => clearTimeout(timer);
-  }, [awaitingAgent]);
-
-  // 批次 E-3 freshMsgIds 已随 receipt effect 提前声明（见组件头部），此处不再重复
 
   // #547：频道消息环境——横切值单 Provider 下发，消息项 useContext 自取（公开 Props 收窄）。
   // #322 契约不变量：成员全为稳定引用（useCallback/镜像 ref），useMemo 组装后 value identity
@@ -532,7 +495,7 @@ export function ChannelDetailPage() {
       {/* 右抽屉：WorkUnit 详情 / REQ 全链路 */}
       <WorkUnitDrawer
         drawer={drawer}
-        onClose={() => setDrawer(null)}
+        onClose={closeDrawer}
         onOpenWu={openWu}
         onOpenReq={openReq}
       />
@@ -541,7 +504,7 @@ export function ChannelDetailPage() {
           converted 后走统一卡片 action 路由（'converted' → 消息刷新，同原消息项内行为） */}
       <ConvertToTaskDialog
         open={convertTarget !== null}
-        onClose={() => setConvertTarget(null)}
+        onClose={closeConvert}
         messageId={convertTarget?.id ?? ''}
         channelId={id}
         messageContent={convertTarget?.content ?? ''}
