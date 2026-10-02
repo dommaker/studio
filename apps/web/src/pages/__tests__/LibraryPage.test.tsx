@@ -2,7 +2,7 @@
 // #436 B11：内容区收 max-w-5xl（§4.7 内容档）+ 类型筛选（kind 前端过滤）
 // E6：默认按项目分组（组头 pmoNumber+计数，组内 updatedAt 降序），搜索/筛选态回退平铺；页头动作去 emoji
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const { mockLibraryList, mockProjectList, mockCompanyList } = vi.hoisted(() => ({
@@ -279,8 +279,9 @@ describe('LibraryPage（#155 T5 阅览室）', () => {
       mockLibraryList.mockRejectedValue(new Error('boom'));
       renderPage();
 
-      expect(await screen.findByText('加载文档列表失败，请重试')).toBeTruthy();
-      expect(screen.getByText('重试')).toBeTruthy();
+      // P3-b：页头成本子拉取失败也有最小错误行（同款重试按钮）——锁定文档错误条内的重试
+      const errBar = (await screen.findByText('加载文档列表失败，请重试')).closest('div')!;
+      expect(within(errBar).getByText('重试')).toBeTruthy();
       expect(screen.queryByText('暂无文档')).toBeNull();
     });
 
@@ -290,7 +291,8 @@ describe('LibraryPage（#155 T5 阅览室）', () => {
         .mockResolvedValue({ data: { data: DOCS } });
       renderPage();
 
-      fireEvent.click(await screen.findByText('重试'));
+      const errBar = (await screen.findByText('加载文档列表失败，请重试')).closest('div')!;
+      fireEvent.click(within(errBar).getByText('重试'));
 
       expect(await screen.findByText('规格甲')).toBeTruthy();
       expect(screen.queryByText('加载文档列表失败，请重试')).toBeNull();

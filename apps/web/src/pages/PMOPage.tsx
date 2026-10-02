@@ -60,9 +60,8 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const channels = useRosterStore((s) => s.channels);
   useEffect(() => { void useRosterStore.getState().ensureFresh(); }, []);
 
-  // 🆕 AC-6: 卡片徽章数据（WU 完成度；#387 单请求批量、失败静默不显示）
+  // 🆕 AC-6: 卡片徽章数据（WU 完成度）——P3-b 收进 useAsyncData，见下方 wuStatsQ
   // #149（2026-08-15）：文档计数徽章随 document-store 退役移除
-  const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
 
   // 🆕 B8: OKR 创建弹窗（组件见 components/pmo/CreateOkrDialog）
   const [showOKRDialog, setShowOKRDialog] = useState(false);
@@ -89,30 +88,14 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const projects = useMemo(() => projectsData ?? [], [projectsData]);
 
   // 🆕 AC-6: 列表加载后单请求批量拉徽章数据（#387 chain-stats；finished 口径 workFinished
-  // 服务端同源计算；失败静默不显示）
-  // projects 变空时在渲染期同步清空徽章（派生重置，替代原 effect 顶部的同步清空）
-  const projectsEmpty = projects.length === 0;
-  const [prevProjectsEmpty, setPrevProjectsEmpty] = useState(projectsEmpty);
-  if (prevProjectsEmpty !== projectsEmpty) {
-    setPrevProjectsEmpty(projectsEmpty);
-    if (projectsEmpty) {
-      setWuStats({});
-    }
-  }
-
-  useEffect(() => {
-    if (projects.length === 0) {
-      return;
-    }
-    let cancelled = false;
-
+  // 服务端同源计算；失败静默不显示——best-effort 子拉取由 fetcher 内 catch 落 {}，useAsyncData 头注释口径）。
+  // P3-b 拉取页收口：自管 useState + 裸 useEffect + projectsEmpty prev-state hack 收进 useAsyncData
+  // （deps=[projects] 渲染期重置即等价「projects 变空/变化清空徽章」，projects 经 useMemo 稳身份不逐帧重拉）
+  const wuStatsQ = useAsyncData(async () => {
     const withAlias = projects.filter((p): p is PmoProject & { reqAlias: string } => !!p.reqAlias);
-    if (withAlias.length === 0) {
-      setWuStats({});
-      return;
-    }
-    requirementApi.chainStats(withAlias.map(p => p.reqAlias)).then(res => {
-      if (cancelled) return;
+    if (withAlias.length === 0) return {};
+    try {
+      const res = await requirementApi.chainStats(withAlias.map(p => p.reqAlias));
       // 服务端按 reqAlias 键返回，回填成 ProjectCard 消费的 project.id 键；缺 key（需求不存在）→ 不显示
       const stats = res.data?.data ?? {};
       const next: Record<string, { finished: number; total: number }> = {};
@@ -120,11 +103,12 @@ export function PMOPage({ companyId }: PMOPageProps) {
         const s = stats[p.reqAlias];
         if (s) next[p.id] = s;
       }
-      setWuStats(next);
-    }).catch(() => { /* 失败静默：徽章不显示（卡片照常渲染） */ });
-
-    return () => { cancelled = true; };
+      return next;
+    } catch {
+      return {}; // 失败静默：徽章不显示（卡片照常渲染）
+    }
   }, [projects]);
+  const wuStats = wuStatsQ.data ?? {};
 
   const handlePublishClick = (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();

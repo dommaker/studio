@@ -4,10 +4,11 @@
 // （无按 runtime 的角色计数现成接口，假数据直接删除）
 // E8-4：创建角色表单合一——内嵌 dialog 已删，复用 CreateRoleModal 正本（#397 §6.4，
 // presetProvider 锁定行内 runtime 的 CLI；行为归一 = 创建成功关弹框 + onCreated，原「成功留框」差异随之消除）
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import type { WorkspaceRuntime } from '@dommaker/studio-contract';
-import { workspaceApi, type Workspace } from '../api';
+import { workspaceApi } from '../api';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { BackButton, SkeletonText, SkeletonCard } from '../components/ui';
 import { IconMonitor } from '../components/ui/icons';
 import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
@@ -18,28 +19,20 @@ type Runtime = WorkspaceRuntime;
 
 export function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedRuntime, setSelectedRuntime] = useState<Runtime | null>(null);
-
-  // id 切换时在渲染期同步置回加载态（替代原 effect 顶部的同步 setLoading）
-  const [prevId, setPrevId] = useState(id);
-  if (prevId !== id) {
-    setPrevId(id);
-    setLoading(true);
-  }
-
-  useEffect(() => {
-    if (!id) return;
-    workspaceApi.get(id)
-      .then((res) => {
-        setWorkspace(res.data.data);
-        setError(null);
-      })
-      .catch(() => setError('加载失败'))
-      .finally(() => setLoading(false));
+  // P3-b 拉取页收口：一次性拉取统一走 useAsyncData（data/loading/error + deps 渲染期重置），
+  // 自管 useState + 裸 useEffect + prevId hack 删除
+  const workspaceQ = useAsyncData(async () => {
+    if (!id) return null;
+    try {
+      return (await workspaceApi.get(id)).data.data;
+    } catch {
+      throw new Error('加载失败');
+    }
   }, [id]);
+  const workspace = workspaceQ.data;
+  const loading = workspaceQ.loading;
+  const error = workspaceQ.error;
+  const [selectedRuntime, setSelectedRuntime] = useState<Runtime | null>(null);
 
   const openDialog = (rt: Runtime) => {
     setSelectedRuntime(rt);

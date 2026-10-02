@@ -5,67 +5,35 @@
  * legacy 遗产文档展示 requirement/design/task 三段。
  * 无编辑/保存——文档随仓演进，变更历史 = git 历史。
  */
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { libraryApi } from '../api';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { stripDuplicateH1 } from '../utils/stripDuplicateH1';
 import { BackButton, SkeletonText } from '../components/ui';
 
 const MarkdownBody = lazy(() => import('../components/knowledge/MarkdownBody'));
 
-interface LibraryDocDetail {
-  id: string;
-  title: string;
-  kind: 'spec' | 'research' | 'adr' | 'context' | 'legacy';
-  legacy: boolean;
-  projectId: string;
-  pmoNumber: string;
-  path: string;
-  content: string;
-  requirement?: string | null;
-  design?: string | null;
-  task?: string | null;
-  status?: string;
-  tags?: string[];
-  updatedAt: string;
-}
-
 export function LibraryDocPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [doc, setDoc] = useState<LibraryDocDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  // 批次 F-1：加载失败 error state（原先 catch 只 console.error，落「文档未找到」假空态）
-  const [error, setError] = useState<string | null>(null);
-
-  // 切换文档 id 时渲染期置 loading（挂载首帧由 loading 初值 true 覆盖）
-  const [prevId, setPrevId] = useState(id);
-  if (prevId !== id) {
-    setPrevId(id);
-    setLoading(true);
-    setError(null);
-  }
-
-  const fetchDoc = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
-    setError(null);
+  // P3-b 拉取页收口：一次性拉取统一走 useAsyncData（deps 渲染期重置替代 prevId hack；
+  // 失败 error 由 hook 承接，重试 = reload()），自管 useState + useCallback + 裸 useEffect 删除
+  const docQ = useAsyncData(async () => {
+    if (!id) return null;
     try {
       const res = await libraryApi.getDoc(id);
-      setDoc(res.data?.data || null);
+      return res.data?.data || null;
     } catch (err) {
       console.error('[LibraryDoc] Failed to fetch', err);
-      setError('文档加载失败，请重试');
-    } finally {
-      setLoading(false);
+      throw new Error('文档加载失败，请重试');
     }
   }, [id]);
-
-  useEffect(() => {
-    // 微任务触发：编译器对含 catch 的多语句 async 函数保守告警，推迟一拍时序等价
-    void Promise.resolve().then(fetchDoc);
-  }, [fetchDoc]);
+  const doc = docQ.data;
+  const loading = docQ.loading;
+  // 批次 F-1：加载失败 error 上屏（原先 catch 只 console.error，落「文档未找到」假空态）
+  const error = docQ.error;
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '';
@@ -97,7 +65,7 @@ export function LibraryDocPage() {
       <div className="h-full u-page-bg u-page-px py-6">
         <div className="max-w-5xl p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
           <span>{error}</span>
-          <button onClick={() => void fetchDoc()} className="btn btn-secondary btn-sm">重试</button>
+          <button onClick={docQ.reload} className="btn btn-secondary btn-sm">重试</button>
         </div>
       </div>
     );
