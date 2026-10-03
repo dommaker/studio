@@ -55,7 +55,7 @@ knowledge/
 ├── knowledge-search-helpers.ts # 关键词/RAG 降级检索 helpers（knowledge-service 拆出）
 ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
-├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测
+├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测（2026-10-03 D 批起 detectStaleness 为 async——git log 走 core/exec-async，monitor 轮/路由路径不再 sync 阻塞）
 ├── resolution.service.ts      # 解法库（独立子系统）；#361 起错误匹配核心（regex 回退子串）下沉 studio-shared/resolutions.ts，本模块是该共享核心的唯一生产消费方（#587 后）
 ├── evolution-scheduler.ts     # 周期任务调度（G-005 模式挖掘 + eval spring cleaning）
 ├── improver-scheduler.service.ts # 自文档化调度器（refreshStaleContext + runArchDocs）

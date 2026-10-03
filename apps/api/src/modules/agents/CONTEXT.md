@@ -12,11 +12,11 @@ P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 
 - `agent-instance.routes.ts` / `agent-instance.service.ts` — 运行实例 CRUD + isOnline/最新 error 聚合（summarizeRoleStates 单源）
 - `token-usage.routes.ts` / `token-usage.service.ts` — 角色级 token 视图（30d 窗口读口）
 - `routes.ts` — ⚠️ LEGACY agents-registry 路由（web 消费方已清 #347，勿扩展）
-- `default-provider.ts` — provider 默认选取（resolveDefaultProvider，sync 扫描，agent-profile.service 低频创建路径用）+ backfillProfileProviders（bootstrap 启动链用，2026-10-03 起缺省 scanAllProvidersAsync 异步扫描，不阻塞事件循环）
+- `default-provider.ts` — provider 默认选取：resolveDefaultProviderAsync（请求路径用，2026-10-03 根因修复 A 批——agent-profile.service 角色创建原走 sync 全扫，真机冷缓存 43-55s 冻结事件循环）+ resolveDefaultProvider（sync 版仅 CLI 一次性路径用）+ backfillProfileProviders（bootstrap 启动链用，缺省 scanAllProvidersAsync）
 - `default-triggers.ts` — 10 个系统 trigger（inspection-scan/dispatch-reconciliation/doc-semantic-review/#523 workunit-gate-escalation 等）
 - `system-executor.ts` — SystemExecutor 系统级 LLM 直调（读 studio 角色 provider，轻量 spawn 无状态；6+ 模块经 barrel 消费）
 - `system-role.ts` — 系统角色断言门面（正本 core/system-role.ts）
-- `session-summary.service.ts` — 会话级知识提取（daemon 启动/6h 增量，纯代码无 LLM）
+- `session-summary.service.ts` — 会话级知识提取（daemon 启动/6h 增量，纯代码无 LLM；2026-10-03 D 批/#663 起 git 子进程全链走 `core/exec-async.execFileAsync`——原 execFileSync 首跑全量提取阻塞事件循环 ≈10s）
 
 ### 核心导出
 

@@ -15,7 +15,8 @@
 - `bridges.ts` — `initEventSubscriptions()`（ReviewDispatcher → DistillLoop 共 11 项 workunit.status_changed 等事件订阅，单项失败不阻断）
 - `agent-loop.ts` — `startAgentLoops()`（AS-026：内置角色幂等创建 → provider 回填 → scheduler.start → 注册系统触发器（standby 跳过）→ bridges → 挂载 loop → assignee 自检）+ `sweepEmptyAgentDirs()`（#363）
 - `channels.ts` — `initChannels()`（ensureDefaultChannels，Goal 管线需要）
-- `handlers.ts` — `registerScanHandlers()`（6 个 trigger EXECUTE handler + evolution review-proposal adapter 注册）
+- `handlers.ts` — `registerScanHandlers()`（6 个 trigger EXECUTE handler + evolution review-proposal adapter 注册；2026-10-03 C 批起整体 try/catch warn——listen 前移后本步 throw 会落 bootstrap catch → exit(1)，发生在端口可服务之后）
+- `readiness.ts` — 进程级 readiness 状态（`markReady()/isReady()/readyTimestamp()`，`resetReadiness()` 供测试）：listen 前移后「端口可服务 ≠ 全量就绪」，bootstrap 初始化链尾 markReady()，`app.ts` 的 `/readyz` 据此 200/503；deploy 健康检查以 /readyz 为准（/health 仅 liveness）
 - `tunnel.ts` — `startTunnelIfEnabled()` / `stopTunnel()`（cloudflared 守护，#571 默认关）
 - `lifecycle.ts` — `createHttpServer()` / `installErrorHandlers()` / `listen()`（#573 EADDRINUSE 拒启）/ `registerShutdown()`（优雅关闭逆序清理）
 
@@ -27,7 +28,8 @@
 ### 注意事项
 
 - **顺序即语义**：装配顺序改动须同步 `__tests__/index.test.ts` 的顺序断言。关键约束：迁移必须先于 reconcile（迁移后布局才是对账正本）；warmup 分 registerRoutes 前/后两段；bridges 调用点固定在 trigger 注册之后、loop 挂载之前（standby 实例也保留事件订阅）
-- **listen 前移（2026-10-03 冷启动修复）**：`listen`/`installErrorHandlers`/tunnel/shutdown 排在 registerRoutes 之后、startCoreServices 等后台初始化之前——「端口可服务」与「全量就绪」两口径分离（背景与复测数字见 docs/architecture/performance-baseline.md §7）。诱因：启动链上两处同步 `execFileSync` CLI 全扫（workspaces 重扫 + default-provider backfill）阻塞事件循环实测 ≈9s；同批修复 = CLI 扫描异步化（`cli-scanner.scanAllProvidersAsync`，sync 版只留 CLI 一次性检查与 agent-profile.service 低频路径）。listen 后到达的请求可能早于后台服务就绪，/health 不依赖任何后台服务（部署健康检查语义不变）
+- **listen 前移（2026-10-03 冷启动修复）**：`listen`/`installErrorHandlers`/tunnel/shutdown 排在 registerRoutes 之后、startCoreServices 等后台初始化之前——「端口可服务」与「全量就绪」两口径分离（背景与复测数字见 docs/architecture/performance-baseline.md §7）。诱因：启动链上两处同步 `execFileSync` CLI 全扫（workspaces 重扫 + default-provider backfill）阻塞事件循环实测 ≈9s；同批修复 = CLI 扫描异步化（`cli-scanner.scanAllProvidersAsync`，sync 版只留 CLI 一次性检查）。listen 后到达的请求可能早于后台服务就绪
+- **readiness 出口（2026-10-03 根因修复 B/C 批）**：两口径分离的对外承载 = `/readyz`（readiness.ts，`bootstrap()` 链尾 markReady() 后 200，此前 503）——deploy 健康检查以它为准（studio-config 的 deploy-quick/auto-deploy 已切），`/health` 退为纯 liveness。配套纪律：listen 后各初始化步（core services/agent loops/channels/sweep/handlers）全部「失败只 warn 不拒启」，bootstrap catch → exit(1) 实际只能由 listen 前步骤（迁移/路由注册）触发——新增 listen 后步骤必须自带 try/catch，否则部署判绿后进程死亡、回滚不触发
 - **失败分级**：迁移失败 = 拒启（外层 catch exit 1）；reconcile/seed/warmup/bridges/核心服务单项失败只 log 不阻断
 - **优雅关闭逆序**：unmount AgentLoop → 杀在飞 CLI 进程组（#179）→ stopTunnel → stopEvolutionScheduler → monitor.stop → auditor.stop → server.close → 5s 强制 exit 兜底；顺序由 `__tests__/lifecycle.test.ts` 钉死
 - 测试：`__tests__/` 每文件一个同名测试，装配顺序/拒启/关闭逆序三条核心语义均有断言

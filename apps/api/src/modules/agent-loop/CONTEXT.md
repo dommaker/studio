@@ -6,7 +6,7 @@
 
 ### 目录结构
 
-- `agent-loop.ts` — 循环编排（导出面 = AgentLoop + StepResult；#544 拆除 re-export 门面；#363：原 start() 同角色 terminated 启动清理已拆除，回收归 instance-timeout-scan）
+- `agent-loop.ts` — 循环编排（导出面 = AgentLoop + StepResult；#544 拆除 re-export 门面；#363：原 start() 同角色 terminated 启动清理已拆除，回收归 instance-timeout-scan）。start() 健康探针（`buildHealthProbeCommand` + 失败 recordStartupFailure）走 `core/exec-async.execAsync` 异步链（2026-10-03 D 批——原 execSync 在 listen 后 mount 链/profile.created 事件路径按角色串行阻塞事件循环）
 - `agent-loop.types.ts` — 类型契约（纯类型零运行时）
 - `agent-loop-registry.ts` — profileId→running AgentLoop 注册表（profile 生命周期事件驱动挂载/卸载；#634 provider 变更重挂）
 - `agent-loop-parsers.ts` / `agent-loop-events.ts` / `agent-loop-guards.ts` — 输出解析+prompt 模板纯函数 / tokens/tool:call 落盘 / 测试 WU 守卫+excludeAssignee

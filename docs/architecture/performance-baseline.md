@@ -132,3 +132,12 @@
 
 - run1（冷：DNS/TLS/缓存全冷）1216 ms；run2–5（浏览器缓存热）128–132 ms
 - p50 132 ms / max 1216 ms。已认证主应用 LCP 未测（需 refresh token 仪式，成本不匹配，留待有前端性能需求时补）。
+
+### 7.2 根因修复批次（同日，ff546ba9 复盘后）
+
+listen 前移复盘发现四处同源/伴生根因并修复（计划 docs/plans/2026-10-coldstart-root-fixes.md）：
+
+- **角色创建请求路径 sync 全扫**（43–55s 级事件循环冻结隐患）→ `resolveDefaultProviderAsync`，daemon 请求路径 sync 扫描零残留；
+- **readiness 无对外出口** → `/readyz`（bootstrap 链尾 markReady 才 200），deploy 健康检查自 `/health`（liveness）切换（studio-config 同步）；
+- **listen 后 exit(1) 路径**（registerScanHandlers 裸 throw → 部署判绿后进程死）→ 全步 try/catch warn；
+- **sync 子进程残留**（SessionSummary git 提取 #663、agent-loop health probe、knowledge-sync detectStaleness）→ 全部换 `core/exec-async` 异步链；warmup 组其余任务审计结论为 ms 级或全 async（结论落计划文档）。
