@@ -26,6 +26,8 @@ const {
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({ resolveStudioLogFile: (f) => "/tmp/studio-test-dir/" + f, resolveStudioLogsDir: () => "/tmp/studio-test-dir", isTestEnv: () => true, testTmpRoot: () => "/tmp/studio-test-dir", stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), FileStore: class {},
+  // P2-b：studio-notification 模块级单例经持有器取 store，wholesale mock 需补此出口
+  getDefaultFileStore: () => ({}),
   logger: mockLogger,
 }));
 

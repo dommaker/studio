@@ -27,6 +27,8 @@ vi.mock('@dommaker/harness', () => ({
 
 vi.mock('@dommaker/studio-shared', () => ({ stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  // P2-b：studio-notification 模块级单例经持有器取 store，wholesale mock 需补此出口
+  getDefaultFileStore: () => ({}),
   FileStore: class {
     getIndex = vi.fn(() => Promise.resolve([]));
     upsertSnapshot = vi.fn(() => Promise.resolve());

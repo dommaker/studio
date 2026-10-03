@@ -34,6 +34,8 @@ const {
 
 // ── Mock FileStore ──
 vi.mock('@dommaker/studio-shared', () => ({ createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), stripTrailingSlashes: (s) => s,
+  // P2-b：studio-notification 模块级单例经持有器取 store，wholesale mock 需补此出口
+  getDefaultFileStore: () => ({}),
   FileStore: vi.fn().mockImplementation(function () { return {
     readJson: mockReadJson,
     writeJson: mockWriteJson,
