@@ -14,6 +14,7 @@ import { buildRouteTable } from './route-registry.js';
 import { mountApiDocs } from './openapi/index.js';
 import { isAllowedOrigin } from './cors-origin.js';
 import { apiRateLimit } from './middleware/rate-limit.js';
+import { isReady, readyTimestamp } from './bootstrap/readiness.js';
 
 export const app = express();
 
@@ -51,9 +52,20 @@ app.use(cookieParser());
 app.use(requestLogger);
 app.use(auditLogger());
 
-// 健康检查（免认证）
+// 健康检查（免认证）——liveness：只证进程在服务，deploy/agent-ops 判活用
 app.get('/health', (req: any, res: any) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Readiness（免认证）——全量就绪口径：bootstrap 初始化链尾 markReady() 后才 200，
+// 此前 503。listen 前移（ff546ba9）后端口可服务 ≠ 全量就绪，deploy 健康检查以本
+// 端点为准（判绿即真实可交付流量），/health 只作 liveness。见 bootstrap/readiness.ts
+app.get('/readyz', (req: any, res: any) => {
+  if (isReady()) {
+    res.json({ status: 'ready', timestamp: readyTimestamp() });
+  } else {
+    res.status(503).json({ status: 'starting' });
+  }
 });
 
 // Prometheus 指标

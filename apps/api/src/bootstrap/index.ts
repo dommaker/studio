@@ -21,6 +21,7 @@ import { initChannels } from './channels.js';
 import { registerScanHandlers } from './handlers.js';
 import { createHttpServer, installErrorHandlers, listen, registerShutdown } from './lifecycle.js';
 import { startTunnelIfEnabled } from './tunnel.js';
+import { markReady } from './readiness.js';
 
 export async function bootstrap(): Promise<void> {
   initConfig();
@@ -70,6 +71,10 @@ export async function bootstrap(): Promise<void> {
 
     // ── Trigger EXECUTE handler 注册 ──
     await registerScanHandlers();
+
+    // ── 全量就绪点：/readyz 由此翻 200（listen 前移后 deploy 健康检查以 readiness 为准）──
+    markReady();
+    logger.info('Bootstrap fully ready (/readyz now 200)');
   } catch (error) {
     logger.error('Failed to start server', { error: String(error) });
     console.error('Full error:', error);

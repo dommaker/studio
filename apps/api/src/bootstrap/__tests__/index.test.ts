@@ -2,7 +2,7 @@
  * bootstrap/index 装配测试（P2-a；2026-10-03 listen 前移）：
  * - 装配顺序：迁移先于对账、warmup 跨 registerRoutes 两段、listen 前移到
  *   registerRoutes/createHttpServer 之后（端口可服务/全量就绪两口径分离）、
- *   核心服务等后台初始化在 listen 之后；
+ *   核心服务等后台初始化在 listen 之后，markReady（/readyz 翻 200）在初始化链尾；
  * - 数据区迁移失败 = 拒启：catch 落错误日志 + process.exit(1)，后续步骤不再执行。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -54,6 +54,9 @@ vi.mock('../lifecycle.js', () => ({
 vi.mock('../tunnel.js', () => ({
   startTunnelIfEnabled: () => calls.push('startTunnelIfEnabled'),
 }));
+vi.mock('../readiness.js', () => ({
+  markReady: () => calls.push('markReady'),
+}));
 vi.mock('../../app.js', () => ({
   app: { fake: true },
   registerRoutes: vi.fn(async () => { calls.push('registerRoutes'); }),
@@ -104,6 +107,7 @@ describe('bootstrap 装配', () => {
       'initChannels',
       'sweepEmptyAgentDirs',
       'registerScanHandlers',
+      'markReady',
     ]);
     expect(processExitSpy).not.toHaveBeenCalled();
   });
