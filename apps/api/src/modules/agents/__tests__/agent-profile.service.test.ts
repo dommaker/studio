@@ -11,8 +11,9 @@ import { AgentProfileService, ensureStudioProfile, listRolePresets, STUDIO_ROLE_
 import { isSystemRole } from '../system-role.js';
 
 // F1: provider 缺省打戳的扫描结果 mock 为固定 'claude'（真机扫描结果随机器漂移，测试要确定）
+// 2026-10-03：角色创建路径换 resolveDefaultProviderAsync（async 变体），mock 出口同步换名
 vi.mock('../default-provider.js', () => ({
-  resolveDefaultProvider: vi.fn(() => 'claude'),
+  resolveDefaultProviderAsync: vi.fn(async () => 'claude'),
 }));
 
 function createTempDir(): string {

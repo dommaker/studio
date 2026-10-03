@@ -21,6 +21,23 @@ export function resolveDefaultProvider(
   scan: () => DetectedRuntime[] = scanAllProviders,
 ): string | null {
   const detected = scan();
+  return pickFirst(detected);
+}
+
+/**
+ * resolveDefaultProvider 的异步形态（2026-10-03 根因修复）：缺省 scanAllProvidersAsync。
+ * agent-profile.service 角色创建是请求路径——sync 全扫（execFileSync，真机冷缓存
+ * 实测 43–55s，#577）会冻结事件循环，SSE/在飞请求全部排队；daemon 进程内请求路径
+ * 一律走本变体，sync 版仅余 CLI 一次性路径（cli/server.ts checkPrerequisites、run-web）。
+ */
+export async function resolveDefaultProviderAsync(
+  scan: () => DetectedRuntime[] | Promise<DetectedRuntime[]> = scanAllProvidersAsync,
+): Promise<string | null> {
+  const detected = await scan();
+  return pickFirst(detected);
+}
+
+function pickFirst(detected: DetectedRuntime[]): string | null {
   const first = detected[0]?.provider ?? null;
   if (!first) {
     logger.warn('[DefaultProvider] 未检测到任何 agent CLI（claude/kimi/codex/opencode），新建角色将无可用执行体');
@@ -33,18 +50,15 @@ export function resolveDefaultProvider(
  * 幂等；scan 可注入（测试，同步/异步函数均可）；扫不到 CLI 时不动任何角色。
  * 2026-10-03 冷启动修复：缺省扫描换 scanAllProvidersAsync——本函数在 bootstrap
  * 启动链上，sync 全扫（execFileSync ≈9s）曾阻塞事件循环拖住 listen；
- * resolveDefaultProvider 保持 sync 缺省（agent-profile.service 角色创建是低频请求路径）。
+ * 同日根因修复：agent-profile.service 角色创建路径也换 resolveDefaultProviderAsync，
+ * sync 版仅余 CLI 一次性路径。
  */
 export async function backfillProfileProviders(
   fileStore: FileStore,
   scan: () => DetectedRuntime[] | Promise<DetectedRuntime[]> = scanAllProvidersAsync,
 ): Promise<number> {
-  const detected = await scan();
-  const provider = detected[0]?.provider ?? null;
-  if (!provider) {
-    logger.warn('[DefaultProvider] 未检测到任何 agent CLI（claude/kimi/codex/opencode），新建角色将无可用执行体');
-    return 0;
-  }
+  const provider = pickFirst(await scan());
+  if (!provider) return 0;
   const all = await fileStore.listProfiles();
   let stamped = 0;
   for (const p of all) {

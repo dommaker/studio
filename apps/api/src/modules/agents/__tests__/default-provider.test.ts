@@ -1,6 +1,7 @@
 /**
  * F1 default-provider 单测：
- * - resolveDefaultProvider：扫描结果第一个 / 空扫描 → null
+ * - resolveDefaultProvider / resolveDefaultProviderAsync：扫描结果第一个 / 空扫描 → null；
+ *   async 变体接受 sync/async scan 注入（请求路径用 async 变体，2026-10-03 根因修复）
  * - backfillProfileProviders：空 provider 的 active 角色打戳；studio/ inactive / 已有 provider 不动；幂等
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -8,7 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
-import { resolveDefaultProvider, backfillProfileProviders } from '../default-provider.js';
+import { resolveDefaultProvider, resolveDefaultProviderAsync, backfillProfileProviders } from '../default-provider.js';
 import type { DetectedRuntime } from '../../../daemon/cli-scanner.js';
 
 const claudeDetected: DetectedRuntime[] = [{ provider: 'claude', path: '/usr/local/bin/claude', version: '2.1.80' }];
@@ -25,6 +26,20 @@ describe('resolveDefaultProvider (F1)', () => {
 
   it('空扫描 → null（不隐式兜底 claude）', () => {
     expect(resolveDefaultProvider(() => [])).toBeNull();
+  });
+});
+
+describe('resolveDefaultProviderAsync (2026-10-03 请求路径异步变体)', () => {
+  it('async scan 注入：返回扫描结果第一个 provider', async () => {
+    expect(await resolveDefaultProviderAsync(async () => claudeDetected)).toBe('claude');
+  });
+
+  it('sync scan 注入兼容：返回第一个 provider', async () => {
+    expect(await resolveDefaultProviderAsync(() => claudeDetected)).toBe('claude');
+  });
+
+  it('空扫描 → null（不隐式兜底 claude）', async () => {
+    expect(await resolveDefaultProviderAsync(async () => [])).toBeNull();
   });
 });
 

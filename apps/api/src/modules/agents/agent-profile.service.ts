@@ -13,7 +13,7 @@ import path from 'node:path';
 import yaml from 'js-yaml';
 import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData, type ChannelData } from '@dommaker/studio-shared';
 import { clearCache } from '../../middleware/api-cache.js';
-import { resolveDefaultProvider } from './default-provider.js';
+import { resolveDefaultProviderAsync } from './default-provider.js';
 import { summarizeRoleStates } from './agent-instance.service.js';
 import { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';
 
@@ -240,8 +240,9 @@ export class AgentProfileService {
       description: input.description ?? preset?.description ?? null,
       channels: stringifyChannels(input.channels),
       // F1: provider 缺省时打戳为本机扫描到的默认 CLI（不再留 null 靠运行时隐式兜底）；
-      // 一个都没扫到 → null + warning（resolveDefaultProvider 内部），启动健康探测会显性失败
-      provider: input.provider || resolveDefaultProvider(),
+      // 一个都没扫到 → null + warning（resolveDefaultProviderAsync 内部），启动健康探测会显性失败；
+      // 2026-10-03：换 async 扫描变体——请求路径上 sync 全扫会冻结事件循环（见 default-provider.ts）
+      provider: input.provider || await resolveDefaultProviderAsync(),
       status: input.status ?? 'active',
       createdAt: now,
       updatedAt: now,
