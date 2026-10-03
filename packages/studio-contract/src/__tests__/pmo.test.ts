@@ -141,7 +141,7 @@ describe('projectSchema', () => {
 
   it('parity：interface 必填字段逐一删除 → schema 拒绝（必填集对齐）', () => {
     for (const key of Object.keys(projectRow)) {
-      const { [key]: _drop, ...rest } = projectRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = projectRow as unknown as Record<string, unknown>;
       expect(projectSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });
@@ -171,7 +171,7 @@ describe('projectSchema', () => {
     const decision: PmoDecision = { wuId: 'w', summary: 's', resolvedAt: 't' };
     expect(Object.keys(pmoDecisionSchema.shape).sort()).toEqual(Object.keys(decision).sort());
     for (const key of Object.keys(decision)) {
-      const { [key]: _drop, ...rest } = decision as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = decision as unknown as Record<string, unknown>;
       expect(pmoDecisionSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });
@@ -182,7 +182,7 @@ describe('okrSchema', () => {
     expect(okrSchema.parse(okrRow)).toEqual(okrRow);
     expect(Object.keys(okrSchema.shape).sort()).toEqual(Object.keys(okrRow).sort());
     for (const key of Object.keys(okrRow)) {
-      const { [key]: _drop, ...rest } = okrRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = okrRow as unknown as Record<string, unknown>;
       expect(okrSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });
@@ -211,7 +211,7 @@ describe('deliveryStatusSchema', () => {
 
   it('必填字段删除即拒；gaps.missing 词表校验', () => {
     for (const key of Object.keys(deliveryRow)) {
-      const { [key]: _drop, ...rest } = deliveryRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = deliveryRow as unknown as Record<string, unknown>;
       expect(deliveryStatusSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
     expect(deliveryStatusSchema.safeParse({

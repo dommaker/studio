@@ -121,7 +121,7 @@ describe('skillSchema', () => {
     expect(skillSchema.parse(full)).toEqual(full);
     expect(Object.keys(skillSchema.shape).sort()).toEqual(Object.keys(full).sort());
     for (const key of Object.keys(skillRow)) {
-      const { [key]: _drop, ...rest } = skillRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = skillRow as unknown as Record<string, unknown>;
       expect(skillSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });
@@ -165,7 +165,7 @@ describe('SkillManifestEntry', () => {
     expect(skillManifestEntrySchema.parse(manifestEntryRow)).toEqual(manifestEntryRow);
     expect(Object.keys(skillManifestEntrySchema.shape).sort()).toEqual(Object.keys(manifestEntryRow).sort());
     for (const key of Object.keys(manifestEntryRow)) {
-      const { [key]: _drop, ...rest } = manifestEntryRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = manifestEntryRow as unknown as Record<string, unknown>;
       expect(skillManifestEntrySchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });
@@ -176,7 +176,7 @@ describe('DemotionProposal', () => {
     expect(demotionProposalSchema.parse(demotionRow)).toEqual(demotionRow);
     expect(Object.keys(demotionProposalSchema.shape).sort()).toEqual(Object.keys(demotionRow).sort());
     for (const key of Object.keys(demotionRow)) {
-      const { [key]: _drop, ...rest } = demotionRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = demotionRow as unknown as Record<string, unknown>;
       expect(demotionProposalSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
     expect(demotionProposalSchema.safeParse({ ...demotionRow, kind: 'bogus' }).success).toBe(false);

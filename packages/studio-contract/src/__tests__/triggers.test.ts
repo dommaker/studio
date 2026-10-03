@@ -77,7 +77,7 @@ describe('triggerConfigSchema', () => {
     expect(triggerConfigSchema.parse(triggerRow)).toEqual(triggerRow);
     expect(Object.keys(triggerConfigSchema.shape).sort()).toEqual(Object.keys(triggerRow).sort());
     for (const key of Object.keys(triggerRow)) {
-      const { [key]: _drop, ...rest } = triggerRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = triggerRow as unknown as Record<string, unknown>;
       expect(triggerConfigSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });

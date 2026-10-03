@@ -65,7 +65,7 @@ describe('requirementSchema', () => {
   it('parity：interface 必填字段逐一删除 → schema 拒绝（必填集对齐）', () => {
     const OPTIONAL_KEYS = new Set(['channelId', 'docs', 'description', 'projectId']);
     for (const key of Object.keys(reqRow).filter((k) => !OPTIONAL_KEYS.has(k))) {
-      const { [key]: _drop, ...rest } = reqRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = reqRow as unknown as Record<string, unknown>;
       expect(requirementSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
     // interface 可选字段删除 → 仍通过

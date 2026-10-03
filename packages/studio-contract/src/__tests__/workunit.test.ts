@@ -31,7 +31,7 @@ import {
 import * as contractIndex from '../index.js';
 
 /** 后端 snapshotToData JSON 序列化后的最小合法形状（interface 类型即 parity 被测对象） */
-const wuRow: WorkUnit = {
+const wuRow = {
   id: 'wu-1',
   parentId: null,
   type: 'task',
@@ -51,7 +51,7 @@ const wuRow: WorkUnit = {
   updatedAt: '2026-09-01T00:00:00.000Z',
   claimedAt: null,
   completedAt: null,
-};
+} satisfies WorkUnit;
 
 describe('workUnitSchema', () => {
   it('接受后端 wire 形状（含可选项缺失/claimable 列表标记）', () => {
@@ -84,12 +84,12 @@ describe('workUnitSchema', () => {
     const requiredKeys = Object.keys(wuRow).filter(k => !OPTIONAL_KEYS.has(k));
     expect(requiredKeys.length).toBeGreaterThan(0);
     for (const key of requiredKeys) {
-      const { [key]: _drop, ...rest } = wuRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = wuRow as unknown as Record<string, unknown>;
       expect(workUnitSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
     // interface 可选字段删除 → 仍通过
     for (const key of ['workspaceId', 'reqId', 'assigneeRoleId']) {
-      const { [key]: _drop, ...rest } = wuRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = wuRow as unknown as Record<string, unknown>;
       expect(workUnitSchema.safeParse(rest).success, `删除可选 ${key} 应放行`).toBe(true);
     }
   });

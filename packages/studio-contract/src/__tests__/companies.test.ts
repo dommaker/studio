@@ -34,7 +34,7 @@ describe('companySchema', () => {
     expect(companySchema.parse(companyRow)).toEqual(companyRow);
     expect(Object.keys(companySchema.shape).sort()).toEqual(Object.keys(companyRow).sort());
     for (const key of Object.keys(companyRow)) {
-      const { [key]: _drop, ...rest } = companyRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = companyRow as unknown as Record<string, unknown>;
       expect(companySchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });

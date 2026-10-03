@@ -93,7 +93,7 @@ describe('channelSchema', () => {
 
   it('parity：interface 必填字段逐一删除 → schema 拒绝（必填集对齐）', () => {
     for (const key of Object.keys(channelRow)) {
-      const { [key]: _drop, ...rest } = channelRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = channelRow as unknown as Record<string, unknown>;
       expect(channelSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });
@@ -108,7 +108,7 @@ describe('channelMessageSchema', () => {
   it('parity：ChannelMessage interface fixture 全键 = schema.shape 键；必填字段删除即拒', () => {
     expect(Object.keys(channelMessageSchema.shape).sort()).toEqual(Object.keys(messageRow).sort());
     for (const key of Object.keys(messageRow)) {
-      const { [key]: _drop, ...rest } = messageRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = messageRow as unknown as Record<string, unknown>;
       expect(channelMessageSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });

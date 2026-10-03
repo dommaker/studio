@@ -83,7 +83,7 @@ describe('evolutionProposalSchema', () => {
     expect(evolutionProposalSchema.parse(full)).toEqual(full);
     expect(Object.keys(evolutionProposalSchema.shape).sort()).toEqual(Object.keys(full).sort());
     for (const key of Object.keys(proposalRow)) {
-      const { [key]: _drop, ...rest } = proposalRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = proposalRow as unknown as Record<string, unknown>;
       expect(evolutionProposalSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });

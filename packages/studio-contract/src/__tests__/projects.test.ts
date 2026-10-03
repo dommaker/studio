@@ -30,7 +30,7 @@ describe('localProjectSchema', () => {
     expect(localProjectSchema.parse(projectRow)).toEqual(projectRow);
     expect(Object.keys(localProjectSchema.shape).sort()).toEqual(Object.keys(full).sort());
     for (const key of Object.keys(projectRow)) {
-      const { [key]: _drop, ...rest } = projectRow as Record<string, unknown>;
+      const { [key]: _drop, ...rest } = projectRow as unknown as Record<string, unknown>;
       expect(localProjectSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
     }
   });
