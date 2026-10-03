@@ -108,7 +108,7 @@ export async function registerRoutes(): Promise<void> {
       if (PUBLIC_API.has(req.path) || [...PUBLIC_API].some(p => req.path.startsWith(p + '/')) || authReq.user) {
         return next();
       }
-      res.status(401).json({ error: 'Authentication required' });
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
     });
   }
 
