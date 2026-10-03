@@ -112,3 +112,23 @@
 
 - **「tsx 形态端口可服务 < 10s」目标达成**（1.5–2.6s，余量 4 倍以上）。达成路径即 §5 预设的两口径分离：端口可服务 = tsx 转译 + 初始化链前段 + 路由注册；全量就绪（核心服务/agent loop/channels/CLI 扫描完成）重启轮 ≈8.5s，在 listen 之后继续。
 - 已知残余：warmup 的 SessionSummary 首跑全量 git 提取（本机实测 10.9s）仍在 listen 之后阻塞事件循环，全新数据区首启的窗口内请求会排队；增量场景（生产数据区）实测 58ms 无感。另立票处理。
+
+### 7.1 §5 遗留三项补测（同日，listen 前移后代码 ff546ba9，方法同 §2）
+
+**写路径 p95（目标 < 300ms）：达标，余量 30 倍以上。**
+
+| 端点 | 状态码 | p50 | p95 | max |
+|------|--------|-----|-----|-----|
+| `POST /api/v1/workunits`（create，50 发串行） | 201×50 | 6.2 ms | 9.3 ms | 10.9 ms |
+| `PUT /api/v1/workunits/:id`（update，50 发串行） | 200×50 | 5.9 ms | 8.5 ms | 9.8 ms |
+
+**SSE 延迟（20 轮，`POST /workunits` → `workunit.created` → events 桥 → `GET /events/stream`）：**
+
+- POST 应答 → SSE 收到：p50 0.2 ms / p95 1.3 ms（广播在请求处理内同步发出，增量开销毫秒级）
+- POST 发起 → SSE 收到（端到端，含写处理）：p50 11.7 ms / p95 23.8 ms
+- 注：`POST /events` 直写只落 JSONL 不进 eventBus，到不了 `/stream`——SSE 测的是真实业务事件链。
+
+**前端 LCP（`https://studio.dommaker.cn/`，未认证落地页，playwright chromium 本机回环，5 轮）：**
+
+- run1（冷：DNS/TLS/缓存全冷）1216 ms；run2–5（浏览器缓存热）128–132 ms
+- p50 132 ms / max 1216 ms。已认证主应用 LCP 未测（需 refresh token 仪式，成本不匹配，留待有前端性能需求时补）。
