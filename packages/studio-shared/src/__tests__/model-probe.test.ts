@@ -8,19 +8,23 @@
  * - 未声明 listModels 且无 fallbackModels → undefined
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { promisify } from 'node:util';
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
+  execFile: Object.assign(vi.fn(), { [promisify.custom]: vi.fn() }),
 }));
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execFile } from 'node:child_process';
 import {
   parseModelList,
   getProviderModels,
+  getProviderModelsAsync,
   resetModelProbeCache,
 } from '../model-probe';
 
 const mockExecFileSync = vi.mocked(execFileSync);
+const mockExecFileAsync = vi.mocked((execFile as any)[promisify.custom] as (...args: any[]) => Promise<{ stdout: string; stderr: string }>);
 
 /** codex 0.147.0 实测 `codex debug models` stdout 节选（脱敏，字段保留原形态） */
 const CODEX_DEBUG_MODELS_SAMPLE = JSON.stringify({
@@ -185,5 +189,41 @@ describe('getProviderModels', () => {
     // openclaw（config-only legacy）未声明 listModels 也无 fallbackModels
     const result = getProviderModels('openclaw', '/usr/local/bin/openclaw', 'unknown');
     expect(result).toBeUndefined();
+  });
+});
+
+describe('getProviderModelsAsync（2026-10-03 异步形态，与 sync 共享 modelsCache）', () => {
+  test('探测成功 → live；走 execFile 异步链，不碰 execFileSync', async () => {
+    mockExecFileAsync.mockImplementation(async (_cmd, args) => {
+      if (args?.join(' ') === 'debug models') return { stdout: CODEX_DEBUG_MODELS_SAMPLE, stderr: '' };
+      throw new Error(`unexpected call: ${args?.join(' ')}`);
+    });
+
+    const result = await getProviderModelsAsync('codex', '/usr/local/bin/codex', 'codex-cli 0.147.0');
+    expect(result).toEqual({
+      models: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.5'],
+      source: 'live',
+    });
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+  });
+
+  test('与 sync 版共享缓存：async 探测入缓存后，sync 读取命中不重跑', async () => {
+    mockExecFileAsync.mockImplementation(async () => ({ stdout: CODEX_DEBUG_MODELS_SAMPLE, stderr: '' }));
+    await getProviderModelsAsync('codex', '/usr/local/bin/codex', 'codex-cli 0.147.0');
+
+    const fromSync = getProviderModels('codex', '/usr/local/bin/codex', 'codex-cli 0.147.0');
+    expect(fromSync?.source).toBe('live');
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+  });
+
+  test('探测失败 → 退回 fallback；失败入缓存，同 key 不重试', async () => {
+    mockExecFileAsync.mockImplementation(async () => { throw new Error('boom'); });
+
+    const first = await getProviderModelsAsync('codex', '/usr/local/bin/codex', '0.147.0');
+    expect(first?.source).toBe('fallback');
+    const callsAfterFirst = mockExecFileAsync.mock.calls.length;
+
+    await getProviderModelsAsync('codex', '/usr/local/bin/codex', '0.147.0');
+    expect(mockExecFileAsync.mock.calls.length).toBe(callsAfterFirst);
   });
 });

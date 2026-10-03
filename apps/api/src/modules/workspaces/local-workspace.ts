@@ -26,7 +26,7 @@ const WORKSPACES_DIR = resolveWorkspacesDir();
 const VPS_WORKSPACE_NAME = 'VPS';
 
 /**
- * 查找本地（token=NULL）VPS workspace 记录。
+ * 查找本地（无 token 的）VPS workspace 记录。
  * 'VPS' 命名约定的唯一属主是 studio-shared 的 resolveVpsWorkspace
  * （worktree-resolver 的执行隔离回退也走它）；此处只保留启动前的 mkdir 副作用。
  */
@@ -99,8 +99,10 @@ export async function rescanLocalRuntimes(): Promise<void> {
  */
 async function scanLocalRuntimes(workspaceId: string): Promise<void> {
   try {
-    const { scanAllProviders } = await import('../../daemon/cli-scanner.js');
-    const detected = scanAllProviders();
+    // 2026-10-03 冷启动修复：换 scanAllProvidersAsync（execFile 异步化 + provider 并行）——
+    // sync 版 execFileSync 全扫阻塞事件循环实测 ≈9s，启动期拖住 listen、GET 前重扫拖住所有请求
+    const { scanAllProvidersAsync } = await import('../../daemon/cli-scanner.js');
+    const detected = await scanAllProvidersAsync();
 
     const wsFile = path.join(WORKSPACES_DIR, `${workspaceId}.json`);
     const workspace = await getStore().readJson<any>(wsFile);

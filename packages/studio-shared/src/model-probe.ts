@@ -18,9 +18,14 @@
  * 经 '@dommaker/studio-shared/node' 导出。
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import { logger } from './utils/logger';
 import { resolveProviderDefinition, type ProviderDefinition } from './providers';
+
+/** execFile 的 promisify 形态（调用期才取值，理由同 capability-probe） */
+const execFileAsync = (file: string, args: string[], options: object): Promise<{ stdout: string; stderr: string }> =>
+  (promisify(execFile) as unknown as (f: string, a: string[], o: object) => Promise<{ stdout: string; stderr: string }>)(file, args, options);
 
 type ModelListParser = NonNullable<ProviderDefinition['listModels']>['parser'];
 
@@ -129,4 +134,50 @@ export function getProviderModels(
 /** Test hook: 清空探测缓存 */
 export function resetModelProbeCache(): void {
   modelsCache.clear();
+}
+
+/** runProbe 的异步形态（execFile 回调），供 scanAllProvidersAsync 不阻塞事件循环 */
+async function runProbeAsync(binaryPath: string, probe: NonNullable<ProviderDefinition['listModels']>): Promise<string[] | null> {
+  try {
+    const { stdout } = await execFileAsync(binaryPath, probe.args, {
+      encoding: 'utf-8',
+      timeout: probe.timeoutMs ?? 10_000,
+    });
+    if (typeof stdout !== 'string') return null;
+    const models = parseModelList(stdout, probe.parser);
+    return models.length > 0 ? models : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * getProviderModels 的异步形态（2026-10-03 冷启动修复）：与 sync 版共享 modelsCache，
+ * 语义逐条对齐（缓存命中直接用、失败入缓存 + warn、回退 fallbackModels）。
+ * 启动扫描走异步链时调用，避免 execFileSync 阻塞事件循环拖住 listen。
+ */
+export async function getProviderModelsAsync(
+  providerId: string,
+  binaryPath: string,
+  version: string,
+): Promise<ProviderModelsResult | undefined> {
+  const def = resolveProviderDefinition(providerId);
+
+  if (def.listModels) {
+    const key = cacheKey(binaryPath, version);
+    if (!modelsCache.has(key)) {
+      const models = await runProbeAsync(binaryPath, def.listModels);
+      if (models === null) {
+        logger.warn('[ModelProbe] 模型列表探测失败，退回静态 fallbackModels', { provider: providerId, binaryPath });
+      }
+      modelsCache.set(key, models);
+    }
+    const live = modelsCache.get(key);
+    if (live) return { models: live, source: 'live' };
+  }
+
+  if (def.fallbackModels && def.fallbackModels.length > 0) {
+    return { models: def.fallbackModels, source: 'fallback' };
+  }
+  return undefined;
 }

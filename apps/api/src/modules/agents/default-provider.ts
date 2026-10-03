@@ -13,7 +13,7 @@
  * 系统身份模型档位是用户决策，不自动打戳）。幂等：provider 非空不动。
  */
 import { logger, type FileStore } from '@dommaker/studio-shared';
-import { scanAllProviders, type DetectedRuntime } from '../../daemon/cli-scanner.js';
+import { scanAllProviders, scanAllProvidersAsync, type DetectedRuntime } from '../../daemon/cli-scanner.js';
 import { isSystemRole } from './system-role.js';
 
 /** 选默认 provider：扫描结果第一个（注册表顺序）。扫不到返回 null。 */
@@ -30,14 +30,21 @@ export function resolveDefaultProvider(
 
 /**
  * 回填存量角色的空 provider。返回打戳数量。
- * 幂等；scan 可注入（测试）；扫不到 CLI 时不动任何角色（warning 已由 resolveDefaultProvider 发出）。
+ * 幂等；scan 可注入（测试，同步/异步函数均可）；扫不到 CLI 时不动任何角色。
+ * 2026-10-03 冷启动修复：缺省扫描换 scanAllProvidersAsync——本函数在 bootstrap
+ * 启动链上，sync 全扫（execFileSync ≈9s）曾阻塞事件循环拖住 listen；
+ * resolveDefaultProvider 保持 sync 缺省（agent-profile.service 角色创建是低频请求路径）。
  */
 export async function backfillProfileProviders(
   fileStore: FileStore,
-  scan: () => DetectedRuntime[] = scanAllProviders,
+  scan: () => DetectedRuntime[] | Promise<DetectedRuntime[]> = scanAllProvidersAsync,
 ): Promise<number> {
-  const provider = resolveDefaultProvider(scan);
-  if (!provider) return 0;
+  const detected = await scan();
+  const provider = detected[0]?.provider ?? null;
+  if (!provider) {
+    logger.warn('[DefaultProvider] 未检测到任何 agent CLI（claude/kimi/codex/opencode），新建角色将无可用执行体');
+    return 0;
+  }
   const all = await fileStore.listProfiles();
   let stamped = 0;
   for (const p of all) {

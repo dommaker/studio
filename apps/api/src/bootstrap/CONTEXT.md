@@ -6,7 +6,7 @@
 
 ### 核心导出
 
-- `index.ts` — `bootstrap()` 装配入口：按原 index.ts start() 逐行顺序调用各步；catch 兜底 = 拒启（logger.error + process.exit(1)）。P2-b 起首步为 `initConfig()` → `initStore()`（钉定进程级 FileStore，必须先于迁移等一切 store 消费，见 `../core/CONTEXT.md`）
+- `index.ts` — `bootstrap()` 装配入口；catch 兜底 = 拒启（logger.error + process.exit(1)）。P2-b 起首步为 `initConfig()` → `initStore()`（钉定进程级 FileStore，必须先于迁移等一切 store 消费，见 `../core/CONTEXT.md`）。2026-10-03 起 listen 前移到 registerRoutes 之后（见「注意事项」）
 - `config.ts` — `initConfig()`（PORT/HOST 解析 → warnIfNonProdUsesProdRoot → loadConfig 注入 STUDIO_CONFIG_DIR .env）+ `getPort()/getHost()`
 - `migrations.ts` — `runDataMigrations()`（数据区 schema 迁移，失败抛 MigrationError = 拒启）+ `reconcileWorkUnitIndex()`（#170 启动对账，失败不阻断）
 - `seed.ts` — `seedBuiltinSkillsStep()`（#223 内置 skill 播种，best-effort）
@@ -26,7 +26,8 @@
 
 ### 注意事项
 
-- **顺序即语义**：装配顺序逐项对齐原 index.ts start()，改动须同步 `__tests__/index.test.ts` 的顺序断言。关键约束：迁移必须先于 reconcile（迁移后布局才是对账正本）；warmup 分 registerRoutes 前/后两段；bridges 调用点固定在 trigger 注册之后、loop 挂载之前（standby 实例也保留事件订阅）
+- **顺序即语义**：装配顺序改动须同步 `__tests__/index.test.ts` 的顺序断言。关键约束：迁移必须先于 reconcile（迁移后布局才是对账正本）；warmup 分 registerRoutes 前/后两段；bridges 调用点固定在 trigger 注册之后、loop 挂载之前（standby 实例也保留事件订阅）
+- **listen 前移（2026-10-03 冷启动修复）**：`listen`/`installErrorHandlers`/tunnel/shutdown 排在 registerRoutes 之后、startCoreServices 等后台初始化之前——「端口可服务」与「全量就绪」两口径分离（背景与复测数字见 docs/architecture/performance-baseline.md §7）。诱因：启动链上两处同步 `execFileSync` CLI 全扫（workspaces 重扫 + default-provider backfill）阻塞事件循环实测 ≈9s；同批修复 = CLI 扫描异步化（`cli-scanner.scanAllProvidersAsync`，sync 版只留 CLI 一次性检查与 agent-profile.service 低频路径）。listen 后到达的请求可能早于后台服务就绪，/health 不依赖任何后台服务（部署健康检查语义不变）
 - **失败分级**：迁移失败 = 拒启（外层 catch exit 1）；reconcile/seed/warmup/bridges/核心服务单项失败只 log 不阻断
 - **优雅关闭逆序**：unmount AgentLoop → 杀在飞 CLI 进程组（#179）→ stopTunnel → stopEvolutionScheduler → monitor.stop → auditor.stop → server.close → 5s 强制 exit 兜底；顺序由 `__tests__/lifecycle.test.ts` 钉死
 - 测试：`__tests__/` 每文件一个同名测试，装配顺序/拒启/关闭逆序三条核心语义均有断言

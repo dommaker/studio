@@ -1,10 +1,12 @@
 // ── 启动编排装配入口 ──
-// P2-a：自 apps/api/src/index.ts（590 行）拆出，步骤顺序与原 start() 逐行一致，
-// 语义零漂移：
+// P2-a：自 apps/api/src/index.ts（590 行）拆出。步骤语义：
 //   - 数据区迁移失败 = 拒启（MigrationError → 本层 catch → process.exit(1)）；
 //   - reconcile / seed / warmup / bridges / agent-loop 等失败只 log 不阻断；
 //   - 迁移必须先于 reconcile（迁移后的布局才是对账正本）；
 //   - warmup 分两段：registerRoutes 前 / 后，保持原相对位置；
+//   - 2026-10-03 冷启动修复：listen 前移到 registerRoutes 之后（端口可服务/全量就绪
+//     两口径分离，详见 performance-baseline.md §6.1），核心服务/agent loop/channels
+//     等后台初始化在 listen 之后继续；
 //   - 优雅关闭的逆序清理由 lifecycle.registerShutdown 承载。
 import { logger, bootstrapHarness } from '@dommaker/studio-shared';
 import { app, registerRoutes } from '../app.js';
@@ -44,6 +46,16 @@ export async function bootstrap(): Promise<void> {
     // 创建 HTTP 服务器
     const server = createHttpServer(app);
 
+    // ── 端口可服务点（2026-10-03 冷启动修复：listen 前移）──
+    // 路由注册完成后即可对外服务：/health 等已挂路由不依赖下方后台服务。
+    // 原顺序 listen 排在初始化链尾，「端口可服务 ≈ 全量就绪」单口径，
+    // 链上任何慢初始化（CLI 扫描/服务挂载）都直接推迟健康检查可用时间。
+    // 两口径分离后：端口可服务 = tsx 转译 + 路由注册；全量就绪 = 下方各步完成。
+    installErrorHandlers(app);
+    listen(server, { port: getPort(), host: getHost() });
+    startTunnelIfEnabled(getPort());
+    registerShutdown(server);
+
     // ── 核心服务 ──
     await startCoreServices();
 
@@ -58,11 +70,6 @@ export async function bootstrap(): Promise<void> {
 
     // ── Trigger EXECUTE handler 注册 ──
     await registerScanHandlers();
-
-    installErrorHandlers(app);
-    listen(server, { port: getPort(), host: getHost() });
-    startTunnelIfEnabled(getPort());
-    registerShutdown(server);
   } catch (error) {
     logger.error('Failed to start server', { error: String(error) });
     console.error('Full error:', error);

@@ -12,7 +12,7 @@ P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 
 - `agent-instance.routes.ts` / `agent-instance.service.ts` — 运行实例 CRUD + isOnline/最新 error 聚合（summarizeRoleStates 单源）
 - `token-usage.routes.ts` / `token-usage.service.ts` — 角色级 token 视图（30d 窗口读口）
 - `routes.ts` — ⚠️ LEGACY agents-registry 路由（web 消费方已清 #347，勿扩展）
-- `default-provider.ts` — provider 默认选取 + backfillProfileProviders
+- `default-provider.ts` — provider 默认选取（resolveDefaultProvider，sync 扫描，agent-profile.service 低频创建路径用）+ backfillProfileProviders（bootstrap 启动链用，2026-10-03 起缺省 scanAllProvidersAsync 异步扫描，不阻塞事件循环）
 - `default-triggers.ts` — 10 个系统 trigger（inspection-scan/dispatch-reconciliation/doc-semantic-review/#523 workunit-gate-escalation 等）
 - `system-executor.ts` — SystemExecutor 系统级 LLM 直调（读 studio 角色 provider，轻量 spawn 无状态；6+ 模块经 barrel 消费）
 - `system-role.ts` — 系统角色断言门面（正本 core/system-role.ts）

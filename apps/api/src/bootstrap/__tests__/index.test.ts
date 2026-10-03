@@ -1,7 +1,8 @@
 /**
- * bootstrap/index 装配测试（P2-a）：
- * - 装配顺序 = 原 index.ts start() 逐行顺序（迁移先于对账、warmup 跨 registerRoutes 两段、
- *   listen 在 error handler 之后、shutdown 最后注册）；
+ * bootstrap/index 装配测试（P2-a；2026-10-03 listen 前移）：
+ * - 装配顺序：迁移先于对账、warmup 跨 registerRoutes 两段、listen 前移到
+ *   registerRoutes/createHttpServer 之后（端口可服务/全量就绪两口径分离）、
+ *   核心服务等后台初始化在 listen 之后；
  * - 数据区迁移失败 = 拒启：catch 落错误日志 + process.exit(1)，后续步骤不再执行。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -82,7 +83,7 @@ afterEach(() => {
 });
 
 describe('bootstrap 装配', () => {
-  it('按原 index.ts start() 顺序装配全部启动步骤', async () => {
+  it('按装配顺序启动：listen 前移到路由注册后，后台初始化在 listen 之后', async () => {
     await bootstrap();
     expect(calls).toEqual([
       'initConfig',
@@ -94,15 +95,15 @@ describe('bootstrap 装配', () => {
       'registerRoutes',
       'startPostRoutesWarmup',
       'createHttpServer',
+      'installErrorHandlers',
+      'listen',
+      'startTunnelIfEnabled',
+      'registerShutdown',
       'startCoreServices',
       'startAgentLoops',
       'initChannels',
       'sweepEmptyAgentDirs',
       'registerScanHandlers',
-      'installErrorHandlers',
-      'listen',
-      'startTunnelIfEnabled',
-      'registerShutdown',
     ]);
     expect(processExitSpy).not.toHaveBeenCalled();
   });
