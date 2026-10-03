@@ -1,60 +1,36 @@
 // Requirement API — REQ 需求编号体系（vision §5.3）
+// 契约驱动迁移（2026-09 批次 1/7）：类型 import 自 @dommaker/studio-contract，
+// 响应壳统一 { data }（原 {success,data} 手抄声明删除）。
+import type {
+  Requirement,
+  RequirementStatus,
+  RequirementChainWorkUnit,
+  RequirementChain,
+  ChainStatsResult,
+} from '@dommaker/studio-contract';
 import { api } from './index';
 
-export type RequirementStatus = 'open' | 'in-progress' | 'done' | 'archived';
-
-export interface Requirement {
-  id: string;                 // REQ-0042
-  seq: number;
-  title: string;
-  status: RequirementStatus;
-  channelId?: string | null;
-  createdAt: string;
-  createdBy: string;
-  docs?: string[];
-  description?: string;
-  /** B3a 工程归属链：挂接的 PMO 项目 id（后端已返回；WU 详情页归属条经此解析 PMO） */
-  projectId?: string | null;
-}
-
-export interface RequirementChainWorkUnit {
-  id: string;
-  title: string;
-  status: string;
-  assigneeId: string | null;
-  assigneeRoleId?: string | null;  // 认领时的 roleId 快照（旧 WU 无此字段 → undefined/null）
-  metadata?: string | null;  // F6-b：链路节点徽章走 deriveDisplayState
-  /** 2026-07-31 §10：chain 自带类型/时间戳（管道与项目动态直接消费，无需 N+1 详情补全） */
-  type?: string;
-  createdAt?: string | null;
-  claimedAt?: string | null;
-  completedAt?: string | null;
-}
-
-export interface RequirementChain {
-  requirement: Requirement;
-  workunits: RequirementChainWorkUnit[];
-}
+export type { Requirement, RequirementStatus, RequirementChainWorkUnit, RequirementChain };
 
 export const requirementApi = {
   list: (params?: { status?: string; channelId?: string }) =>
-    api.get<{ success: boolean; data: Requirement[] }>('/requirements', { params }),
+    api.get<{ data: Requirement[] }>('/requirements', { params }),
 
   get: (id: string) =>
-    api.get<{ success: boolean; data: Requirement }>(`/requirements/${id}`),
+    api.get<{ data: Requirement }>(`/requirements/${id}`),
 
   create: (data: { title: string; channelId?: string; description?: string }) =>
-    api.post<{ success: boolean; data: Requirement }>('/requirements', data),
+    api.post<{ data: Requirement }>('/requirements', data),
 
   update: (id: string, data: { title?: string; status?: RequirementStatus; docs?: string[]; description?: string }) =>
-    api.patch<{ success: boolean; data: Requirement }>(`/requirements/${id}`, data),
+    api.patch<{ data: Requirement }>(`/requirements/${id}`, data),
 
   getChain: (id: string) =>
-    api.get<{ success: boolean; data: RequirementChain }>(`/requirements/${id}/chain`),
+    api.get<{ data: RequirementChain }>(`/requirements/${id}/chain`),
 
   /** #387 批量徽章统计：每需求 {finished,total}（PMO 卡片用，替代逐项目 getChain 的 N+1；不存在的需求无 key） */
   chainStats: (reqIds: string[]) =>
-    api.get<{ success: boolean; data: Record<string, { finished: number; total: number }> }>(
+    api.get<{ data: ChainStatsResult }>(
       '/requirements/chain-stats',
       { params: { reqIds: reqIds.join(',') } },
     ),

@@ -105,7 +105,7 @@ const busyInstance = {
 function mockApis({ agents = [busyInstance], profiles = [profile] }: { agents?: unknown[]; profiles?: unknown[] } = {}) {
   mockListAllAgents.mockResolvedValue({ data: { data: profiles } });
   mockGetAgentSummary.mockResolvedValue({
-    data: { agents, summary: { total: agents.length, idle: 0, active: 1, error: 0, terminated: 0 } },
+    data: { data: { agents, summary: { total: agents.length, idle: 0, active: 1, error: 0, terminated: 0 } } },
   });
 }
 
@@ -117,7 +117,7 @@ describe('AgentDetailPage', () => {
     sse.reconnects.length = 0;
     mockApis();
     mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
-    mockWuGet.mockResolvedValue({ data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } });
+    mockWuGet.mockResolvedValue({ data: { data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } } });
     mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
     mockWuList.mockResolvedValue({
       data: {
@@ -219,7 +219,7 @@ describe('AgentDetailPage', () => {
         ],
       },
     });
-    mockUpdateAgent.mockResolvedValue({ data: {} });
+    mockUpdateAgent.mockResolvedValue({ data: { data: {} } });
     render(<AgentDetailPage />);
 
     // 技能卡展示当前声明
@@ -250,7 +250,7 @@ describe('AgentDetailPage', () => {
 
   it('#630 决策 6：资料卡展示描述 + 「编辑资料」开正本 edit 弹框（预填 initial，改名 PATCH 脏字段后强刷名册）', async () => {
     mockApiGet.mockResolvedValue({ data: { runtimes: [{ provider: 'claude', version: '1.0.0', auth: 'ok' }] } });
-    mockUpdateAgent.mockResolvedValue({ data: { ...profile, name: 'dev-agent-2' } });
+    mockUpdateAgent.mockResolvedValue({ data: { data: { ...profile, name: 'dev-agent-2' } } });
     render(<AgentDetailPage />);
 
     // 资料卡（沿用「技能」卡头+按钮模式）
@@ -381,7 +381,7 @@ describe('AgentDetailPage — #440 agent 头像', () => {
     sse.reconnects.length = 0;
     mockApis();
     mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
-    mockWuGet.mockResolvedValue({ data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } });
+    mockWuGet.mockResolvedValue({ data: { data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } } });
     mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
     mockWuList.mockResolvedValue({ data: { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 1 } } });
   });

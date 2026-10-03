@@ -99,8 +99,8 @@ describe('GET / 初始未配置', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
+    // 契约驱动迁移（批次 5/7）：`{ success, data }` 壳的 success 标志退役
     expect(body).toEqual({
-      success: true,
       data: {
         wecom: { configured: false, maskedUrl: null, source: null },
         clawbot: { bound: false, ilinkUserId: null, boundAt: null },
@@ -119,7 +119,6 @@ describe('PUT /wecom', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.success).toBe(true);
     expect(body.data.configured).toBe(true);
     expect(body.data.source).toBe('settings');
     expect(body.data.maskedUrl).not.toBe(WECOM_URL);
@@ -139,7 +138,9 @@ describe('PUT /wecom', () => {
     });
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.success).toBe(false);
+    // 错误统一 `{ error: { code, message } }`，前缀校验文案保留
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toContain('https://qyapi.weixin.qq.com/');
   });
 
   it('webhookUrl 非字符串 → 400', async () => {
@@ -174,7 +175,8 @@ describe('POST /wecom/test', () => {
     const res = await realFetch(`${baseUrl}/wecom/test`, { method: 'POST' });
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toBe('WeCom webhook not configured');
   });
 
   it('配置存储 URL 优先于 env：两个都设时打到配置存储的 URL', async () => {
@@ -189,7 +191,7 @@ describe('POST /wecom/test', () => {
     const res = await realFetch(`${baseUrl}/wecom/test`, { method: 'POST' });
 
     expect(res.status).toBe(200);
-    expect((await res.json()).success).toBe(true);
+    expect((await res.json()).data.success).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toBe(WECOM_URL);
@@ -215,7 +217,7 @@ describe('POST /wecom/test', () => {
     expect(JSON.stringify(getBody)).not.toContain(process.env.WECOM_WEBHOOK_URL);
   });
 
-  it('上游非 2xx → 502 { success: false, error }', async () => {
+  it('上游非 2xx → 502 错误壳（BAD_GATEWAY）', async () => {
     await resetConfig();
     process.env.WECOM_WEBHOOK_URL = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=envkey9999';
     mockFetch.mockResolvedValue(jsonResponse({}, 500));
@@ -223,8 +225,8 @@ describe('POST /wecom/test', () => {
     const res = await realFetch(`${baseUrl}/wecom/test`, { method: 'POST' });
     expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.success).toBe(false);
-    expect(typeof body.error).toBe('string');
+    expect(body.error.code).toBe('BAD_GATEWAY');
+    expect(body.error.message).toContain('HTTP 500');
   });
 
   it('fetch 异常 → 502', async () => {
@@ -235,7 +237,7 @@ describe('POST /wecom/test', () => {
     const res = await realFetch(`${baseUrl}/wecom/test`, { method: 'POST' });
     expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.error).toContain('network unreachable');
+    expect(body.error.message).toContain('network unreachable');
   });
 });
 
@@ -251,7 +253,6 @@ describe('ClawBot 绑定流程', () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual({
-      success: true,
       data: { qrcode: 'qr-key-1', qrcodeUrl: 'https://ilinkai.weixin.qq.com/qr/abc' },
     });
   });
@@ -260,7 +261,7 @@ describe('ClawBot 绑定流程', () => {
     mockFetch.mockResolvedValue(jsonResponse({}, 503));
     const res = await realFetch(`${baseUrl}/clawbot/bind/start`, { method: 'POST' });
     expect(res.status).toBe(502);
-    expect((await res.json()).success).toBe(false);
+    expect((await res.json()).error.code).toBe('BAD_GATEWAY');
   });
 
   it('GET /clawbot/bind/status 缺 qrcode 参数 → 400', async () => {
@@ -273,7 +274,7 @@ describe('ClawBot 绑定流程', () => {
     const res = await realFetch(`${baseUrl}/clawbot/bind/status?qrcode=qr-key-1`);
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body).toEqual({ success: true, data: { status: 'wait', bound: false } });
+    expect(body).toEqual({ data: { status: 'wait', bound: false } });
   });
 
   it('status=confirmed → 凭据持久化，返回 bound:true；GET / 显示已绑定且脱敏', async () => {
@@ -289,7 +290,7 @@ describe('ClawBot 绑定流程', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ success: true, data: { status: 'confirmed', bound: true } });
+    expect(body).toEqual({ data: { status: 'confirmed', bound: true } });
     expect(JSON.stringify(body)).not.toContain(BOT_TOKEN);
 
     const getRes = await realFetch(baseUrl);
@@ -325,10 +326,12 @@ describe('POST /clawbot/test 与 unbind', () => {
     await resetConfig();
     const res = await realFetch(`${baseUrl}/clawbot/test`, { method: 'POST' });
     expect(res.status).toBe(400);
-    expect((await res.json()).success).toBe(false);
+    const body = await res.json();
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toBe('ClawBot not bound');
   });
 
-  it('已绑定 → sendText 到 ilinkUserId，成功 { success: true }，token 不出现在响应', async () => {
+  it('已绑定 → sendText 到 ilinkUserId，成功 { data: { success } }，token 不出现在响应', async () => {
     await resetConfig();
     await bindClawBot();
     mockFetch.mockResolvedValue(jsonResponse({}));
@@ -337,7 +340,7 @@ describe('POST /clawbot/test 与 unbind', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ success: true });
+    expect(body).toEqual({ data: { success: true } });
     expect(JSON.stringify(body)).not.toContain(BOT_TOKEN);
 
     const [url, init] = mockFetch.mock.calls[0];
@@ -356,8 +359,8 @@ describe('POST /clawbot/test 与 unbind', () => {
     const body = await res.json();
 
     expect(res.status).toBe(502);
-    expect(body.success).toBe(false);
-    expect(body.error).toContain('-14');
+    expect(body.error.code).toBe('BAD_GATEWAY');
+    expect(body.error.message).toContain('-14');
     expect(JSON.stringify(body)).not.toContain(BOT_TOKEN);
   });
 
@@ -367,7 +370,7 @@ describe('POST /clawbot/test 与 unbind', () => {
 
     const res = await realFetch(`${baseUrl}/clawbot/unbind`, { method: 'POST' });
     expect(res.status).toBe(200);
-    expect((await res.json()).success).toBe(true);
+    expect((await res.json()).data.success).toBe(true);
 
     const getBody = await (await realFetch(baseUrl)).json();
     expect(getBody.data.clawbot).toEqual({ bound: false, ilinkUserId: null, boundAt: null });

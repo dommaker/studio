@@ -104,7 +104,8 @@ describe('GET /:workUnitId (#174)', () => {
       params: { workUnitId: 'wu-1' },
     });
 
-    const body = res.json.mock.calls[0][0];
+    // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+    const body = res.json.mock.calls[0][0].data;
     expect(body.workUnitId).toBe('wu-1');
     expect(body.total).toBe(3);
     expect(body.offset).toBe(0);
@@ -119,7 +120,7 @@ describe('GET /:workUnitId (#174)', () => {
       query: { offset: '1', limit: '1' },
     });
 
-    const body = res.json.mock.calls[0][0];
+    const body = res.json.mock.calls[0][0].data;
     expect(body.total).toBe(3);
     expect(body.offset).toBe(1);
     expect(body.limit).toBe(1);
@@ -135,7 +136,7 @@ describe('GET /:workUnitId (#174)', () => {
       query: { limit: '999' },
     });
 
-    const body = res.json.mock.calls[0][0];
+    const body = res.json.mock.calls[0][0].data;
     expect(body.limit).toBe(100);
     expect(body.entries).toHaveLength(100);
     expect(body.total).toBe(120);
@@ -166,8 +167,9 @@ describe('GET /:workUnitId (#174)', () => {
       params: { workUnitId: 'wu-nope' },
     });
 
-    const body = res.json.mock.calls[0][0];
-    expect(res.status).not.toHaveBeenCalled();
+    // defineRoute 成功路径恒 res.status(200)
+    expect(res.status).toHaveBeenCalledWith(200);
+    const body = res.json.mock.calls[0][0].data;
     expect(body.total).toBe(0);
     expect(body.entries).toEqual([]);
   });

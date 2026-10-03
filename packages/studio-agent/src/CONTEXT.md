@@ -29,6 +29,7 @@
 
 ### 注意事项
 
+- **worktreesDir fallback（P2-e，契约 §8 双口径收编）**：AgentRunner 构造缺省为 `config.worktreesDir > WORKTREES_DIR > studioPath('worktrees')`（原 `~/worktrees`）；API/CLI 进程均有 WORKTREES_DIR 注入，fallback 仅兜底测试/独立使用场景。
 - **零行为变更原则（已终结）**：runner-* 拆分（runner-params / runner-output / runner-lightweight）全程保持公共 API 不变；2026-08 删除死去的 AgentExecutor 双胞胎（session-manager.ts，821 行）；2026-09（#562）删除另一条无调用方路径（多 session 循环），**该原则自此不再适用——AgentRunner 只剩一个执行方法**。历史唯一行为变化：Discord `/studio stop` 之前调 `agentExecutor.stop`（独立空 map，静默 no-op），现指向 `agentRunner.stop`，停止真正生效。
 - **类型归属**：`ExecutorConfig`/`AgentTask`/`ExecutionResult`/`PrerequisiteCheck`/`RunnerExecutionState` 定义在 services/types.ts，由 agent-runner.ts 门面 re-export；外部经 `@dommaker/studio-agent` 包入口导入不变。
 - **worktree 模块分工（#562 校准）**：worktree-resolver.ts 只保留 git/依赖生命周期（resolveWorkspace / createWorktree / ensureWuWorktree / ensureDeps / propagateHarnessConfig）。曾承载「agent 被告知的内容」文件桥的 scaffolding 模块（worktree-scaffolding.ts → runner-briefing.ts，写 REQUIREMENTS.md / CACHE_PREFIX.md / 契约测试）已随多 session 循环删除——轻量路径的 prompt 全部由调用方（agent-loop）给出，本包只落 `.daemon/prompt.md`。

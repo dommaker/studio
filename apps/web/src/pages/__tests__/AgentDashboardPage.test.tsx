@@ -86,7 +86,7 @@ const instance = (overrides: Record<string, unknown> = {}) => ({
 function mockApis({ profiles = [profile()], agents = [instance()] }: { profiles?: unknown[]; agents?: unknown[] } = {}) {
   mockListAllAgents.mockResolvedValue({ data: { data: profiles } });
   mockGetAgentSummary.mockResolvedValue({
-    data: { agents, summary: { total: agents.length, idle: 0, active: 1, error: 0, terminated: 0 } },
+    data: { data: { agents, summary: { total: agents.length, idle: 0, active: 1, error: 0, terminated: 0 } } },
   });
 }
 
@@ -102,14 +102,14 @@ describe('AgentDashboardPage', () => {
     });
     mockOnEvent.mockImplementation(() => () => {});
     mockTerminateInstance.mockResolvedValue({});
-    mockCreateAgent.mockResolvedValue({ data: {} });
+    mockCreateAgent.mockResolvedValue({ data: { data: {} } });
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } } },
     });
     mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
     mockWuList.mockResolvedValue({ data: { data: [], total: 0, page: 1, limit: 20 } });
-    mockWuGet.mockResolvedValue({ data: { id: 'wu-9', scope: '补查的任务', type: 'DEV', status: 'active', claimedAt: null } });
+    mockWuGet.mockResolvedValue({ data: { data: { id: 'wu-9', scope: '补查的任务', type: 'DEV', status: 'active', claimedAt: null } } });
     mockWuLastDone.mockResolvedValue({ data: { data: {} } });
     mockApiGet.mockResolvedValue({ data: { runtimes: [] } });
   });

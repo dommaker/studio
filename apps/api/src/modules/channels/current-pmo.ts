@@ -10,9 +10,11 @@
  * 各来源独立容错：单步读取失败记日志并顺延/回退，派生绝不抛出。
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { projectService } from '../pmo/project.service.js';
+// P2-c 拆环：projectService 转闭包内动态 import（channels→pmo 静态边清零）
 import { reposOfProject, type ProjectLike } from './file-ref-vocabulary.js';
-import { deriveChannelReqPmo } from '../requirements/channel-req-pmo.js';
+import { deriveChannelReqPmo } from '../requirements/index.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 顶栏当前 PMO chip 的呈现形状（多仓 PMO 只显名称，gitRepos 走 tooltip） */
 export interface ChannelCurrentPmo {
@@ -51,9 +53,9 @@ export async function deriveChannelCurrentPmo(
   channelId: string,
   deps: CurrentPmoDeps = {},
 ): Promise<ChannelCurrentPmo | null> {
-  const fileStore = deps.fileStore ?? new FileStore();
-  const getProject = deps.getProject ?? (async (id: string) => projectService.get(id));
-  const findChoreProject = deps.findChoreProject ?? (async (id: string) => projectService.findChoreProject(id));
+  const fileStore = deps.fileStore ?? getStore();
+  const getProject = deps.getProject ?? (async (id: string) => (await import('../pmo/index.js')).projectService.get(id));
+  const findChoreProject = deps.findChoreProject ?? (async (id: string) => (await import('../pmo/index.js')).projectService.findChoreProject(id));
 
   // 1. 最近挂接 REQ 所属 PMO（#636：第一级派生收口 deriveChannelReqPmo——
   //    seq 大→小取首个，单条缺失顺延；查询内部容错绝不抛出，null → 回退杂务）

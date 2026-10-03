@@ -212,17 +212,18 @@ describe('#106 全链路 e2e 留存段：三工程 PMO 建项 + 单腿回归', (
     const channel = await apiJson<{ data: any }>('/channels', postJson({ name: `e2e-pmo-${Date.now()}`, type: 'rnd' }));
     channelId = channel.data.id;
 
+    // 契约驱动迁移（批次 2/7）：单体响应统一 { data } 壳（原裸对象）
     const project = await apiJson<any>('/pmo/project', postJson({
       title: 'e2e 三仓联动',
       requirement: '三个仓库协同交付一个特性',
       gitRepos: legRepos,
     }));
-    const projectId = project.id;
+    const projectId = project.data.id;
     expect(projectId).toBeTruthy();
-    expect(project.deliveries.length).toBe(3);
-    expect(project.deliveries.map((l: any) => l.gitRepo)).toEqual(legRepos);
-    expect(project.gitRepo).toBe(legRepos[0]); // 兼容字段取首工程
-    expect(project.map ?? null).toBeNull(); // 未开图 = 非探路型
+    expect(project.data.deliveries.length).toBe(3);
+    expect(project.data.deliveries.map((l: any) => l.gitRepo)).toEqual(legRepos);
+    expect(project.data.gitRepo).toBe(legRepos[0]); // 兼容字段取首工程
+    expect(project.data.map ?? null).toBeNull(); // 未开图 = 非探路型
   });
 
   it('(1c) 单腿回归：无 gitRepos 的 PMO publish scope 无多腿段（与现状逐字节一致）', async () => {
@@ -231,9 +232,9 @@ describe('#106 全链路 e2e 留存段：三工程 PMO 建项 + 单腿回归', (
       requirement: '单仓小需求',
       gitRepo: legRepos[0],
     }));
-    const fetched = await apiJson<any>(`/pmo/project/${single.id}`);
-    expect(fetched.deliveries.length).toBe(1); // 读取时合成单腿（不落盘，零迁移）
-    const result = await apiJson<any>(`/pmo/project/${single.id}/publish`, postJson({ channelId }));
-    expect(result.workUnit.scope).not.toContain('多交付腿');
+    const fetched = await apiJson<any>(`/pmo/project/${single.data.id}`);
+    expect(fetched.data.deliveries.length).toBe(1); // 读取时合成单腿（不落盘，零迁移）
+    const result = await apiJson<any>(`/pmo/project/${single.data.id}/publish`, postJson({ channelId }));
+    expect(result.data.workUnit.scope).not.toContain('多交付腿');
   });
 });

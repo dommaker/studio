@@ -9,7 +9,7 @@
 | 导出 | 文件 | 说明 |
 |------|------|------|
 | `ActionCenterService`, `ActionCenterStateItem`, `ActionCenterPayload` | `action-center.service.ts` | stateItems 派生 + 通知合并，无新存储 |
-| `actionCenterRoutes` | `routes.ts` | 挂载于 route-registry `/api/v1/action-center`（middleware: auth） |
+| `actionCenterRoutes` | `routes.ts` | 挂载于 route-registry `/api/v1/action-center`（middleware: auth）。契约驱动迁移（2026-10 批次 4/7）：defineRoute 化——响应统一 `{ data }` 壳（原平铺裸 payload），契约正本 = `packages/studio-contract/src/action-center.ts`（ActionCenterStateItem 手写 interface + parity） |
 
 ### 依赖关系
 
@@ -17,6 +17,8 @@
 下游：前端 `apps/web/src/stores/notificationStore.ts`（行动中心唯一数据源）。
 
 ### 注意事项
+
+- **鉴权（P2-e 声明式统一）**：route-registry 挂 authNotGuest（requireAuth+requireNotGuest），路由内不再挂载；身份取 req.user.id。
 
 - 状态派生项**不做已读/dismiss**（状态机即真相，dismiss 会撒谎——设计稿 §4 明确不做）。
 - reply 口径**不排除 decision/spec**（设计稿决策：排除规则改为面板分区解决），与 chip 旧口径刻意不同。

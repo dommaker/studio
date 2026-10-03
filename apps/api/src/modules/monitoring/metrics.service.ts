@@ -18,9 +18,11 @@ import { FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
-import { buildAssigneeProfileResolver } from '../workunit/assignee-resolver.js';
+import { buildAssigneeProfileResolver } from '../workunit/index.js';
 import { aggregateOverview, aggregateCacheHitRate, aggregateSectionTrim, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
 import type { OverviewMetrics, EfficiencyMetrics } from './metrics.types.js';
+import { getStore } from '../../core/store.js';
+
 
 /** D16: 聚合缓存（60s——要扫 index + 多个 jsonl，避免连打） */
 const CACHE_TTL_MS = 60_000;
@@ -66,7 +68,7 @@ export class MetricsService {
   private efficiencyCache = new Map<string, { at: number; data: EfficiencyMetrics }>();
 
   constructor(fileStore?: FileStore) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
   }
 
   /** 测试/调试用：清空缓存 */

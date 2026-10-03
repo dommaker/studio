@@ -20,10 +20,12 @@
  * 标志透出给前端做可观测区分，fail-closed 语义不变），派生绝不抛出（同 current-pmo 原则）。
  */
 import { logger, parseChannels, deriveDisplayState, FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { summarizeRoleStates } from '../agents/agent-instance.service.js';
-import { MANUAL_GATE_TYPES } from '../workunit/workunit.types.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import { summarizeBlockReason } from '../workunit/blocked-cta.js';
+// P2-c 拆环：summarizeRoleStates 转函数内动态 import（channels→agents 静态边清零）
+import { MANUAL_GATE_TYPES } from '../workunit/index.js';
+import { parseWuMetadata } from '../workunit/index.js';
+import { summarizeBlockReason } from '../workunit/index.js';
+import { getStore } from '../../core/store.js';
+
 
 /**
  * 宽限期阈值集中配置（#441 决议：断链/无接管判定带宽限期，阈值集中一处，
@@ -163,6 +165,8 @@ function displayBlockReason(blockReason?: string): string {
 /** 频道成员 loop 在线判定：复用既有心跳聚合（5min 窗口单源 INSTANCE_ALIVE_TIMEOUT_MS） */
 async function hasOnlineMemberLoop(fileStore: FileStore, memberIds: string[]): Promise<boolean> {
   if (memberIds.length === 0) return false;
+  // P2-c 拆环：channels→agents 静态边转函数内动态 import
+  const { summarizeRoleStates } = await import('../agents/index.js');
   const { onlineRoleIds } = await summarizeRoleStates(fileStore, memberIds);
   return onlineRoleIds.size > 0;
 }
@@ -189,7 +193,7 @@ async function deriveChannelSuggestionsInner(
   channelId: string,
   deps: ChannelSuggestionsDeps,
 ): Promise<DeriveInner> {
-  const fileStore = deps.fileStore ?? new FileStore();
+  const fileStore = deps.fileStore ?? getStore();
   const now = deps.now ?? new Date();
   {
     const channel = await fileStore.getChannel(channelId);

@@ -12,13 +12,15 @@
 
 import { randomUUID } from 'crypto';
 import { logger, eventBus, FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
-import { ChannelMessageService, channelMessageService } from '../channels/channel-message.service.js';
-import { resolveOrNotice, ROUTING_STAGE_LABELS } from '../channels/routing.js';
+import type { ChannelMessageService } from '../channels/index.js'; // P2-c 拆环：值引用转 getMessageService 动态 import（类型边保留）
+// P2-c 拆环：resolveOrNotice/ROUTING_STAGE_LABELS 转方法内动态 import（workunit→channels 静态值边清零）
 import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
-import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
+import { parseWuPmoId } from '../requirements/index.js';
 import type { WorkUnitMetadata } from './workunit.service.js';
+import { getStore } from '../../core/store.js';
+
 
 export interface CreateWorkUnitInput {
   type?: string;
@@ -176,13 +178,23 @@ function patchSnapshot(
 
 export class WorkUnitCrudService {
   protected fileStore: FileStore;
-  protected messageService: ChannelMessageService;
+  protected messageService?: ChannelMessageService;
+  private readonly injectedFileStore?: FileStore;
+  private messageServicePromise?: Promise<ChannelMessageService>;
 
   constructor(fileStore?: FileStore, messageService?: ChannelMessageService) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
+    this.injectedFileStore = fileStore;
     // #333：关联 WU 走 ChannelMessageService 统一更新路径（自带 channel.message_updated 双发）；
-    // 注入口径：可注入；缺省 fileStore 新建 ChannelMessageService，无 fileStore 用单例
-    this.messageService = messageService ?? (fileStore ? new ChannelMessageService(fileStore) : channelMessageService);
+    // 注入口径：可注入；缺省 fileStore 新建 ChannelMessageService，无 fileStore 用单例。
+    // P2-c 拆环：缺省构造从同步改首次使用期动态 import（构造器无法 await，workunit→channels 静态边清零）
+    this.messageService = messageService;
+  }
+
+  private getMessageService(): Promise<ChannelMessageService> {
+    if (this.messageService) return Promise.resolve(this.messageService);
+    return (this.messageServicePromise ??= import('../channels/index.js').then(({ ChannelMessageService, channelMessageService }) =>
+      this.injectedFileStore ? new ChannelMessageService(this.injectedFileStore) : channelMessageService));
   }
 
   /**
@@ -309,6 +321,7 @@ export class WorkUnitCrudService {
    */
   protected async expandRoutingHead(parent: WorkUnitData): Promise<void> {
     // #477：解析 + fallback 判定 + 文案收口到 resolveOrNotice；出声通道/时机留本点
+    const { resolveOrNotice, ROUTING_STAGE_LABELS } = await import('../channels/index.js');
     const { resolution: routing, notice } = await resolveOrNotice(this.fileStore, parent.channelId!, 'implement', {
       // #464：未配置也要出声——此前未配置静默 return，用户分不清「只配一跳」还是「断了」。
       // 文案与配错（routingFallbackText）同形态可区分；非里程碑（路由提醒不打扰，对齐配错提醒形态）。
@@ -394,7 +407,7 @@ export class WorkUnitCrudService {
 
     // Link message to WorkUnit —— #333：经 ChannelMessageService 统一更新路径
     // （append 新版保留原 createdAt，自带 eventBus + SSE channel.message_updated 双发）
-    await this.messageService.linkWorkUnit(messageId, wu.id, found.channelId);
+    await (await this.getMessageService()).linkWorkUnit(messageId, wu.id, found.channelId);
 
     return wu;
   }

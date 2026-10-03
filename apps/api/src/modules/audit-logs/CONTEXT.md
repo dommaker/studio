@@ -8,6 +8,7 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `router` (默认导出) | routes.ts | Express 路由对象，包含 `GET /api/audit-logs`（查询日志）和 `GET /api/audit-logs/stats`（获取统计）两个端点。 |
 | `queryProposalDecisionRows` / `getProposalDecisionRowById` / `collectProposalDecisionRows` / `filterProposalDecisionRows` | proposal-source.ts | #591 A 类：review-proposal 8 种 kind 的聚合读面（零新写入，折叠归各 adapter store 正本），映射 audit 行形状（actorType=agent, action=propose, resource=kind, status=提案终态原值，evolution 含 stale）；details 含卡片作者（adapter.author），详情回查（getProposalDecisionRowById）带提案全文；已知 kind 未注册时 warn 留痕不静默缺源；evolution 随 #623 归位（自定义 store 包 EP-XXXX.json 读写，频道文本审核退役）；constraint 随 ADR-0033 子项 7 入词表（adapter 与 evolution 同机注册，EvolutionService 构造带出） |
 | `recordAgentDecision` / `AuditActor` | agent-decision.ts | #591 B 类：自主决策埋点统一入口（fire-and-forget，失败只记日志不阻断业务链） |
@@ -40,3 +41,4 @@ agent 自主决策埋点的 action/resource 词表：
 - 审计服务通过 `createLazyService` 延迟初始化，避免启动时加载依赖。
 - 分页默认值为 page=1, limit=20（上限 100），统一走 `parsePagination`（#359：堵 limit=999999 直通豁口，原缺省 50 无 clamp）。
 - **鉴权（2026-07-24 收紧）**：`/api/v1/audit-logs` 挂载级 `requireAuth()+requireAdmin()` —— 日志含 IP/UA/email（PII），且 `POST /`（伪造审计）、`POST /cleanup`（销毁证据）此前无角色限制。`GET /export` 曾注册在 `GET /:id` 之后被遮蔽不可达（历史 bug），2026-09-09 已修复：/export 移到 /:id 之前，并补 action/resource/status 过滤透传（与列表口径一致，E7 前端已带参）。
+- **契约驱动迁移（2026-10 批次 6/7）**：七端点全走 defineRoute——actorType/source 由任意串透传收紧为词表（唯一消费方前端已在词表内）、POST / action/resource 收紧必填（缺此二键落库即废行）；GET / 分页壳原已同形不变、stats 裸对象与 /:id 裸行进 `{ data }` 壳、/export 附件下载 handler 自写 res 不进壳；500 code 'INTERNAL_ERROR' 归一 INTERNAL（message 由固定串变为实际错误消息）。

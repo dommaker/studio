@@ -9,12 +9,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../utils/logger.js';
-import { verifyToken, type UserData, type SessionData } from '../modules/auth/service.js';
+import { verifyToken, type UserData, type SessionData } from '../modules/auth/index.js';
 import crypto from 'crypto';
 import * as path from 'node:path';
 import { studioDir } from '@dommaker/studio-shared/studio-dir';
+import { getStore } from '../core/store.js';
 
-const fileStore = new FileStore();
+
 const STUDIO_DIR = studioDir();
 const USERS_FILE = path.join(STUDIO_DIR, 'users.json');
 const SESSIONS_FILE = path.join(STUDIO_DIR, 'sessions.json');
@@ -48,10 +49,10 @@ export interface AuthRequest extends Request {
 // ─── 内部查询工具 ───
 
 async function findSessionWithUser(sessionId: string): Promise<(SessionData & { User: UserData }) | null> {
-  const sessions = await fileStore.readJson<SessionData[]>(SESSIONS_FILE);
+  const sessions = await getStore().readJson<SessionData[]>(SESSIONS_FILE);
   const session = (sessions ?? []).find(s => s.id === sessionId);
   if (!session) return null;
-  const users = await fileStore.readJson<UserData[]>(USERS_FILE);
+  const users = await getStore().readJson<UserData[]>(USERS_FILE);
   const user = (users ?? []).find(u => u.id === session.userId);
   if (!user) return null;
   return { ...session, User: user };

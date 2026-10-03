@@ -26,6 +26,8 @@ import { WorkUnitService, type WorkUnitData } from './workunit.service.js';
 import { MANUAL_GATE_TYPES } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { notifyAlert } from '../../utils/notifier.js';
+import { getStore } from '../../core/store.js';
+
 
 /** tier1 人闸催办阈值：in_review 超 30 分钟 → Web 铃铛提醒 */
 const GATE_REMINDER_THRESHOLD_MS = 30 * 60_000;
@@ -69,7 +71,7 @@ export async function scanGateEscalationReminders(
   fs?: FileStore,
   now: Date = new Date(),
 ): Promise<GateEscalationScanResult> {
-  const fileStore = fs ?? new FileStore();
+  const fileStore = fs ?? getStore();
   const wuService = new WorkUnitService(fileStore);
   const gateTier1Ms = GATE_REMINDER_THRESHOLD_MS;
   const unassignedTier1Ms = UNASSIGNED_REMINDER_THRESHOLD_MS;

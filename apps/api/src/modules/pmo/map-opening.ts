@@ -31,14 +31,18 @@
  */
 
 import { eventBus, logger, createSettledTracker, type FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import { ChannelMessageService } from '../channels/channel-message.service.js';
+import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
+import { parseWuMetadata } from '../workunit/index.js';
+import { ChannelMessageService } from '../channels/index.js';
 import { projectService, type PmoMap, type ProjectData } from './project.service.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
+import { getStore } from '../../core/store.js';
 
-/** 开图 fog 条数上限（照 ANALYSIS_TASKS_MAX 先例防刷屏） */
-export const MAP_OPENING_FOG_MAX = 12;
+
+/** 开图 fog 条数上限（照 ANALYSIS_TASKS_MAX 先例防刷屏）
+ *  P2-c：正本下沉 @dommaker/studio-shared constants/map-opening.ts（三域共用防互耦），此处转介 */
+import { MAP_OPENING_FOG_MAX } from '@dommaker/studio-shared';
+export { MAP_OPENING_FOG_MAX };
 
 /**
  * 从人工确认文本提取开图要素。逐行解析，兼容中英文冒号与中文别名
@@ -173,8 +177,8 @@ let _mapOpening: MapOpening | null = null;
 export function initMapOpening(fileStore?: FileStore): MapOpening {
   if (!_mapOpening) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
-    const { WorkUnitService } = require('../workunit/workunit.service.js') as typeof import('../workunit/workunit.service.js');
-    const fs = fileStore ?? new FileStore();
+    const { WorkUnitService } = require('../workunit/index.js') as typeof import('../workunit/index.js');
+    const fs = fileStore ?? getStore();
     _mapOpening = new MapOpening(fs, new WorkUnitService(fs));
   }
   _mapOpening.subscribeToEvents();

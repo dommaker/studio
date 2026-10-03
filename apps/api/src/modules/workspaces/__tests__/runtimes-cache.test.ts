@@ -41,9 +41,11 @@ beforeAll(async () => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-ws-runtimes-cache-'));
   process.env.STUDIO_HOME = tmpHome;
   const { default: workspaceRoutes } = await import('../workspace.routes.js');
+  const { requireAuth, requireAdmin } = await import('../../../middleware/auth.js');
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/workspaces', workspaceRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（/api/v1/workspaces 挂 requireAuth+requireAdmin）
+  app.use('/api/v1/workspaces', requireAuth(), requireAdmin(), workspaceRoutes);
   await new Promise<void>((resolve) => {
     server = app.listen(0, () => resolve());
   });
@@ -67,13 +69,13 @@ describe('GET /workspaces/runtimes — apiCache 60s 档（#403）', () => {
     const res1 = await fetch(baseUrl);
     expect(res1.status).toBe(200);
     expect(res1.headers.get('x-cache')).toBe('MISS');
-    expect(await res1.json()).toEqual({ runtimes: [] });
+    expect(await res1.json()).toEqual({ data: { runtimes: [] } });
     expect(mockRescan).toHaveBeenCalledTimes(1);
 
     const res2 = await fetch(baseUrl);
     expect(res2.status).toBe(200);
     expect(res2.headers.get('x-cache')).toBe('HIT');
-    expect(await res2.json()).toEqual({ runtimes: [] });
+    expect(await res2.json()).toEqual({ data: { runtimes: [] } });
     // 验收核心：第二次请求未再触发 CLI 全量重扫
     expect(mockRescan).toHaveBeenCalledTimes(1);
   });

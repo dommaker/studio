@@ -48,7 +48,7 @@ const mockAllDomains = () => {
     if (url === '/channels') return Promise.resolve({ data: { success: true, data: CHANNELS } });
     if (url === '/workunits') return Promise.resolve({ data: { data: WUS, pagination: { page: 1, limit: 5, total: 1 } } });
     if (url === '/requirements') return Promise.resolve({ data: { success: true, data: REQS } });
-    if (url === '/knowledge/search') return Promise.resolve({ data: { results: KNOWLEDGE } });
+    if (url === '/knowledge/search') return Promise.resolve({ data: { data: { results: KNOWLEDGE } } });
     return Promise.reject(new Error(`unexpected url: ${url}`));
   });
 };
@@ -211,7 +211,7 @@ describe('CommandPalette — Cmd/Ctrl+K 全局搜索（批次 D-2 项 8）', () 
       if (url === '/channels') return Promise.resolve({ data: { success: true, data: [] } });
       if (url === '/workunits') return Promise.resolve({ data: { data: [], pagination: { page: 1, limit: 5, total: 0 } } });
       if (url === '/requirements') return Promise.resolve({ data: { success: true, data: [] } });
-      if (url === '/knowledge/search') return Promise.resolve({ data: { results: [] } });
+      if (url === '/knowledge/search') return Promise.resolve({ data: { data: { results: [] } } });
       return Promise.reject(new Error(`unexpected url: ${url}`));
     });
     renderPalette();

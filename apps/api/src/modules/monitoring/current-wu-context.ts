@@ -9,10 +9,10 @@
  */
 
 import type { FileStore } from '@dommaker/studio-shared';
-import type { RequirementWithProject } from '../requirements/requirement.service.js';
-import { resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
-import type { ProjectData } from '../pmo/project.service.js';
-import { parseWuTitle } from '../workunit/wu-metadata.js';
+import type { RequirementWithProject } from '../requirements/index.js';
+import { resolvePmoProjectIdForWU } from '../requirements/index.js';
+import type { ProjectData } from '../pmo/index.js';
+import { parseWuTitle } from '../workunit/index.js';
 
 /** 2026-07 PMO-flow UX（§6-1）：/monitoring/agents 聚合的当前 WU 快照 */
 export interface AgentCurrentWorkUnit {

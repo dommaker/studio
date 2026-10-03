@@ -10,8 +10,8 @@ vi.mock('react', async () => {
 
 vi.mock('../../api/workunit', () => ({
   workunitApi: {
-    getMessages: vi.fn().mockResolvedValue({ data: { data: [] } }),
-    postMessage: vi.fn().mockResolvedValue({ data: {} }),
+    getMessages: vi.fn().mockResolvedValue({ data: { data: { messages: [] } } }),
+    postMessage: vi.fn().mockResolvedValue({ data: { data: {} } }),
   },
 }));
 
@@ -25,8 +25,8 @@ const mockPostMessage = vi.mocked(workunitApi.postMessage);
 describe('DiscussionPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetMessages.mockResolvedValue({ data: { data: [] } });
-    mockPostMessage.mockResolvedValue({ data: {} });
+    mockGetMessages.mockResolvedValue({ data: { data: { messages: [] } } });
+    mockPostMessage.mockResolvedValue({ data: { data: {} } });
     // console.error 静默（失败路径用例不刷测试输出）
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });

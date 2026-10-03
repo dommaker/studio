@@ -19,8 +19,8 @@ import { AnalysisHandoff } from '../analysis-handoff.js';
 
 // #186（#167 决议 2）：无频道确认提示改投 Web「需要处理」收件箱 —— 告警出口 mock
 const mockDispatch = vi.fn();
-vi.mock('../../agents/monitor/monitor-alerts.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../agents/monitor/monitor-alerts.js')>();
+vi.mock('../../agent-monitor/monitor-alerts.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agent-monitor/monitor-alerts.js')>();
   return { ...actual, dispatchMonitorAlerts: (...args: unknown[]) => mockDispatch(...args) };
 });
 

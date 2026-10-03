@@ -7,16 +7,17 @@
 
 import { FileStore, generateId, parseFrontmatter } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
-import { channelMessageService } from '../channels/channel-message.service.js';
-import { resolveOrNotice } from '../channels/routing.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
+import { channelMessageService } from '../channels/index.js';
+import { resolveOrNotice } from '../channels/index.js';
+import { WorkUnitService } from '../workunit/index.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { studioPath, specsDir } from '@dommaker/studio-shared/studio-dir';
+import { getStore } from '../../core/store.js';
+
 
 const PROJECTS_DIR = studioPath('projects');
 
-const fileStore = new FileStore();
 
 /** #471 Triage 定稿 1：plan WU 默认 token 额度（env STUDIO_PLAN_TOKEN_BUDGET 覆盖；非法值回落默认） */
 export const PLAN_TOKEN_BUDGET_DEFAULT = 1_000_000;
@@ -245,23 +246,9 @@ function projectPath(projectId: string): string {
 }
 
 async function readAllProjects(): Promise<ProjectData[]> {
-  try {
-    const dirents = await fs.promises.readdir(PROJECTS_DIR, { withFileTypes: true });
-    const files = dirents.filter(d => d.isFile() && d.name.endsWith('.json'));
-    const projects: ProjectData[] = [];
-    for (const f of files) {
-      const data = await fileStore.readJson<ProjectData>(path.join(PROJECTS_DIR, f.name));
-      if (data) projects.push(withReadDefaults(data));
-    }
-    return projects;
-  } catch (err: unknown) {
-    if (isErrnoError(err) && err.code === 'ENOENT') return [];
-    throw err;
-  }
-}
-
-function isErrnoError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
+  // P2-e：目录清单走 FileStore listJsonInDir seam（ENOENT → []、损坏文件跳过，语义同原裸 readdir+readJson 循环）
+  const projects = await getStore().listJsonInDir<ProjectData>(PROJECTS_DIR);
+  return projects.map(withReadDefaults);
 }
 
 // ============================================
@@ -290,7 +277,7 @@ async function scanMaxRequirementSeq(): Promise<number> {
       const m = name.match(/^REQ-(\d+)\.json$/);
       if (m) max = Math.max(max, parseInt(m[1], 10));
     }
-    const idx = await fileStore.readJson<{ nextSeq?: number }>(path.join(REQUIREMENTS_DIR, 'index.json'));
+    const idx = await getStore().readJson<{ nextSeq?: number }>(path.join(REQUIREMENTS_DIR, 'index.json'));
     if (typeof idx?.nextSeq === 'number' && idx.nextSeq > 1) max = Math.max(max, idx.nextSeq - 1);
     return max;
   } catch {
@@ -383,13 +370,13 @@ export const projectService = {
       }));
     }
 
-    await fileStore.writeJson(projectPath(id), project);
+    await getStore().writeJson(projectPath(id), project);
     logger.info({ projectId: id, pmoNumber, reqAlias }, 'Project created');
     return project;
   },
 
   async get(projectId: string): Promise<ProjectData | null> {
-    const data = await fileStore.readJson<ProjectData>(projectPath(projectId));
+    const data = await getStore().readJson<ProjectData>(projectPath(projectId));
     // #107 T1：读取时合成单腿（不落盘，老项目零迁移）；map 缺省即非探路型，无需合成
     return data ? withReadDefaults(data) : null;
   },
@@ -438,7 +425,7 @@ export const projectService = {
   },
 
   async update(projectId: string, input: UpdateProjectInput): Promise<ProjectData> {
-    const current = await fileStore.readJson<ProjectData>(projectPath(projectId));
+    const current = await getStore().readJson<ProjectData>(projectPath(projectId));
     if (!current) {
       throw new Error('Project not found');
     }
@@ -452,14 +439,14 @@ export const projectService = {
       updatedAt: new Date().toISOString(),
     };
 
-    await fileStore.writeJson(projectPath(projectId), updated);
+    await getStore().writeJson(projectPath(projectId), updated);
     logger.info({ projectId, updates: input }, 'Project updated');
     return updated;
   },
 
   async updateStatus(projectId: string, status: string, skipValidation = false, extra: Record<string, unknown> = {}) {
     const now = new Date();
-    const current = await fileStore.readJson<ProjectData>(projectPath(projectId));
+    const current = await getStore().readJson<ProjectData>(projectPath(projectId));
 
     if (!current) {
       throw new Error('Project not found');
@@ -485,7 +472,7 @@ export const projectService = {
   },
 
   async tryActivate(projectId: string): Promise<boolean> {
-    const current = await fileStore.readJson<ProjectData>(projectPath(projectId));
+    const current = await getStore().readJson<ProjectData>(projectPath(projectId));
 
     if (!current || current.status !== PROJECT_STATUS.PENDING) {
       return false;
@@ -497,7 +484,7 @@ export const projectService = {
   },
 
   async delete(projectId: string) {
-    const current = await fileStore.readJson<ProjectData>(projectPath(projectId));
+    const current = await getStore().readJson<ProjectData>(projectPath(projectId));
 
     if (!current) {
       throw new Error('Project not found');
@@ -513,13 +500,13 @@ export const projectService = {
   },
 
   async calculateProgress(projectId: string): Promise<number> {
-    const project = await fileStore.readJson<ProjectData>(projectPath(projectId));
+    const project = await getStore().readJson<ProjectData>(projectPath(projectId));
     if (!project) {
       return 0;
     }
 
     const tasksPath = path.join(PROJECTS_DIR, projectId, 'tasks.jsonl');
-    const tasks = await fileStore.readJsonl<{ status?: string }>(tasksPath);
+    const tasks = await getStore().readJsonl<{ status?: string }>(tasksPath);
 
     if (tasks.length === 0) {
       return project.progress;
@@ -555,7 +542,7 @@ export const projectService = {
     // #477：解析 + fallback 判定 + 文案收口到 resolveOrNotice；出声时机（建单后带 workUnitId）留本点
     const planRouting = input.assigneeId
       ? null
-      : await resolveOrNotice(fileStore, input.channelId, 'plan');
+      : await resolveOrNotice(getStore(), input.channelId, 'plan');
     const workUnit = await workUnitService.create({
       // #471：派生链收敛——publish 只建一张 plan WU（一脉会话），不再建 analysis；
       // analysis/decision/spec 三段派生退役（map-opening 降级为台账记录，不再建 decision 单）

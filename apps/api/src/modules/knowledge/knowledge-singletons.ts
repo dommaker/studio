@@ -17,20 +17,22 @@
  * 不得 import 任何 studio 业务模块（防止循环依赖）。
  */
 
-import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
+import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
-import { FileStore, logger, eventBus } from '@dommaker/studio-shared';
+import { KnowledgeInjector } from './knowledge-injector.js';
+import { logger, eventBus } from '@dommaker/studio-shared';
 import { wrapWithSegmentSpan } from '@dommaker/studio-shared/read-metrics';
 import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { MtimeMemoKnowledgeStore } from './knowledge-store-memo.js';
+import { getStore } from '../../core/store.js';
 
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
-const fileStore = new FileStore();
+
+// #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
 
 // KE-002 P0: unified absolute path for knowledge storage
 export const UNIFIED_KNOWLEDGE_DIR = studioPath('knowledge');
@@ -99,7 +101,13 @@ export const sharedQuery = wrapWithSegmentSpan(
   'KnowledgeQuery',
   HARNESS_SPAN_QUERY_METHODS,
 );
-export const sharedInjector = wrapWithSegmentSpan(new KnowledgeInjector(sharedQuery), 'KnowledgeInjector', HARNESS_SPAN_INJECTOR_METHODS);
+export const sharedInjector = wrapWithSegmentSpan(
+  new KnowledgeInjector(sharedQuery),
+  // 段名保持 'KnowledgeInjector' 不变（指标消费方兼容）；类本体已收口为
+  // studio 本地 knowledge-injector.ts（harness 侧 KnowledgeInjector 移除，见该文件头注释）
+  'KnowledgeInjector',
+  HARNESS_SPAN_INJECTOR_METHODS,
+);
 // GAP-01: shared linter for ingest validation
 export const sharedLinter = wrapWithSegmentSpan(
   new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore)),
@@ -112,7 +120,7 @@ export const sharedLinter = wrapWithSegmentSpan(
 // Cast needed: onReference added in harness 0.13.4+, npm version may lag
 let _consumptionCallbackRegistered = false;
 (sharedLifecycle as any).onReference?.((event: { entryId: string; contributor: string; timestamp: string }) => {
-  fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+  getStore().appendJsonl(resolveStudioEventsFile(), {
     type: 'knowledge:consumption',
     source: event.contributor,
     payload: JSON.stringify({ entryId: event.entryId, timestamp: event.timestamp }),
@@ -174,7 +182,7 @@ export async function verifyConsumptionChain(): Promise<boolean> {
     // onReference 回调内 appendJsonl 是 fire-and-forget——轮询事件落盘，超时判失败
     const deadline = Date.now() + CONSUMPTION_PROBE_TIMEOUT_MS;
     for (;;) {
-      const events = await readStudioEventsSince({ file: STUDIO_EVENTS_JSONL, sinceMs: Date.now() - 60_000 });
+      const events = await readStudioEventsSince({ sinceMs: Date.now() - 60_000 });
       const hit = events.some(e => {
         if (e.type !== 'knowledge:consumption') return false;
         try {
@@ -342,7 +350,7 @@ export interface QualityGateIngestInput {
  *   1. Triage 业务门（studio 规则）：source/entryType 为 triage 的条目必须含
  *      root_cause + fix_action，否则跳过并发 knowledge:quality_gate 事件。
  *   2. Harness ingest 门（被维护方）：KnowledgeIngest.ingestEntry 内置
- *      KnowledgeAudit —— reject 级问题不入库（返回 __rejected 标记），
+ *      KnowledgeAudit —— reject 级问题不入库（返回 { status: 'rejected', reasons }），
  *      flag 级问题入库后自动打 low_quality 标签。studio 侧不再另起 linter 预检。
  *   3. 成功入库 → scheduleVectorDbSync + knowledge:entry_created 事件。
  *
@@ -366,7 +374,7 @@ export function ingestWithQualityGate(
     }
   }
 
-  // 2. Harness ingest 门（KnowledgeAudit：reject → __rejected；flag → low_quality 标签）
+  // 2. Harness ingest 门（KnowledgeAudit：reject → status 'rejected'；flag → low_quality 标签）
   const saved = deps.ingest.ingestEntry(
     { type: input.type, title: input.title, content: input.content, tags },
     {
@@ -379,9 +387,8 @@ export function ingestWithQualityGate(
     },
   );
 
-  if ((saved as any)?.__rejected) {
-    const reasons: string[] = (saved as any).__rejectReasons || [];
-    const reason = reasons.join('; ') || 'rejected by harness ingest audit';
+  if (saved.status === 'rejected') {
+    const reason = saved.reasons.join('; ') || 'rejected by harness ingest audit';
     logger.warn('[Knowledge] Entry rejected by ingest quality gate', { title: input.title, reason });
     appendKnowledgeEvent('knowledge:quality_gate', { skipped: true, reason, entryType });
     return null;
@@ -390,13 +397,13 @@ export function ingestWithQualityGate(
   // 3. 成功：同步向量库 + entry_created 事件 + SSE 广播
   scheduleVectorDbSync();
   appendKnowledgeEvent('knowledge:entry_created', { entryType, title: input.title });
-  publishKnowledgeEntryChanged('created', { entryId: saved?.id, entryType, title: input.title });
-  return saved;
+  publishKnowledgeEntryChanged('created', { entryId: saved.entry.id, entryType, title: input.title });
+  return saved.entry;
 }
 
 /** 知识事件写入（best-effort，不阻塞主流程）。source 保持 'knowledge-bus' 以兼容既有指标查询。 */
 export function appendKnowledgeEvent(type: string, payload: Record<string, unknown>): void {
-  fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+  getStore().appendJsonl(resolveStudioEventsFile(), {
     type,
     source: 'knowledge-bus',
     payload: JSON.stringify(payload),

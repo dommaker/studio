@@ -1,6 +1,8 @@
 // ChannelMessage Service — centralized message creation + event publishing
 import { eventBus, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
+import { getStore } from '../../core/store.js';
+
 
 export interface MessageMeta {
   status?: string;
@@ -61,7 +63,7 @@ export class ChannelMessageService {
   private fileStore: FileStore;
 
   constructor(fileStore?: FileStore) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
   }
 
   /** 测试用：替换 FileStore 实例 */
@@ -109,7 +111,7 @@ export class ChannelMessageService {
     this.publishSSE('channel.message_sent', { channelId, message: shaped });
 
     // T-1.4: Wire preference observer — update active hours
-    import('../knowledge/preference-observer.js').then(({ preferenceObserver }) => {
+    import('../knowledge/index.js').then(({ preferenceObserver }) => {
       preferenceObserver.updateActiveHours([{ createdAt: new Date(now) }]).catch(() => {});
     }).catch(() => {});
 
@@ -145,7 +147,7 @@ export class ChannelMessageService {
     this.publishSSE('channel.message_sent', { channelId, message: shaped });
 
     // T-1.4: Wire preference observer — update response style
-    import('../knowledge/preference-observer.js').then(({ preferenceObserver }) => {
+    import('../knowledge/index.js').then(({ preferenceObserver }) => {
       preferenceObserver.updateResponseStyle([{ content: trimmed }]).catch(() => {});
     }).catch(() => {});
 

@@ -21,7 +21,8 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-import router from '../workunit.routes.js';
+import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 const snapshot = (overrides: Record<string, unknown> = {}) => ({
   id: 'wu-x',
@@ -52,7 +53,8 @@ describe('GET /last-done（#387 批量最近完成）', () => {
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    app.use('/workunits', router);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });
@@ -81,7 +83,6 @@ describe('GET /last-done（#387 批量最近完成）', () => {
     const res = await fetch(`${base}/last-done?assigneeIds=a1,a2`);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.success).toBe(true);
     expect(body.data.a1.id).toBe('wu-2');
     expect(body.data.a2.id).toBe('wu-4');
   });

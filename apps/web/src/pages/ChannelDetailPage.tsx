@@ -2,7 +2,6 @@
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useChannelStream } from '../hooks/useChannelStream';
 import { useMessageLocate } from '../hooks/useMessageLocate';
@@ -17,53 +16,27 @@ import { ChannelStreamBody, type StreamMessageExtra } from '../components/channe
 import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
 import { navigableIdsOf } from '../utils/streamView';
 import { ChannelInput } from '../components/channel/ChannelInput';
-import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
-import { ChannelTopbarMenu } from '../components/channel/ChannelTopbarMenu';
-import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
-import { ChannelNeedInputChip } from '../components/channel/ChannelNeedInputChip';
+import { ChannelGuidance } from '../components/channel/ChannelGuidance';
+import { ChannelTopbar } from '../components/channel/ChannelTopbar';
+import { ChannelStreamHead } from '../components/channel/ChannelStreamHead';
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
-import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
+import { WorkUnitDrawer } from '../components/channel/WorkUnitDrawer';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import type { WorkUnit } from '../api/workunit';
-import { renderSuggestionCopy } from '../utils/suggestionCopy';
 import { toast } from '../utils/toast';
-import { getSuggestionAction } from '../utils/suggestionActions';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { SkeletonText } from '../components/ui';
-import axios from 'axios';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { useChannelDataStore } from '../stores/channelDataStore';
 import { useChannelWorkStore, parseRequirementPayload, wuIdleOf } from '../stores/channelWorkStore';
-import { agentAnsweredOf } from '../stores/channelMessageStore';
 import { useFreshMessageIds } from '../hooks/useFreshMessageIds';
 import { useNeedInputView } from '../hooks/useNeedInputView';
 import { useChannelWorkStoreSync } from '../hooks/useChannelWorkStoreSync';
+import { useAwaitingAgent } from '../hooks/useAwaitingAgent';
+import { useChannelDrawers } from '../hooks/useChannelDrawers';
+import { useChannelPageTelemetry } from '../hooks/useChannelPageTelemetry';
 import type { Requirement } from '../api/requirements';
 import type { ChannelMessage, ChannelSuggestion, FileRef, SendIntent } from '../api/channel';
-import { saveLastChannelId } from '../utils/lastChannel';
-import { markPageEntry, emitPageFirstRender, emitReceiptRendered } from '../utils/clientPerf';
-
-/** 视觉批次 2 ⑥：空频道态示例提示——点击走既有 prefill 通道填入输入框（不自动发送）。
- *  文案按产品 agent 命名风格（pm-agent / dev-agent / reviewer-agent），仅作起点提示，用户可改 */
-const EMPTY_EXAMPLE_PROMPTS = [
-  '@pm-agent 帮我拆解需求：',
-  '@dev-agent 修复问题：',
-  '@reviewer-agent 评审这段改动：',
-];
-
-/** #444：动作片执行错误文案——优先服务端 error 信封 message（409 拒绝原因对人可读） */
-function suggestionActionErrorMessage(e: unknown): string {
-  if (axios.isAxiosError(e)) {
-    const msg = (e.response?.data as { error?: { message?: string } } | undefined)?.error?.message;
-    if (msg) return msg;
-  }
-  return e instanceof Error ? e.message : String(e);
-}
-
-/** #443：带 dismiss 台账 key 的引导片（key = `ep:{wuId}:{suggestionId}`，端点派生片唯一来源 #447） */
-type DismissibleChip = SuggestionChipItem & { dismissKey: string };
 
 /** store slice 缺键（未拉到）时的稳定空集回退——防下游 memo 因每渲染新引用失效 */
 const EMPTY_WUS: WorkUnit[] = [];
@@ -72,11 +45,6 @@ const EMPTY_SUGGESTIONS: ChannelSuggestion[] = [];
 
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
-  // #393：记录最近访问频道（/ 与 /channels 重定向落点，spec §2）
-  useEffect(() => { if (id) saveLastChannelId(id); }, [id]);
-
-  // #520 测量②：client.perf 埋点③起点——进页记时（埋点①在 ChannelInput，②起点在 useChannelMessages）
-  useEffect(() => { if (id) markPageEntry(id); }, [id]);
   const { messages, loading, error, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
   // B3：频道记录走 channelDataStore 门禁（ensureChannel：与成员面同响应一次拉取，TTL + single-flight）——
   // 原裸 channelApi.get 与 ChannelInput 的 ensureMembers 挂载并发双拉同一端点
@@ -87,27 +55,17 @@ export function ChannelDetailPage() {
   // 与 useStreamFollow ownSendPending 窗口同一局限）；首拉与翻页 prepend/水合归并的历史不标
   // （createdAt 早于到达前最新一条即历史）。2s 后移类，经 .mc-msg 基类过渡渐隐
   // #548：判定本体迁出页面——useFreshMessageIds（hooks/），本页只消费派生集合
-  // （声明位置提前：下方 receipt_render effect 同消费此集合）
   const freshMsgIds = useFreshMessageIds(messages);
 
-  // #520 测量②：渲染完成终点（effect 于提交后跑 = 渲染已完成）——
-  // ③ page_load：首屏消息渲染完成（每进页至多一次，起点消费后不再发；空频道不发属正常）；
-  // ② receipt_render：仅 SSE 到达时标记过的消息发事件（首拉/翻页/水合的历史消息无标记，天然跳过）。
-  // B6：只遍历 freshMsgIds（SSE 新到达集，与 markReceiptArrived 同口径），不再随 messages 变化
-  // O(n) 全量循环——历史消息本就无标记，全量扫是空转
-  useEffect(() => {
-    if (!id || loading || messages.length === 0) return;
-    emitPageFirstRender(id);
-    if (freshMsgIds.size === 0) return;
-    for (const m of messages) {
-      if (!freshMsgIds.has(m.id)) continue;
-      emitReceiptRendered({ messageId: m.id, channelId: id, workUnitId: m.workUnitId ?? null });
-    }
-  }, [id, loading, messages, freshMsgIds]);
+  // P3-b：进场/渲染埋点（#393 最近频道 + #520 page_load/receipt_render 链）切出
+  // useChannelPageTelemetry——emit 口径（空频道不发/fresh 集过滤）随 hook 承载
+  useChannelPageTelemetry(id, messages, loading, freshMsgIds);
+
   const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
-  // #493：线程回复送达后的轻量「已送达/等待 agent」状态（wuId + 送达时刻；agent 响应或超时清除）
-  const [awaitingAgent, setAwaitingAgent] = useState<{ wuId: string; since: number } | null>(null);
+  // P3-b：#493 线程回复送达「已送达/等待 agent」状态切出 useAwaitingAgent
+  // （answered 派生 + 30s 兜底自清随 hook 承载；发送链路经 notifyReplySent 置位）
+  const { awaiting: awaitingAgent, answered: agentAnswered, notifyReplySent } = useAwaitingAgent(messages);
   // #528：频道工作面 4 份服务端状态收编 channelWorkStore（ADR 2026-08-31 数据面模式）——
   // 本页退回纯订阅者：REQ 需求集（vision §5.3，#394 起喂右栏 REQ 链路卡）/ #440 本频道 WU 全集
   // （阶段条 WU 数据本体；status_changed 全量快照直替 + 重连强刷在 store/sync 层）/
@@ -118,15 +76,14 @@ export function ChannelDetailPage() {
   const suggestionsSlice = useChannelWorkStore(s => (id ? s.suggestions[id] : undefined));
   const channelSuggestions = suggestionsSlice?.suggestions ?? EMPTY_SUGGESTIONS;
   const currentWuId = suggestionsSlice?.currentWuId ?? null;
-  // #440：建议片 dismiss 台账（会话级，key = `ep:{wuId}:{suggestionId}`，同 key 不复活）+ 输入框 prefill 通道
-  const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<Set<string>>(new Set());
+  // 输入框 prefill 通道（引导片 prompt 点击 / 空态示例 chip 共用；nonce 强制重触发同文案）
   const [inputPrefill, setInputPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined);
-  // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
-  const [drawer, setDrawer] = useState<DrawerState>(null);
-  // B3：AC-E3 转任务弹窗页面级单例——页面持目标消息，消息项经 env.onConvert 只回调打开
-  // （原每条可见消息各挂一个实例：关闭态仍跑 2 个 store 订阅 + key 比较，roster/members 更新扇出 N 份）
-  const [convertTarget, setConvertTarget] = useState<ChannelMessage | null>(null);
-  const openConvert = useCallback((m: ChannelMessage) => setConvertTarget(m), []);
+  // P3-b：右抽屉（WorkUnit 详情 / REQ 全链路 + 三种自动动作入口）与转任务弹窗页面级单例
+  // 切出 useChannelDrawers（#322 稳定 props 契约随 hook 空依赖 useCallback 承载）
+  const {
+    drawer, openWu, openWuConfirm, openWuRuling, openWuDirection, openReq, closeDrawer,
+    convertTarget, openConvert, closeConvert,
+  } = useChannelDrawers();
   // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
   // <1024 右栏卸载 → 顶栏「频道动态」入口 + 覆盖滑出抽屉（actRailOpen）。
   // matchMedia 缺失（jsdom）回落宽屏：内联三栏齐挂、覆盖层不开
@@ -234,52 +191,8 @@ export function ChannelDetailPage() {
   // （gateWriter 双写落点含 channelWorkStore 快照 + 建议标脏，本页零接线）；
   // 状态变化另有 status_changed SSE 直替 + 建议重拉（currentWuId 重拣选）兜底
 
-  // #443：端点派生建议 → 文案模板渲染成引导片（未知模板 id → 跳过，fail-closed）
-  // #446：prompt 形态的预填指令本体由后端 text 字段承载，透传给 SuggestionChips（点击 → onPick(text)）
-  const endpointChips = useMemo<DismissibleChip[]>(() => channelSuggestions.flatMap(s => {
-    const copy = renderSuggestionCopy(s);
-    if (!copy) return [];
-    return [{ id: s.id, kind: s.kind, text: s.text, label: copy.label, hint: copy.hint, dismissKey: `ep:${s.params.wuId ?? ''}:${s.id}` }];
-  }), [channelSuggestions]);
-  // #447：引导片 = 端点派生片（唯一来源；dismiss 台账按 dismissKey 过滤，会话级）
-  const visibleChips = useMemo<DismissibleChip[]>(
-    () => endpointChips.filter(c => !dismissedSuggestionKeys.has(c.dismissKey)),
-    [endpointChips, dismissedSuggestionKeys],
-  );
-
-  // #444：确定性动作片（补派评审等）——点击 → 一次确认 → 直调确定性接口（与自动化同原语），
-  // 不经消息路由；生效后重拉建议，前置条件转假片消失/更新。失败原因内联进弹窗，不静默。
-  const [pendingSuggestionAction, setPendingSuggestionAction] = useState<{ id: string; wuId: string; wuTitle: string } | null>(null);
-  const [suggestionActionError, setSuggestionActionError] = useState<string | null>(null);
-  const [suggestionActionRunning, setSuggestionActionRunning] = useState(false);
-
-  const handleSuggestionAction = useCallback((item: SuggestionChipItem) => {
-    const def = getSuggestionAction(item.id);
-    if (!def) return; // fail-closed：未注册动作不执行
-    const s = channelSuggestions.find(x => x.id === item.id);
-    if (!s?.params.wuId) return; // 缺工单上下文不执行
-    setSuggestionActionError(null);
-    setPendingSuggestionAction({ id: item.id, wuId: s.params.wuId, wuTitle: s.params.wuTitle ?? s.params.wuId });
-  }, [channelSuggestions]);
-
-  const runSuggestionAction = useCallback(async () => {
-    if (!pendingSuggestionAction) return;
-    const def = getSuggestionAction(pendingSuggestionAction.id);
-    if (!def) return;
-    setSuggestionActionRunning(true);
-    try {
-      await def.run(pendingSuggestionAction.wuId);
-      setPendingSuggestionAction(null);
-      // 状态回扫：子单建出 → 前置条件转假 → 片消失/更新（#528 边界 5：store 暴露即时重拉）
-      if (id) void useChannelWorkStore.getState().refreshSuggestions(id);
-    } catch (e) {
-      setSuggestionActionError(suggestionActionErrorMessage(e));
-    } finally {
-      setSuggestionActionRunning(false);
-    }
-  }, [pendingSuggestionAction, id]);
-
-  const pendingActionDef = pendingSuggestionAction ? getSuggestionAction(pendingSuggestionAction.id) : null;
+  // P3-b：引导片区（端点派生片渲染/dismiss 台账/动作片一次确认）切出 ChannelGuidance，
+  // 本页只注入 suggestions slice 与 prefill 回调（见渲染段 .mc-composer-stack）
 
   // #279（走查 F4）/#533：挂起 WU 的当前提问消息（后端下发 messageId）若是线程回复（agent 追问），
   // 提升到主流可见；promotedQuestionIds / isWaitingForInput 均为 needInputViewOf 产物（#546）
@@ -312,15 +225,6 @@ export function ChannelDetailPage() {
   // 已收编 useMessageLocate——quote / chip / ?highlight 三条调用链见组合层产物下方接线
 
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
-
-  const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
-  // #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——打开即弹确认对话框
-  const openWuConfirm = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoApprove: true }), []);
-  // #467：plan_ruling 裁决轮接力卡「去裁决」——打开即弹 PlanRulingDialog
-  const openWuRuling = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoRuling: true }), []);
-  // #567：plan_direction 方向锁定接力卡「去选定」——打开即弹 PlanDirectionDialog
-  const openWuDirection = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoDirection: true }), []);
-  const openReq = useCallback((reqId: string) => setDrawer({ kind: 'req', id: reqId }), []);
 
   // #395：覆盖态频道动态里点 REQ/WU → 收起覆盖层再开详情抽屉（窄屏不叠加两层）；
   // 窗口拉宽回 ≥1024 时覆盖层状态一并复位（防再收窄时莫名重开）
@@ -417,33 +321,20 @@ export function ChannelDetailPage() {
         : await sendMessage(content, replyToId, undefined, intent);
       setReplyTo(null);
       // #493：线程回复送达且命中 WU（workUnitId 继承成功 = 会触达 agent）→ 轻量「已送达/等待 agent」状态
-      if (replyToId && sent?.workUnitId) setAwaitingAgent({ wuId: sent.workUnitId, since: Date.now() });
+      if (replyToId && sent?.workUnitId) notifyReplySent(sent.workUnitId);
     } catch (err) {
       ownSendPendingRef.current = false;
       throw err;
     } finally {
       setSending(false);
     }
-  }, [sendMessage, ownSendPendingRef]);
+  }, [sendMessage, ownSendPendingRef, notifyReplySent]);
 
   // F5: NEED_INPUT 卡片内嵌回复 —— 与回复按钮同链路（sendMessage + replyToId）
   // #276（P2 #15）：返回 Promise——子组件 await 真实发送结果后才置位「已回复」（不发假承诺）
   const handleInlineReply = useCallback((message: ChannelMessage, content: string) => {
     return handleSend(content, message.id);
   }, [handleSend]);
-
-  // #493：「等待 agent」状态条——agent 已响应（该 WU 的 agent 新消息到达）即 render 派生隐藏，
-  // 不做 effect 内同步 setState；state 本体由 30s 兜底定时器清理（agent 无响应时条不常住；
-  // 30s 口径 > 唤醒+认领秒级路径，loop 异常时由工作条/建议片承接下来）
-  // #548：判定本体迁出页面——agentAnsweredOf（channelMessageStore 旁挂纯函数），本页只消费派生结果
-  const agentAnswered = agentAnsweredOf(messages, awaitingAgent);
-  useEffect(() => {
-    if (!awaitingAgent) return;
-    const timer = setTimeout(() => setAwaitingAgent(null), 30_000);
-    return () => clearTimeout(timer);
-  }, [awaitingAgent]);
-
-  // 批次 E-3 freshMsgIds 已随 receipt effect 提前声明（见组件头部），此处不再重复
 
   // #547：频道消息环境——横切值单 Provider 下发，消息项 useContext 自取（公开 Props 收窄）。
   // #322 契约不变量：成员全为稳定引用（useCallback/镜像 ref），useMemo 组装后 value identity
@@ -488,26 +379,14 @@ export function ChannelDetailPage() {
 
       {/* 中栏：对话流 */}
       <main className="mc-main">
-        <div className="mc-topbar">
-          <h1 className="mc-topbar-name">{formatChannelName(channel?.name || id.slice(0, 8))}</h1>
-          <span className="mc-topbar-type">
-            {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
-          </span>
-          <div className="mc-topbar-actions">
-            {/* #474：「当前 PMO」提升为顶栏可见位（原藏 ⋯ 菜单）——频道上下文标识与待办信号同排可见 */}
-            <ChannelCurrentPmoChip channelId={id} />
-            {/* #279（决策 #250 D4）/ #468：NEED_INPUT 待办 chip——数据源 = 行动中心 stateItems 投影
-                （本频道 reply 项）；E1 起为顶栏唯一待办信号位（消息头 badge 已删，见 ChannelMessageItem） */}
-            <ChannelNeedInputChip items={waitingWus} onLocate={locateWaitingQuestion} />
-            {/* E1（2026-09 页面重设计）：顶栏收敛 ⋯ 菜单——成员管理/默认工程/频道动态入口（<1024）
-                收纳进菜单；主行动点保持输入框「发送」唯一 accent */}
-            <ChannelTopbarMenu
-              channelId={id}
-              defaultPath={channel?.defaultPath}
-              onOpenActivity={() => setActRailOpen(true)}
-            />
-          </div>
-        </div>
+        {/* P3-b：顶栏装配切出 ChannelTopbar（频道名/类型 + PMO chip + 待办 chip + ⋯ 菜单） */}
+        <ChannelTopbar
+          channelId={id}
+          channel={channel}
+          waitingWus={waitingWus}
+          onLocateWaiting={locateWaitingQuestion}
+          onOpenActivity={() => setActRailOpen(true)}
+        />
 
         {/* 频道工作条（合并 #242/#322 live 实况条 + #440/#447 阶段条，docs/plans/2026-09-channel-workbar.md）：
             一条横带回答「这个频道的工作现在什么状态」；hook 自持有，step 事件只重渲该组件边界；
@@ -520,60 +399,21 @@ export function ChannelDetailPage() {
             头部高度经 streamHeadRef 量作 virtualizer scrollMargin（组合层内）；
             #531：消息体结构分支（virtual/non-virtual + spacer/translateY）在 ChannelStreamBody */}
         <div className="mc-stream" ref={streamRef} onScroll={handleStreamScroll}>
-          {/* mc-stream-head：滚动测量容器（streamHeadRef 挂点），无样式需求，结构化 hook（#431 定性保留） */}
-          <div className="mc-stream-head" ref={streamHeadRef}>
-            {loading && messages.length === 0 && (
-              // 批次 F-3：消息流首拉骨架（批次 E-2 ui/Skeleton 正本）——消息行形态
-              <SkeletonText lines={5} widths={['40%', '65%', '55%', '70%', '45%']} className="space-y-4 p-4" />
-            )}
-            {!loading && error && messages.length === 0 && (
-              // #482：首拉/兜底轮询失败——错误态 + 重试入口，与真空频道区分（原呈假空态，
-              // 用户会把加载故障误判为空频道）；已有消息时轮询失败不整屏替换，消息流保留
-              <div className="mc-stream-empty" role="alert">
-                <p>消息加载失败</p>
-                <button type="button" className="mc-empty-chip" onClick={() => { void refresh(); }}>重试</button>
-              </div>
-            )}
-            {!loading && !error && messages.length === 0 && (
-              <div className="mc-stream-empty">
-                <p>发送消息开始对话</p>
-                <p>@Agent 提及 Agent 创建任务</p>
-                {/* 视觉批次 2 ⑥：示例提示 chip——点击经既有 prefill 通道填入输入框（不自动发送），
-                    空态仅此一处渲染点（虚拟化/非虚拟化共用同一 .mc-stream 头块） */}
-                <div className="mc-empty-examples">
-                  {EMPTY_EXAMPLE_PROMPTS.map(text => (
-                    <button
-                      key={text}
-                      type="button"
-                      className="mc-empty-chip"
-                      onClick={() => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
-                    >
-                      {text}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* B2-002: Load more */}
-            {hasMore && (
-              <button onClick={handleLoadMore} className="mc-loadmore">
-                加载更早的消息
-              </button>
-            )}
-
-            {/* B2-006: collapse completed toggle */}
-            {!showCompleted && completedCount > 2 && (
-              <button onClick={() => setShowCompleted(true)} className="mc-collapse-toggle">
-                显示 {completedCount - 2} 条已完成消息
-              </button>
-            )}
-            {showCompleted && completedCount > 2 && (
-              <button onClick={() => setShowCompleted(false)} className="mc-collapse-toggle">
-                收起已完成消息
-              </button>
-            )}
-          </div>
+          {/* P3-b：头块（首拉骨架/#482 错误态/空态示例 chip/加载更早/折叠 toggle）切出
+              ChannelStreamHead——.mc-stream-head 测量容器契约（streamHeadRef 挂点）随组件承载 */}
+          <ChannelStreamHead
+            ref={streamHeadRef}
+            loading={loading}
+            error={error}
+            isEmpty={messages.length === 0}
+            onRetry={() => { void refresh(); }}
+            onPickExample={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
+            hasMore={hasMore}
+            onLoadMore={handleLoadMore}
+            completedCount={completedCount}
+            showCompleted={showCompleted}
+            onToggleCompleted={setShowCompleted}
+          />
           {/* #531：items → DOM 结构分支（virtual/non-virtual + spacer/translateY + 三 kind 分派 +
               skeleton 占位）收编 ChannelStreamBody；renderMessageItem 与 highlightId 由本页注入 */}
           {/* #547：频道消息环境 Provider——横切值经 Context 下发到每条消息项（value 全稳定引用，见上方 useMemo） */}
@@ -591,44 +431,16 @@ export function ChannelDetailPage() {
           )}
         </div>
 
-        {/* #444：动作片一次确认——文案说清点了会发生什么；失败原因内联进弹窗不静默 */}
-        {pendingSuggestionAction && pendingActionDef && (
-          <ConfirmDialog
-            open
-            title={pendingActionDef.title}
-            confirmLabel={pendingActionDef.confirmLabel}
-            loading={suggestionActionRunning}
-            message={
-              <>
-                {pendingActionDef.confirmMessage(pendingSuggestionAction.wuTitle)}
-                {suggestionActionError && (
-                  <div className="text-xs u-err" style={{ marginTop: 8 }}>{suggestionActionError}</div>
-                )}
-              </>
-            }
-            onConfirm={() => { void runSuggestionAction(); }}
-            onCancel={() => setPendingSuggestionAction(null)}
-          />
-        )}
-
         {/* channel 上下游优化 Phase 4（AC6）：底部输入区视觉归组——引导片 / 送达反馈条 / 输入条
             收进统一容器（承载样式见 .mc-composer-stack），纯结构包裹，交互逻辑与状态流不动 */}
         <div className="mc-composer-stack">
-          {/* #443–#447：引导片（唯一来源 = 建议端点派生片；prompt 点击填入输入框，status 只读，
-              action 点击走上方确认弹窗直调确定性接口；会话级 dismiss）
-              #484：片粒度 dismiss——每片独立 ✕，按片 dismissKey 记账，不再一键清全部 */}
-          {visibleChips.length > 0 && (
-            <SuggestionChips
-              suggestions={visibleChips}
-              onPick={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
-              onAction={handleSuggestionAction}
-              onDismiss={(item) => {
-                const key = visibleChips.find(c => c.id === item.id)?.dismissKey;
-                if (!key) return; // fail-closed：找不到台账 key 不记（不静默吞掉别片）
-                setDismissedSuggestionKeys(prev => new Set(prev).add(key));
-              }}
-            />
-          )}
+          {/* P3-b：引导片区切出 ChannelGuidance——#443–#447 端点派生片（prompt 点击 prefill /
+              status 只读 / action 一次确认直调确定性接口）+ #484 片粒度 dismiss 台账全内化 */}
+          <ChannelGuidance
+            channelId={id}
+            suggestions={channelSuggestions}
+            onPrefill={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
+          />
 
           {/* #493：线程回复送达即时反馈——「已送达，等待 agent 响应」，
               该 WU 的 agent 新消息到达或 30s 超时自动消失 */}
@@ -683,7 +495,7 @@ export function ChannelDetailPage() {
       {/* 右抽屉：WorkUnit 详情 / REQ 全链路 */}
       <WorkUnitDrawer
         drawer={drawer}
-        onClose={() => setDrawer(null)}
+        onClose={closeDrawer}
         onOpenWu={openWu}
         onOpenReq={openReq}
       />
@@ -692,7 +504,7 @@ export function ChannelDetailPage() {
           converted 后走统一卡片 action 路由（'converted' → 消息刷新，同原消息项内行为） */}
       <ConvertToTaskDialog
         open={convertTarget !== null}
-        onClose={() => setConvertTarget(null)}
+        onClose={closeConvert}
         messageId={convertTarget?.id ?? ''}
         channelId={id}
         messageContent={convertTarget?.content ?? ''}

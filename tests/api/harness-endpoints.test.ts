@@ -1,6 +1,6 @@
 // Harness API 端点测试
 import { describe, it, expect } from 'vitest';
-import { TokenEstimator } from '@dommaker/harness';
+import { estimateTokens } from '@dommaker/harness';
 
 describe('Harness API Endpoints', () => {
   describe('Knowledge Query 参数验证', () => {
@@ -65,29 +65,29 @@ describe('Harness API Endpoints', () => {
     });
   });
 
-  describe('Token 估算（TokenEstimator 口径）', () => {
+  describe('Token 估算（estimateTokens 口径）', () => {
     it('空字符串应估算为 0', () => {
-      expect(TokenEstimator.estimateText('')).toBe(0);
+      expect(estimateTokens('')).toBe(0);
     });
 
     it('四个 ASCII 字符应估算为 1', () => {
-      expect(TokenEstimator.estimateText('abcd')).toBe(1);
+      expect(estimateTokens('abcd')).toBe(1);
     });
 
     it('五字符应向上取整估算为 2', () => {
-      expect(TokenEstimator.estimateText('abcde')).toBe(2);
+      expect(estimateTokens('abcde')).toBe(2);
     });
 
     it('8000 字符应估算为 2000', () => {
-      expect(TokenEstimator.estimateText('a'.repeat(8000))).toBe(2000);
+      expect(estimateTokens('a'.repeat(8000))).toBe(2000);
     });
 
-    it('中文应按 ≈1.5 字符/token 口径估算（你好世界 → 3）', () => {
-      expect(TokenEstimator.estimateText('你好世界')).toBe(3);
+    it('中文按逐码点 2 token/字估算（你好世界 → 8）', () => {
+      expect(estimateTokens('你好世界')).toBe(8);
     });
 
-    it('中英混合按整段中文口径估算（hello 世界 → 6）', () => {
-      expect(TokenEstimator.estimateText('hello 世界')).toBe(6);
+    it('中英混合逐码点累加（hello 世界 → ceil(6×0.25 + 2×2) = 6）', () => {
+      expect(estimateTokens('hello 世界')).toBe(6);
     });
   });
 

@@ -65,10 +65,12 @@ beforeAll(async () => {
     onApprove: mockOnApprove,
     onReject: mockOnReject,
   });
-  const routes = (await import('../routes.js')).default;
+  const { reviewProposalOpenRoutes, reviewProposalWriteRoutes } = await import('../routes.js');
+  const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/review-proposals', routes);
+  // P2-e：镜像 route-registry 挂载姿态（open 挂 auth + write 挂 authNotGuest）
+  app.use('/api/v1/review-proposals', requireAuth(), reviewProposalOpenRoutes, requireNotGuest(), reviewProposalWriteRoutes);
   await new Promise<void>(resolve => { server = app.listen(0, '127.0.0.1', () => resolve()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/review-proposals`;
 });
@@ -94,7 +96,8 @@ describe('POST /:kind/:id/approve', () => {
     await seedProposal('p-1');
     const res = await api('POST', '/test/p-1/approve');
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ success: true, productIds: ['p1'] });
+    // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
+    expect(res.json).toEqual({ data: { success: true, productIds: ['p1'] } });
     expect(mockOnApprove).toHaveBeenCalledTimes(1);
   });
 
@@ -103,8 +106,8 @@ describe('POST /:kind/:id/approve', () => {
     await seedProposal('p-1');
     const res = await api('POST', '/test/p-1/approve');
     expect(res.status).toBe(200);
-    expect(res.json.success).toBe(false);
-    expect(res.json.skipped).toBe('budget-exhausted');
+    expect(res.json.data.success).toBe(false);
+    expect(res.json.data.skipped).toBe('budget-exhausted');
   });
 
   it('执行失败 → 500', async () => {
@@ -112,7 +115,8 @@ describe('POST /:kind/:id/approve', () => {
     await seedProposal('p-1');
     const res = await api('POST', '/test/p-1/approve');
     expect(res.status).toBe(500);
-    expect(res.json.error).toContain('provider timeout');
+    // 错误统一 `{ error: { code, message } }`，message 保留原机器串
+    expect(res.json.error.message).toContain('provider timeout');
   });
 
   it('查无提案 → 400；非 pending → 400', async () => {
@@ -122,13 +126,13 @@ describe('POST /:kind/:id/approve', () => {
     await api('POST', '/test/p-1/approve');
     const res = await api('POST', '/test/p-1/approve');
     expect(res.status).toBe(400);
-    expect(res.json.error).toContain('proposal-not-pending');
+    expect(res.json.error.message).toContain('proposal-not-pending');
   });
 
   it('未知 kind → 404', async () => {
     const res = await api('POST', '/ghost/p-1/approve');
     expect(res.status).toBe(404);
-    expect(res.json.error).toContain('unknown-kind');
+    expect(res.json.error.message).toContain('unknown-kind');
   });
 });
 
@@ -137,7 +141,7 @@ describe('POST /:kind/:id/reject', () => {
     await seedProposal('p-1');
     const res = await api('POST', '/test/p-1/reject');
     expect(res.status).toBe(200);
-    expect(res.json.success).toBe(true);
+    expect(res.json.data.success).toBe(true);
     expect(mockOnReject).toHaveBeenCalledTimes(1);
   });
 
@@ -152,9 +156,10 @@ describe('GET /:kind/:id/status', () => {
     await seedProposal('p-1');
     const res = await api('GET', '/test/p-1/status');
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ success: true, status: 'pending' });
+    // 契约驱动迁移（批次 4/7）：`{ data: { status } }`（success 标志退役）
+    expect(res.json).toEqual({ data: { status: 'pending' } });
     const missing = await api('GET', '/test/nope/status');
-    expect(missing.json).toEqual({ success: true, status: 'unknown' });
+    expect(missing.json).toEqual({ data: { status: 'unknown' } });
   });
 
   it('未知 kind → 404', async () => {

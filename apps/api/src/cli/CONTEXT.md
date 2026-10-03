@@ -27,3 +27,4 @@
 - CJS 遗迹：部分模块仍有 `require(...)` 惰性调用——bundle 靠 banner 的 createRequire 兜底，dev 靠 tsx；改 ESM 化时逐文件处理，别指望 tsc 产物直接跑。
 - **checkPrerequisites 测试口径（#577）**：scanAllProviders 真机全量扫描成本随 provider 探测增长（#573 注册表扫描、#574 模型探测后复审环境实测 43-55s），`__tests__/server.test.ts` 已用 importOriginal 部分 mock 隔离——该文件任何用例不得再打真扫描/留集成级超时窗口；要真扫描覆盖请放 e2e。
 - `studio up` 语义不动，但端口口径已随 #573 收口：启动前经 port-probe 解析（PORT 显式占用即拒启，缺省 3001 动态顺延上限 +100），ops preflight 的 lsof abort 与 index.ts 的 EADDRINUSE 3s 无限重试均已删除（后者归 utils/listen-error.ts，listen 竞态撞占用 = 拒启）。checkPrerequisites 的 agent CLI 检查同票对齐 provider 注册表扫描（不再硬编码 claude），缺失只警告不阻断。
+- getAdminToken 的 login 响应解包随契约驱动批次 6/7 同步：token 在 `{ data }` 壳内（body.data.token）。

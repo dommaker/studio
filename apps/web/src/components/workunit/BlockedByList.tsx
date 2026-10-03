@@ -37,7 +37,7 @@ export function BlockedByList({ metadata }: { metadata: string | null }) {
       if (!alive) return;
       setDeps(results.map((r, i) => {
         if (!r.ok) return { id: depIds[i], title: depIds[i], status: null };
-        const wu = r.value.data;
+        const wu = r.value.data.data;
         let title = wu.scope;
         try {
           const m = JSON.parse(wu.metadata || '{}') as { title?: unknown };

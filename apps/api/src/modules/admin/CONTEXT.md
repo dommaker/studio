@@ -26,3 +26,4 @@
 - 返回的 `harnessCheck` 字段在 harness 不可用时可能缺失，客户端需做可选处理。
 - 若 `CLAUDE.md` 不存在，返回 `status: 'missing'` 和创建建议。
 - **鉴权（2026-07-24 收紧）**：/api/v1/admin/docs-freshness 挂载层已收 requireAuth+requireAdmin（响应含服务器文件路径存在性/mtime）。
+- **契约驱动迁移（2026-10 批次 6/7）**：GET / 走 defineRoute——裸 FreshnessResult 进 `{ data }` 壳（schema = studio-contract admin.ts）；500 `{ error: string }` 退役为 `{ error: { code, message } }`（message 由固定串变为实际错误消息）。

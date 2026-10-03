@@ -1,6 +1,6 @@
 preset: standard
 harness:
-  version: 1.15.0
+  version: 2.0.0
 governance:
   context_files:
     enabled: true
@@ -9,18 +9,17 @@ governance:
     required_dirs:
       - packages/studio-agent/src
       - packages/studio-audit/src
-      - packages/studio-capability/src
       - packages/studio-notification/src
       - packages/studio-shared/src
       - packages/studio-skill/src
       - packages/studio-spec/src
+      - apps/api/src/bootstrap
       - apps/api/src/modules/action-center
       - apps/api/src/modules/admin
       - apps/api/src/modules/agents
       - apps/api/src/modules/audit-logs
       - apps/api/src/modules/auth
       - apps/api/src/modules/builtin-tools
-      - apps/api/src/modules/capabilities
       - apps/api/src/modules/channels
       - apps/api/src/modules/companies
       - apps/api/src/modules/deploy

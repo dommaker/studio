@@ -91,10 +91,10 @@ const renderPanel = (delivery: DeliveryStatus = baseDelivery, onRefresh = vi.fn(
 describe('DeliveryPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDeliver.mockResolvedValue({ data: { delivered: true, deliverCommit: 'abcdef1234567890' } });
-    mockVerify.mockResolvedValue({ data: { verified: true, report: { commands: ['pnpm test'] } } });
-    mockDispatchReview.mockResolvedValue({ data: { reviewWorkUnitId: 'rw-1' } });
-    mockReviewPassed.mockResolvedValue({ data: {} });
+    mockDeliver.mockResolvedValue({ data: { data: { delivered: true, deliverCommit: 'abcdef1234567890' } } });
+    mockVerify.mockResolvedValue({ data: { data: { verified: true, report: { commands: ['pnpm test'] } } } });
+    mockDispatchReview.mockResolvedValue({ data: { data: { reviewWorkUnitId: 'rw-1' } } });
+    mockReviewPassed.mockResolvedValue({ data: { data: {} } });
   });
 
   it('渲染台账概览 + 在途徽标 + 缺口行动行（缺层人话文案 + 行动按钮）', () => {
@@ -157,7 +157,7 @@ describe('DeliveryPanel', () => {
 
   it('verify 未通过（verified=false）：error toast 带失败命令，不刷新', async () => {
     mockVerify.mockResolvedValue({
-      data: { verified: false, failed: [{ command: 'pnpm test' }, { command: 'pnpm lint' }] },
+      data: { data: { verified: false, failed: [{ command: 'pnpm test' }, { command: 'pnpm lint' }] } },
     });
     const onRefresh = vi.fn();
     renderPanel(gapDelivery(['l1']), onRefresh);
@@ -170,7 +170,7 @@ describe('DeliveryPanel', () => {
   });
 
   it('verify 422：error toast 用 hint（缺省回退「未配置验证命令」）', async () => {
-    mockVerify.mockRejectedValue({ response: { status: 422, data: { hint: '请配置 verifyCommands' } } });
+    mockVerify.mockRejectedValue({ response: { status: 422, data: { data: { hint: '请配置 verifyCommands' } } } });
     renderPanel(gapDelivery(['l1']));
 
     fireEvent.click(screen.getByRole('button', { name: '重跑验证' }));
@@ -234,7 +234,7 @@ describe('DeliveryPanel', () => {
 
   it('analysis 缺口（#106 M7；#463 结构化表单）：人工确认走共享弹窗——拉 WU 详情预填清单，人改后 confirm 载荷随 reviewPassed 回传', async () => {
     mockWuGet.mockResolvedValue({
-      data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'], analysisTasks: ['实现存储层'] }) },
+      data: { data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'], analysisTasks: ['实现存储层'] }) } },
     });
     const onRefresh = vi.fn();
     renderPanel({
@@ -262,7 +262,7 @@ describe('DeliveryPanel', () => {
 
   it('#471 plan 缺口：人工确认同样走共享弹窗，confirm kind=plan 回传', async () => {
     mockWuGet.mockResolvedValue({
-      data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'], analysisTasks: ['实现存储层'] }) },
+      data: { data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'], analysisTasks: ['实现存储层'] }) } },
     });
     const onRefresh = vi.fn();
     renderPanel({
@@ -367,7 +367,7 @@ describe('DeliveryPanel', () => {
   });
 
   it('#469 标记已交付成功：trim 后提交，success toast 带短哈希 + onRefresh + 清空输入', async () => {
-    mockMarkDelivered.mockResolvedValue({ data: { delivered: true, deliverCommit: 'c0ffee1234', deliveredAt: '2026-09-09T00:00:00Z' } });
+    mockMarkDelivered.mockResolvedValue({ data: { data: { delivered: true, deliverCommit: 'c0ffee1234', deliveredAt: '2026-09-09T00:00:00Z' } } });
     const onRefresh = vi.fn();
     renderPanel(branchOnlyDelivery, onRefresh);
 

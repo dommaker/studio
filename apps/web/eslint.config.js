@@ -3,6 +3,7 @@ import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
+import noHandCopiedApiTypes from '../../scripts/eslint-rules/no-hand-copied-api-types.mjs';
 
 // apps/web 专属 flat config（工单 41）：优先级高于仓库根 eslint.config.mjs。
 // 规则保持 warn 级：存量告警已基线化记录，不在本仓清零。
@@ -32,6 +33,17 @@ export default tseslint.config(
       'prefer-const': 'warn',
       'no-constant-condition': 'warn',
       'no-useless-catch': 'warn',
+    },
+  },
+  {
+    // P3-a 手抄类型防回潮（error）：api 层禁止声明导出类型——REST 类型正本在
+    // @dommaker/studio-contract；放行 re-export 与契约别名，本地类型住 src/types/。
+    files: ['src/api/**/*.ts'],
+    plugins: {
+      local: { rules: { 'no-hand-copied-api-types': noHandCopiedApiTypes } },
+    },
+    rules: {
+      'local/no-hand-copied-api-types': 'error',
     },
   },
 );

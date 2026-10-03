@@ -23,10 +23,11 @@ import { useRosterStore } from '../../stores/rosterStore';
 
 const summaryWith = (agents: Array<{ id: string; roleId: string; name: string }>) =>
   Promise.resolve({
-    data: {
+    // 契约驱动迁移（批次 5/7）：monitoring 响应统一 `{ data }` 壳
+    data: { data: {
       agents: agents.map(a => ({ ...a, status: 'idle', currentWorkUnitId: null, startedAt: '2026-08-24T00:00:00Z' })),
       summary: { total: agents.length, idle: agents.length, active: 0, error: 0, terminated: 0 },
-    },
+    } },
   });
 const EMPTY_SUMMARY = summaryWith([]);
 

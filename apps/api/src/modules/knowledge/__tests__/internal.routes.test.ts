@@ -56,23 +56,25 @@ describe('internal.routes', () => {
   it('GET /sync-status returns staleness report shape', async () => {
     const res = await api('GET', '/sync-status');
     expect(res.status).toBe(200);
-    expect(res.json).toHaveProperty('trackedScopes');
-    expect(res.json).toHaveProperty('stale');
-    expect(res.json).toHaveProperty('unmonitored');
-    expect(res.json).toHaveProperty('healed');
+    // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
+    expect(res.json.data).toHaveProperty('trackedScopes');
+    expect(res.json.data).toHaveProperty('stale');
+    expect(res.json.data).toHaveProperty('unmonitored');
+    expect(res.json.data).toHaveProperty('healed');
   });
 
   it('POST /upsert 400 without scope/title/content', async () => {
     const res = await api('POST', '/upsert', { scope: 's' });
     expect(res.status).toBe(400);
-    expect(res.json.error).toBe('scope, title, and content are required');
+    // 必填 guard 收进 zod（原手写 400 文案）
+    expect(res.json.error.code).toBe('BAD_REQUEST');
   });
 
   it('POST /upsert writes to KnowledgeStore', async () => {
     const body = { scope: 'auth', title: '鉴权设计', content: 'v1 内容', projectId: 'p1', companyId: 'c1' };
     const created = await api('POST', '/upsert', body);
     expect(created.status).toBe(200);
-    expect(created.json).toHaveProperty('knowledgeStore');
+    expect(created.json.data).toHaveProperty('knowledgeStore');
   });
 
 });

@@ -5,19 +5,21 @@
  * 本文件负责把共享单例（sharedStore / scheduleVectorDbSync）+ 真实数据区路径接上。
  * 形态同 getSystemExecutor / initWuCompletionExtraction：懒单例 + init 订阅。
  */
-import { FileStore } from '@dommaker/studio-shared';
+
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { sharedStore, scheduleVectorDbSync } from '../knowledge/knowledge-singletons.js';
+import { sharedStore, scheduleVectorDbSync } from '../knowledge/index.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { DistillService } from './distill-service.js';
 import { createSkillLanding, createMemoryLanding } from './distill-landings.js';
+import { getStore } from '../../core/store.js';
+
 
 let _service: DistillService | null = null;
 
 /** 懒单例：知识库 = 统一 ~/.studio/knowledge；运行记录落 ~/.studio/distill/ 数据区 */
 export function getDistillService(): DistillService {
   if (!_service) {
-    const fileStore = new FileStore();
+    const fileStore = getStore();
     const dataDir = studioPath('distill');
     _service = new DistillService({
       store: sharedStore,

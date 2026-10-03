@@ -12,6 +12,7 @@ session:start/end 事件链路（#174）：agent-loop 把 `transcriptPath(wu.id)
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `transcriptPath` | `transcript-archive.ts` | 归档文件路径：生产 `studioPath('transcripts', '<workUnitId>.jsonl')`，测试改写隔离目录（纯函数，按 workUnitId 确定性推导） |
 | `transcriptsDir` | `transcript-archive.ts` | 归档根目录：测试 → `os.tmpdir()/studio-test-transcripts/<per-进程子目录>`（#135）；生产 → `studioPath('transcripts')` |
 | `isTestEnv` | `transcript-archive.ts` | 测试环境判定（`VITEST`/`NODE_ENV=test`），同 studio-log-path |
@@ -44,6 +45,9 @@ session:start/end 事件链路（#174）：agent-loop 把 `transcriptPath(wu.id)
 
 ### 注意事项
 
+- **鉴权（P2-e 声明式统一）**：requireAuth 由 route-registry entry 统一挂载（原路由内重复挂载已删）。
+
+- **契约驱动迁移（2026-10 批次 5/7）**：transcript.routes.ts defineRoute 化——响应统一 `{ data }` 壳（原平铺，分页语义不变）；workUnitId 防路径穿越手写 400 收进 zod params；错误统一 `{ error: { code, message } }`；契约正本 = `packages/studio-contract/src/transcripts.ts`（TranscriptEntry 手写 interface + parity）
 - `appendTranscriptStep` 写盘失败会抛出——agent-loop 用 `void ... .catch(() => {})` fire-and-forget，绝不阻断任务流程。
 - `readTranscript` 经 `FileStore.readJsonl`（mtime 读穿缓存），写入后立即读一致。
 - 测试隔离走 `isTestEnv` 改写（`os.tmpdir()/studio-test-transcripts/<per-进程子目录>`，文件名不变，#135），与 `studio-log-path` 同约定；生产路径的 `STUDIO_HOME` 解析由 `studio-dir` 单测覆盖。

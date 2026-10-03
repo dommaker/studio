@@ -5,7 +5,8 @@
  * 文档：https://open.dingtalk.com/document/orgapp/types-of-messages-supported-by-group-robots
  */
 
-import express, { Router, Request, Response } from 'express';
+import express, { Request, Response } from 'express';
+import { defineRoute } from '../../core/http.js';
 import { logger } from '../../utils/logger.js';
 const router = express.Router();
 
@@ -36,8 +37,6 @@ router.get('/action', async (req: Request, res: Response): Promise<void> => {
 /**
  * GET /api/v1/dingtalk/health
  */
-router.get('/health', (_req: Request, res: Response): void => {
-  res.json({ status: 'ok', service: 'dingtalk-callback' });
-});
+router.get('/health', defineRoute({}, async () => ({ status: 'ok', service: 'dingtalk-callback' })));
 
 export default router;

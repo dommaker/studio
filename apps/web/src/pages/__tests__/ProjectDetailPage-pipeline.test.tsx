@@ -113,7 +113,7 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     vi.clearAllMocks();
     // #412：chain 走 requirementChainStore（模块级 TTL 簿记）——同 reqAlias 跨测缓存会污染用例，每测重置
     useRequirementChainStore.getState().__resetForTests();
-    mockGetProject.mockResolvedValue({ data: mockProject });
+    mockGetProject.mockResolvedValue({ data: { data: mockProject } });
     mockApiGet.mockImplementation((url: string) => {
       if (url.includes('/tasks')) return Promise.resolve({ data: [] });
       return Promise.resolve({ data: [] });
@@ -124,7 +124,7 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
       data: { data: { requirement: { id: 'REQ-0011', title: '驾驶舱' }, workunits: chainWorkunits } },
     });
     mockGetAgentSummary.mockResolvedValue({
-      data: { agents: mockAgents, summary: { total: 2, idle: 1, active: 1, error: 0, terminated: 0 } },
+      data: { data: { agents: mockAgents, summary: { total: 2, idle: 1, active: 1, error: 0, terminated: 0 } } },
     });
   });
 
@@ -208,7 +208,7 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
   });
 
   it('#273：未绑定频道（channelId 缺失）时不渲染去频道按钮', async () => {
-    mockGetProject.mockResolvedValue({ data: { ...mockProject, channelId: null } });
+    mockGetProject.mockResolvedValue({ data: { data: { ...mockProject, channelId: null } } });
     renderDetail();
 
     await waitFor(() => expect(screen.getByText('进度管道')).toBeTruthy());

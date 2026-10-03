@@ -14,7 +14,8 @@ vi.mock('../../channels/channel-message.service.js', () => ({
   ChannelMessageService: vi.fn(),
 }));
 
-import skillsRouter from '../routes.js';
+import { skillsOpenRoutes, skillsWriteRoutes } from '../routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 import { skillStore } from '../skill-store.js';
 
 let server: Server;
@@ -23,7 +24,8 @@ let baseUrl: string;
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/skills', skillsRouter);
+  // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+  app.use('/api/v1/skills', skillsOpenRoutes, requireAuth(), requireNotGuest(), skillsWriteRoutes);
   await new Promise<void>(resolve => {
     server = app.listen(0, () => resolve());
   });

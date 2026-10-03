@@ -22,11 +22,12 @@ const { mockDispatchReviewNow } = vi.hoisted(() => ({
   mockDispatchReviewNow: vi.fn(),
 }));
 
-vi.mock('../../agents/loop/review-dispatcher.js', () => ({
+vi.mock('../../agent-loop/review-dispatcher.js', () => ({
   getReviewDispatcher: () => ({ dispatchReviewNow: mockDispatchReviewNow }),
 }));
 
-import router from '../workunit.routes.js';
+import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => {
   let server: Server;
@@ -35,7 +36,8 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    app.use('/workunits', router);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });
@@ -96,38 +98,38 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
     expect(json.error.code).toBe('NO_WORKTREE');
   });
 
-  it('verify：no-commands → 422 { verified:false, reason:no-commands, hint }', async () => {
+  it('verify：no-commands → 422 { data: { verified:false, reason:no-commands, hint } }', async () => {
     mockVerifyManually.mockResolvedValue({ kind: 'no-commands' });
     const res = await post('/wu-1/verify');
     expect(res.status).toBe(422);
-    const json = await res.json() as { verified: boolean; reason: string; hint: string };
-    expect(json.verified).toBe(false);
-    expect(json.reason).toBe('no-commands');
-    expect(json.hint).toContain('verifyCommands');
+    const json = await res.json() as { data: { verified: boolean; reason: string; hint: string } };
+    expect(json.data.verified).toBe(false);
+    expect(json.data.reason).toBe('no-commands');
+    expect(json.data.hint).toContain('verifyCommands');
   });
 
-  it('verify：failed → 200 { verified:false, failed:[{command,tail}] }', async () => {
+  it('verify：failed → 200 { data: { verified:false, failed:[{command,tail}] } }', async () => {
     mockVerifyManually.mockResolvedValue({ kind: 'failed', failure: { command: 'make check', tail: 'boom' } });
     const res = await post('/wu-1/verify');
     expect(res.status).toBe(200);
-    const json = await res.json() as { verified: boolean; failed: Array<{ command: string; tail: string }> };
-    expect(json.verified).toBe(false);
-    expect(json.failed).toEqual([{ command: 'make check', tail: 'boom' }]);
+    const json = await res.json() as { data: { verified: boolean; failed: Array<{ command: string; tail: string }> } };
+    expect(json.data.verified).toBe(false);
+    expect(json.data.failed).toEqual([{ command: 'make check', tail: 'boom' }]);
   });
 
-  it('verify：verified → 200 { verified:true, report }', async () => {
+  it('verify：verified → 200 { data: { verified:true, report } }', async () => {
     const report = { commands: ['pnpm run test'], source: 'convention', passedAt: '2026-07-30T00:00:00Z' };
     mockVerifyManually.mockResolvedValue({ kind: 'verified', report });
     const res = await post('/wu-1/verify');
     expect(res.status).toBe(200);
-    const json = await res.json() as { verified: boolean; report: { commands: string[] } };
-    expect(json.verified).toBe(true);
-    expect(json.report.commands).toEqual(['pnpm run test']);
+    const json = await res.json() as { data: { verified: boolean; report: { commands: string[] } } };
+    expect(json.data.verified).toBe(true);
+    expect(json.data.report.commands).toEqual(['pnpm run test']);
   });
 
-  it('verify：body.commands 过滤透传 + by=登录用户名（STUDIO_AUTH=none → Local User）', async () => {
+  it('verify：body.commands 过滤透传（空白串剔除）+ by=登录用户名（STUDIO_AUTH=none → Local User）', async () => {
     mockVerifyManually.mockResolvedValue({ kind: 'verified', report: {} });
-    const res = await post('/wu-1/verify', { body: { commands: ['./ci.sh', '  ', 42] } });
+    const res = await post('/wu-1/verify', { body: { commands: ['./ci.sh', '  '] } });
     expect(res.status).toBe(200);
     expect(mockVerifyManually).toHaveBeenCalledWith('wu-1', {
       by: 'Local User',
@@ -145,12 +147,12 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
     expect(mockVerifyManually).toHaveBeenCalledWith('wu-1', { by: 'Local User' });
   });
 
-  it('verify：service 抛错 → 500 INTERNAL_ERROR', async () => {
+  it('verify：service 抛错 → 500 INTERNAL', async () => {
     mockVerifyManually.mockRejectedValue(new Error('disk gone'));
     const res = await post('/wu-1/verify');
     expect(res.status).toBe(500);
     const json = await res.json() as { error: { code: string; message: string } };
-    expect(json.error.code).toBe('INTERNAL_ERROR');
+    expect(json.error.code).toBe('INTERNAL');
     expect(json.error.message).toBe('disk gone');
   });
 
@@ -187,12 +189,12 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
     expect((await post('/wu-1/dispatch-review')).status).toBe(409);
   });
 
-  it('dispatch-review：成功 → 200 { reviewWorkUnitId }', async () => {
+  it('dispatch-review：成功 → 200 { data: { reviewWorkUnitId } }', async () => {
     mockDispatchReviewNow.mockResolvedValue({ id: 'child-9' });
     const res = await post('/wu-1/dispatch-review');
     expect(res.status).toBe(200);
-    const json = await res.json() as { reviewWorkUnitId: string };
-    expect(json.reviewWorkUnitId).toBe('child-9');
+    const json = await res.json() as { data: { reviewWorkUnitId: string } };
+    expect(json.data.reviewWorkUnitId).toBe('child-9');
     expect(mockDispatchReviewNow).toHaveBeenCalledWith('wu-1');
   });
 });

@@ -2,22 +2,21 @@
  * knowledge-data-layer — KnowledgeService 的数据层（文件系统存取）
  *
  * 自 knowledge-service.ts 整块抽出（纯代码移动）：data/trends/ 趋势写入、
- * resolution 影子库 FileStore helpers、共享 FileStore 实例与
- * studio-events.jsonl 路径常量。
+ * resolution 影子库 FileStore helpers（实例经 core/store getStore() 获取）。
  * knowledge-service.ts 以 re-export 保持 writeTrendData 导出面不变。
+ * （#654：本模块曾导出的事件文件路径常量已随加载期钉死纪律一并移除，
+ *  事件路径一律调用时 resolveStudioEventsFile() 解析。）
  */
 
-import { FileStore } from '@dommaker/studio-shared';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { getStore } from '../../core/store.js';
+
 
 // ── Data layer: trends directory ──
 
 const DATA_TRENDS_DIR = studioPath('data', 'trends');
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
-const fileStore = new FileStore();
 
 /**
  * 写入趋势数据到 data/trends/ 目录。
@@ -44,19 +43,8 @@ export function writeTrendData(filename: string, content: string): void {
 const RESOLUTIONS_DIR = studioPath('data', 'resolutions');
 
 async function listResolutions(): Promise<any[]> {
-  try {
-    const entries = await fs.promises.readdir(RESOLUTIONS_DIR, { withFileTypes: true });
-    const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
-    const results: any[] = [];
-    for (const f of files) {
-      const data = await fileStore.readJson<any>(path.join(RESOLUTIONS_DIR, f.name));
-      if (data) results.push(data);
-    }
-    return results;
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
-  }
+  // P2-e：目录清单走 FileStore listJsonInDir seam（ENOENT → []、损坏文件跳过，语义同原裸 readdir+readJson 循环）
+  return getStore().listJsonInDir<any>(RESOLUTIONS_DIR);
 }
 
-export { STUDIO_EVENTS_JSONL, fileStore, RESOLUTIONS_DIR, listResolutions };
+export { RESOLUTIONS_DIR, listResolutions };

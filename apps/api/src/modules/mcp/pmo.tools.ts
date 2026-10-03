@@ -21,7 +21,7 @@ const createProject: RegisteredTool = {
     required: ['title'],
   },
   handler: async (input) => {
-    const { projectService } = await import('../pmo/project.service.js');
+    const { projectService } = await import('../pmo/index.js');
     const project = await projectService.create({
       title: input.title,
       description: input.description,
@@ -44,7 +44,7 @@ const listProjects: RegisteredTool = {
     required: [],
   },
   handler: async (input) => {
-    const { projectService } = await import('../pmo/project.service.js');
+    const { projectService } = await import('../pmo/index.js');
     const projects = await projectService.list({
       status: input.status,
       limit: input.limit || 50,
@@ -65,7 +65,7 @@ const getProjectStatus: RegisteredTool = {
     required: ['projectId'],
   },
   handler: async (input) => {
-    const { projectService } = await import('../pmo/project.service.js');
+    const { projectService } = await import('../pmo/index.js');
     const project = await projectService.get(input.projectId);
     if (!project) throw new Error('Project not found');
     return project;

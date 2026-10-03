@@ -124,12 +124,15 @@ async function pollUntil<T>(label: string, timeoutMs: number, fn: () => Promise<
 }
 
 async function getWorkUnit(id: string): Promise<any> {
-  return apiJson(`/workunits/${id}`);
+  // workunit 域已契约化：单实体端点统一 `{ data }` 壳
+  const body = await apiJson<{ data: any }>(`/workunits/${id}`);
+  return body.data;
 }
 
 async function getChannelMessages(channelId: string): Promise<any[]> {
-  const body = await apiJson<{ data: any[] }>(`/channels/${channelId}/messages?limit=100`);
-  return body.data;
+  // channels 域已契约化：消息分页统一 `{ data: { messages, total, hasMore } }` 壳
+  const body = await apiJson<{ data: { messages: any[] } }>(`/channels/${channelId}/messages?limit=100`);
+  return body.data.messages;
 }
 
 function wuMetadata(wu: any): Record<string, any> {

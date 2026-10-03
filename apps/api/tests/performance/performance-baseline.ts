@@ -193,6 +193,5 @@ export const DEFAULT_TEST_CONFIG = {
   iterations: 10,
   endpoints: [
     { path: '/api/v1/roles', method: 'GET' },
-    { path: '/api/v1/capabilities', method: 'GET' },
   ],
 };

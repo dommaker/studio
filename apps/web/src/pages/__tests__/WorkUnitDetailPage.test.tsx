@@ -38,15 +38,16 @@ vi.mock('../../api/workunit', async (importOriginal) => {
     ...actual,
     workunitApi: {
       ...actual.workunitApi,
-      get: mockWuGet,
+      // envelope 在 mock 边界构造（{ data: { data: 负载 } }，与真实 wire 同形）；各 mock 只提供负载
+      get: (id: string) => mockWuGet(id).then((wu: unknown) => ({ data: { data: wu } })),
       listExecutionStepEvents: vi.fn().mockResolvedValue({ data: { events: [], total: 0 } }),
-      getMessages: vi.fn().mockResolvedValue({ data: { data: [] } }),
-      resume: mockResume,
-      close: mockClose,
-      transitionStatus: mockTransitionStatus,
-      reviewPassed: mockReviewPassed,
-      reviewRejected: mockReviewRejected,
-      getTreeTokens: mockGetTreeTokens,
+      getMessages: vi.fn().mockResolvedValue({ data: { data: { messages: [] } } }),
+      resume: (id: string) => mockResume(id).then((wu: unknown) => ({ data: { data: wu } })),
+      close: (id: string) => mockClose(id).then((wu: unknown) => ({ data: { data: wu } })),
+      transitionStatus: (id: string, ...rest: unknown[]) => mockTransitionStatus(id, ...rest).then((wu: unknown) => ({ data: { data: wu } })),
+      reviewPassed: (id: string, ...rest: unknown[]) => mockReviewPassed(id, ...rest).then((wu: unknown) => ({ data: { data: wu } })),
+      reviewRejected: (id: string, ...rest: unknown[]) => mockReviewRejected(id, ...rest).then((wu: unknown) => ({ data: { data: wu } })),
+      getTreeTokens: (id: string) => mockGetTreeTokens(id).then((r: unknown) => ({ data: { data: r } })),
     },
   };
 });
@@ -144,25 +145,25 @@ describe('WorkUnitDetailPage', () => {
       loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
       inflight: null, lastToken: null,
     });
-    mockWuGet.mockResolvedValue({ data: baseWu });
-    mockProjectGet.mockResolvedValue({ data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } });
+    mockWuGet.mockResolvedValue(baseWu);
+    mockProjectGet.mockResolvedValue({ data: { data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } } });
     mockReqGet.mockResolvedValue({ data: { success: true, data: { id: 'REQ-0042', projectId: 'proj-2' } } });
     mockChannelList.mockResolvedValue({ data: { success: true, data: [{ id: 'ch-1', name: '主频道' }] } });
     mockAgentSummary.mockResolvedValue({
-      data: {
+      data: { data: {
         agents: [{ id: 'inst-abcdefgh1234', roleId: 'role-1', name: 'coder-01', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-30T08:00:00Z' }],
         summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
-      },
+      } },
     });
     mockReqGetChain.mockResolvedValue({
       data: { success: true, data: { requirement: { id: 'REQ-0042', seq: 42, title: '登录需求', status: 'in-progress', createdAt: '2026-07-29T09:00:00Z', createdBy: 'manual' }, workunits: [] } },
     });
-    mockResume.mockResolvedValue({ data: { ...baseWu, status: 'active' } });
-    mockClose.mockResolvedValue({ data: { ...baseWu, status: 'closed' } });
-    mockTransitionStatus.mockResolvedValue({ data: { ...baseWu, status: 'unassigned' } });
-    mockReviewPassed.mockResolvedValue({ data: { ...baseWu, status: 'done' } });
-    mockReviewRejected.mockResolvedValue({ data: { ...baseWu, status: 'active' } });
-    mockGetTreeTokens.mockResolvedValue({ data: treeTokenReport });
+    mockResume.mockResolvedValue({ ...baseWu, status: 'active' });
+    mockClose.mockResolvedValue({ ...baseWu, status: 'closed' });
+    mockTransitionStatus.mockResolvedValue({ ...baseWu, status: 'unassigned' });
+    mockReviewPassed.mockResolvedValue({ ...baseWu, status: 'done' });
+    mockReviewRejected.mockResolvedValue({ ...baseWu, status: 'active' });
+    mockGetTreeTokens.mockResolvedValue(treeTokenReport);
     // #290（清单 #24）：负责人解析回退级默认「查无」——实例档案 404、profile 列表空
     mockGetAgentInstance.mockRejectedValue(new Error('404'));
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
@@ -255,11 +256,9 @@ describe('WorkUnitDetailPage', () => {
   });
 
   it('PMO 解析回落：metadata 无 pmoId 时经 reqId → requirement.projectId 解析', async () => {
-    mockWuGet.mockResolvedValue({
-      data: { ...baseWu, metadata: JSON.stringify({ title: '登录功能开发' }) },
-    });
+    mockWuGet.mockResolvedValue({ ...baseWu, metadata: JSON.stringify({ title: '登录功能开发' }) });
     mockProjectGet.mockImplementation((pid: string) =>
-      Promise.resolve({ data: { id: pid, pmoNumber: 'PM-0009', title: '回落项目' } }),
+      Promise.resolve({ data: { data: { id: pid, pmoNumber: 'PM-0009', title: '回落项目' } } }),
     );
     render(<WorkUnitDetailPage />);
     const pmoLink = await screen.findByText('PM-0009');
@@ -281,9 +280,7 @@ describe('WorkUnitDetailPage', () => {
   });
 
   it('关键事实卡：无 reqId/channelId/assigneeId/PMO 时归属行不渲染（创建/Token 行仍在）', async () => {
-    mockWuGet.mockResolvedValue({
-      data: { ...baseWu, reqId: null, channelId: null, assigneeId: null, metadata: '{}' },
-    });
+    mockWuGet.mockResolvedValue({ ...baseWu, reqId: null, channelId: null, assigneeId: null, metadata: '{}' });
     render(<WorkUnitDetailPage />);
     await screen.findByText('实现登录功能'); // scope 兜底标题（metadata 无 title）
     await waitFor(() => expect(mockAgentSummary).not.toHaveBeenCalled());
@@ -295,7 +292,7 @@ describe('WorkUnitDetailPage', () => {
 
   it('认领 agent 匹配不到：显示 instance id 前 8 位且不可点', async () => {
     mockAgentSummary.mockResolvedValue({
-      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } } },
     });
     render(<WorkUnitDetailPage />);
     // #440：meta strip 与事实卡各渲染一份短 id，取其一断不可点
@@ -306,9 +303,9 @@ describe('WorkUnitDetailPage', () => {
   // #290（清单 #24）：负责人解析口径——认领快照 → 运行实例 → profile 直配 → 短 UUID
   it('#290 认领 agent 为离线实例：经 assigneeRoleId 认领快照解析角色名，不发实例档案点查', async () => {
     // 2026-09-10：离线实例档案点查段已删除（被回收实例点查必 404）；认领快照接管该场景
-    mockWuGet.mockResolvedValue({ data: { ...baseWu, assigneeRoleId: 'role-9' } });
+    mockWuGet.mockResolvedValue({ ...baseWu, assigneeRoleId: 'role-9' });
     mockAgentSummary.mockResolvedValue({
-      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+      data: { data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } } },
     });
     mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-9', name: 'Analyst' }] } });
     render(<WorkUnitDetailPage />);
@@ -331,7 +328,7 @@ describe('WorkUnitDetailPage', () => {
   });
 
   it('证据台账：存量 WU（无 attestations）显示未介入说明', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...baseWu, metadata: '{}' } });
+    mockWuGet.mockResolvedValue({ ...baseWu, metadata: '{}' });
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText('存量任务，证据模型未介入（按存储状态展示）')).toBeDefined();
   });
@@ -351,12 +348,10 @@ describe('WorkUnitDetailPage', () => {
 
   it('#185（决策 #87 D4）：blocked 卡住型 WU 显示处置组件（继续执行/关闭任务），点继续执行调 resume 并重拉；stepper 下出阻塞 chip', async () => {
     mockWuGet.mockResolvedValue({
-      data: {
-        ...baseWu,
-        status: 'blocked',
-        completedAt: null,
-        metadata: JSON.stringify({ title: '登录功能开发', blockReason: 'stuck: 连续 3 步无进展' }),
-      },
+      ...baseWu,
+      status: 'blocked',
+      completedAt: null,
+      metadata: JSON.stringify({ title: '登录功能开发', blockReason: 'stuck: 连续 3 步无进展' }),
     });
     render(<WorkUnitDetailPage />);
     // 关键事件 chip：阻塞（与状态 pill 同名，按 chip class 甄别）
@@ -372,12 +367,10 @@ describe('WorkUnitDetailPage', () => {
 
   it('#185（决策 #87 D3）：blocked NEED_INPUT 型不显示「继续执行」，仅「关闭任务」；挂起 chip 带问题 detail', async () => {
     mockWuGet.mockResolvedValue({
-      data: {
-        ...baseWu,
-        status: 'blocked',
-        completedAt: null,
-        metadata: JSON.stringify({ title: '登录功能开发', waitingForInput: true, waitingQuestion: '用 OAuth 吗？' }),
-      },
+      ...baseWu,
+      status: 'blocked',
+      completedAt: null,
+      metadata: JSON.stringify({ title: '登录功能开发', waitingForInput: true, waitingQuestion: '用 OAuth 吗？' }),
     });
     render(<WorkUnitDetailPage />);
     await screen.findByRole('button', { name: '关闭任务' });
@@ -389,19 +382,17 @@ describe('WorkUnitDetailPage', () => {
     mockWuGet.mockImplementation((id: string) => {
       if (id === 'wu-1') {
         return Promise.resolve({
-          data: {
-            ...baseWu,
-            metadata: JSON.stringify({
-              title: '登录功能开发',
-              pmoId: 'proj-1',
-              blockedBy: ['wu-dep-1', 'wu-gone'],
-              ac: ['AC1 单测通过', 'AC2 类型检查零错误'],
-            }),
-          },
+          ...baseWu,
+          metadata: JSON.stringify({
+            title: '登录功能开发',
+            pmoId: 'proj-1',
+            blockedBy: ['wu-dep-1', 'wu-gone'],
+            ac: ['AC1 单测通过', 'AC2 类型检查零错误'],
+          }),
         });
       }
       if (id === 'wu-dep-1') {
-        return Promise.resolve({ data: { id, status: 'done', scope: '依赖任务一', metadata: null } });
+        return Promise.resolve({ id, status: 'done', scope: '依赖任务一', metadata: null });
       }
       return Promise.reject(new Error('404'));
     });
@@ -427,13 +418,11 @@ describe('WorkUnitDetailPage', () => {
 
   it('#163 T8-E2：metadata.opportunities 非空 → 左栏「巡检机会」节渲染', async () => {
     mockWuGet.mockResolvedValue({
-      data: {
-        ...baseWu,
-        metadata: JSON.stringify({
-          title: '登录功能开发',
-          opportunities: [{ id: 'opp-1', problem: '重复拷贝', suggestion: '收口为工具函数', status: 'pending' }],
-        }),
-      },
+      ...baseWu,
+      metadata: JSON.stringify({
+      title: '登录功能开发',
+      opportunities: [{ id: 'opp-1', problem: '重复拷贝', suggestion: '收口为工具函数', status: 'pending' }],
+      }),
     });
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText('巡检机会')).toBeDefined();
@@ -447,9 +436,7 @@ describe('WorkUnitDetailPage', () => {
 
   // #284（决策 #250 D1/F7-F9）：详情页（「新页面打开」落点）补齐闸门入口，与列表行/抽屉一致
   it('#284：pending → 闸门动作节出「确认并开放领取」调 transitionStatus(unassigned)，响应体快照直替本地 wu（#545 不再重拉）；人闸 chip 上 stepper 下', async () => {
-    mockWuGet.mockResolvedValue({
-      data: { ...baseWu, status: 'pending', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
-    });
+    mockWuGet.mockResolvedValue({ ...baseWu, status: 'pending', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) });
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText('闸门动作')).toBeDefined();
     expect(screen.getByText(/待确认人闸/)).toBeDefined();
@@ -461,9 +448,7 @@ describe('WorkUnitDetailPage', () => {
   });
 
   it('#284：in_review task → 通过直调 reviewPassed，响应体快照直替（done → 闸门节消失，不重拉）', async () => {
-    mockWuGet.mockResolvedValue({
-      data: { ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
-    });
+    mockWuGet.mockResolvedValue({ ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) });
     render(<WorkUnitDetailPage />);
 
     fireEvent.click(await screen.findByText('通过验收'));
@@ -473,9 +458,7 @@ describe('WorkUnitDetailPage', () => {
   });
 
   it('#284：in_review task → 拒绝带原因调 reviewRejected（与列表行一致）', async () => {
-    mockWuGet.mockResolvedValue({
-      data: { ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
-    });
+    mockWuGet.mockResolvedValue({ ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) });
     render(<WorkUnitDetailPage />);
 
     fireEvent.click(await screen.findByText('拒绝'));
@@ -486,13 +469,11 @@ describe('WorkUnitDetailPage', () => {
 
   it('#284：in_review analysis → 通过弹确认弹窗（#463 结构化表单），确认开图后 confirm 载荷随 reviewPassed 回传', async () => {
     mockWuGet.mockResolvedValue({
-      data: {
-        ...baseWu,
-        type: 'analysis',
-        status: 'in_review',
-        completedAt: null,
-        metadata: JSON.stringify({ title: '分析单', analysisDestination: '目标', analysisFog: ['问题1'] }),
-      },
+      ...baseWu,
+      type: 'analysis',
+      status: 'in_review',
+      completedAt: null,
+      metadata: JSON.stringify({ title: '分析单', analysisDestination: '目标', analysisFog: ['问题1'] }),
     });
     render(<WorkUnitDetailPage />);
 
@@ -509,9 +490,7 @@ describe('WorkUnitDetailPage', () => {
 
   // 批次A 项5：闸门动作失败内联错误行（BlockedActions run() 同模式），不再静默
   it('批次A 项5：审查闸门「通过」失败 → 错误行内联进闸门动作区（服务端 error.message 优先）', async () => {
-    mockWuGet.mockResolvedValue({
-      data: { ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
-    });
+    mockWuGet.mockResolvedValue({ ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) });
     mockReviewPassed.mockRejectedValue(Object.assign(new Error('Request failed with status code 409'), {
       isAxiosError: true,
       response: { status: 409, data: { error: { message: '状态机不允许该迁移' } } },
@@ -525,9 +504,7 @@ describe('WorkUnitDetailPage', () => {
   });
 
   it('批次A 项5：拒绝失败 → 弹窗保持打开 + 错误行进弹窗，不静默关窗', async () => {
-    mockWuGet.mockResolvedValue({
-      data: { ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
-    });
+    mockWuGet.mockResolvedValue({ ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) });
     mockReviewRejected.mockRejectedValue(new Error('服务端挂了'));
     render(<WorkUnitDetailPage />);
 
@@ -549,20 +526,20 @@ describe('WorkUnitDetailPage — #440 meta strip', () => {
       loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
       inflight: null, lastToken: null,
     });
-    mockWuGet.mockResolvedValue({ data: baseWu });
-    mockProjectGet.mockResolvedValue({ data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } });
+    mockWuGet.mockResolvedValue(baseWu);
+    mockProjectGet.mockResolvedValue({ data: { data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } } });
     mockReqGet.mockResolvedValue({ data: { success: true, data: { id: 'REQ-0042', projectId: 'proj-2' } } });
     mockChannelList.mockResolvedValue({ data: { success: true, data: [{ id: 'ch-1', name: '主频道' }] } });
     mockAgentSummary.mockResolvedValue({
-      data: {
+      data: { data: {
         agents: [{ id: 'inst-abcdefgh1234', roleId: 'role-1', name: 'coder-01', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-30T08:00:00Z' }],
         summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
-      },
+      } },
     });
     mockReqGetChain.mockResolvedValue({
       data: { success: true, data: { requirement: { id: 'REQ-0042', seq: 42, title: '登录需求', status: 'in-progress', createdAt: '2026-07-29T09:00:00Z', createdBy: 'manual' }, workunits: [] } },
     });
-    mockGetTreeTokens.mockResolvedValue({ data: treeTokenReport });
+    mockGetTreeTokens.mockResolvedValue(treeTokenReport);
     mockGetAgentInstance.mockRejectedValue(new Error('404'));
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
   });
@@ -588,10 +565,8 @@ describe('WorkUnitDetailPage — #440 meta strip', () => {
 
   it('有 metadata.ac → AC 数渲染聚合计数', async () => {
     mockWuGet.mockResolvedValue({
-      data: {
-        ...baseWu,
-        metadata: JSON.stringify({ title: '登录功能开发', ac: ['AC1', 'AC2', 'AC3'] }),
-      },
+      ...baseWu,
+      metadata: JSON.stringify({ title: '登录功能开发', ac: ['AC1', 'AC2', 'AC3'] }),
     });
     const strip = await stripOf();
     expect(strip!.textContent).toContain('AC 数');
@@ -599,7 +574,7 @@ describe('WorkUnitDetailPage — #440 meta strip', () => {
   });
 
   it('无认领人 → 涉及角色不占位（其余项仍在）', async () => {
-    mockWuGet.mockResolvedValue({ data: { ...baseWu, assigneeId: null } });
+    mockWuGet.mockResolvedValue({ ...baseWu, assigneeId: null });
     const strip = await stripOf();
     expect(strip).toBeTruthy();
     expect(strip!.textContent).not.toContain('涉及角色');

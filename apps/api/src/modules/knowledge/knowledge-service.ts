@@ -34,10 +34,10 @@ import type {
   KnowledgeSubsystem,
   KnowledgeOrigin,
 } from '@dommaker/harness';
-import { TokenEstimator } from '@dommaker/harness';
-import { FileStore, logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
-import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { estimateTokens } from '@dommaker/harness';
+import { logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
+// P2-c 拆环：getSystemExecutor/StudioRoleNotConfiguredError 改函数内动态 import（见 extractFromConversation）
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import type { CreateResolutionInput } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync, ingestWithQualityGate, publishKnowledgeEntryChanged } from './knowledge-singletons.js';
 import {
@@ -92,8 +92,7 @@ const ENTRY_TYPE_MAP: Record<string, KnowledgeSubsystem> = {
 
 // ── Data layer: trends directory ──
 
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
-const fileStore = new FileStore();
+// #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
 
 // ── Stop words for keyword extraction ──
 
@@ -204,7 +203,8 @@ export interface InjectOpts {
  * 入口 = worktree `.claude/settings.json` 里注册的 local-rag MCP server
  * （studio-agent worktree-resolver propagateHarnessConfig 写入；agent CLI 以
  * worktree 为 cwd 启动，自动加载该配置），工具名 `mcp__local-rag__query_documents`。
- * 体量 ~3 行（约 80 tokens），计入 2K 注入红线内的固定小额开销。
+ * 体量实测 = 182 tokens（执法口径 estimateTokens(本段 + '\n\n')；内容 4 行），
+ * 占注入红线 INJECT_TOKEN_BUDGET=927 约两成（19.6%）——有注入时必附加，但不是小额开销。
  */
 export const KNOWLEDGE_QUERY_GUIDANCE = [
   '## 何时查知识库',
@@ -321,7 +321,7 @@ export class KnowledgeService {
 
     // B59-002: persist to StudioEvent for OKR queryKnowledgeQualityGatePassRate
     try {
-      await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      await getStore().appendJsonl(resolveStudioEventsFile(), {
         type: 'extractFromExecution',
         payload: JSON.stringify({ agentType: result.agentType, success: result.success }),
         createdAt: new Date().toISOString(),
@@ -341,7 +341,7 @@ export class KnowledgeService {
    * - proposal 须经审核（promote → verified）才参与注入（见 injectContext 的
    *   isInjectableMaturity 闸门）；模板式 extractFromExecution 保留为兜底。
    * - 提取开销（tokens/duration）以 knowledge:extraction 事件单独度量，
-   *   不计入 2K 注入红线。
+   *   不计入注入红线。
    * - 永不抛出：LLM 未配置/调用失败仅记日志（e2e 无 LLM 时静默跳过）。
    * - P8（2026-09-16 perf 实测）：总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`
    *   整体跳过——无凭证/fake-provider 环境里 studio 角色 provider 仍指向真实
@@ -356,6 +356,10 @@ export class KnowledgeService {
       logger.info('[KnowledgeService] extractFromConversation skipped: STUDIO_KNOWLEDGE_EXTRACTION=false', { source });
       return;
     }
+    // P2-c 拆环：knowledge→agents 静态边转函数内动态 import（置于 try 外，catch 的 instanceof 也要用）
+    // P2-d 刀7：getExtractFromTextSystemPrompt 随知识维护 Agent 迁 agent-knowledge
+    const { getExtractFromTextSystemPrompt } = await import('../agent-knowledge/index.js');
+    const { getSystemExecutor, StudioRoleNotConfiguredError } = await import('../agents/index.js');
     try {
       const transcript = buildConversationTranscript(messages);
       if (!transcript) return;
@@ -363,7 +367,6 @@ export class KnowledgeService {
       // 复用 KnowledgeCurator 的提取 prompt（动态 import 避免静态循环依赖：
       // knowledge-curator.service 已静态引用本模块的 validateKnowledgeForm/writeTrendData）
       // E1: 经 getter 取值以支持 prompt-override 文件覆盖（约束进化提案生效路径）
-      const { getExtractFromTextSystemPrompt } = await import('../agents/knowledge/knowledge-curator.service.js');
 
       const startMs = Date.now();
       const execResult = await getSystemExecutor().run(transcript, {
@@ -410,7 +413,7 @@ export class KnowledgeService {
       };
       this.eventEmitter.emit('knowledge', { type: 'extractFromConversation', data: eventData });
       try {
-        await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        await getStore().appendJsonl(resolveStudioEventsFile(), {
           type: 'knowledge:extraction',
           source,
           payload: JSON.stringify(eventData),
@@ -524,7 +527,7 @@ export class KnowledgeService {
 
   async injectContext(agentType: string, opts?: InjectOpts): Promise<InjectContextResult> {
     const injectedIds: string[] = [];
-    // §10 依赖项：maxTokens 做实（此前 _opts 未生效，2K 红线只有度量无运行时截断）。
+    // §10 依赖项：maxTokens 做实（此前 _opts 未生效，注入红线只有度量无运行时截断）。
     // 缺省回退 INJECT_TOKEN_BUDGET——#91 起 prompt 组装按分段软定额传入有效预算（knowledge 定额 + 池余量）。
     const maxTokens = opts?.maxTokens ?? INJECT_TOKEN_BUDGET;
 
@@ -547,8 +550,8 @@ export class KnowledgeService {
     const signals = this.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
     const filteredSignals = (signals || []).filter((s: any) => !isRoleMemory(s) && s.status !== 'stale' && isInjectableMaturity(s.maturity));
 
-    // ③（wireups）：2K 注入红线执行 — 候选按注入优先级（成熟度 → 引用计数）排序，
-    // 逐个累加 TokenEstimator.estimateText（harness 1.1.0 口径），超 2000 截断并记 knowledge:inject-trimmed 事件。
+    // ③（wireups）：注入红线（INJECT_TOKEN_BUDGET）执行 — 候选按注入优先级（成熟度 → 引用计数）排序，
+    // 逐个累加 estimateTokens（harness 尺子口径），超预算截断并记 knowledge:inject-trimmed 事件。
     interface Candidate { line: string; id: string }
     const toCandidates = (entries: any[], lineOf: (e: any) => string): Candidate[] =>
       entries
@@ -558,7 +561,7 @@ export class KnowledgeService {
 
     // #602 D3：E1 prompt-template 提案生效落点 —— 「## 系统约束」段经 renderWithOverride
     // 渲染（无覆盖文件时 fallback 即原模板，行为零变化）。token 计量按渲染后文本，
-    // 避免 override 前缀使 2K 红线截断口径漂移。
+    // 避免 override 前缀使注入红线截断口径漂移。
     const sectionOverhead = (s: { header: string; templateId?: string }): string =>
       s.templateId
         ? renderWithOverride(s.templateId, `${s.header}\n{content}`, { content: '' })
@@ -579,24 +582,24 @@ export class KnowledgeService {
     const sections: string[] = [];
     const trimmedIds: string[] = [];
     let usedTokens = 0;
-    // 预算内给检索指引预留（有注入时必附加，属红线内固定小额开销）
-    const guidanceTokens = TokenEstimator.estimateText(KNOWLEDGE_QUERY_GUIDANCE + '\n\n');
+    // 预算内给检索指引预留（有注入时必附加；实测 182 tokens，约占红线两成，见 KNOWLEDGE_QUERY_GUIDANCE 头注）
+    const guidanceTokens = estimateTokens(KNOWLEDGE_QUERY_GUIDANCE + '\n\n');
 
     // #91: 未截断的原始尺寸（inject-trimmed / section_trimmed 埋点的尺寸字段，
     // 口径与下方 kept 一致：header + 行 + reference 提示 + 检索指引）
     let originalTokens = 0;
     for (const section of sectionCandidates) {
       if (section.items.length === 0) continue;
-      originalTokens += TokenEstimator.estimateText(sectionOverhead(section) + '\n');
-      for (const item of section.items) originalTokens += TokenEstimator.estimateText(item.line + '\n');
+      originalTokens += estimateTokens(sectionOverhead(section) + '\n');
+      for (const item of section.items) originalTokens += estimateTokens(item.line + '\n');
     }
 
     for (const section of sectionCandidates) {
       if (section.items.length === 0) continue;
-      const headerTokens = TokenEstimator.estimateText(sectionOverhead(section) + '\n'); // 渲染后 overhead + 段落分隔
+      const headerTokens = estimateTokens(sectionOverhead(section) + '\n'); // 渲染后 overhead + 段落分隔
       const keptLines: string[] = [];
       for (const item of section.items) {
-        const lineTokens = TokenEstimator.estimateText(item.line + '\n');
+        const lineTokens = estimateTokens(item.line + '\n');
         const cost = (keptLines.length === 0 ? headerTokens : 0) + lineTokens;
         if (usedTokens + cost + guidanceTokens > maxTokens) {
           trimmedIds.push(item.id);
@@ -613,7 +616,7 @@ export class KnowledgeService {
     const refCount = await this.query.count({ consumptionModes: ['reference'] });
     if (refCount > 0) {
       const hint = `[知识库: ${refCount} 条参考，遇到问题时用 search()]`;
-      const hintTokens = TokenEstimator.estimateText(hint + '\n\n');
+      const hintTokens = estimateTokens(hint + '\n\n');
       originalTokens += hintTokens;
       if (usedTokens + hintTokens + guidanceTokens <= maxTokens) {
         sections.push(hint);
@@ -634,7 +637,7 @@ export class KnowledgeService {
     // ③: 裁剪事件 — 沿用 studio-events.jsonl 事件写入路径（best-effort）
     if (trimmedIds.length > 0) {
       try {
-        await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        await getStore().appendJsonl(resolveStudioEventsFile(), {
           type: 'knowledge:inject-trimmed',
           source: 'inject-context',
           payload: JSON.stringify({
@@ -890,7 +893,7 @@ export class KnowledgeService {
 
     // O2-KR1: 发射 consumption 事件供 OKR metric 采集
     if (entryIds.length > 0) {
-      fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      getStore().appendJsonl(resolveStudioEventsFile(), {
         type: 'knowledge:consumption',
         source: context,
         payload: JSON.stringify({ entryIds, count: entryIds.length }),
@@ -902,7 +905,7 @@ export class KnowledgeService {
   async recordOutcome(outcome: ExecutionOutcome): Promise<void> {
     // Close the feedback loop: record execution outcome as StudioEvent
     try {
-      await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      await getStore().appendJsonl(resolveStudioEventsFile(), {
         type: `knowledge:outcome:${outcome.success ? 'success' : 'failure'}`,
         source: outcome.agentType,
         payload: JSON.stringify({
@@ -1155,8 +1158,12 @@ function isRoleMemory(entry: any): boolean {
   return Array.isArray(entry?.tags) && entry.tags.includes('role-memory');
 }
 
-/** ③（wireups）：注入 token 预算（vision D6「注入 ≤2K tokens」红线执行点） */
-export const INJECT_TOKEN_BUDGET = 2_000;
+/** ③（wireups）：注入 token 预算（vision D6「注入 ≤2K tokens」红线执行点）。
+ *  harness 1.16.0 换 estimateTokens 新尺子后按「旧窗口反推」换算：用真实渲染器对本仓知识条目
+ *  内容类（英文为主夹少量中文，旧尺子整串 /1.5 高估）产出的注入全文，取旧尺子在旧 2000 下
+ *  放行的最长前缀，再读新尺子 = 927；与 monitoring INJECTED_TOKEN_BUDGET 同数，
+ *  推导即测试正本见 agents/__tests__/prompt-composer.test.ts「九段定额换尺子反推（推导即测试 = 定数正本）」块。 */
+export const INJECT_TOKEN_BUDGET = 927;
 
 /**
  * ③（wireups）：注入优先级 = 成熟度权重 × 10000 + 引用计数。
@@ -1198,6 +1205,8 @@ import {
   sharedLinter,
 } from './knowledge-singletons.js';
 import { UnifiedQuery } from './engine/unified-query.js';
+import { getStore } from '../../core/store.js';
+
 
 // R4 修复（生产接线 bug）：query 必须是 UnifiedQuery（injectContext/list 依赖
 // queryEntries/getIndexes/count/listEntries），此前误接 harness KnowledgeQuery

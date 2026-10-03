@@ -54,6 +54,7 @@ describe('cso.routes', () => {
   it('GET /validate returns valid response when validator available', async () => {
     const res = await fetch(`${base}/validate`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ valid: true, issues: [] });
+    // { valid, issues } 进 { data } 壳（批次 6/7）
+    expect(await res.json()).toEqual({ data: { valid: true, issues: [] } });
   });
 });

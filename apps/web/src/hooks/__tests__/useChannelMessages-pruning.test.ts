@@ -50,7 +50,7 @@ describe('useChannelMessages 降级/水合', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     useChannelMessageStore.getState().__resetForTests();
-    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
     mockOnEvent.mockImplementation(() => () => {});
   });
 
@@ -59,7 +59,7 @@ describe('useChannelMessages 降级/水合', () => {
   });
 
   async function renderLoaded(initial: ChannelMessage[], hasMore = false) {
-    mockListMessages.mockResolvedValue({ data: { data: initial, hasMore } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: initial, hasMore, total: initial.length } } });
     const { result } = renderHook(() => useChannelMessages('ch-1', { prune: PRUNE_OPTS }));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(result.current.loading).toBe(false);
@@ -90,7 +90,7 @@ describe('useChannelMessages 降级/水合', () => {
     // 先降级 [m1..m5]
     act(() => result.current.syncPruning('m8'));
     // 水合页 = m1..m5 全量本体
-    mockListMessages.mockResolvedValue({ data: { data: list.slice(0, 5), hasMore: true } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: list.slice(0, 5), hasMore: true } } });
     // anchor 移到边界（m6，idx 5 < 5+1）→ 触发水合
     act(() => result.current.syncPruning('m6'));
     expect(mockListMessages).toHaveBeenCalledTimes(1); // 首拉；防抖未触发
@@ -103,7 +103,7 @@ describe('useChannelMessages 降级/水合', () => {
   it('水合不触碰 hasMore（prepend 方向状态归 loadMore）', async () => {
     const result = await renderLoaded(batch(10), true);
     act(() => result.current.syncPruning('m8'));
-    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
     act(() => result.current.syncPruning('m6'));
     await act(async () => { await vi.advanceTimersByTimeAsync(250); });
     expect(result.current.hasMore).toBe(true);
@@ -112,7 +112,7 @@ describe('useChannelMessages 降级/水合', () => {
   it('防抖窗口内连续 syncPruning 只发一次水合请求（最新游标生效）', async () => {
     const result = await renderLoaded(batch(10));
     act(() => result.current.syncPruning('m8'));
-    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
     act(() => {
       result.current.syncPruning('m6');
       result.current.syncPruning('m6');
@@ -177,11 +177,11 @@ describe('useChannelMessages 降级/水合', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(250); });
     expect(mockListMessages).toHaveBeenCalledWith('ch-1', { before: 'm6', limit: 100 });
     // in-flight 中再次触发（同游标）→ 应重排
-    mockListMessages.mockResolvedValue({ data: { data: list.slice(0, 5), hasMore: true } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: list.slice(0, 5), hasMore: true } } });
     act(() => result.current.syncPruning('m6'));
     await act(async () => { await vi.advanceTimersByTimeAsync(250); }); // 计时器点火时仍 in-flight
     expect(mockListMessages.mock.calls.filter(c => c[1]?.before === 'm6')).toHaveLength(1); // 未重发
-    await act(async () => { resolveFirst({ data: { data: [], hasMore: false } }); });
+    await act(async () => { resolveFirst({ data: { data: { messages: [], hasMore: false } } }); });
     await act(async () => { await vi.advanceTimersByTimeAsync(250); }); // 重排的计时器点火
     expect(mockListMessages.mock.calls.filter(c => c[1]?.before === 'm6')).toHaveLength(2);
   });

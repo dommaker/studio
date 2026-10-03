@@ -8,7 +8,7 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| `libraryRoutes` | `library.routes.ts` | Express 路由，注册 `/api/v1/library` 下的 GET 列表（query: project/search）、GET /:id 详情端点（只读，无 PUT/POST/DELETE） |
+| `libraryRoutes` | `library.routes.ts` | Express 路由，注册 `/api/v1/library` 下的 GET 列表（query: project/search）、GET /:id 详情端点（只读，无 PUT/POST/DELETE）。契约驱动迁移（2026-10 批次 4/7）：defineRoute 化——`{ success, data }` 壳的 success 标志退役 → `{ data }` 壳；错误统一 `{ error: { code, message } }`；契约正本 = `packages/studio-contract/src/library.ts` |
 | `listLibraryDocs` | `library.service.ts` | 跨仓聚合文档列表（`{ projectId?, search? }`），返回 `LibraryListItem[]`（id = `projectId:relPath`，projectId 为 PMO 项目真值） |
 | `getLibraryDoc` | `library.service.ts` | 按 `projectId:relPath` 取详情；防路径穿越（resolve 后必须落在对应文档面根内：`.studio/` 根或仓根 `docs/adr/`）；legacy 文档带 requirement/design/task 三段 |
 
@@ -32,5 +32,5 @@
 - title 兜底链：frontmatter title → 首个 H1 → 文件名；updatedAt 兜底链：frontmatter updatedAt → 文件 mtime
 - 单仓读失败（目录不存在/权限）不炸整体，跳过并 `logger.warn`
 - 前端 id 整段 `encodeURIComponent` 传入（含 `:` 与 `/`），路由侧 decode 后按首个冒号切分 projectId/relPath
-- **2026-09-10：详情路由是通配 `GET /*`（不是 `/:id`）**——生产/开发 nginx `proxy_pass` 带 URI（`/api/`）会先解码 `%2F`→`/` 再转发，id 以多段路径原形到达，单段 `/:id` 恒 404（症状 = 前端「文档未找到」）。通配后编码/解码两种到达形态都命中。`req.params[0]` 已被 Express 解码一次，**禁止再手动 `decodeURIComponent`**（双重解码 bug，已修）
+- **2026-09-10：详情路由是通配（不是 `/:id`）**——生产/开发 nginx `proxy_pass` 带 URI（`/api/`）会先解码 `%2F`→`/` 再转发，id 以多段路径原形到达，单段 `/:id` 恒 404（症状 = 前端「文档未找到」）。通配后编码/解码两种到达形态都命中。Express 5（path-to-regexp v8）起通配写作 `GET /*splat`，`req.params.splat` 为已解码的段数组，`join('/')` 还原多段 id；**禁止再手动 `decodeURIComponent`**（双重解码 bug，已修）。契约驱动迁移（批次 4/7）保持该形态：splat 段数组不进 zod params 校验（zod params 是对象形状），query 照常
 - adr 面 relPath = `docs/adr/<name>.md`（相对仓根），其余面相对 `.studio/`；KIND_DIRS 的 `root` 字段区分两类基座

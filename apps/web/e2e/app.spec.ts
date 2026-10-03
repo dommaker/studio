@@ -10,11 +10,10 @@ test.describe('Agent Studio App', () => {
     await expect(page).toHaveTitle(/Agent|Studio|OpenClaw/i);
   });
 
-  test('should have navigation', async ({ page }) => {
-    // 导航链接应该存在
-    const navLinks = page.locator('a, button');
-    const count = await navLinks.count();
-    expect(count).toBeGreaterThan(0);
+  test('should render landing content', async ({ page }) => {
+    // Lurk Wall 落地页（隐形认证设计：无可点导航，登录仅经手势触发 AuthModal）——
+    // 断言落地页主文案渲染（原「a/button 计数 > 0」断言与该设计相悖，恒红）
+    await expect(page.locator('h1')).toBeVisible();
   });
 
   test('should show main content area', async ({ page }) => {

@@ -11,23 +11,19 @@
  * Storage: ~/.studio/knowledge/resolution-{id}.md (frontmatter + body)
  */
 
-import { logger, FileStore, generateId, isActionableMaturity, matchResolutionPatterns } from '@dommaker/studio-shared';
+import { logger, generateId, isActionableMaturity, matchResolutionPatterns } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync } from './knowledge-singletons.js';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
-import type {
-  Resolution,
-  CreateResolutionInput,
-  MatchResolutionInput,
-  MatchResolutionResult,
-} from '@dommaker/studio-shared';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import type { Resolution, CreateResolutionInput, MatchResolutionInput, MatchResolutionResult } from '@dommaker/studio-shared';
+import { getStore } from '../../core/store.js';
+
 
 const KNOWLEDGE_DIR = studioPath('knowledge');
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
-const fileStore = new FileStore();
+// #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
 
 // ── Helpers ──
 
@@ -68,7 +64,7 @@ async function scanResolutions(): Promise<any[]> {
   for (const f of files) {
     if (!f.startsWith('resolution-') || !f.endsWith('.md')) continue;
     const key = f.replace(/\.md$/, '');
-    const doc = await fileStore.readDoc(KNOWLEDGE_DIR, key);
+    const doc = await getStore().readDoc(KNOWLEDGE_DIR, key);
     if (doc) {
       results.push(resolutionFromDoc(key.replace('resolution-', ''), doc.meta, doc.body));
     }
@@ -107,7 +103,7 @@ async function writeResolution(data: {
   if (data.verifiedAt) meta.verifiedAt = data.verifiedAt;
 
   const body = `# ${data.title}\n\n## Solution\n\n${data.fix}`;
-  await fileStore.writeDoc(KNOWLEDGE_DIR, `resolution-${data.id}`, meta, body);
+  await getStore().writeDoc(KNOWLEDGE_DIR, `resolution-${data.id}`, meta, body);
 }
 
 // ── Service ──
@@ -146,7 +142,7 @@ export class ResolutionService {
           titles: matched.map(r => r.title),
         });
 
-        fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        getStore().appendJsonl(resolveStudioEventsFile(), {
           type: 'knowledge:consumption',
           source: 'resolution-match',
           payload: JSON.stringify({
@@ -205,7 +201,7 @@ export class ResolutionService {
   /** 验证 Resolution */
   async verifyResolution(id: string): Promise<void> {
     try {
-      const doc = await fileStore.readDoc(KNOWLEDGE_DIR, `resolution-${id}`);
+      const doc = await getStore().readDoc(KNOWLEDGE_DIR, `resolution-${id}`);
       if (!doc) return;
 
       const meta = { ...doc.meta };
@@ -218,7 +214,7 @@ export class ResolutionService {
       meta.updatedAt = new Date().toISOString();
       if (!meta.verifiedAt) meta.verifiedAt = new Date().toISOString();
 
-      await fileStore.writeDoc(KNOWLEDGE_DIR, `resolution-${id}`, meta, doc.body);
+      await getStore().writeDoc(KNOWLEDGE_DIR, `resolution-${id}`, meta, doc.body);
 
       logger.info('[ResolutionService] Verified resolution', { id, verifyCount: newCount, status: newMaturity });
 
@@ -319,7 +315,7 @@ export class ResolutionService {
   /** 写 proven resolutions 到磁盘 + 重建索引 */
   async writeProvenToDisk(): Promise<void> {
     try {
-      await fileStore.buildIndex(KNOWLEDGE_DIR, ['id', 'type', 'title', 'maturity', 'tags', 'terms']);
+      await getStore().buildIndex(KNOWLEDGE_DIR, ['id', 'type', 'title', 'maturity', 'tags', 'terms']);
       logger.info('[ResolutionService] Knowledge index rebuilt');
     } catch (err) {
       logger.warn('[ResolutionService] writeProvenToDisk failed', { error: String(err) });

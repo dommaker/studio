@@ -12,11 +12,12 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `store.ts` -- `ReviewProposalStore<P>`：append-only JSONL 提案行 + 墓碑折叠（`ReviewProposalRecord<P>`；#360 起分组折叠走共享 `foldJsonlById`，「末个状态行 = 最新状态」语义留本模块 adapter）。状态词表 `pending | executed | rejected | failed | card-failed` + `stale`（#623：仅 evolution 自定义 store 读侧归一带出，墓碑写路径不产生）
 - `card.ts` -- `postReviewProposalCard`：#系统 频道解析 + 发卡；失败静默 false 不抛
 - `registry.ts` -- adapter 注册表：`registerReviewProposalAdapter` / `getReviewProposalAdapter` / `listReviewProposalAdapters`（#591 审计聚合读面遍历用）/ `ApproveOutcome`（config.store 可选注入自定义存取——仅供存储形态例外域：#353 memory per-role draft.jsonl、#623 evolution EP-XXXX.json 单提案文件；缺省正本物化单文件）
 - `service.ts` -- 生命周期：`submitProposal`（建卡+card-failed 降级）/ `approveProposal` / `rejectProposal` / `getProposalStatus`
-- `routes.ts` -- 通用端点 `/api/v1/review-proposals/:kind/:id/{approve,reject,status}`，kind 走注册表分发
+- `routes.ts` -- 通用端点 `/api/v1/review-proposals/:kind/:id/{approve,reject,status}`，kind 走注册表分发。契约驱动迁移（2026-10 批次 4/7）：defineRoute 化——approve executed `{ success:true, ...adapterData }` / skipped 200 `{ success:false, skipped }` / reject `{ success:true }` 原平铺进 `{ data }` 壳；status 的 success 标志退役 → `{ data: { status } }`；错误统一 `{ error: { code, message } }`（unknown-kind 404 / not-found|not-pending 400 / failed|aborted 500 状态码不变，message 保留 `proposal-not-pending:<status>` 机器串——前端 notPendingAs 按 message 分类）。契约正本 = `packages/studio-contract/src/review-proposals.ts`
 
 ### 依赖关系
 
@@ -26,6 +27,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 ### 运行时约定
 
+- **鉴权（P2-e 声明式统一）**：routes.ts 拆 open（status 只读，route-registry 挂 auth）/ write（approve/reject，挂 authNotGuest）双 router，路由内零鉴权挂载。
 - adapter 在运行时装配时注册（如 distill-runtime `getDistillService`）；同 kind 重复注册后者生效。
 - `ApproveOutcome` 四态：executed（落墓碑+data 透传）/ failed（落墓碑+500）/ pending+skipped（熔断不落墓碑，提案可重试）/ aborted（前置条件不可用，不落墓碑+500，装配修复后可重试）。
 - 去重（pending 不重复发卡）归业务触发侧，正本只管生命周期一致。

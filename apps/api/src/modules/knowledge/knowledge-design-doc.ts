@@ -44,9 +44,12 @@ export async function upsertKnowledge(params: {
       // #371：分析归档大文档非模式矿石，标 system 不计入蒸馏 topic 信号
       { source: `design:${source}:${scope}`, layer: 'tech', maturity: 'verified', tags: [scope, 'design-doc'], origin: 'system' },
     );
+    if (result.status === 'rejected') {
+      throw new Error(`design-doc entry rejected by ingest quality gate: ${result.reasons.join('; ')}`);
+    }
     scheduleVectorDbSync();
-    logger.info('[KnowledgeDesignDoc] Created design-entry', { scope, entryId: result.id, title });
-    return { action: 'created', entryId: result.id };
+    logger.info('[KnowledgeDesignDoc] Created design-entry', { scope, entryId: result.entry.id, title });
+    return { action: 'created', entryId: result.entry.id };
   }
 
   // 有已有条目 → 对比内容

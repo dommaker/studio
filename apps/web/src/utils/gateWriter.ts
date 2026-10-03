@@ -7,6 +7,8 @@
 // （仅存量行 upsert——闸门作用于已存在 WU，不插行）。主动写（本模块）与被动写（SSE，#549）同口径。
 // 宿主本地落点 = 单一可选 sink onUpdated（drawer/详情页的 setWu 等）；错误 rethrow，
 // toast/弹窗错误展示留在 WuGateActions 与 DeliveryPanel。纯函数核心，非 hook（ADR 决策 1）。
+import type { AxiosResponse } from 'axios';
+import type { DataBody } from '@dommaker/studio-contract';
 import { workunitApi, type ReviewConfirmPayload, type WorkUnit } from '../api/workunit';
 import { useChannelWorkStore } from '../stores/channelWorkStore';
 import { useWorkUnitStore } from '../stores/workunitStore';
@@ -14,8 +16,8 @@ import { useWorkUnitStore } from '../stores/workunitStore';
 /** 宿主本地落点（ADR 决策 3）：store 双写完成后调用；缺省 = 宿主无需本地快照（列表行/工作条） */
 export type GateUpdateSink = (updated: WorkUnit) => void | Promise<void>;
 
-async function settle(call: Promise<{ data: WorkUnit }>, onUpdated?: GateUpdateSink): Promise<WorkUnit> {
-  const wu = (await call).data; // 失败时异常先行——任何落点都不会被污染快照
+async function settle(call: Promise<AxiosResponse<DataBody<WorkUnit>>>, onUpdated?: GateUpdateSink): Promise<WorkUnit> {
+  const wu = (await call).data.data; // envelope { data } 解包；失败时异常先行——任何落点都不会被污染快照
   if (wu.channelId) {
     useChannelWorkStore.getState().applyWorkunitSnapshot(wu.channelId, wu);
     useChannelWorkStore.getState().markSuggestionsDirty(wu.channelId);

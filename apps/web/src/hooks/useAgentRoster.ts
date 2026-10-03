@@ -7,7 +7,7 @@
 // 内存纪律：每 agent 动态 ≤10 条（流式 thinking/text 逐 chunk 同 key 刷新同一行）。
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
-import type { AgentProfile } from '../api/channel';
+import type { AgentProfileListItem } from '../api/channel';
 import {
   workunitApi,
   parseExecutionStreamChunk,
@@ -26,7 +26,7 @@ import {
 import { useRosterStoreSync } from './useRosterStoreSync';
 
 export interface RosterRole {
-  profile: AgentProfile;
+  profile: AgentProfileListItem;
   runtime: AgentInfo | null;
 }
 

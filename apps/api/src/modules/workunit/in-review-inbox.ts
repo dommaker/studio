@@ -14,7 +14,7 @@
  * （单次入口出声 vs 聚合滞留提醒），下游按 source 分组/去重不混淆。
  */
 import { eventBus } from '@dommaker/studio-shared';
-import { dispatchMonitorAlerts } from '../agents/monitor/monitor-alerts.js';
+// P2-c 拆环：dispatchMonitorAlerts 转订阅回调内动态 import（workunit→agents 静态边清零）
 import type { WorkUnitData } from './workunit-crud.js';
 
 /** analysis 走 analysis-handoff 既有收件箱路径，本订阅不重复出声 */
@@ -27,11 +27,13 @@ export function initInReviewInbox(): void {
   if (initialized) return;
   initialized = true;
 
-  eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
+  eventBus.subscribe('workunit.status_changed', async (payload: { workunit: WorkUnitData }) => {
     const wu = payload?.workunit;
     if (!wu || wu.status !== 'in_review') return;
     if (wu.channelId || HANDLED_ELSEWHERE.has(wu.type)) return;
 
+    // P2-c 拆环：workunit→agents 静态边转动态 import（回调转 async，fire-and-forget 语义不变）
+    const { dispatchMonitorAlerts } = await import('../agent-monitor/index.js');
     dispatchMonitorAlerts([{
       source: 'in_review_orphan',
       level: 'warning',

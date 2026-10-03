@@ -1,13 +1,13 @@
 /**
  * sessions.routes 路由测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
- * mock @dommaker/harness（TokenEstimator/SessionManager），挂载 sessionsRoutes
+ * mock @dommaker/harness（estimateTokens/SessionManager），挂载 sessionsRoutes
  * 覆盖：POST /estimate-tokens、POST /sessions、POST /sessions/:id/events、
  * GET /sessions/:id、POST /sessions/:id/checkpoint（含未知会话 404）。
  * HOME 指向临时目录隔离 knowledge-bus 链路。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import express from 'express';
+import express, { type Router } from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
@@ -18,14 +18,7 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/harness')>();
   return {
     ...actual,
-    TokenEstimator: class {
-      static estimateText(text: string) {
-        return text.length;
-      }
-      static estimateObject(obj: unknown) {
-        return JSON.stringify(obj).length;
-      }
-    },
+    estimateTokens: (text: string) => text.length,
     SessionManager: class {
       private events = new Map<string, unknown[]>();
       createSession(id: string) {
@@ -52,6 +45,7 @@ let tmpHome: string;
 let prevHome: string | undefined;
 let server: Server;
 let base: string;
+let sessionsRoutes: Router;
 
 async function api(method: string, p: string, body?: unknown): Promise<{ status: number; json: any }> {
   const res = await fetch(`${base}${p}`, {
@@ -68,7 +62,7 @@ beforeAll(async () => {
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
 
-  const { sessionsRoutes } = await import('../sessions.routes.js');
+  sessionsRoutes = (await import('../sessions.routes.js')).sessionsRoutes;
   const app = express();
   app.use(express.json());
   app.use('/api/v1/harness', sessionsRoutes);
@@ -87,24 +81,54 @@ describe('sessions.routes', () => {
   it('POST /estimate-tokens 400 without text/object', async () => {
     const res = await api('POST', '/estimate-tokens', {});
     expect(res.status).toBe(400);
-    expect(res.json.error).toBe('text or object is required');
+    // 契约驱动（批次 6/7）：必填收 zod，错误统一 { error: { code, message } }
+    expect(res.json.error.code).toBe('BAD_REQUEST');
+    expect(res.json.error.message).toContain('text or object is required');
   });
 
   it('POST /estimate-tokens estimates text and object', async () => {
     const text = await api('POST', '/estimate-tokens', { text: 'hello' });
     expect(text.status).toBe(200);
-    expect(text.json).toEqual({ tokens: 5, method: 'character-based-estimate' });
+    expect(text.json).toEqual({ data: { tokens: 5, method: 'character-based-estimate' } });
 
     const obj = await api('POST', '/estimate-tokens', { object: { a: 1 } });
     expect(obj.status).toBe(200);
-    expect(obj.json.tokens).toBe(JSON.stringify({ a: 1 }).length);
-    expect(obj.json.method).toBe('character-based-estimate');
+    expect(obj.json.data.tokens).toBe(JSON.stringify({ a: 1 }).length);
+    expect(obj.json.data.method).toBe('character-based-estimate');
+  });
+
+  it('POST /estimate-tokens 循环引用 object 不抛：兜底 tokens 记 0（旧 estimateObject 兜底语义）', async () => {
+    const circular: Record<string, unknown> = { id: 'cyc' };
+    circular.self = circular; // JSON.stringify 必抛 TypeError
+    // 循环引用对象过不了 HTTP JSON 线（客户端序列化即抛），用中间件直接注入 req.body 走同一路由
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.body = { object: circular };
+      next();
+    });
+    app.use('/api/v1/harness', sessionsRoutes);
+    const srv = await new Promise<Server>(resolve => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    try {
+      const res = await fetch(`http://127.0.0.1:${(srv.address() as AddressInfo).port}/api/v1/harness/estimate-tokens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ data: { tokens: 0, method: 'character-based-estimate' } });
+    } finally {
+      await new Promise<void>(resolve => srv.close(() => resolve()));
+    }
   });
 
   it('POST /sessions 400 without id / 200 creates', async () => {
     const bad = await api('POST', '/sessions', {});
     expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('id is required');
+    expect(bad.json.error.code).toBe('BAD_REQUEST');
+    expect(bad.json.error.message).toContain('id');
 
     const ok = await api('POST', '/sessions', { id: 's1' });
     expect(ok.status).toBe(200);
@@ -114,15 +138,16 @@ describe('sessions.routes', () => {
   it('POST /sessions/:id/events 400 without event / 404 unknown / 200 appends', async () => {
     const bad = await api('POST', '/sessions/s1/events', {});
     expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('event is required');
+    expect(bad.json.error.code).toBe('BAD_REQUEST');
+    expect(bad.json.error.message).toContain('event');
 
     const miss = await api('POST', '/sessions/s2/events', { event: { type: 'x' } });
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Session not found: s2');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Session not found: s2' });
 
     const ok = await api('POST', '/sessions/s1/events', { event: { type: 'x' } });
     expect(ok.status).toBe(200);
-    expect(ok.json).toEqual({ recorded: true });
+    expect(ok.json).toEqual({ data: { recorded: true } });
   });
 
   it('GET /sessions/:id 200 with info / 404 unknown', async () => {
@@ -132,7 +157,7 @@ describe('sessions.routes', () => {
 
     const miss = await api('GET', '/sessions/s2');
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Session not found: s2');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Session not found: s2' });
   });
 
   it('POST /sessions/:id/checkpoint 200 / 404 unknown', async () => {
@@ -142,6 +167,6 @@ describe('sessions.routes', () => {
 
     const miss = await api('POST', '/sessions/s2/checkpoint', {});
     expect(miss.status).toBe(404);
-    expect(miss.json.error).toBe('Session not found: s2');
+    expect(miss.json.error).toEqual({ code: 'NOT_FOUND', message: 'Session not found: s2' });
   });
 });

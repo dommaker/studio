@@ -21,7 +21,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projectApi, type DeliveryStatus } from '../api';
+import { projectApi, type DeliveryStatus, type Project as ContractProject } from '../api';
 import { workunitApi } from '../api/workunit';
 import { fanOut } from '../utils/fanOut';
 import { maintenanceApi } from '../api/maintenance';
@@ -52,31 +52,12 @@ import { buildProjectTimeline, projectChainMeta, type PipelineWorkUnit } from '.
 // E3：阶段步条复用 wu-bstep/wu-st-* 视觉语言（顶层作用域类，同 ChannelWorkBar 先例）
 import '../styles/wu-detail.css';
 
-interface Project {
-  id: string;
-  pmoNumber: string;
-  title: string;
-  description?: string;
-  requirement?: string;
-  status: string;
-  priority: string;
-  progress: number;
-  gitBranch?: string;
-  gitRepo?: string;
-  // 🆕 PMO-a: REQ 只读别名 / 交付策略 / 杂务标记
-  reqAlias?: string | null;
-  deliveryPolicy?: string;
-  isChore?: boolean;
-  channelId?: string | null;
+// 详情页视图模型 = 契约 Project + 本页专有可选字段
+// （worktreePath/OKR 后端不下发——前端历史遗留字段，保留本地扩展不入契约）
+type Project = ContractProject & {
   worktreePath?: string;
-  startedAt?: string;
-  completedAt?: string;
-  deliveredAt?: string | null;
-  createdAt: string;
-  /** #114 T8：探路地图（缺省 null = 非探路型，不渲染地图区） */
-  map?: PmoMap | null;
   OKR?: { id: string; title: string; quarter: string };
-}
+};
 
 // 🆕 AC-5: 项目状态 stepper（#399 §8.3 项目阶段专用词：讨论→开发→验收→交付，与 WU 状态词分开；delivered 归并到 completed）
 const PROJECT_STEPS = [
@@ -95,7 +76,8 @@ export function ProjectDetailPage() {
   const projectQ = useAsyncData<Project>(async () => {
     if (!projectId) throw new Error('项目加载失败，请稍后重试');
     try {
-      return (await projectApi.get(projectId)).data as Project;
+      // 契约驱动迁移（批次 2/7）：单体响应统一 { data } 壳（原裸对象）
+      return (await projectApi.get(projectId)).data.data as Project;
     } catch (err) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })
         .response?.data?.error?.message;
@@ -110,7 +92,7 @@ export function ProjectDetailPage() {
   const deliveryQ = useAsyncData(async () => {
     if (!projectId) return null;
     try {
-      return (await projectApi.getDelivery(projectId)).data as DeliveryStatus;
+      return (await projectApi.getDelivery(projectId)).data.data as DeliveryStatus;
     } catch { return null; }
   }, [projectId]);
   const delivery = deliveryQ.data;
@@ -159,13 +141,13 @@ export function ProjectDetailPage() {
   // 拉不到的徽章按待认领兜底，见 mapUtils.resolveFogBadge）
   const fogStatusQ = useAsyncData(async () => {
     if (!project?.map) return null;
-    // 显式标注 FogItem[]：project 为无类型 axios 响应（any），经 fanOut 泛型边界会推成 unknown
+    // 显式标注 FogItem[]：project.map 为契约可选字段，filter 后元素类型需锚定（经 fanOut 泛型边界）
     const fogEntries: FogItem[] = project.map.fog.filter(f => f.wuId);
     const results = await fanOut(fogEntries, f => workunitApi.get(f.wuId!));
     const statusMap: Record<string, string> = {};
     for (let i = 0; i < fogEntries.length; i++) {
       const r = results[i];
-      if (r.ok && r.value.data?.status) statusMap[fogEntries[i].wuId!] = r.value.data.status;
+      if (r.ok && r.value.data?.data?.status) statusMap[fogEntries[i].wuId!] = r.value.data.data.status;
     }
     return statusMap;
   }, [project]);

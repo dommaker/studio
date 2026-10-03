@@ -14,7 +14,7 @@ const { mockRunDailyMaintenance } = vi.hoisted(() => ({
   mockRunDailyMaintenance: vi.fn(),
 }));
 
-vi.mock('../../agents/knowledge/knowledge-curator.service.js', () => ({
+vi.mock('../../agent-knowledge/index.js', () => ({
   knowledgeCurator: { runDailyMaintenance: mockRunDailyMaintenance },
 }));
 
@@ -52,7 +52,8 @@ describe('POST /maintenance/run（F1 手动触发）', () => {
     const res = await fetch(`${base}/maintenance/run`, { method: 'POST' });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ dedupMerged: 2, qualityArchived: 1, freshnessUpdated: 0, contradictionsResolved: 3 });
+    // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
+    expect(body).toEqual({ data: { dedupMerged: 2, qualityArchived: 1, freshnessUpdated: 0, contradictionsResolved: 3 } });
     expect(mockRunDailyMaintenance).toHaveBeenCalledTimes(1);
   });
 

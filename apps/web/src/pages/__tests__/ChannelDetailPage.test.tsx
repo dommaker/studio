@@ -176,7 +176,7 @@ function installApiGet(messagesImpl?: (before?: string) => unknown) {
     if (u.endsWith('/messages')) {
       const result = messagesImpl
         ? messagesImpl(config?.params?.before)
-        : { data: { data: [], hasMore: false, total: 0 } };
+        : { data: { data: { messages: [], hasMore: false, total: 0 } } };
       return Promise.resolve(result);
     }
     if (u.endsWith('/suggestions')) return Promise.resolve({ data: { data: { currentWuId: null, suggestions: [] } } });
@@ -305,8 +305,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     seedMessages(MESSAGES, { hasMore: true });
     // 翻一页：before=最老消息 m-1 → 返回含目标的历史页并到底
     installApiGet((before) => before === 'm-1'
-      ? { data: { data: [oldMsg], hasMore: false, total: 1 } }
-      : { data: { data: [], hasMore: true, total: 0 } });
+      ? { data: { data: { messages: [oldMsg], hasMore: false, total: 1 } } }
+      : { data: { data: { messages: [], hasMore: true, total: 0 } } });
 
     renderPage('/channels/ch-1?highlight=m-old');
 
@@ -323,8 +323,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     seedMessages(MESSAGES, { hasMore: true });
     // 翻一页后到底（空页 + hasMore=false），目标始终不存在
     installApiGet((before) => before
-      ? { data: { data: [], hasMore: false, total: 0 } }
-      : { data: { data: [], hasMore: true, total: 0 } });
+      ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
+      : { data: { data: { messages: [], hasMore: true, total: 0 } } });
 
     renderPage('/channels/ch-1?highlight=m-ghost');
 
@@ -339,15 +339,17 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     // 历史永远翻不完（每页一条更老的消息，hasMore 恒 true），但目标不存在
     let pageSeq = 0;
     installApiGet((before) => {
-      if (!before) return { data: { data: [], hasMore: true, total: 0 } };
+      if (!before) return { data: { data: { messages: [], hasMore: true, total: 0 } } };
       pageSeq += 1;
       return {
         data: {
-          data: [{
-            id: `m-page-${pageSeq}`, channelId: 'ch-1', authorType: 'agent',
-            content: '历史页', replyToId: null, meta: '{}', createdAt: iso(-100 - pageSeq),
-          }],
-          hasMore: true, total: 1,
+          data: {
+            messages: [{
+              id: `m-page-${pageSeq}`, channelId: 'ch-1', authorType: 'agent',
+              content: '历史页', replyToId: null, meta: '{}', createdAt: iso(-100 - pageSeq),
+            }],
+            hasMore: true, total: 1,
+          },
         },
       };
     });
@@ -859,8 +861,8 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     };
     seedMessages([anchor], { hasMore: true });
     installApiGet((before) => before === 'm-anchor'
-      ? { data: { data: FOLLOWUP_MESSAGES, hasMore: false, total: FOLLOWUP_MESSAGES.length } }
-      : { data: { data: [], hasMore: true, total: 0 } });
+      ? { data: { data: { messages: FOLLOWUP_MESSAGES, hasMore: false, total: FOLLOWUP_MESSAGES.length } } }
+      : { data: { data: { messages: [], hasMore: true, total: 0 } } });
 
     renderPage();
     await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
@@ -884,8 +886,8 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     };
     seedMessages([anchor], { hasMore: true });
     installApiGet((before) => before
-      ? { data: { data: [], hasMore: false, total: 0 } }
-      : { data: { data: [], hasMore: true, total: 0 } });
+      ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
+      : { data: { data: { messages: [], hasMore: true, total: 0 } } });
 
     renderPage();
     await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
@@ -1085,7 +1087,7 @@ describe('ChannelDetailPage — #447 引导片唯一来源 = 建议端点', () =
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/messages')
-        ? { data: { data: [], hasMore: false, total: 0 } }
+        ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
         : String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
     ));
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
@@ -1179,7 +1181,7 @@ describe('ChannelDetailPage — #489 建议端点重拉触发面（防抖合并�
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/messages')
-        ? { data: { data: [], hasMore: false, total: 0 } }
+        ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
         : String(url).endsWith('/suggestions') ? EMPTY : CHANNEL,
     ));
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
@@ -1265,7 +1267,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/messages')
-        ? { data: { data: [], hasMore: false, total: 0 } }
+        ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
         : String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
     ));
     mockListWorkunits.mockResolvedValue({ data: { data: [WU_5001] } });
@@ -1307,7 +1309,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     mockListWorkunits.mockResolvedValue({ data: { data: [WU_5001_PENDING] } });
     mockApiGet.mockImplementation((url: string) =>
       String(url).endsWith('/messages')
-        ? Promise.resolve({ data: { data: [], hasMore: false, total: 0 } })
+        ? Promise.resolve({ data: { data: { messages: [], hasMore: false, total: 0 } } })
         : String(url).endsWith('/suggestions') ? Promise.reject(new Error('boom')) : Promise.resolve(CHANNEL),
     );
     renderPage();
@@ -1405,7 +1407,7 @@ describe('ChannelDetailPage — #443 端点驱动只读状态说明', () => {
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/messages')
-        ? { data: { data: [], hasMore: false, total: 0 } }
+        ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
         : String(url).endsWith('/suggestions') ? STATUS_SUGGESTION : CHANNEL,
     ));
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
@@ -1451,7 +1453,7 @@ describe('ChannelDetailPage — #443 端点驱动只读状态说明', () => {
   it('端点请求失败 → 静默不出片（引导只是引导，不阻断频道使用）', async () => {
     mockApiGet.mockImplementation((url: string) => (
       String(url).endsWith('/messages')
-        ? Promise.resolve({ data: { data: [], hasMore: false, total: 0 } })
+        ? Promise.resolve({ data: { data: { messages: [], hasMore: false, total: 0 } } })
         : String(url).endsWith('/suggestions') ? Promise.reject(new Error('boom')) : Promise.resolve(CHANNEL)
     ));
     renderPage();
@@ -1486,7 +1488,7 @@ describe('ChannelDetailPage — #446 prompt 建议片（预填进输入框，不
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/messages')
-        ? { data: { data: [], hasMore: false, total: 0 } }
+        ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
         : String(url).endsWith('/suggestions') ? PROMPT_SUGGESTION : CHANNEL,
     ));
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
@@ -1558,7 +1560,7 @@ describe('ChannelDetailPage — #444 确定性动作片：补派评审', () => {
     // 首次拉取回动作片；动作生效后的重拉回空（子单已建出，前置条件转假）
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/messages')
-        ? { data: { data: [], hasMore: false, total: 0 } }
+        ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
         : String(url).endsWith('/suggestions')
           ? (++suggestionFetchCount === 1 ? ACTION_SUGGESTION : EMPTY_SUGGESTION)
           : CHANNEL,
@@ -1643,7 +1645,7 @@ describe('ChannelDetailPage — #445 认领动作片', () => {
     // 首次拉取回认领动作片；认领生效后的重拉回空（已 active，前置条件转假）
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/messages')
-        ? { data: { data: [], hasMore: false, total: 0 } }
+        ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
         : String(url).endsWith('/suggestions')
           ? (++suggestionFetchCount === 1 ? ACTION_SUGGESTION : EMPTY_SUGGESTION)
           : CHANNEL,
@@ -1712,7 +1714,7 @@ describe('ChannelDetailPage — 空频道态示例提示 chip（视觉批次 2 �
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/messages')
-        ? { data: { data: [], hasMore: false, total: 0 } }
+        ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
         : String(url).endsWith('/suggestions') ? { data: { data: { currentWuId: null, suggestions: [] } } } : CHANNEL,
     ));
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
@@ -1823,7 +1825,7 @@ describe('ChannelDetailPage — Phase 4（AC6）composer-stack 输入区归组',
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/messages')
-        ? { data: { data: [], hasMore: false, total: 0 } }
+        ? { data: { data: { messages: [], hasMore: false, total: 0 } } }
         : String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
     ));
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });

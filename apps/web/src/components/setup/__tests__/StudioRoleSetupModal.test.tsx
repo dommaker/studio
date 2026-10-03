@@ -31,7 +31,7 @@ describe('StudioRoleSetupModal (AC-2.2)', () => {
   beforeEach(() => {
     sessionStorage.clear();
     vi.clearAllMocks();
-    mockUpdateAgent.mockResolvedValue({ data: { ...studioProfile, provider: 'kimi' } });
+    mockUpdateAgent.mockResolvedValue({ data: { data: { ...studioProfile, provider: 'kimi' } } });
   });
 
   it('open=false 时不渲染', () => {

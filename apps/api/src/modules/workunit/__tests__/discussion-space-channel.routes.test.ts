@@ -27,7 +27,8 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-import router from '../workunit.routes.js';
+import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 /** WorkUnitData 最小形状（仅 GET /:id/messages 消费的字段） */
 const wu = (id: string, channelId: string | null) => ({
@@ -58,7 +59,8 @@ describe('GET /:id/messages 频道归属解析（#529）', () => {
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    app.use('/workunits', router);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });
@@ -105,7 +107,7 @@ describe('GET /:id/messages 频道归属解析（#529）', () => {
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.success).toBe(true);
+    expect(body.data).toEqual({ messages: [], total: 0, hasMore: false });
     const [wuId, opts] = mockListByWu.mock.calls[0];
     expect(wuId).toBe('wu-none');
     expect(opts.channelId).toBeUndefined();

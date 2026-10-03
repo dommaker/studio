@@ -98,8 +98,9 @@ interface Payload {
 }
 
 function mockActionCenter(p: Payload = {}) {
+  // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳——mock 体即壳体
   mockApi.get.mockResolvedValue({
-    data: { stateItems: p.stateItems ?? [], notifications: p.notifications ?? [], unreadCount: p.unreadCount ?? 0 },
+    data: { data: { stateItems: p.stateItems ?? [], notifications: p.notifications ?? [], unreadCount: p.unreadCount ?? 0 } },
   });
 }
 

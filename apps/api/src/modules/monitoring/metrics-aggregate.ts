@@ -6,8 +6,8 @@
 
 import { deriveDisplayState, POOL_STAGNATION_WARN_MS, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import type { AssigneeProfileResolver } from '../workunit/assignee-resolver.js';
+import { parseWuMetadata } from '../workunit/index.js';
+import type { AssigneeProfileResolver } from '../workunit/index.js';
 import type {
   TaskFlowMetrics,
   IntakeMetrics,

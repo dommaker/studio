@@ -71,7 +71,7 @@ vi.mock('../../audit-logs/agent-decision.js', () => ({ recordAgentDecision: deci
 
 import { postWuSystemMessage } from '../wu-messenger.js';
 import { claimWorkUnitAndAnnounce } from '../claim-announce.js';
-import { AgentLoop } from '../../agents/loop/agent-loop.js';
+import { AgentLoop } from '../../agent-loop/agent-loop.js';
 
 const nowIso = () => new Date().toISOString();
 
@@ -256,10 +256,12 @@ describe('REST claim 端点（认领即发声接入）', () => {
   beforeAll(async () => {
     fileStore = new FileStore(envRoot);
     wuService = new WorkUnitService(fileStore);
-    const { default: workunitRoutes } = await import('../workunit.routes.js');
+    const { workunitOpenRoutes, workunitWriteRoutes } = await import('../workunit.routes.js');
+    const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
     const app = express();
     app.use(express.json());
-    app.use('/workunits', workunitRoutes);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });
@@ -297,8 +299,8 @@ describe('REST claim 端点（认领即发声接入）', () => {
     expect(claimSpy.mock.calls[0][0]).toBe(wu.id);
     expect(claimSpy.mock.calls[0][1]).toBe('instance-rest');
     const body = await res.json();
-    expect(body.status).toBe('active');
-    expect(body.assigneeId).toBe('instance-rest');
+    expect(body.data.status).toBe('active');
+    expect(body.data.assigneeId).toBe('instance-rest');
     const msgs = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toMatch(/^『.+』已认领任务，开始执行$/);
@@ -311,8 +313,8 @@ describe('REST claim 端点（认领即发声接入）', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.status).toBe('active');
-    expect(body.assigneeId).toBe('local'); // STUDIO_AUTH=none 注入的本地用户
+    expect(body.data.status).toBe('active');
+    expect(body.data.assigneeId).toBe('local'); // STUDIO_AUTH=none 注入的本地用户
     const msgs = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toBe('『Local User』已认领任务，开始执行');

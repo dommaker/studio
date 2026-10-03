@@ -13,6 +13,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 
 | 导出 | 文件 | 说明 |
 |------|------|------|
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | loadManifest, SkillEntry | manifest-loader.ts | 扫描技能目录，读取 SKILL.md frontmatter（name/description/agentTypes/status/triggers/consumers）构建技能条目；status 显式非 published 跳过 |
 | generateManifest | manifest-generator.ts | 从 frontmatter 重新生成 SKILLS_DIR/MANIFEST.md（GENERATED 文件，best-effort 不 throw）；skill-store 写 SKILL.md 后自动调用 |
 | registerSkillReviewAdapter, getSkillReviewAdapter, submitSkillProposal, SkillReviewProposal | review-adapter.ts | #354：提案审批 adapter（kind='skill'），接线 review-proposal 正本；卡片渲染（extraction/distill 两种旧卡文案）+ onApprove（skill→draft + 生成 SKILL.md）；存取物化 <dataDir>/skill-proposals.jsonl |
@@ -51,6 +52,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 ### 注意事项
 
 - 所有数据存储已从 Prisma 迁移至文件系统（D-005），无数据库依赖
+- **fs 直写保留理由（P2-e 登记）**：SkillStore（`skills-index.json`）与 DemotionProposalStore（`data/skills/demotion-proposals.json`）是模块自持同步 store（契约 §8/§2① 登记条目，布局冻结）；同步 API 全链路调用方未异步化，不改写为 FileStore 域方法。SKILL.md 读写/`_deprecated` 目录移动是 markdown/目录形态，FileStore 不管；路径均经 `studioPath()`/`SKILLS_DIR` env。
 - SKILL.md 文件采用 frontmatter 格式，存放于 `~/.studio/skills/` 目录；技能索引存于 `~/.studio/skills-index.json`；提案存取自 #354 起归 review-proposal 正本，落 `~/.studio/skill-proposals.jsonl`（append-only + 状态墓碑折叠，词表 pending|executed|rejected|failed|card-failed）。旧自持存储 `~/.studio/proposals.json` 随 proposal-store.ts 退役：历史文件不改写不迁移，其中存量 pending 提案不再进入待审列表
 - `loadManifest()` 使用内存缓存，变更需重启进程或重新调用清除缓存
 - 两个路由文件均导出 `Router` 实例，需分别挂载到 Express 应用的不同路径（/api/v1/skills 与 /api/v1/skills/proposals）
@@ -58,7 +60,8 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 - 技能加载器按 SKILL.md frontmatter 的 `tier` 字段记录技能层级（fast/standard/premium）
 - 所有日志使用 `@dommaker/studio-shared` 的 logger 实例，统一日志格式
 - SkillStore 是模块级单例 + 固定 `~/.studio` 存储路径（无构造注入）——测试须 mock fs 或整个模块（distill-landings / skill-extraction-events 测试同做法）；蒸馏 skill 落地经 `modules/distill/distill-landings.ts` 调 skillStore + submitSkillProposal（#145/#354）。#354 前 skill-extraction 发 skill_review_request 卡直传字面 `system` 作 channelId 的口径问题已随正本接线消除（正本统一解析 #系统 频道取真 id）。
-- **鉴权（2026-07-24 收紧）**：skills 8 条写（POST /、PATCH、DELETE、publish、deprecate、restore、usage、retract/decide）+ demotion-proposals approve/reject + proposals 写端点（scan/extract/retract；approve/reject 已于 #354 删除，审批走正本通用端点）已收 requireAuth+requireNotGuest。GET /api/v1/skills/proposals 被 skills 的 GET /:id 遮蔽，属路由顺序 bug（未修）。
+- **鉴权（2026-07-24 收紧；P2-e 声明式统一）**：三个路由文件各拆 open/write 双 router——GET 读开放，skills 8 条写（POST /、PATCH、DELETE、publish、deprecate、restore、usage、retract/decide）+ demotion-proposals approve/reject + proposals 写端点（scan/extract/retract；approve/reject 已于 #354 删除，审批走正本通用端点）由 route-registry 对应 write entry 挂 authNotGuest，路由内不再挂鉴权。~~GET /api/v1/skills/proposals 被 skills 的 GET /:id 遮蔽~~ **已修（2026-10-03 收尾）**：route-registry 把 proposals 双 entry 移到 SkillHub 之前 + assertRouteOrder 第三条钉死；GET /stats 移到 routes.ts 内 /:id 之前注册（防回归测试 skill-stats-route.test.ts）。
+- **契约驱动（2026-10 批次 3/7）**：三个路由文件全部走 core/http.ts defineRoute（契约 packages/studio-contract/src/skills.ts）。wire 变化：GET / 列表平铺分页 `{ data, total, page, limit }` → `{ data, pagination }`；demotion 列表 scan 摘要兄弟键退役；DELETE `{ success }`、GET /stats 平铺、proposals scan/extract/retract 平铺统一进 `{ data }` 壳（均无消费方）；companyId/name/decision guard 收进 zod（VALIDATION/手写文案 → BAD_REQUEST）；usage 的 success 收紧 boolean；publish promote 门禁拒绝保留 reasons 错误壳扩展（handler 自写 res）。route-registry 挂载顺序：demotion-proposals → proposals → skills（2026-10-03 修复 proposals 遮蔽后）。
 - **retract 决策闭环（#278，决策 #250 D2）**：`POST /:id/retract/decide {decision, messageId?, channelId?}`（routes.ts）补上 retract 下半截——守卫 `status==='under_review'`，confirm→`deprecated`、reject→`published`；messageId 提供时经 `channelMessageService.updateMessageMeta` 回写 retract_confirm 卡 meta.status（非阻断）；#524 P1-1 起 channelId 可选透传（前端 useChannelCardActions 带上）→ 回写按频道直查免全频道扇出，缺省保留扇出兼容。注意 retract 端点本体在 proposals 挂载点下，实际路径是 `/api/v1/skills/proposals/:id/retract`（与文件内注释声称的 `/skills/:id/retract` 不符，历史遗留）。
 - **手改 SKILL.md 后一次性重生成 MANIFEST.md（#306，2026-08-24）**：在 `apps/api` 目录内用 tsx 跑临时脚本调 `generateManifest()`（manifest-generator.ts:54）——脚本必须放项目目录内，tsx 按脚本位置解析相对导入，放 /tmp 会 MODULE_NOT_FOUND。免手工路径：API 启动时 seed hash 有变更自动重生成。
 - **CLI 流动三件套（#568）**：`studio skill validate/export/install` 落 `apps/api/src/cli/skill.ts`（纯本地文件操作，daemon 离线可用）；install 只落目录不写 skills-index.json（与 seed 对齐：目录即注册，REST CRUD 面看不到 install 来的 skill，语义与内置 skill 一致）。

@@ -7,7 +7,7 @@
  * - 成功 ingest → 写 knowledge:entry_created { entryType, title }
  * - triage 业务门拒绝 → 写 knowledge:quality_gate { skipped: true, reason }
  *
- * 门禁 = triage 业务门 + harness KnowledgeIngest 内置 audit（reject → __rejected
+ * 门禁 = triage 业务门 + harness KnowledgeIngest 内置 audit（reject → status 'rejected'
  * 不入库）。事件经 FileStore.appendJsonl 写 studio-events.jsonl。
  */
 
@@ -25,9 +25,10 @@ vi.mock('@dommaker/studio-shared', () => ({
     appendJsonl = mockAppendJsonl;
   },
   eventBus: { publish: mockEventBusPublish, subscribe: vi.fn(), unsubscribe: vi.fn() },
-  // #361 薄壳转发后 knowledge-singletons 经 utils/studio-log-path re-export 取用；
-  // 模块加载期即调用，partial mock 必须提供
+  // #361 薄壳转发：knowledge-singletons 经 utils/* re-export 取用这两个路径解析函数，
+  // 整体 mock 必须提供（#654 起事件路径为调用时 resolveStudioEventsFile 解析）
   resolveStudioLogFile: (name: string) => `/tmp/test-studio-logs/${name}`,
+  resolveStudioEventsFile: () => '/tmp/test-studio-logs/studio-events.jsonl',
 }));
 
 vi.mock('@dommaker/harness', () => {
@@ -42,9 +43,11 @@ vi.mock('@dommaker/harness', () => {
   }
   class KnowledgeLifecycle {}
   class KnowledgeQuery {}
-  class KnowledgeInjector {}
   class ReferenceTracker {}
-  return { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker };
+  // 本地 knowledge-injector.ts 从包根 import estimateTokens / EXTERNAL_SOURCE_MARKER，整体 mock 必须提供
+  const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+  const EXTERNAL_SOURCE_MARKER = '[External Source — verify before acting]';
+  return { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeLinter, ReferenceTracker, estimateTokens, EXTERNAL_SOURCE_MARKER };
 });
 
 // scheduleVectorDbSync / startup pkill 不真正起进程
@@ -61,12 +64,12 @@ function findEvent(type: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAppendJsonl.mockResolvedValue(undefined);
-  mockIngestEntry.mockReturnValue({ id: 'entry-1', lastReferenced: null, contributors: ['test'] });
+  mockIngestEntry.mockReturnValue({ status: 'accepted', entry: { id: 'entry-1', lastReferenced: null, contributors: ['test'] } });
 });
 
 describe('ingestWithQualityGate event emission', () => {
-  test('emits knowledge:quality_gate when harness ingest gate rejects entry (__rejected)', () => {
-    mockIngestEntry.mockReturnValue({ __rejected: true, __rejectReasons: ['Title too short'] });
+  test('emits knowledge:quality_gate when harness ingest gate rejects entry (status rejected)', () => {
+    mockIngestEntry.mockReturnValue({ status: 'rejected', entry: { id: 'rej-1' }, reasons: ['Title too short'] });
 
     const saved = ingestWithQualityGate(
       { ingest: { ingestEntry: mockIngestEntry } as any },
@@ -81,7 +84,7 @@ describe('ingestWithQualityGate event emission', () => {
   });
 
   test('emits knowledge:entry_created on successful ingest', () => {
-    mockIngestEntry.mockReturnValue({ id: 'new-1', lastReferenced: null, contributors: ['test'] });
+    mockIngestEntry.mockReturnValue({ status: 'accepted', entry: { id: 'new-1', lastReferenced: null, contributors: ['test'] } });
 
     const saved = ingestWithQualityGate(
       { ingest: { ingestEntry: mockIngestEntry } as any },
@@ -96,7 +99,7 @@ describe('ingestWithQualityGate event emission', () => {
   });
 
   test('does not emit entry_created when quality gate rejects', () => {
-    mockIngestEntry.mockReturnValue({ __rejected: true, __rejectReasons: ['Bad content'] });
+    mockIngestEntry.mockReturnValue({ status: 'rejected', entry: { id: 'rej-1' }, reasons: ['Bad content'] });
 
     ingestWithQualityGate(
       { ingest: { ingestEntry: mockIngestEntry } as any },
@@ -124,7 +127,7 @@ describe('ingestWithQualityGate event emission', () => {
 
 describe('ingestWithQualityGate SSE 广播（Step 2：knowledge.entry_changed → KnowledgePage 重拉信号）', () => {
   test('成功 ingest → eventBus 广播 knowledge.entry_changed（action=created + 元信息）', () => {
-    mockIngestEntry.mockReturnValue({ id: 'new-1', lastReferenced: null, contributors: ['test'] });
+    mockIngestEntry.mockReturnValue({ status: 'accepted', entry: { id: 'new-1', lastReferenced: null, contributors: ['test'] } });
 
     ingestWithQualityGate(
       { ingest: { ingestEntry: mockIngestEntry } as any },
@@ -138,7 +141,7 @@ describe('ingestWithQualityGate SSE 广播（Step 2：knowledge.entry_changed �
   });
 
   test('质量门拒绝 → 不广播', () => {
-    mockIngestEntry.mockReturnValue({ __rejected: true, __rejectReasons: ['Bad content'] });
+    mockIngestEntry.mockReturnValue({ status: 'rejected', entry: { id: 'rej-1' }, reasons: ['Bad content'] });
 
     ingestWithQualityGate(
       { ingest: { ingestEntry: mockIngestEntry } as any },
@@ -149,7 +152,7 @@ describe('ingestWithQualityGate SSE 广播（Step 2：knowledge.entry_changed �
   });
 
   test('eventBus.publish 抛异常 → best-effort，ingest 主流程不受影响', () => {
-    mockIngestEntry.mockReturnValue({ id: 'new-2', lastReferenced: null, contributors: ['test'] });
+    mockIngestEntry.mockReturnValue({ status: 'accepted', entry: { id: 'new-2', lastReferenced: null, contributors: ['test'] } });
     mockEventBusPublish.mockImplementation(() => { throw new Error('subscriber boom'); });
 
     const saved = ingestWithQualityGate(

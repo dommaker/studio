@@ -2,7 +2,7 @@
  * §10 依赖项 — injectContext 的 opts.maxTokens 做实
  *
  * - 自定义预算：按 maxTokens 截断，knowledge:inject-trimmed 事件带该预算值
- * - 缺省：行为不变（INJECT_TOKEN_BUDGET = 2000）
+ * - 缺省：行为不变（INJECT_TOKEN_BUDGET = 927，harness 1.16.0 estimateTokens 新尺子「旧窗口反推」值，推导正本见 agents/__tests__/prompt-composer.test.ts 反推块）
  * - #91：inject-trimmed 事件补尺寸字段（originalTokens 原始 / keptTokens 截断后），
  *   返回值带 usage 供 prompt-composer 落 prompt:section_trimmed
  */
@@ -52,9 +52,9 @@ function createKS() {
   return { ks, query };
 }
 
-const bigRule = (id: string, label: string) => ({
+const bigRule = (id: string, label: string, chars = 146) => ({
   id,
-  content: `${label} ${'规'.repeat(1300)}`, // ≈870+ tokens/条（TokenEstimator 中文 ≈1.5 字符/token）
+  content: `${label} ${'规'.repeat(chars)}`, // estimateTokens：CJK 2 token/字，146 字 ≈ 299 tokens/条（220 字 ≈ 447）
   type: 'guideline',
   sourceReferences: [{ timestamp: 't' }],
   status: 'published',
@@ -66,12 +66,12 @@ describe('injectContext maxTokens（§10：_opts 做实）', () => {
     mockAppendJsonl.mockClear();
     const { ks, query } = createKS();
     query.queryEntries
-      .mockResolvedValueOnce([bigRule('r1', '规则一'), bigRule('r2', '规则二')])
+      .mockResolvedValueOnce([bigRule('r1', '规则一', 220), bigRule('r2', '规则二', 220)])
       .mockResolvedValueOnce([]);
 
     const result = await ks.injectContext('executor', { maxTokens: 1000 });
 
-    // 第一条 ~870 tokens 进预算，第二条被裁
+    // 第一条 ~447 tokens（+段头 12）进 1000 预算（guidance 预留 ~213），第二条放不下被裁
     expect(result.injectedIds).toEqual(['r1']);
     expect(result.prompt).toContain('规则一');
     expect(result.prompt).not.toContain('规则二');
@@ -90,7 +90,7 @@ describe('injectContext maxTokens（§10：_opts 做实）', () => {
     expect(result.usage?.originalTokens).toBe(payload.originalTokens);
   });
 
-  it('defaults to INJECT_TOKEN_BUDGET (2000) when maxTokens absent — behavior unchanged', async () => {
+  it('defaults to INJECT_TOKEN_BUDGET (927) when maxTokens absent — behavior unchanged', async () => {
     mockAppendJsonl.mockClear();
     const { ks, query } = createKS();
     query.queryEntries
@@ -99,7 +99,7 @@ describe('injectContext maxTokens（§10：_opts 做实）', () => {
 
     const result = await ks.injectContext('executor');
 
-    // 默认 2000：两条 ~870 进预算，第三条被裁
+    // 默认 927：两条 ~299 进预算（含段头 ~9 与 guidance 预留 ~213），第三条被裁
     expect(result.injectedIds).toEqual(['r1', 'r2']);
     const evt = mockAppendJsonl.mock.calls[0][1];
     const payload = JSON.parse(evt.payload);

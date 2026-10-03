@@ -42,10 +42,11 @@ export interface ProposalCardConfig {
   renderContent: (cardData: Record<string, unknown> | undefined) => ReactNode;
 }
 
-/** distill 家族审批副作用：按提案 id 走通用端点；approve success=false（预算熔断/执行失败）→ 保持待审 */
+/** distill 家族审批副作用：按提案 id 走通用端点；approve success=false（预算熔断/执行失败）→ 保持待审。
+ *  契约驱动迁移（批次 4/7）：approve 响应进 `{ data }` 壳——axios res.data 为壳体，再解一层取 data */
 function proposalExec(
   idKey: string,
-  approve: (id: string) => Promise<{ data: { success?: boolean } }>,
+  approve: (id: string) => Promise<{ data: { data: { success?: boolean } } }>,
   reject: (id: string) => Promise<unknown>,
 ): ProposalCardConfig['exec'] {
   return async (cardData, decision) => {
@@ -53,7 +54,7 @@ function proposalExec(
     if (!id) return false;
     if (decision === 'approve') {
       const { data } = await approve(id);
-      if (!data?.success) return false;
+      if (!data?.data?.success) return false;
     } else {
       await reject(id);
     }
@@ -118,11 +119,12 @@ interface MemoryEntry {
   kind?: string;
 }
 
-/** #367 正本 not-pending 闸门判定：对非 pending 提案，approve/reject 回 400 { error: 'proposal-not-pending:<status>' }。
- *  状态不可逆（failed/executed 永远无法再审），重试时同向终态按「已处理」计，其余算失败。 */
+/** #367 正本 not-pending 闸门判定：对非 pending 提案，approve/reject 回 400
+ *  `{ error: { code, message: 'proposal-not-pending:<status>' } }`（批次 4/7 错误壳统一前为
+ *  `{ error: string }`）。状态不可逆（failed/executed 永远无法再审），重试时同向终态按「已处理」计，其余算失败。 */
 function notPendingAs(e: unknown, status: string): boolean {
   return axios.isAxiosError(e) &&
-    (e.response?.data as { error?: string } | undefined)?.error === `proposal-not-pending:${status}`;
+    (e.response?.data as { error?: { message?: string } } | undefined)?.error?.message === `proposal-not-pending:${status}`;
 }
 
 interface KnowledgeEntry {
@@ -247,7 +249,8 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       const results = await fanOut(entryIds, async id => {
         if (decision === 'approve') {
           const { data } = await memoryApi.approve(id);
-          return !!data?.success;
+          // 契约驱动迁移（批次 4/7）：approve 响应进 `{ data }` 壳
+          return !!data?.data?.success;
         }
         await memoryApi.reject(id);
         return true;
@@ -321,9 +324,10 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       const proposalId = typeof cardData?.proposalId === 'string' ? (cardData.proposalId as string) : '';
       if (!proposalId) return null;
       const { data } = await knowledgeApi.proposalStatus(proposalId);
-      if (data?.status === 'executed') return 'approved';
-      if (data?.status === 'rejected') return 'rejected';
-      if (data?.status === 'failed') return 'failed';
+      // 契约驱动迁移（批次 4/7）：status 响应 `{ data: { status } }`（success 标志退役）
+      if (data?.data?.status === 'executed') return 'approved';
+      if (data?.data?.status === 'rejected') return 'rejected';
+      if (data?.data?.status === 'failed') return 'failed';
       return null;
     },
     initialReviewed: metaStatusReviewed,
@@ -370,9 +374,9 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       const proposalId = typeof cardData?.proposalId === 'string' ? (cardData.proposalId as string) : '';
       if (!proposalId) return null;
       const { data } = await auditorApi.proposalStatus(proposalId);
-      if (data?.status === 'executed') return 'approved';
-      if (data?.status === 'rejected') return 'rejected';
-      if (data?.status === 'failed') return 'failed';
+      if (data?.data?.status === 'executed') return 'approved';
+      if (data?.data?.status === 'rejected') return 'rejected';
+      if (data?.data?.status === 'failed') return 'failed';
       return null;
     },
     initialReviewed: auditorMetaStatusReviewed,
@@ -426,9 +430,9 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       const proposalId = typeof cardData?.proposalId === 'string' ? (cardData.proposalId as string) : '';
       if (!proposalId) return null;
       const { data } = await constraintApi.proposalStatus(proposalId);
-      if (data?.status === 'executed') return 'approved';
-      if (data?.status === 'rejected') return 'rejected';
-      if (data?.status === 'failed') return 'failed';
+      if (data?.data?.status === 'executed') return 'approved';
+      if (data?.data?.status === 'rejected') return 'rejected';
+      if (data?.data?.status === 'failed') return 'failed';
       return null;
     },
     reviewedTitle: '约束提案',
@@ -475,9 +479,9 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       const proposalId = typeof cardData?.proposalId === 'string' ? (cardData.proposalId as string) : '';
       if (!proposalId) return null;
       const { data } = await evolutionApi.proposalStatus(proposalId);
-      if (data?.status === 'executed') return 'approved';
-      if (data?.status === 'rejected') return 'rejected';
-      if (data?.status === 'failed') return 'failed';
+      if (data?.data?.status === 'executed') return 'approved';
+      if (data?.data?.status === 'rejected') return 'rejected';
+      if (data?.data?.status === 'failed') return 'failed';
       return null;
     },
     reviewedTitle: '约束进化',

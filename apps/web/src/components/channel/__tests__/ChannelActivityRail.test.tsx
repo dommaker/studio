@@ -119,7 +119,7 @@ describe('ChannelActivityRail — REQ 链路卡与 stepper', () => {
 describe('ChannelActivityRail — PMO badge 数据链兜底（§4.3）', () => {
   it('chain.requirement.projectId 优先：渲染统一标识（.pmo-chip 图标 + PMO 号·标题），点击跳项目页', async () => {
     mockGetChain.mockResolvedValue(chain('proj-1', []));
-    mockProjectGet.mockResolvedValue({ data: { pmoNumber: 'PMO-7', title: '项目X' } });
+    mockProjectGet.mockResolvedValue({ data: { data: { pmoNumber: 'PMO-7', title: '项目X' } } });
     renderRail({ reqs: [req('REQ-0001')] });
 
     const badge = (await screen.findByText(/PMO-7 · 项目X/)).closest('button')!;
@@ -135,7 +135,7 @@ describe('ChannelActivityRail — PMO badge 数据链兜底（§4.3）', () => {
   it('REQ 无 projectId → 退化频道 current-pmo', async () => {
     mockGetChain.mockResolvedValue(chain(null, []));
     mockGetCurrentPmo.mockResolvedValue({ data: { data: { id: 'proj-9', pmoNumber: 'PMO-9', title: '频道项目', gitRepos: [] } } });
-    mockProjectGet.mockResolvedValue({ data: { pmoNumber: 'PMO-9', title: '频道项目' } });
+    mockProjectGet.mockResolvedValue({ data: { data: { pmoNumber: 'PMO-9', title: '频道项目' } } });
     renderRail({ reqs: [req('REQ-0001')] });
 
     const badge = await screen.findByText(/PMO-9 · 频道项目/);

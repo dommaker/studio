@@ -200,7 +200,8 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, autoDirection =
   useEffect(() => {
     let alive = true;
     monitoringApi.getOverhead()
-      .then(r => { if (alive) setOverhead(r.data); })
+      // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+      .then(r => { if (alive) setOverhead(r.data.data); })
       .catch(() => {});
     return () => { alive = false; };
   }, [id]);

@@ -36,9 +36,11 @@ beforeAll(async () => {
   process.env.HOME = tmpHome;
 
   const { entriesRoutes } = await import('../entries.routes.js');
+  const { requireAuth } = await import('../../../middleware/auth.js');
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/knowledge', entriesRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（/api/v1/knowledge 挂 requireAuth）
+  app.use('/api/v1/knowledge', requireAuth(), entriesRoutes);
   await new Promise<void>(resolve => { server = app.listen(0, '127.0.0.1', () => resolve()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/knowledge`;
 });
@@ -54,7 +56,8 @@ describe('entries.routes', () => {
   it('POST /unified 400 when required fields missing', async () => {
     const res = await api('POST', '/unified', { type: 'guideline', title: 'T' });
     expect(res.status).toBe(400);
-    expect(res.json.error).toContain('Missing required fields');
+    // 契约驱动迁移（批次 4/7）：错误统一 `{ error: { code, message } }`（zod BAD_REQUEST）
+    expect(res.json.error.code).toBe('BAD_REQUEST');
   });
 
   it('POST /unified 201 creates entry, applicableAgents stored as agent: tags', async () => {
@@ -63,9 +66,10 @@ describe('entries.routes', () => {
       consumptionMode: 'reference', applicableAgents: ['executor'], tags: ['process'],
     });
     expect(res.status).toBe(201);
-    expect(res.json.id).toMatch(/^manual-/);
-    expect(res.json.title).toBe('提交规范');
-    expect(res.json.consumptionMode).toBe('reference');
+    // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
+    expect(res.json.data.id).toMatch(/^manual-/);
+    expect(res.json.data.title).toBe('提交规范');
+    expect(res.json.data.consumptionMode).toBe('reference');
   });
 
   it('POST /unified 201 后广播 knowledge.entry_changed（Step 2：他端 KnowledgePage 重拉信号）', async () => {
@@ -81,7 +85,7 @@ describe('entries.routes', () => {
       expect(res.status).toBe(201);
       expect(received).toHaveLength(1);
       expect(received[0].data).toEqual({
-        action: 'created', entryId: res.json.id, entryType: 'pitfall', title: '广播条目',
+        action: 'created', entryId: res.json.data.id, entryType: 'pitfall', title: '广播条目',
       });
     } finally {
       eventBus.unsubscribe('events', handler);
@@ -91,7 +95,7 @@ describe('entries.routes', () => {
   it('GET /unified lists created entry (agent: tag preserved)', async () => {
     const res = await api('GET', '/unified');
     expect(res.status).toBe(200);
-    const entries = res.json.entries ?? res.json;
+    const entries = res.json.data.entries ?? res.json.data;
     const found = (Array.isArray(entries) ? entries : []).find((e: any) => e.title === '提交规范');
     expect(found).toBeTruthy();
     expect(found.tags).toContain('agent:executor');
@@ -101,19 +105,20 @@ describe('entries.routes', () => {
   it('POST /ask 400 without question', async () => {
     const res = await api('POST', '/ask', {});
     expect(res.status).toBe(400);
-    expect(res.json.error).toBe('question is required');
+    expect(res.json.error.code).toBe('BAD_REQUEST');
   });
 
   it('POST /ask short-circuits when no entry matches (no LLM call)', async () => {
     const res = await api('POST', '/ask', { question: 'zzz-no-match-token' });
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ answer: '未找到相关知识条目。', sources: [] });
+    expect(res.json).toEqual({ data: { answer: '未找到相关知识条目。', sources: [] } });
   });
 
   it('GET /gaps/:type 400 for invalid type', async () => {
     const res = await api('GET', '/gaps/bogus');
     expect(res.status).toBe(400);
-    expect(res.json.error).toContain('Invalid type');
+    // 非法 type 原手写 400 → zod enum 400
+    expect(res.json.error.code).toBe('BAD_REQUEST');
   });
 
   it('GET /export returns markdown by default and JSON with format=json', async () => {

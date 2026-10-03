@@ -26,8 +26,9 @@ export async function resolveWuPmo(wu: WorkUnit): Promise<WuPmoInfo | null> {
   }
   if (!projectId) return null;
   try {
+    // 契约驱动迁移（批次 2/7）：单体响应统一 { data } 壳（原裸对象）
     const res = await projectApi.get(projectId);
-    const p = res.data as { id?: unknown; pmoNumber?: unknown; title?: unknown };
+    const p = res.data.data as { id?: unknown; pmoNumber?: unknown; title?: unknown };
     if (typeof p.id !== 'string' || typeof p.pmoNumber !== 'string') return null;
     return { id: p.id, pmoNumber: p.pmoNumber, title: typeof p.title === 'string' ? p.title : '' };
   } catch { return null; }
@@ -43,7 +44,7 @@ export async function resolveWuPmoBatch(wus: WorkUnit[]): Promise<Map<string, Wu
     if (!p) {
       p = projectApi.get(projectId)
         .then((res) => {
-          const d = res.data as { id?: unknown; pmoNumber?: unknown; title?: unknown };
+          const d = res.data.data as { id?: unknown; pmoNumber?: unknown; title?: unknown };
           if (typeof d.id !== 'string' || typeof d.pmoNumber !== 'string') return null;
           return { id: d.id, pmoNumber: d.pmoNumber, title: typeof d.title === 'string' ? d.title : '' };
         })

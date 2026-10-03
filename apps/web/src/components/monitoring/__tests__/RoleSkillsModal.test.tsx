@@ -30,7 +30,7 @@ describe('RoleSkillsModal（#462）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListManifest.mockResolvedValue({ data: { data: MANIFEST } });
-    mockUpdateAgent.mockResolvedValue({ data: {} });
+    mockUpdateAgent.mockResolvedValue({ data: { data: {} } });
   });
 
   it('打开拉 MANIFEST 渲染多选（name + description），profile.skills 预勾选', async () => {

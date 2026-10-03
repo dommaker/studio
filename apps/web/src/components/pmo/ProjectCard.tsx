@@ -9,7 +9,8 @@ import type { Project } from './types';
 import { DELIVERY_POLICY_LABELS, PROJECT_STATUS_COLORS, PROJECT_STATUS_LABELS } from './projectDisplay';
 
 interface ProjectCardProps {
-  project: Project;
+  // 契约 Project + 本组件专有可选字段（OKR 后端不下发——前端历史遗留字段，不入契约）
+  project: Project & { OKR?: { id: string; title: string } };
   wuStats: Record<string, { finished: number; total: number }>;
   channels: Channel[];
   handlePublishClick: (e: React.MouseEvent, projectId: string) => void;

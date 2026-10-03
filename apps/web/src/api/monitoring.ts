@@ -1,224 +1,71 @@
 // Monitoring API — Agent Network (MVP-2 + MVP-6)
+//
+// 契约驱动迁移（2026-10 批次 5/7）：16 个手抄 interface 全部删除改 contract
+// import（别名保持旧名：AgentPmoRef=AgentPmoSummary、EvidenceStats=EvidenceMetrics、
+// CacheHitRateStats=CacheHitRateMetrics、SectionTrimStats=SectionTrimMetrics、
+// EfficiencyStats=EfficiencyMetrics）；响应统一 `{ data }` 壳（原裸对象），消费方
+// 解包 res.data → res.data.data。
+// 契约驱动迁移（2026-10 批次 8/8）：terminateInstance/getAgentInstance 属
+// agents 域端点同批收口——本地 AgentInstanceInfo 删除改 contract AgentInstance
+// import，getAgentInstance 响应统一 `{ data }` 壳（无活体消费方，仅测试 mock 占位）；
+// MonitoringPage 多处直接调用只收口类型与解包，数据获取范式统一归 Phase 3。
+import type {
+  AgentCurrentWorkUnit,
+  AgentPmoSummary,
+  AgentInfo,
+  AgentSummary,
+  MonitoringStats,
+  FlywheelStats,
+  OverheadStats,
+  EvidenceMetrics,
+  CacheHitRateBucket,
+  StepCacheHitRate,
+  CacheHitRateMetrics,
+  SectionTrimMetrics,
+  RoleMetrics,
+  HumanInterventionMetrics,
+  EfficiencyMetrics,
+  OverviewMetrics,
+  AgentInstance,
+} from '@dommaker/studio-contract';
 import { api } from './index';
 
-/** 2026-07-31 全流程串联（§6.1）：instance 当前 WU 聚合信息（后端并行落地中，字段可能暂缺，消费方防御性处理） */
-export interface AgentCurrentWorkUnit {
-  id: string;
-  title: string;
-  type: string;
-  status: string;
-  claimedAt: string | null;
-}
-
-/** instance 当前 WU 归属的 PMO 项目（PMO 即 REQ 只读别名） */
-export interface AgentPmoRef {
-  id: string;
-  pmoNumber: string;
-  title: string;
-}
-
-export interface AgentInfo {
-  id: string;
-  /** 对应 AgentProfile.id，用于与 profile（provider 等）合并展示 */
-  roleId: string;
-  name: string;
-  status: string;
-  currentWorkUnitId: string | null;
-  startedAt: string;
-  lastError?: string | null;
-  lastErrorAt?: string | null;
-  /** §6.1 聚合：当前 WU 详情（无任务或后端未上线时为 null/undefined） */
-  currentWorkUnit?: AgentCurrentWorkUnit | null;
-  /** §6.1 聚合：当前 WU 所属 PMO */
-  pmo?: AgentPmoRef | null;
-  /** §6.1 聚合：instance 当前 WU 所在频道（无当前 WU → null） */
-  channelId?: string | null;
-}
-
-export interface AgentSummary {
-  agents: AgentInfo[];
-  summary: {
-    total: number;
-    idle: number;
-    active: number;
-    error: number;
-    terminated: number;
-  };
-}
-
-/** #290（清单 #24）：RuntimeInstance 档案（离线实例兜底解析负责人角色用） */
-export interface AgentInstanceInfo {
-  id: string;
-  roleId: string;
-  status: string;
-}
-
-export interface MonitoringStats {
-  workunits: {
-    total: number;
-    unassigned: number;
-    active: number;
-    in_review: number;
-    done: number;
-    blocked: number;
-    closed: number;
-  };
-  agents: {
-    total: number;
-    idle: number;
-    active: number;
-    terminated: number;
-  };
-  recent: {
-    completedLast24h: number;
-    failedLast24h: number;
-  };
-}
-
-/** M1: 飞轮指标（/monitoring/flywheel） */
-export interface FlywheelStats {
-  quality: number;
-  hitRate: number;
-  improvement: number;
-  freshness: number;
-  source: 'events' | 'insufficient-data';
-  proposalsPendingReview: number;
-  extraction: { count30d: number; totalTokens30d: number };
-  windowDays: number;
-  timestamp: string;
-}
-
-/** M2: 封装开销（/monitoring/overhead） */
-export interface OverheadStats {
-  windowDays: number;
-  executions: number;
-  workUnits: number;
-  avgInjectedTokens: number;
-  injectedBudget: number;
-  injectedBudgetUsedPct: number;
-  avgExecutionTokens: number | null;
-  executionCoveragePct: number;
-  avgOverheadRatio: number | null;
-  overheadBudget: number;
-  extractionTokens: number;
-  source: 'events' | 'insufficient-data';
-  timestamp: string;
-}
-
-/** F6（决策 1）证据台账（/monitoring/overview 的 evidence 段） */
-export interface EvidenceStats {
-  engaged: number;
-  l1Approved: number;
-  l2Approved: number;
-  l3Approved: number;
-  selfReviewCount: number;
-  needsHuman: number;
-  derivedMismatch: number;
-  derivedByColumn: Record<string, number>;
-}
-
-/** #120：输入缓存命中率分桶（/monitoring/efficiency） */
-export interface CacheHitRateBucket {
-  cacheReadTokens: number;
-  inputTokens: number;
-  hitRatePct: number | null;
-  events: number;
-}
-
-/** #120：单步命中数据点 */
-export interface StepCacheHitRate {
-  executionId: string | null;
-  workUnitId: string | null;
-  createdAt: string;
-  inputTokens: number;
-  cacheReadTokens: number;
-  hitRatePct: number | null;
-}
-
-/** #120：输入缓存命中率（步/WU/角色/天） */
-export interface CacheHitRateStats {
-  description: string;
-  windowDays: number;
-  overall: CacheHitRateBucket & { workUnits: number };
-  steps: StepCacheHitRate[];
-  byWorkUnit: Array<{ workUnitId: string } & CacheHitRateBucket>;
-  byRole: Array<{ profileId: string; profileName: string } & CacheHitRateBucket>;
-  byDay: Array<{ day: string } & CacheHitRateBucket>;
-  coveragePct: number;
-  source: 'events' | 'insufficient-data';
-}
-
-/** #120：段 trim 率（按段计数） */
-export interface SectionTrimStats {
-  description: string;
-  windowDays: number;
-  bySection: Array<{ section: string; trimCount: number; avgOriginalTokens: number; avgTrimmedTokens: number; avgTrimPct: number }>;
-  totals: { trimEvents: number; totalOriginalTokens: number; totalTrimmedTokens: number };
-  source: 'events' | 'insufficient-data';
-}
-
-/** #398：角色效率（/monitoring/overview 的 roles 段；镜像后端 metrics.types.ts RoleMetrics） */
-export interface RoleMetrics {
-  roles: Array<{
-    profileId: string;
-    profileName: string;
-    /** 窗口内认领数（claimed 事件归因） */
-    claims: number;
-    /** 窗口内完成数（completed 快照归因） */
-    completions: number;
-    /** 平均执行时长（小时，认领→完成；无 → null） */
-    avgDurationHours: number | null;
-    /** NEED_INPUT 次数：澄清期（waitingReason='ownership'，开工前问归属） */
-    needInputClarify: number;
-    /** NEED_INPUT 次数：执行期（执行中 agent 提问） */
-    needInputExecution: number;
-  }>;
-}
-
-/** #398：人工干预（/monitoring/overview 的 humanIntervention 段；镜像后端 HumanInterventionMetrics） */
-export interface HumanInterventionMetrics {
-  /** 窗口内完成的 WU 数（分母） */
-  completedWorkUnits: number;
-  /** NEED_INPUT 挂起次数 */
-  needInputCount: number;
-  /** review 驳回次数（含 dispatcher 自动驳回，数据源无法区分） */
-  reviewRejections: number;
-  /** 合并冲突转人工次数 */
-  mergeConflicts: number;
-  /** 北极星：每完成 WU 的平均人工干预次数；无完成 → null 不编造 */
-  avgPerCompletedWu: number | null;
-}
-
-/** #120：/monitoring/efficiency —— 输入缓存命中率 + 段 trim 率 */
-export interface EfficiencyStats {
-  windowDays: number;
-  generatedAt: string;
-  cacheHitRate: CacheHitRateStats;
-  sectionTrim: SectionTrimStats;
-}
+export type {
+  AgentCurrentWorkUnit,
+  AgentInfo,
+  AgentSummary,
+  MonitoringStats,
+  FlywheelStats,
+  OverheadStats,
+  CacheHitRateBucket,
+  StepCacheHitRate,
+  RoleMetrics,
+  HumanInterventionMetrics,
+};
+/** instance 当前 WU 归属的 PMO 项目（PMO 即 REQ 只读别名；契约名 AgentPmoSummary） */
+export type AgentPmoRef = AgentPmoSummary;
+/** F6（决策 1）证据台账（/monitoring/overview 的 evidence 段；契约名 EvidenceMetrics） */
+export type EvidenceStats = EvidenceMetrics;
+/** #120：输入缓存命中率（步/WU/角色/天；契约名 CacheHitRateMetrics） */
+export type CacheHitRateStats = CacheHitRateMetrics;
+/** #120：段 trim 率（按段计数；契约名 SectionTrimMetrics） */
+export type SectionTrimStats = SectionTrimMetrics;
+/** #120：/monitoring/efficiency（契约名 EfficiencyMetrics） */
+export type EfficiencyStats = EfficiencyMetrics;
 
 export const monitoringApi = {
-  getAgentSummary: () => api.get<AgentSummary>('/monitoring/agents'),
-  getStats: () => api.get<MonitoringStats>('/monitoring/stats'),
-  getFlywheel: () => api.get<FlywheelStats>('/monitoring/flywheel'),
-  getOverhead: () => api.get<OverheadStats>('/monitoring/overhead'),
-  /** F6：概览（#398 起消费 evidence + roles + humanIntervention 三段；E4 增 alerts.last24h 供顶栏待处理徽标；#456 增 stuck/failure24h 供「需要处理」区，其余字段不声明不依赖） */
-  getOverview: () => api.get<{
-    evidence: EvidenceStats;
-    roles: RoleMetrics;
-    humanIntervention: HumanInterventionMetrics;
-    alerts: { last24h: number };
-    /** #456 行动面卡住计数（服务端单源） */
-    stuck: { blocked: number; staleUnassigned: number; stalledActive: number };
-    /** #456 近 24h 失败趋势（服务端单源） */
-    failure24h: { n: number; rate: number | null; trend: 'up' | 'down' | 'flat' | null };
-  }>('/monitoring/overview'),
+  getAgentSummary: () => api.get<{ data: AgentSummary }>('/monitoring/agents'),
+  getStats: () => api.get<{ data: MonitoringStats }>('/monitoring/stats'),
+  getFlywheel: () => api.get<{ data: FlywheelStats }>('/monitoring/flywheel'),
+  getOverhead: () => api.get<{ data: OverheadStats }>('/monitoring/overhead'),
+  /** F6：概览（#398 起消费 evidence + roles + humanIntervention 三段；E4 增 alerts.last24h 供顶栏待处理徽标；#456 增 stuck/failure24h 供「需要处理」区；契约声明全部九组，消费方仍只读这几段） */
+  getOverview: () => api.get<{ data: OverviewMetrics }>('/monitoring/overview'),
   /** #120：输入缓存命中率（步/WU/角色/天）+ 段 trim 率（按段） */
-  getEfficiency: () => api.get<EfficiencyStats>('/monitoring/efficiency'),
+  getEfficiency: () => api.get<{ data: EfficiencyMetrics }>('/monitoring/efficiency'),
   /** 强制停止实例（当前任务转人工处理；AgentDashboardPage / AgentDetailPage 共用） */
   terminateInstance: (instanceId: string) =>
     api.post(`/agent-instances/${instanceId}/terminate`),
-  /** #290（清单 #24）：单个 RuntimeInstance 档案（负责人离线回退解析 roleId） */
+  /** #290（清单 #24）：单个 RuntimeInstance 档案（负责人离线回退解析 roleId）；批次 8/8 起 `{ data }` 壳 */
   getAgentInstance: (instanceId: string) =>
-    api.get<AgentInstanceInfo>(`/agent-instances/${instanceId}`),
+    api.get<{ data: AgentInstance }>(`/agent-instances/${instanceId}`),
 };

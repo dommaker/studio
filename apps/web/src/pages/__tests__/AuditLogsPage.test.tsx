@@ -57,7 +57,8 @@ describe('AuditLogsPage（E7 审计日志页改造）', () => {
     mockList.mockResolvedValue({
       data: { data: LOGS, pagination: { page: 1, limit: 50, total: 100, totalPages: 2 } },
     });
-    mockGetStats.mockResolvedValue({ data: STATS });
+    // GET /stats 进 { data } 壳（契约驱动批次 6/7）
+    mockGetStats.mockResolvedValue({ data: { data: STATS } });
     mockListActions.mockResolvedValue({ data: { data: ['create', 'update'] } });
     mockListResources.mockResolvedValue({ data: { data: ['workunit'] } });
   });

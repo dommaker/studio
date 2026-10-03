@@ -47,7 +47,10 @@ function createRes() {
   const res: Record<string, any> = {};
   res.status = vi.fn(() => res);
   res.json = vi.fn(() => res);
-  res.send = vi.fn(() => res);
+  // 契约驱动迁移（批次 4/7）：handler 走 defineRoute——send 后置 headersSent 防止
+  // defineRoute 兜底 end()（真 express 的 res.send 本就会置位）
+  res.send = vi.fn(() => { res.headersSent = true; return res; });
+  res.end = vi.fn(() => res);
   res.setHeader = vi.fn(() => res);
   return res as any;
 }

@@ -1,7 +1,7 @@
 // Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6)
 import { FileStore } from '@dommaker/studio-shared';
-import type { AuditReport, FlywheelMetrics } from '../knowledge/knowledge-service.js';
-import type { ProjectData } from '../pmo/project.service.js';
+import type { AuditReport, FlywheelMetrics } from '../knowledge/index.js';
+import type { ProjectData } from '../pmo/index.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
 // #342：窗口读口（尾部倒读 + 窗口外早停）——getOverheadStats 事件读切到此读口
@@ -13,11 +13,16 @@ import {
   type AgentCurrentWorkUnit,
   type AgentPmoSummary,
 } from './current-wu-context.js';
+import { getStore } from '../../core/store.js';
+
 
 export type { AgentCurrentWorkUnit, AgentPmoSummary };
 
-/** M2 成本红线（vision §3）：知识/约束注入 ≤ 2K tokens/任务 */
-export const INJECTED_TOKEN_BUDGET = 2_000;
+/** M2 成本红线（vision §3 注入 ≤2K 红线的执法口径换算值）：必须与 knowledge-service
+ *  INJECT_TOKEN_BUDGET 同数（度量口径与执法口径不分叉）；harness 1.16.0 新尺子下按
+ *  「旧窗口反推」= estimateTokens(旧尺子在旧 2000 下放行的注入正文最长前缀) = 927，
+ *  推导即测试正本见 agents/__tests__/prompt-composer.test.ts「九段定额换尺子反推（推导即测试 = 定数正本）」块 */
+export const INJECTED_TOKEN_BUDGET = 927;
 /** M2 成本红线（vision §3）：单任务总 token ≤ 直连 CLI 的 1.2x → 封装增量部分 ≤ 0.2 */
 export const OVERHEAD_RATIO_BUDGET = 0.2;
 
@@ -49,9 +54,9 @@ export interface OverheadStats {
   executions: number;
   /** 涉及的 distinct workUnit 数 */
   workUnits: number;
-  /** 平均每任务注入估算 tokens（TokenEstimator 口径，agent-loop 写入） */
+  /** 平均每任务注入估算 tokens（estimateTokens 口径，agent-loop 写入） */
   avgInjectedTokens: number;
-  /** 注入红线 = 2000（vision §3） */
+  /** 注入红线 = 927（新尺子旧窗口反推值，见 INJECTED_TOKEN_BUDGET 注） */
   injectedBudget: number;
   /** avgInjectedTokens / injectedBudget × 100（>100 即越红线） */
   injectedBudgetUsedPct: number;
@@ -67,7 +72,7 @@ export interface OverheadStats {
   avgOverheadRatio: number | null;
   /** 开销比红线 = 0.2 */
   overheadBudget: number;
-  /** 窗口内 LLM 提取 tokens 合计（knowledge:extraction 事件；单独核算，不计入 2K 注入红线） */
+  /** 窗口内 LLM 提取 tokens 合计（knowledge:extraction 事件；单独核算，不计入注入红线） */
   extractionTokens: number;
   source: 'events' | 'insufficient-data';
   timestamp: string;
@@ -138,7 +143,7 @@ export class MonitoringService {
   private deps: MonitoringServiceDeps | null;
 
   constructor(fileStore?: FileStore, knowledge?: KnowledgeMetricsSource, deps?: MonitoringServiceDeps) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
     this.knowledge = knowledge ?? null;
     this.deps = deps ?? null;
   }
@@ -146,7 +151,7 @@ export class MonitoringService {
   /** 缺省取生产 knowledgeService 单例（lazy import，避免模块加载期副作用/循环依赖） */
   private async getKnowledge(): Promise<KnowledgeMetricsSource> {
     if (!this.knowledge) {
-      const mod = await import('../knowledge/knowledge-service.js');
+      const mod = await import('../knowledge/index.js');
       this.knowledge = mod.knowledgeService;
     }
     return this.knowledge;
@@ -155,7 +160,7 @@ export class MonitoringService {
   /** 全量 PMO 项目读取（deps 注入优先；缺省 lazy import 生产单例，理由同 getKnowledge） */
   private async listProjects(): Promise<ProjectData[]> {
     if (this.deps?.listProjects) return this.deps.listProjects();
-    const mod = await import('../pmo/project.service.js');
+    const mod = await import('../pmo/index.js');
     return mod.projectService.list({ limit: 100000 });
   }
 
@@ -304,7 +309,7 @@ export class MonitoringService {
  * 口径：
  * - 仅统计窗口内（默认 30 天，容忍 1 分钟时钟偏移）的 workunit:tokens 事件；
  *   payload 损坏或 injectedTokens 非数值的行跳过（不计为 0，不编造）。
- * - avgInjectedTokens = mean(injectedTokens)（注入估算，TokenEstimator 口径由写入方执行）。
+ * - avgInjectedTokens = mean(injectedTokens)（注入估算，estimateTokens 口径由写入方执行）。
  * - executionTokens 为 null 的事件（CLI 未回报 usage）计入注入均值，
  *   但不计入 avgExecutionTokens / avgOverheadRatio；executionCoveragePct 反映覆盖率。
  * - avgOverheadRatio = mean(injectedTokens / executionTokens)，仅对 executionTokens > 0 的事件；

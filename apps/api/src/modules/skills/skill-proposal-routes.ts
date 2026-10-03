@@ -8,111 +8,104 @@
  *
  * #354（ADR 2026-08-25 决策 4）：专有审批端点 /:id/approve|reject 已删除，
  * 审批走 review-proposal 正本通用端点 /api/v1/review-proposals/skill/:id/{approve,reject,status}。
+ *
+ * 契约驱动迁移（2026-10 批次 3/7）：defineRoute 化 + 统一 envelope——
+ * companyId 手写 guard（VALIDATION）收进 zod（BAD_REQUEST）；scan/extract/retract
+ * 的平铺响应统一进 `{ data }` 壳；404/400 走 HttpError。
  */
 
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
+import {
+  listSkillProposalsQuerySchema,
+  scanSkillProposalsBodySchema,
+  executionIdParamsSchema,
+  skillIdParamsSchema,
+  ERROR_CODES,
+} from '@dommaker/studio-contract';
 import { skillExtractionService } from './skill-extraction.service.js';
-import { logger, FileStore } from '@dommaker/studio-shared';
-import { channelMessageService } from '../channels/channel-message.service.js';
+import { logger } from '@dommaker/studio-shared';
+import { channelMessageService } from '../channels/index.js';
 import { skillStore } from './skill-store.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { defineRoute, HttpError } from '../../core/http.js';
+import { getStore } from '../../core/store.js';
 
-const router = Router();
-const fileStore = new FileStore();
+
+// P2-e 鉴权声明式统一：open（GET 列表）/ write（scan/extract/retract，registry 挂 authNotGuest）拆 router。
+const openRoutes = Router();
+const writeRoutes = Router();
 
 /**
  * GET /api/v1/skills/proposals
  * 获取待审批的 Skill 提案
  */
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    const companyId = req.query.companyId as string;
-    if (!companyId) {
-      return res.status(400).json({ error: { code: 'VALIDATION', message: 'companyId is required' } });
-    }
-
-    const proposals = await skillExtractionService.getPendingProposals(companyId);
-    return res.json({ data: proposals });
-  } catch (error) {
-    logger.error('[Skill Proposals] Failed to list', { error: String(error) });
-    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to list proposals' } });
-  }
-});
+openRoutes.get('/', defineRoute({ query: listSkillProposalsQuerySchema }, async (_req, _res, { query }) => {
+  return skillExtractionService.getPendingProposals(query.companyId!);
+}));
 
 /**
  * POST /api/v1/skills/proposals/scan
  * 触发批量扫描提取
  */
-router.post('/scan', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const { companyId } = req.body;
-    if (!companyId) {
-      return res.status(400).json({ error: { code: 'VALIDATION', message: 'companyId is required' } });
-    }
-
-    const proposals = await skillExtractionService.scanForPatterns(companyId);
+writeRoutes.post('/scan', defineRoute(
+  { body: scanSkillProposalsBodySchema },
+  async (_req, _res, { body }) => {
+    const proposals = await skillExtractionService.scanForPatterns(body.companyId!);
 
     // 保存提案
-    const saved: Array<{ skillId: string; proposalId: string }> = [];
+    const saved: Array<{ skillId: string; proposalId: string; autoPublished: boolean }> = [];
     for (const proposal of proposals) {
       const ids = await skillExtractionService.saveProposal(proposal);
       saved.push(ids);
     }
 
-    return res.json({
+    return {
       scanned: proposals.length,
       saved: saved.length,
       proposals: saved,
-    });
-  } catch (error) {
-    logger.error('[Skill Proposals] Scan failed', { error: String(error) });
-    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Scan failed' } });
-  }
-});
+    };
+  },
+));
 
 /**
  * POST /api/v1/skills/proposals/extract/:executionId
  * 从指定执行提取 Skill
  */
-router.post('/extract/:executionId', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const { executionId } = req.params;
-    const proposal = await skillExtractionService.extractFromWorkUnit(executionId);
+writeRoutes.post('/extract/:executionId', defineRoute(
+  { params: executionIdParamsSchema },
+  async (_req, _res, { params }) => {
+    const proposal = await skillExtractionService.extractFromWorkUnit(params.executionId);
 
     if (!proposal) {
-      return res.json({ extracted: false, message: 'No reusable pattern found' });
+      return { extracted: false, message: 'No reusable pattern found' };
     }
 
     const ids = await skillExtractionService.saveProposal(proposal);
-    return res.json({ extracted: true, ...ids, proposal });
-  } catch (error) {
-    logger.error('[Skill Proposals] Extraction failed', { error: String(error) });
-    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Extraction failed' } });
-  }
-});
+    return { extracted: true, ...ids, proposal };
+  },
+));
 
 /**
- * POST /api/v1/skills/:id/retract — B1-010: KK 撤回 Skill
+ * POST /api/v1/skills/proposals/:id/retract — B1-010: KK 撤回 Skill
  *
  * 将 Skill 状态设为 under_review，推确认卡片到 #系统 Channel。
  * 人点击确认→deprecated，点击拒绝→恢复 published。
  */
-router.post('/:id/retract', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const skill = skillStore.get(id);
+writeRoutes.post('/:id/retract', defineRoute(
+  { params: skillIdParamsSchema },
+  async (_req, _res, { params }) => {
+    const skill = skillStore.get(params.id);
     if (!skill) {
-      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Skill not found' } });
+      throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Skill not found');
     }
     if (skill.status !== 'published') {
-      return res.status(400).json({ error: { code: 'INVALID_STATE', message: `Cannot retract skill with status: ${skill.status}` } });
+      throw new HttpError(400, 'INVALID_STATE', `Cannot retract skill with status: ${skill.status}`);
     }
 
     // Mark as under_review
-    skillStore.update(id, { status: 'under_review' });
+    skillStore.update(params.id, { status: 'under_review' });
 
     // Push confirmation card to #系统
-    const sysChannels = await fileStore.listChannels({ name: '#系统' });
+    const sysChannels = await getStore().listChannels({ name: '#系统' });
     const sysChannel = sysChannels[0] ?? null;
     if (sysChannel) {
       await channelMessageService.createCardMessage(
@@ -124,12 +117,9 @@ router.post('/:id/retract', requireAuth(), requireNotGuest(), async (req: Reques
       );
     }
 
-    logger.info('[Skill] Retracted', { skillId: id, skillName: skill.name });
-    return res.json({ success: true, status: 'under_review' });
-  } catch (error) {
-    logger.error('[Skill] Retract failed', { error: String(error) });
-    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Retract failed' } });
-  }
-});
+    logger.info('[Skill] Retracted', { skillId: params.id, skillName: skill.name });
+    return { success: true, status: 'under_review' as const };
+  },
+));
 
-export default router;
+export { openRoutes as skillProposalOpenRoutes, writeRoutes as skillProposalWriteRoutes };

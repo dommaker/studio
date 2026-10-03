@@ -23,7 +23,8 @@ vi.mock('../../pmo/plan-ruling.js', async (importOriginal) => {
   return { ...orig, applyPlanRuling: mockApplyPlanRuling };
 });
 
-import router from '../workunit.routes.js';
+import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 const BLOCKED_RULING_WU = {
   id: 'wu-1',
@@ -43,7 +44,8 @@ describe('#467 POST /workunits/:id/ruling（裁决轮提交）', () => {
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    app.use('/workunits', router);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });
@@ -73,7 +75,7 @@ describe('#467 POST /workunits/:id/ruling（裁决轮提交）', () => {
     expect(res.status).toBe(200);
     expect(mockApplyPlanRuling).toHaveBeenCalledWith('wu-1', items, expect.anything());
     const body = await res.json();
-    expect(body.status).toBe('active');
+    expect(body.data.status).toBe('active');
   });
 
   it('404：WU 不存在', async () => {

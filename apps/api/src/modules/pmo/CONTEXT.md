@@ -8,6 +8,7 @@
 
 | 导出 | 文件 | 说明 |
 |------|------|------|
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `getCurrentQuarter` / `OKRService` / `okrService` | `okr.service.ts` | OKR 核心 + 季度计算 + 单例 |
 | `OKRMetricQueries` | `okr-metric-queries.ts` | OKR 数据源查询基类，22 个 metric 查询 + `checkDataSourceHealth` |
 | `projectService` | `project.service.ts` | 项目服务单例（`getByReqAlias`/`getByPmoNumber`/`findChoreProject`/`publish`） |
@@ -25,7 +26,7 @@
 | `SpecMaterialization` / `initSpecMaterialization` / `parseSpecTasks` / `serializeSpecTasks` | `spec-materialization.ts` | spec done -> 批量建 task 子 WU（提取 TASK:/AC:/BLOCKEDBY:/LEG: 清单；#471 起只服务存量 spec 单）；#463 起哨兵改「无 TASK 行不落档」（人审有意不物化 ≠ 未处理，补确认可再触发），serializeSpecTasks 为确认表单后端序列化出口（parse 逆运算） |
 | `getDeliveryStatus` / `deliverProject` / `markProjectDelivered` | `delivery.ts` | 交付台账（证据齐缺 + gaps）+ auto-merge 交付（逐腿独立合并）+ #469 branch-only 人工落档（填 commit 写 deliveredAt/By/Commit，幂等拒绝重复，成功发播报）；#376 起响应带 `archived`（终态项目实时重算零 WU = 历史任务数据已清理，前端显示归档提示而非全 0）；#469 起响应带 `channelId`（交付播报取数） |
 | `postProjectMilestone` | `delivery-notify.ts` | #469 项目里程碑出声统一出口：频道面（channelId 非空 → 'Studio' 系统消息，meta pmoId+atHuman）+ 持久面（createForAllUsers type 'system'，link `/pmo/project/:id`），全程 best-effort |
-| 默认导出 Express Router | `routes.ts` | REST 路由（`/project`、`/objective`、`/key-result` 等） |
+| 默认导出 Express Router | `routes.ts` | REST 路由（`/project`、`/okr` 等 18 端点，全走 core/http.ts defineRoute + contract pmo.ts schema） |
 
 ### 依赖关系
 
@@ -36,12 +37,14 @@
 ### 运行时约定
 
 - 项目数据存储在 `~/.studio/projects/{id}.json`，OKR 数据存储在 `~/.studio/okr/` JSONL 文件。所有服务基于 FileStore。
+- **P2-e 存储收口**：projects 目录清单走 FileStore `listJsonInDir` seam；executions.jsonl 解关联全量重写走 `writeJsonl`（原子写）。保留裸 fs：OKR md 删除（`fs.unlink`，FileStore 无删除原语）与 REQ 序号目录扫描（`scanMaxRequirementSeq`，序号匹配非实体读取）。
 - 统一编号：新 PMO 编号 = max(PM/PMO, REQ 两序列)+1，格式 PMO-<n>（分支名）；`reqAlias` 同号；存量 PM-XXX/REQ-XXXX 不迁移。
 - 交付策略 `deliveryPolicy`：`branch-only`（默认，只标记不碰链路）/ `auto-merge`（人工触发，证据齐才合并 PMO 分支 -> 默认分支，不 push）。
 - 杂务 PMO：`isChore + channelId` 联合标识，`findChoreProject` 只查不建（B4 清扫起创建端点 POST /channels/:id/chore-pmo 与 `ensureChoreProject` 已删——仓内零调用方；存量杂务 PMO 的读侧回退保留）。
 - 多腿项目：`POST /project` 接受 `gitRepos: string[]`，每个工程落一条 `deliveries[]` 腿。
-- 鉴权：6 条写端点 requireAuth+requireNotGuest，DELETE project/okr requireRole('Admin')。
-- **OKR 缓存与冲突语义（#448，2026-09-02）**：`GET /okr` 挂 30s apiCache，OKR 写端点（POST/PUT/DELETE `/okr*`）成功后 `clearCache(baseUrl + '/okr')` 写后失效；`POST /okr` 季度撞重（`okrService.create` 抛 "already exists"）映射 409 CONFLICT（按 message 映射 status，同 publish 路由先例），其余 service 错误仍 500 INTERNAL_ERROR。
+- 鉴权（P2-e 声明式统一）：router 拆 open（GET 读 + POST parse-command，开放）/ write（8 条写，registry 挂 authNotGuest）/ admin（DELETE project/okr，registry 挂 requireAuth+requireAdmin，与原 requireRole('Admin') 单挂在全部模式下状态码/错误体等价）三档，路由内不再挂鉴权。
+- **OKR 缓存与冲突语义（#448，2026-09-02）**：`GET /okr` 挂 30s apiCache，OKR 写端点（POST/PUT/DELETE `/okr*`）成功后 `clearCache(baseUrl + '/okr')` 写后失效；`POST /okr` 季度撞重（`okrService.create` 抛 "already exists"）映射 409 CONFLICT（options.errors 映射表），其余 service 错误仍 500（错误码统一 INTERNAL）。
+- **契约驱动迁移（2026-10 批次 2/7）**：`routes.ts` 全部 18 端点走 core/http.ts defineRoute——手写 guard（title/status/channelId/command/commit/companyId/deliveryPolicy/gitRepos 形状）收进 `@dommaker/studio-contract` pmo.ts 的 zod schema；统一 envelope `{ data }`（单体/交付/发布/parse-command/sdd 原裸对象统一进壳，GET /project 与 GET /okr 原已带壳形状不变）；错误映射收 options.errors（publish 'not found'/'pending'→400、DELETE 'Project not found'/'Can only delete'→400、OKR 'already exists'→409、GET okr 'OKR not found'→404）。human-only 守卫删 local 复制（resolveCallerAuthorType/内联 403），改挂 core/http.ts `requireHuman`（defineRoute 之前，读原始 body.authorType）；deliver/mark-delivered 的 409 拒绝体带 missing/conflictFiles 扩展（HttpError 承载不了，handler 自写 res）。鉴权挂载已随 P2-e 上移至 route-registry（open/write/admin 三 entry），声明式统一完成。已知保持项：PUT /project/:id、PUT /project/:id/status、PUT /okr/:id、DELETE /okr/:id 的 service 错误（含 not found）旧行为即 500，不映射 404。
 - **未归属 WU（#402 决策）**：无 reqId 且 pmoId 归因戳解析为 null 的 WU——不计入任何项目的交付统计，但 API 层可过滤/计数/列清单。trigger 系统维护单等合法无归属，创建入口不强制归因（best-effort 落戳）。#402 存量不 backfill（生产 REQ.projectId 全空、戳覆盖极低，无可推导补差集，同 #376 存量决策）；REQ 解绑不拦截（解绑语义），无戳关联 WU 失去归属时 requirement.service 记 warn 供对账。
 - **gitRepo 白名单（2026-08-25 收口）**：`POST /project` 与 `PUT /project/:id` 校验 `gitRepo`/`gitRepos`——resolve 后须落在允许根（env `PMO_GIT_REPO_ROOTS` 冒号分隔，缺省 `/root/projects`）且为已存在目录，否则 400 INVALID_INPUT。写入口仅此两处（`updateStatus` 不触 gitRepo）。
 - **派生链收敛（#471，2026-09-09）**：publish 只建一张 `type='plan'` 一脉会话规划单（scope 首行钉 `+requirement-clarify +to-tickets`，metadata 落 `tokenBudget`（env `STUDIO_PLAN_TOKEN_BUDGET`，默认 1M））；analysis/decision/spec 三段派生退役——map-opening 降级为纯台账（不再建 decision 单），decision-resolution/spec-materialization 只服务存量在飞链。plan 确认/派工走 analysis-handoff 同一管线（metadata 字段名 analysisTasks/analysisFog/analysisDestination 不变）；plan 步数额度 PLAN_STEP_LIMIT=60（workunit.types.ts），到线挂 blocked 转人续期（waitingReason='plan-step-limit'，waiting-input 回复即 allowance+60）；plan 入 MANUAL_GATE_TYPES（不派自动评审/豁免 l2/不出评审建议片）、豁免超时扫描与死信自动关闭，但走全局状态机（保留 closed，预算三选「放弃」需要）。derivationPending 判①仅旧链在飞（fog 含 wuId）才阻断，判② analysis 扩为 analysis/plan。失败恢复：plan 新会话以 prompt「探路地图」段的 map 台账为唯一恢复事实源（prompt-composer 按 pmoId 注入，零新机制）。

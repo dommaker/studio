@@ -6,6 +6,7 @@ Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息�
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `project-discovery.service.ts` — Project Discovery Service（AC-D1+D3；#266 排除清单分层来源 + PMO 绑定排序）
 - `project-exclude-config.ts` — #266（决策 #258）归属候选排除清单读写（`projects-exclude.json`，load 失败降级空清单）
 - `project.routes.ts` — Project Discovery API（AC-D3；#266 GET/PUT `/exclude` 排除清单 CRUD）
@@ -17,6 +18,8 @@ Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息�
 
 ### 注意事项
 
+- **fs 直写保留理由（P2-e 登记）**：`project-exclude-config.ts` 持久化根级 `projects-exclude.json`（studioPath 拼接），同步自持 store，不收 FileStore。
+- **契约驱动迁移（2026-10 批次 2/7）**：全部端点走 core/http.ts defineRoute + `@dommaker/studio-contract` projects.ts schema——统一 envelope `{ data }`（原 `{ success: true, data }` 平铺壳退役；前端消费方原本就读 `res.data.data`，运行时解包不变）；PUT /exclude 手写数组校验收进 zod（口径不变），500 兜底统一 INTERNAL。
 - 只读发现层，不负责工程注册（注册在 workspaces 模块）
 - **工程即叶子（2026-07-29）**：命中标记（CLAUDE.md / package.json / .git）的目录不再递归内部 —— monorepo 只列根目录，子包不重复出现；非工程中间目录（分组目录、无标记 packages/）仍继续下钻
 - **D6 排除清单（第一层，2026-07-27）**：env `STUDIO_PROJECTS_EXCLUDE`（冒号分隔）或构造参数 `exclude` —— 规则命中目录名（精确）或绝对路径（目录边界前缀，不误伤同名前缀目录）即跳过且不递归

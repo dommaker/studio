@@ -2,50 +2,39 @@
  * Company API 路由
  *
  * 存储迁移: Prisma → FileStore (~/.studio/data/companies/)
+ *
+ * 契约驱动迁移（2026-10 批次 2/7）：全部端点走 core/http.ts defineRoute——
+ * name 手写形状校验缺位处由 zod 收紧（缺省原静默存 undefined → 400）；
+ * 统一 envelope（{ data }；list/hall-stats/sizes-config 原已带壳形状不变，
+ * get/create(201)/update 原裸对象统一进壳）；404 走 HttpError，500 兜底统一 INTERNAL。
  */
 
-import { Router, Request, Response } from 'express';
-import { FileStore, generateId } from '@dommaker/studio-shared';
-import { logger } from '../../utils/logger.js';
+import { Router } from 'express';
+import {
+  companyIdParamsSchema,
+  createCompanyBodySchema,
+  updateCompanyBodySchema,
+  ERROR_CODES,
+  type Company,
+} from '@dommaker/studio-contract';
+import { generateId } from '@dommaker/studio-shared';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import * as fs from 'node:fs';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { defineRoute, HttpError } from '../../core/http.js';
+import { getStore } from '../../core/store.js';
+
 
 const COMPANIES_DIR = studioPath('data', 'companies');
 const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
-const fileStore = new FileStore();
-
-interface CompanyRecord {
-  id: string;
-  name: string;
-  size: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 function companyPath(id: string): string {
   return path.join(COMPANIES_DIR, `${id}.json`);
 }
 
-async function ensureDir(dir: string): Promise<void> {
-  await fs.promises.mkdir(dir, { recursive: true });
-}
-
-async function listCompanies(): Promise<CompanyRecord[]> {
-  try {
-    const entries = await fs.promises.readdir(COMPANIES_DIR, { withFileTypes: true });
-    const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
-    const companies: CompanyRecord[] = [];
-    for (const f of files) {
-      const data = await fileStore.readJson<CompanyRecord>(path.join(COMPANIES_DIR, f.name));
-      if (data) companies.push(data);
-    }
-    return companies;
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
-  }
+async function listCompanies(): Promise<Company[]> {
+  // P2-e：目录清单走 FileStore listJsonInDir seam（ENOENT → []、损坏文件跳过，语义同原裸 readdir+readJson 循环）
+  return getStore().listJsonInDir<Company>(COMPANIES_DIR);
 }
 
 const router = Router();
@@ -57,19 +46,19 @@ const COMPANY_SIZE_CONFIG = {
   large: { name: '大型公司', roleLimit: 30 },
 };
 
-async function createCompany(name: string): Promise<CompanyRecord> {
+async function createCompany(name: string): Promise<Company> {
   const id = generateId('company');
   const now = new Date().toISOString();
-  const company: CompanyRecord = { id, name, size: 'custom', createdAt: now, updatedAt: now };
-  await ensureDir(COMPANIES_DIR);
-  await fileStore.writeJson(companyPath(id), company);
+  const company: Company = { id, name, size: 'custom', createdAt: now, updatedAt: now };
+  await getStore().writeJson(companyPath(id), company);
 
   // 🆕 AS-016: 自动创建默认 OKR
-  const { okrService } = await import('../pmo/okr.service.js');
+  const { okrService } = await import('../pmo/index.js');
   try {
     await okrService.createDefaultOKR(company.id);
   } catch (okrError) {
     // OKR 创建失败不影响公司创建
+    const { logger } = await import('../../utils/logger.js');
     logger.warn({ companyId: company.id, okrError }, 'Failed to create default OKR');
   }
   return company;
@@ -79,146 +68,98 @@ async function createCompany(name: string): Promise<CompanyRecord> {
  * GET /api/v1/companies
  * 获取公司列表；空库时自动创建默认公司（#434：设置页公司节删除后，创建兜底挪到服务端）
  */
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    let companies = await listCompanies();
-    if (companies.length === 0) {
-      companies = [await createCompany('我的工作空间')];
-    }
-    companies.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    res.json({ data: companies });
-  } catch (error) {
-    logger.error({ error }, 'Failed to list companies');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to list companies' },
-    });
+router.get('/', defineRoute({}, async () => {
+  let companies = await listCompanies();
+  if (companies.length === 0) {
+    companies = [await createCompany('我的工作空间')];
   }
-});
+  companies.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return companies;
+}));
 
 /**
  * POST /api/v1/companies
  * 创建公司
  */
-router.post('/', async (req: Request, res: Response) => {
-  try {
-    const { name } = req.body;
-    const company = await createCompany(name);
-    res.status(201).json(company);
-  } catch (error) {
-    logger.error({ error }, 'Failed to create company');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to create company' },
-    });
-  }
-});
+router.post('/', defineRoute({ body: createCompanyBodySchema }, { status: 201 }, async (_req, _res, { body }) => {
+  return createCompany(body.name);
+}));
 
 /**
- * PATCH /api/v1/companies/:companyId
- * 更新公司信息
+ * GET /api/v1/companies/sizes/config
+ * 获取公司规模配置（须注册在 /:companyId 之前——'sizes' 单段会被 :companyId 吞掉，旧路由顺序如此）
  */
-router.patch('/:companyId', async (req: Request, res: Response) => {
-  try {
-    const { companyId } = req.params;
-    const { name } = req.body;
+router.get('/sizes/config', defineRoute({}, async () => {
+  return COMPANY_SIZE_CONFIG;
+}));
 
-    const existing = await fileStore.readJson<CompanyRecord>(companyPath(companyId));
-    if (!existing) {
-      return res.status(404).json({ error: { code: 'NOT_FOUND', message: `Company ${companyId} not found` } });
-    }
-    const company: CompanyRecord = { ...existing, name, updatedAt: new Date().toISOString() };
-    await fileStore.writeJson(companyPath(companyId), company);
+/**
+ * GET /api/v1/companies/:companyId/hall-stats
+ * 获取公司大厅统计数据（聚合多 API 数据；须注册在 /:companyId 之前，旧路由顺序如此）
+ */
+router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema }, async (_req, _res, { params }) => {
+  const { companyId } = params;
 
-    res.json(company);
-  } catch (error) {
-    logger.error({ error }, 'Failed to update company');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to update company' },
-    });
+  // 并行查询多个数据源
+  const [company, executions] = await Promise.all([
+    // 公司信息（FileStore）
+    getStore().readJson<Company>(companyPath(companyId)),
+    // 执行中的任务数
+    (async () => {
+      const execs = await getStore().readJsonl<{ status?: string }>(EXECUTIONS_JSONL);
+      return execs.filter((e) => e.status === 'running').length;
+    })(),
+  ]);
+
+  if (!company) {
+    throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Company ${companyId} not found`);
   }
-});
+
+  // 今日完成任务数
+  const allExecs = await getStore().readJsonl<{ status?: string; endTime?: string }>(EXECUTIONS_JSONL);
+  const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+  const todayCompletedTasks = allExecs.filter((e) =>
+    e.status === 'completed' && e.endTime && new Date(e.endTime) >= todayStart
+  ).length;
+
+  return {
+    company: {
+      id: company.id,
+      name: company.name,
+      size: company.size,
+    },
+    runningTasks: executions,
+    todayCompletedTasks,
+  };
+}));
 
 /**
  * GET /api/v1/companies/:companyId
  * 获取公司详情
  */
-router.get('/:companyId', async (req: Request, res: Response) => {
-  try {
-    const { companyId } = req.params;
-
-    const company = await fileStore.readJson<CompanyRecord>(companyPath(companyId));
-
-    if (!company) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: `Company ${companyId} not found` },
-      });
-    }
-
-    res.json(company);
-  } catch (error) {
-    logger.error({ error }, 'Failed to get company');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get company' },
-    });
+router.get('/:companyId', defineRoute({ params: companyIdParamsSchema }, async (_req, _res, { params }) => {
+  const company = await getStore().readJson<Company>(companyPath(params.companyId));
+  if (!company) {
+    throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Company ${params.companyId} not found`);
   }
-});
+  return company;
+}));
 
 /**
- * GET /api/v1/companies/sizes
- * 获取公司规模配置
+ * PATCH /api/v1/companies/:companyId
+ * 更新公司信息
  */
-router.get('/sizes/config', (req: Request, res: Response) => {
-  res.json({ data: COMPANY_SIZE_CONFIG });
-});
-
-/**
- * GET /api/v1/companies/:companyId/hall-stats
- * 获取公司大厅统计数据（聚合多 API 数据）
- */
-router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
-  try {
-    const { companyId } = req.params;
-
-    // 并行查询多个数据源
-    const [company, executions] = await Promise.all([
-      // 公司信息（FileStore）
-      fileStore.readJson<CompanyRecord>(companyPath(companyId)),
-      // 执行中的任务数
-      (async () => {
-        const execs = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
-        return execs.filter((e: any) => e.status === 'running').length;
-      })(),
-    ]);
-
-    if (!company) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: `Company ${companyId} not found` },
-      });
+router.patch('/:companyId', defineRoute(
+  { params: companyIdParamsSchema, body: updateCompanyBodySchema },
+  async (_req, _res, { params, body }) => {
+    const existing = await getStore().readJson<Company>(companyPath(params.companyId));
+    if (!existing) {
+      throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Company ${params.companyId} not found`);
     }
-
-    // 今日完成任务数
-    const allExecs = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
-    const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
-    const todayCompletedTasks = allExecs.filter((e: any) =>
-      e.status === 'completed' && e.endTime && new Date(e.endTime) >= todayStart
-    ).length;
-
-    res.json({
-      data: {
-        company: {
-          id: company.id,
-          name: company.name,
-          size: company.size,
-        },
-        runningTasks: executions,
-        todayCompletedTasks,
-      },
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to get hall stats');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get hall stats' },
-    });
-  }
-});
+    const company: Company = { ...existing, name: body.name, updatedAt: new Date().toISOString() };
+    await getStore().writeJson(companyPath(params.companyId), company);
+    return company;
+  },
+));
 
 export default router;

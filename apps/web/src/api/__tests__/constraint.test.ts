@@ -4,7 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../index', () => ({
   api: {
     post: vi.fn().mockResolvedValue({ data: {} }),
-    get: vi.fn().mockResolvedValue({ data: { success: true, status: 'pending' } }),
+    // 契约驱动迁移（批次 4/7）：status 响应 `{ data: { status } }` 壳
+    get: vi.fn().mockResolvedValue({ data: { data: { status: 'pending' } } }),
   },
 }));
 
@@ -29,6 +30,7 @@ describe('constraintApi（通用端点 /review-proposals/constraint/:id/{approve
   it('proposalStatus GET status（id 编码）', async () => {
     const { data } = await constraintApi.proposalStatus('cp 1');
     expect(api.get).toHaveBeenCalledWith('/review-proposals/constraint/cp%201/status');
-    expect(data.status).toBe('pending');
+    // 契约驱动迁移（批次 4/7）：`{ data: { status } }` 壳（success 标志退役）
+    expect(data.data.status).toBe('pending');
   });
 });

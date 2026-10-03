@@ -24,6 +24,6 @@
 
 - 使用 `x-user-id` 请求头标识用户，默认回退为 `'default-user'`
 - 通知服务通过 `createLazyService` 延迟初始化，底层依赖 `FileStore` 存储
-- 错误统一返回 `{ error: { code: 'INTERNAL_ERROR', message: '...' } }` 结构
+- **契约驱动迁移（2026-10 批次 5/7）**：四端点 defineRoute 化——响应统一 `{ data }` 壳（GET / 裸数组、unread-count 与写端点平铺全进壳），错误统一 `{ error: { code, message } }`（code 由 'INTERNAL_ERROR' 归一为 ERROR_CODES.INTERNAL；service 错误文案由固定串变为实际错误消息，「Authenticated user missing」显式拒绝保留原文案）；契约正本 = `packages/studio-contract/src/notifications.ts`（通知行与 action-center 同源复用）
 - 未读通知限制获取 50 条，可通过 `unreadOnly` 查询参数控制
-- **鉴权（2026-07-24 收紧）**：POST /:id/read、/read-all 已收 requireAuth+requireNotGuest；userId 取自 x-user-id 请求头，存在 IDOR 已知局限（未修）。
+- **鉴权（2026-07-24 收紧；P2-e 声明式统一）**：全端点（含 GET）姿态 = requireAuth+requireNotGuest，统一挂 route-registry entry，路由内不再挂载；userId 取自 x-user-id 请求头，存在 IDOR 已知局限（未修）。

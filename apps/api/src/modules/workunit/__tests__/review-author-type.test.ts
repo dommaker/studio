@@ -19,7 +19,8 @@ vi.mock('../workunit.service.js', () => ({
   },
 }));
 
-import router from '../workunit.routes.js';
+import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 describe('review API authorType 校验（A2A §4.4）', () => {
   let server: Server;
@@ -30,7 +31,8 @@ describe('review API authorType 校验（A2A §4.4）', () => {
     mockReviewRejected.mockResolvedValue({ id: 'wu-1', status: 'active' });
     const app = express();
     app.use(express.json());
-    app.use('/workunits', router);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });

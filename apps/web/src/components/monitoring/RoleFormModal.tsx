@@ -13,6 +13,7 @@
 // 壳（CreateRoleModal / FirstRoleSetupModal / StudioRoleSetupModal）保留各自语境，表单段全部换本模块。
 import { useEffect, useMemo, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
+import type { RolePresetSummary } from '@dommaker/studio-contract';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
 import { Modal, Select } from '../ui';
 import { errorMessage } from '../../utils/errorMessage';
@@ -27,12 +28,6 @@ export interface RoleFormInitial {
   persona?: string;
   /** #633: 职能域（阶段词表） */
   acceptedTypes?: string[];
-}
-
-/** #633「从模板开始」候选（GET /agent-profiles/presets 返回项；死字段不随清单返回） */
-interface RolePresetOption {
-  name: string;
-  description?: string;
 }
 
 /** 职能域文本 ↔ 数组：逗号/空白分隔，去空去重（显示用 ', ' 连接） */
@@ -73,7 +68,7 @@ export function RoleFormModal({
   const [providerOverride, setProviderOverride] = useState(initial?.provider ?? '');
   // #633: create 模板选择（'' = 手工创建不带 preset）；edit 的 persona/acceptedTypes
   const [preset, setPreset] = useState('');
-  const [presetOptions, setPresetOptions] = useState<RolePresetOption[]>([]);
+  const [presetOptions, setPresetOptions] = useState<RolePresetSummary[]>([]);
   const [persona, setPersona] = useState(initial?.persona ?? '');
   const [acceptedTypesText, setAcceptedTypesText] = useState(joinAcceptedTypes(initial?.acceptedTypes));
   const [submitting, setSubmitting] = useState(false);
@@ -156,7 +151,7 @@ export function RoleFormModal({
           // #633: 选中模板才带 preset（预填逻辑在服务端 loadRolePreset，前端只传名）
           ...(preset ? { preset } : {}),
         });
-        onSaved(res.data);
+        onSaved(res.data.data);
       } else {
         // 只 PATCH 脏字段：幂等、不覆盖并发修改；studio 角色改名被服务端整体拒绝，全量提交会恒败
         const diff: Partial<{ name: string; description: string | null; provider: string | null; persona: string | null; acceptedTypes: string[] }> = {};
@@ -167,7 +162,7 @@ export function RoleFormModal({
         if (personaDirty) diff.persona = persona.trim() || null;
         if (acceptedTypesDirty) diff.acceptedTypes = parseAcceptedTypes(acceptedTypesText);
         const res = await channelApi.updateAgent(initial!.id, diff);
-        onSaved(res.data);
+        onSaved(res.data.data);
       }
     } catch (e) {
       // 409 名称冲突等：服务端 error 信封 message 优先（errorMessage 收口），内联报错留窗

@@ -194,7 +194,6 @@ export const DEFAULT_TEST_CONFIG = {
   endpoints: [
     { path: '/api/v1/workflows', method: 'GET' },
     { path: '/api/v1/roles', method: 'GET' },
-    { path: '/api/v1/capabilities', method: 'GET' },
     { path: '/api/v1/dashboard/stats', method: 'GET' },
   ],
 };

@@ -26,9 +26,12 @@ import {
   type RequirementStatus,
   type WorkUnitSnapshot,
 } from '@dommaker/studio-shared';
-import { projectService, type ProjectData } from '../pmo/project.service.js';
+import type { ProjectData } from '../pmo/index.js';
+// P2-c 拆环：projectService 值引用转闭包内动态 import（requirements→pmo 静态值边清零，类型边保留）
 import { parseWuPmoId } from './wu-pmo-attribution.js';
 import { deriveChannelReqPmo } from './channel-req-pmo.js';
+import { getStore } from '../../core/store.js';
+
 
 export const REQUIREMENT_STATUSES: RequirementStatus[] = ['open', 'in-progress', 'done', 'archived'];
 
@@ -150,12 +153,14 @@ export class RequirementService {
   private deriveChannelProject: (channelId: string) => Promise<ProjectData | null>;
 
   constructor(fileStore?: FileStore, deps?: RequirementServiceDeps) {
-    this.fileStore = fileStore ?? new FileStore();
-    this.projectExists = deps?.projectExists ?? (async id => (await projectService.get(id)) !== null);
-    this.getProjectByAlias = deps?.getProjectByAlias ?? (async id => projectService.getByReqAlias(id));
-    this.findChoreProject = deps?.findChoreProject ?? (async id => projectService.findChoreProject(id));
-    this.listAliasProjects = deps?.listAliasProjects ?? (async () => projectService.list({ limit: 100000 }));
-    this.getProjectByPmoNumber = deps?.getProjectByPmoNumber ?? (async n => projectService.getByPmoNumber(n));
+    this.fileStore = fileStore ?? getStore();
+    // P2-c 拆环：requirements→pmo 静态边转闭包内动态 import（DI 缺省值，签名不变）
+    const pmo = () => import('../pmo/index.js');
+    this.projectExists = deps?.projectExists ?? (async id => (await (await pmo()).projectService.get(id)) !== null);
+    this.getProjectByAlias = deps?.getProjectByAlias ?? (async id => (await pmo()).projectService.getByReqAlias(id));
+    this.findChoreProject = deps?.findChoreProject ?? (async id => (await pmo()).projectService.findChoreProject(id));
+    this.listAliasProjects = deps?.listAliasProjects ?? (async () => (await pmo()).projectService.list({ limit: 100000 }));
+    this.getProjectByPmoNumber = deps?.getProjectByPmoNumber ?? (async n => (await pmo()).projectService.getByPmoNumber(n));
     this.deriveChannelProject = deps?.deriveChannelProject
       ?? (async id => deriveChannelReqPmo(id, { fileStore: this.fileStore }));
   }

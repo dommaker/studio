@@ -143,9 +143,9 @@ describe('auth routes', () => {
         body: { guestId: 'g-1' },
       });
 
-      // Handler calls res.json() directly (Express defaults to 200)
+      // defineRoute 统一 { data } 壳
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ session: { id: 'gs1' }, token: 'guest-token' })
+        { data: expect.objectContaining({ session: { id: 'gs1' }, token: 'guest-token' }) }
       );
     });
 
@@ -157,7 +157,7 @@ describe('auth routes', () => {
       });
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'DB error' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'INTERNAL', message: 'DB error' } });
     });
   });
 
@@ -176,7 +176,7 @@ describe('auth routes', () => {
       const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
 
       expect(res.status).toHaveBeenCalledWith(403);
-      expect(res.json).toHaveBeenCalledWith({ error: '注册已关闭' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'FORBIDDEN', message: '注册已关闭' } });
       expect(authService.register).not.toHaveBeenCalled();
     });
 
@@ -188,9 +188,9 @@ describe('auth routes', () => {
 
       const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
 
-      // Handler calls res.json() directly (Express defaults to 200 for success)
+      // defineRoute 统一 { data } 壳
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ user: expect.objectContaining({ id: 'u1' }) })
+        { data: expect.objectContaining({ user: expect.objectContaining({ id: 'u1' }) }) }
       );
     });
 
@@ -200,7 +200,7 @@ describe('auth routes', () => {
       const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
 
       expect(res.status).toHaveBeenCalledWith(409);
-      expect(res.json).toHaveBeenCalledWith({ error: '邮箱已被注册' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'CONFLICT', message: '邮箱已被注册' } });
     });
 
     it('returns 400 on other registration errors', async () => {
@@ -209,7 +209,7 @@ describe('auth routes', () => {
       const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: '密码太短' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'BAD_REQUEST', message: '密码太短' } });
     });
 
     describe('audit log (SEC-010)', () => {
@@ -249,7 +249,7 @@ describe('auth routes', () => {
 
         const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
 
-        // Success path: handler calls res.json() directly (Express defaults to 200)
+        // 审计写盘失败不阻断注册（defineRoute 壳）
       });
     });
   });
@@ -265,9 +265,9 @@ describe('auth routes', () => {
 
       const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
 
-      // Success path: handler calls res.json() directly (Express defaults to 200)
+      // defineRoute 统一 { data } 壳
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ token: expect.any(String) })
+        { data: expect.objectContaining({ token: expect.any(String) }) }
       );
     });
 
@@ -277,7 +277,7 @@ describe('auth routes', () => {
       const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({ error: '邮箱或密码错误' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'UNAUTHORIZED', message: '邮箱或密码错误' } });
     });
 
     it('returns 401 when password is wrong', async () => {
@@ -286,7 +286,7 @@ describe('auth routes', () => {
       const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({ error: '邮箱或密码错误' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'UNAUTHORIZED', message: '邮箱或密码错误' } });
     });
 
     it('returns 400 on other login errors', async () => {
@@ -295,7 +295,7 @@ describe('auth routes', () => {
       const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: '请求格式错误' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'BAD_REQUEST', message: '请求格式错误' } });
     });
 
     describe('audit log (SEC-010)', () => {
@@ -337,8 +337,8 @@ describe('auth routes', () => {
 
       const { res } = await invokeRoute(routes, 'post', '/logout');
 
-      // Success path: handler calls res.json() directly (Express defaults to 200)
-      expect(res.json).toHaveBeenCalledWith({ success: true });
+      // defineRoute 统一 { data } 壳
+      expect(res.json).toHaveBeenCalledWith({ data: { success: true } });
     });
 
     it('returns 500 when service throws', async () => {
@@ -347,7 +347,7 @@ describe('auth routes', () => {
       const { res } = await invokeRoute(routes, 'post', '/logout');
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Session not found' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'INTERNAL', message: 'Session not found' } });
     });
 
     describe('audit log (SEC-010)', () => {
@@ -375,9 +375,9 @@ describe('auth routes', () => {
 
       const { res } = await invokeRoute(routes, 'get', '/me');
 
-      // Success path: handler calls res.json() directly (Express defaults to 200)
+      // defineRoute 统一 { data } 壳
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ user: expect.objectContaining({ id: 'u1' }) })
+        { data: expect.objectContaining({ user: expect.objectContaining({ id: 'u1' }) }) }
       );
     });
 
@@ -386,8 +386,8 @@ describe('auth routes', () => {
 
       const { res } = await invokeRoute(routes, 'get', '/me');
 
-      // Success path: handler calls res.json() directly (Express defaults to 200)
-      expect(res.json).toHaveBeenCalledWith({ user: null, session: null });
+      // defineRoute 统一 { data } 壳
+      expect(res.json).toHaveBeenCalledWith({ data: { user: null, session: null } });
     });
 
     it('returns 500 when service throws', async () => {
@@ -396,16 +396,18 @@ describe('auth routes', () => {
       const { res } = await invokeRoute(routes, 'get', '/me');
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'DB error' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'INTERNAL', message: 'DB error' } });
     });
   });
 
   describe('POST /refresh', () => {
-    it('returns 400 when refreshToken missing', async () => {
+    it('returns 400 when refreshToken missing（zod 必填校验）', async () => {
       const { res } = await invokeRoute(routes, 'post', '/refresh', { body: {} });
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Missing refreshToken' });
+      expect(res.json).toHaveBeenCalledWith(
+        { error: { code: 'BAD_REQUEST', message: expect.stringContaining('refreshToken') } }
+      );
     });
 
     it('returns 401 when refresh token invalid', async () => {
@@ -416,7 +418,7 @@ describe('auth routes', () => {
       });
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid refresh token' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'UNAUTHORIZED', message: 'Invalid refresh token' } });
     });
 
     it('returns 200 with new tokens on valid refresh', async () => {
@@ -428,9 +430,9 @@ describe('auth routes', () => {
         body: { refreshToken: 'valid-rt' },
       });
 
-      // Success path: handler calls res.json() directly (Express defaults to 200)
+      // defineRoute 统一 { data } 壳
       expect(res.json).toHaveBeenCalledWith({
-        accessToken: 'new-at', refreshToken: 'new-rt', userId: 'u1',
+        data: { accessToken: 'new-at', refreshToken: 'new-rt', userId: 'u1' },
       });
     });
 
@@ -442,7 +444,7 @@ describe('auth routes', () => {
       });
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'DB err' });
+      expect(res.json).toHaveBeenCalledWith({ error: { code: 'INTERNAL', message: 'DB err' } });
     });
   });
 
@@ -457,7 +459,7 @@ describe('auth routes', () => {
       process.env.STUDIO_AUTH = 'none';
       const { res } = await invokeRoute(routes, 'get', '/status');
       expect(res.json).toHaveBeenCalledWith({
-        mode: 'none', user: { id: 'local', name: 'Local User', role: 'Admin' },
+        data: { mode: 'none', user: { id: 'local', name: 'Local User', role: 'Admin' } },
       });
     });
 
@@ -466,7 +468,7 @@ describe('auth routes', () => {
       mockGetAuthInfo.mockReturnValue({ sessionId: '' });
       const { res } = await invokeRoute(routes, 'get', '/status');
       expect(res.json).toHaveBeenCalledWith({
-        mode: 'on', user: null,
+        data: { mode: 'on', user: null },
       });
     });
 
@@ -479,7 +481,7 @@ describe('auth routes', () => {
       });
       const { res } = await invokeRoute(routes, 'get', '/status');
       expect(res.json).toHaveBeenCalledWith({
-        mode: 'on', user: { id: 'u1', name: 'Test User', role: 'User' },
+        data: { mode: 'on', user: { id: 'u1', name: 'Test User', role: 'User' } },
       });
     });
   });

@@ -16,8 +16,10 @@ import * as path from 'path';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
 import { isSystemRole } from './system-role.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { getStore } from '../../core/store.js';
+
 
 export interface SystemExecutorOptions {
   /** 系统提示词（注入 CLI prompt 的 system 部分，通过 stdin prefix） */
@@ -76,15 +78,14 @@ export class SystemExecutorJsonParseError extends Error {
   }
 }
 
-const DEFAULT_EVENTS_FILE = resolveStudioLogFile('studio-events.jsonl');
-
 /** system:tokens 事件 source 缺省值（#370）：事件 payload / 成功打点 / 失败 warn 三处共用 */
 const DEFAULT_EVENT_SOURCE = 'system-executor';
 
 export class SystemExecutor {
   constructor(
     private fileStore: FileStore,
-    private eventsFile: string = DEFAULT_EVENTS_FILE,
+    // #654：构造时惰性解析（认 STUDIO_EVENTS_FILE），不做模块加载期钉死常量
+    private eventsFile: string = resolveStudioEventsFile(),
   ) {}
 
   async run(prompt: string, options?: SystemExecutorOptions): Promise<SystemExecutorResult> {
@@ -230,7 +231,7 @@ export class SystemExecutor {
     promptSignature: string;
     eventSource?: string;
   }): Promise<void> {
-    const metricsFs = new FileStore();
+    const metricsFs = getStore();
     await metricsFs.appendJsonl(this.eventsFile, {
       type: 'system:tokens',
       source: args.eventSource ?? DEFAULT_EVENT_SOURCE,
@@ -259,7 +260,7 @@ function hashPrompt(prompt: string): string {
 // 单例（懒初始化，首次调用时读 FileStore）
 let _systemExecutor: SystemExecutor | null = null;
 export function getSystemExecutor(): SystemExecutor {
-  if (!_systemExecutor) _systemExecutor = new SystemExecutor(new FileStore());
+  if (!_systemExecutor) _systemExecutor = new SystemExecutor(getStore());
   return _systemExecutor;
 }
 

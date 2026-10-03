@@ -25,7 +25,7 @@ const report = {
 describe('TreeTokenChart', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetTreeTokens.mockResolvedValue({ data: report });
+    mockGetTreeTokens.mockResolvedValue({ data: { data: report } });
   });
 
   it('事实行入口：mono 总耗 + 迷你预算占比条；点击开图表面板', async () => {

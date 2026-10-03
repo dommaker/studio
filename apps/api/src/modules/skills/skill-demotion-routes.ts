@@ -6,63 +6,61 @@
  * POST /api/v1/skills/demotion-proposals/:id/reject  — 拒绝
  *
  * 只产提案不自动生效；approve 是唯一写 skill 文件的路径。
+ *
+ * 契约驱动迁移（2026-10 批次 3/7）：defineRoute 化 + 统一 envelope——
+ * 列表的 scan 摘要兄弟键退役（无消费方），approve/reject 平铺 `{ success, status }`
+ * 统一进 `{ data }` 壳；404 走 HttpError。
  */
 
-import { Router, Request, Response } from 'express';
-import { logger } from '@dommaker/studio-shared';
+import { Router } from 'express';
+import {
+  listDemotionProposalsQuerySchema,
+  demotionProposalIdParamsSchema,
+  ERROR_CODES,
+} from '@dommaker/studio-contract';
 import { demotionProposalStore, scanSkillDemotions, approveDemotion, rejectDemotion } from './skill-demotion.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { defineRoute, HttpError } from '../../core/http.js';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（GET 列表）/ write（approve/reject，registry 挂 authNotGuest）拆 router。
+const openRoutes = Router();
+const writeRoutes = Router();
 
 /**
  * GET / — 降级提案列表；?scan=true 先触发一次扫描（无调度器，手动触发口径）
  */
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    let scan: Awaited<ReturnType<typeof scanSkillDemotions>> | null = null;
-    if (req.query.scan === 'true') {
-      scan = await scanSkillDemotions();
-    }
-    const status = req.query.status as string | undefined;
-    const proposals = demotionProposalStore.list(status ? { status } : {});
-    res.json({ data: proposals, ...(scan ? { scan: { scanned: scan.scanned, created: scan.created } } : {}) });
-  } catch (error) {
-    logger.error('[Skill Demotion] Failed to list', { error: String(error) });
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to list demotion proposals' } });
+openRoutes.get('/', defineRoute({ query: listDemotionProposalsQuerySchema }, async (_req, _res, { query }) => {
+  if (query.scan === 'true') {
+    await scanSkillDemotions();
   }
-});
+  return demotionProposalStore.list(query.status ? { status: query.status } : {});
+}));
 
 /**
  * POST /:id/approve — 批准：frontmatter status → archived（正文不动）
  */
-router.post('/:id/approve', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const success = await approveDemotion(req.params.id);
+writeRoutes.post('/:id/approve', defineRoute(
+  { params: demotionProposalIdParamsSchema },
+  async (_req, _res, { params }) => {
+    const success = await approveDemotion(params.id);
     if (!success) {
-      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Proposal not found or already reviewed' } });
+      throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Proposal not found or already reviewed');
     }
-    res.json({ success: true, status: 'approved' });
-  } catch (error) {
-    logger.error('[Skill Demotion] Approve failed', { error: String(error) });
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: String(error) } });
-  }
-});
+    return { success: true, status: 'approved' as const };
+  },
+));
 
 /**
  * POST /:id/reject — 拒绝：只改提案状态
  */
-router.post('/:id/reject', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const success = await rejectDemotion(req.params.id);
+writeRoutes.post('/:id/reject', defineRoute(
+  { params: demotionProposalIdParamsSchema },
+  async (_req, _res, { params }) => {
+    const success = await rejectDemotion(params.id);
     if (!success) {
-      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Proposal not found or already reviewed' } });
+      throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Proposal not found or already reviewed');
     }
-    res.json({ success: true, status: 'rejected' });
-  } catch (error) {
-    logger.error('[Skill Demotion] Reject failed', { error: String(error) });
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Reject failed' } });
-  }
-});
+    return { success: true, status: 'rejected' as const };
+  },
+));
 
-export default router;
+export { openRoutes as skillDemotionOpenRoutes, writeRoutes as skillDemotionWriteRoutes };

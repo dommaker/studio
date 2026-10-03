@@ -28,7 +28,8 @@ async function registerFresh(suffix: string) {
   const password = `pw-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const res = await api('POST', '/auth/register', { email, password });
   if (res.status !== 200) throw new Error(`Register failed: ${res.status} ${JSON.stringify(res.data)}`);
-  return { email, password, token: res.data.token as string, refreshToken: res.data.refreshToken as string, user: res.data.user };
+  // { data } 壳（契约驱动批次 6/7）
+  return { email, password, token: res.data.data.token as string, refreshToken: res.data.data.refreshToken as string, user: res.data.data.user };
 }
 
 describe.skipIf(!LIVE)('Auth Flow E2E', () => {
@@ -47,9 +48,9 @@ describe.skipIf(!LIVE)('Auth Flow E2E', () => {
     it('POST /auth/guest-session → 200 with session + token', async () => {
       const res = await api('POST', '/auth/guest-session');
       expect(res.status).toBe(200);
-      expect(res.data.session).toBeDefined();
-      expect(res.data.session.id).toBeDefined();
-      expect(res.data.token).toBeDefined();
+      expect(res.data.data.session).toBeDefined();
+      expect(res.data.data.session.id).toBeDefined();
+      expect(res.data.data.token).toBeDefined();
     }, TIMEOUT);
   });
 
@@ -74,14 +75,14 @@ describe.skipIf(!LIVE)('Auth Flow E2E', () => {
       const { token, email } = await registerFresh('me');
       const res = await api('GET', '/auth/me', undefined, token);
       expect(res.status).toBe(200);
-      expect(res.data.user).toBeDefined();
-      expect(res.data.user.email).toBe(email);
+      expect(res.data.data.user).toBeDefined();
+      expect(res.data.data.user.email).toBe(email);
     }, TIMEOUT);
 
     it('no token → 200 with user:null (optionalAuth)', async () => {
       const res = await api('GET', '/auth/me');
       expect(res.status).toBe(200);
-      expect(res.data.user).toBeNull();
+      expect(res.data.data.user).toBeNull();
     }, TIMEOUT);
   });
 
@@ -90,9 +91,9 @@ describe.skipIf(!LIVE)('Auth Flow E2E', () => {
       const { email, password } = await registerFresh('login');
       const res = await api('POST', '/auth/login', { email, password });
       expect(res.status).toBe(200);
-      expect(res.data.user).toBeDefined();
-      expect(res.data.token).toBeDefined();
-      expect(res.data.refreshToken).toBeDefined();
+      expect(res.data.data.user).toBeDefined();
+      expect(res.data.data.token).toBeDefined();
+      expect(res.data.data.refreshToken).toBeDefined();
     }, TIMEOUT);
 
     it('wrong password → 401', async () => {
@@ -107,8 +108,8 @@ describe.skipIf(!LIVE)('Auth Flow E2E', () => {
       const { refreshToken } = await registerFresh('refresh');
       const res = await api('POST', '/auth/refresh', { refreshToken });
       expect(res.status).toBe(200);
-      expect(res.data.accessToken).toBeDefined();
-      expect(res.data.refreshToken).toBeDefined();
+      expect(res.data.data.accessToken).toBeDefined();
+      expect(res.data.data.refreshToken).toBeDefined();
     }, TIMEOUT);
 
     it('bad token → 401', async () => {
@@ -124,7 +125,7 @@ describe.skipIf(!LIVE)('Auth Flow E2E', () => {
       expect(res.status).toBe(200);
 
       const meRes = await api('GET', '/auth/me', undefined, token);
-      expect(meRes.data.user).toBeNull();
+      expect(meRes.data.data.user).toBeNull();
     }, TIMEOUT);
   });
 
@@ -134,16 +135,16 @@ describe.skipIf(!LIVE)('Auth Flow E2E', () => {
 
       const refRes = await api('POST', '/auth/refresh', { refreshToken });
       expect(refRes.status).toBe(200);
-      const newToken = refRes.data.accessToken as string;
+      const newToken = refRes.data.data.accessToken as string;
 
       const meRes = await api('GET', '/auth/me', undefined, newToken);
       expect(meRes.status).toBe(200);
-      expect(meRes.data.user).toBeDefined();
+      expect(meRes.data.data.user).toBeDefined();
 
       await api('POST', '/auth/logout', undefined, newToken).then(r => expect(r.status).toBe(200));
 
       const meRes2 = await api('GET', '/auth/me', undefined, newToken);
-      expect(meRes2.data.user).toBeNull();
+      expect(meRes2.data.data.user).toBeNull();
     }, TIMEOUT);
   });
 });

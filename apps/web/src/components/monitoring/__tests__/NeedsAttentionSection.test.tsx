@@ -32,10 +32,13 @@ const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
 function mockEventsByType(map: Record<string, Array<Record<string, unknown>>>) {
   mockSearch.mockImplementation((params: { type?: string }) =>
     Promise.resolve({
+      // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
       data: {
-        events: (params.type && map[params.type]) || [],
-        total: (params.type && map[params.type]?.length) || 0,
-        nextCursor: null,
+        data: {
+          events: (params.type && map[params.type]) || [],
+          total: (params.type && map[params.type]?.length) || 0,
+          nextCursor: null,
+        },
       },
     }),
   );
@@ -48,8 +51,10 @@ interface FailureMock { n: number; rate: number | null; trend: 'up' | 'down' | '
 function mockOverview(stuck?: Partial<StuckMock>, failure24h?: Partial<FailureMock>) {
   mockGetOverview.mockResolvedValue({
     data: {
-      stuck: { blocked: 0, staleUnassigned: 0, stalledActive: 0, ...stuck },
-      failure24h: { n: 0, rate: null, trend: null, ...failure24h },
+      data: {
+        stuck: { blocked: 0, staleUnassigned: 0, stalledActive: 0, ...stuck },
+        failure24h: { n: 0, rate: null, trend: null, ...failure24h },
+      },
     },
   });
 }

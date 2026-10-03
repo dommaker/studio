@@ -9,7 +9,9 @@ import * as fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { countProcessesByCmdline } from '../agents/ops/proc-probes.js';
+import { countProcessesByCmdline } from '../../core/proc-probes.js'; // P2-c 拆环：零依赖原语自 agents 下沉 core，knowledge→agents 此边清零
+import { getStore } from '../../core/store.js';
+
 
 interface SnapshotData {
   hostname: string;
@@ -35,7 +37,7 @@ export class EnvSnapper {
   private fileStore: FileStore;
 
   constructor() {
-    this.fileStore = new FileStore();
+    this.fileStore = getStore();
   }
 
   /**

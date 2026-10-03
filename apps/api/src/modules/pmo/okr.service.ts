@@ -3,6 +3,8 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import { studioDir } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { getStore } from '../../core/store.js';
+
 
 // ─── 路径常量 ───
 const STUDIO_DIR = studioDir();
@@ -69,7 +71,7 @@ export class OKRService {
   private fileStore: FileStore;
 
   constructor(fileStore?: FileStore) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
   }
 
   // ─── FileStore 辅助方法 ───
@@ -286,8 +288,8 @@ export class OKRService {
     const linked = allExecs.filter(e => e.okrId === id);
     if (linked.length > 0) {
       const updated = allExecs.map(e => e.okrId === id ? { ...e, okrId: null } : e);
-      await fs.promises.mkdir(path.dirname(EXECUTIONS_JSONL), { recursive: true });
-      await fs.promises.writeFile(EXECUTIONS_JSONL, updated.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+      // P2-e：全量重写走 FileStore writeJsonl（原子写：tmp+rename），替代裸 fs.writeFile
+      await this.fileStore.writeJsonl(EXECUTIONS_JSONL, updated);
     }
 
     // 删除 OKR 文件

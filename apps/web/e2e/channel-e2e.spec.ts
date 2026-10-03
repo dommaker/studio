@@ -221,7 +221,8 @@ test.describe('Channel 滚动行为（#289 observed-top 台账 + ResizeObserver 
     if (!res.ok()) {
       res = await request.post(`${API}/auth/login`, { data: { email, password } });
     }
-    const body = await res.json();
+    // { data } 壳（契约驱动批次 6/7）
+    const body = (await res.json()).data ?? {};
     const token = body.session?.token ?? body.token;
     if (!token) throw new Error('e2e 登录失败: ' + JSON.stringify(body));
     auth = { token, user: body.user };

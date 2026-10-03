@@ -23,9 +23,10 @@ describe('memoryApi（#353 通用端点）', () => {
   });
 
   it('status 逐 id 查通用端点并合并 statuses map', async () => {
+    // 契约驱动迁移（批次 4/7）：status 响应 `{ data: { status } }` 壳
     vi.mocked(api.get)
-      .mockResolvedValueOnce({ data: { success: true, status: 'executed' } } as never)
-      .mockResolvedValueOnce({ data: { success: true, status: 'rejected' } } as never);
+      .mockResolvedValueOnce({ data: { data: { status: 'executed' } } } as never)
+      .mockResolvedValueOnce({ data: { data: { status: 'rejected' } } } as never);
     const { data } = await memoryApi.status(['d-1', 'd-2']);
     expect(api.get).toHaveBeenCalledWith('/review-proposals/memory/d-1/status');
     expect(api.get).toHaveBeenCalledWith('/review-proposals/memory/d-2/status');

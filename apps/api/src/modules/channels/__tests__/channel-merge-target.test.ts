@@ -60,10 +60,12 @@ beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ch-merge-target-'));
   process.env.STUDIO_DATA_DIR = tmpDir;
 
-  const { default: channelRoutes } = await import('../channel.routes.js');
+  const { channelReadRoutes, channelWriteRoutes, channelAttachmentRoutes } = await import('../channel.routes.js');
+  const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/channels', channelRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（attachment 先挂 + read 挂 requireAuth + write 挂 authNotGuest）
+  app.use('/api/v1/channels', channelAttachmentRoutes, requireAuth(), channelReadRoutes, requireNotGuest(), channelWriteRoutes);
   await new Promise<void>(resolve => {
     server = app.listen(0, '127.0.0.1', () => resolve());
   });
@@ -196,7 +198,7 @@ describe('#632: PATCH /:id 退役 defaultProfileId', () => {
     });
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toContain('defaultProfileId');
+    expect(body.error.message).toContain('defaultProfileId');
   });
 
   it('正常字段（name）不受影响', async () => {

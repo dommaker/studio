@@ -11,12 +11,14 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitService, WorkUnitData } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { recordAgentDecision } from '../audit-logs/agent-decision.js';
+import { recordAgentDecision } from '../audit-logs/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { getStore } from '../../core/store.js';
+
 
 export interface ClaimAndAnnounceDeps {
   wuService: WorkUnitService;
-  /** 测试注入；缺省 new FileStore() */
+  /** 测试注入；缺省 getStore() */
   fileStore?: FileStore;
 }
 
@@ -36,7 +38,7 @@ export async function claimWorkUnitAndAnnounce(
   // 运行实例派生（getState 命中 = 实例；REST 人工认领 userId 落空 → human），
   // traceId 取 WU metadata.traceId（频道建单链路，与 audit requestId 同值口径）；
   // fire-and-forget，埋点失败绝不阻断认领
-  const claimFs = deps.fileStore ?? new FileStore();
+  const claimFs = deps.fileStore ?? getStore();
   const instanceState = await claimFs.getState(claimerId).catch(() => null);
   recordAgentDecision({
     action: 'claim',

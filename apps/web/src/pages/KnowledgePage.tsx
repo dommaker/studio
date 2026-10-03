@@ -95,14 +95,15 @@ export function KnowledgePage() {
         consumptionMode: unifiedMode || undefined,
         maturity: reviewOnly ? 'draft' : undefined,
       });
-      return { kind: 'unified', entries: res.data.entries || [], total: res.data.total || 0 };
+      // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳，res.data → res.data.data
+      return { kind: 'unified', entries: res.data.data.entries || [], total: res.data.data.total || 0 };
     }
     if (activeTab === 'resolution') {
       const res = await knowledgeApi.listResolutions();
-      return { kind: 'gap', items: (res.data.resolutions || []) as unknown as GapItem[] };
+      return { kind: 'gap', items: (res.data.data.resolutions || []) as unknown as GapItem[] };
     }
     const res = await knowledgeApi.listGaps(activeTab as KnowledgeGapType);
-    return { kind: 'gap', items: (res.data.data || []) as GapItem[] };
+    return { kind: 'gap', items: (res.data.data.data || []) as GapItem[] };
   }, [activeTab, unifiedMode, reviewOnly]);
   const costsQ = useAsyncData(() => maintenanceApi.getCosts(), []);
 
@@ -152,8 +153,10 @@ export function KnowledgePage() {
       tabQ.reload(); // 提交后事件路径刷新（新建表单仅在 unified 视图打开）
     } catch (err) {
       // 工单 38: 失败不再静默——toast 反馈且保留表单内容，用户可修正后重试
+      // 契约驱动迁移（批次 4/7）：错误壳 `{ error: { code, message } }`——serverErrorMessage 取 message
       console.error('Failed to create entry:', err);
-      toast.error(err?.response?.data?.error || err?.message || '创建条目失败，请重试');
+      const m = serverErrorMessage(err);
+      toast.error(m || (err instanceof Error ? err.message : '') || '创建条目失败，请重试');
     } finally {
       setManualSaving(false);
     }
@@ -179,7 +182,7 @@ export function KnowledgePage() {
         consumptionMode: unifiedMode || undefined,
         maturity: reviewOnly ? 'draft' : undefined,
       });
-      const next = res.data.entries || [];
+      const next = res.data.data.entries || [];
       setMoreEntries(prev => {
         const seen = new Set([...baseEntries, ...prev].map(e => e.id));
         return [...prev, ...next.filter(e => !seen.has(e.id))];
@@ -225,7 +228,7 @@ export function KnowledgePage() {
     setSearchActive(true);
     try {
       const res = await knowledgeApi.search(globalSearch);
-      setSearchResults(res.data.results || []);
+      setSearchResults(res.data.data.results || []);
     } catch (e) {
       // 批次 F-1：失败不再静默置空（假「无匹配结果」空态）——toast 反馈（对齐 handleLoadMore 批次A 模式），
       // 回 tab 视图保留输入词，再次点「搜索」即重试

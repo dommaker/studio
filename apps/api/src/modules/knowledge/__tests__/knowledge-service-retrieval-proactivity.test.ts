@@ -49,9 +49,12 @@ function createMockLifecycle() {
 function createMockIngest() {
   return {
     ingestEntry: vi.fn((entry: any, opts: any) => ({
-      id: `ingested-${Date.now()}`,
-      ...entry,
-      ...opts,
+      status: 'accepted',
+      entry: {
+        id: `ingested-${Date.now()}`,
+        ...entry,
+        ...opts,
+      },
     })),
   };
 }

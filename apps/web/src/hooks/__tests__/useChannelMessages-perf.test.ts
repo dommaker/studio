@@ -49,7 +49,7 @@ describe('useChannelMessages — #520 回执渲染计时起点', () => {
     resetClientPerfSink();
     useChannelMessageStore.getState().__resetForTests();
     setClientPerfSink(mockSink);
-    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
     mockOnEvent.mockImplementation((h: (msg: WebSocketMessage) => void) => {
       handler = h;
       return () => {};
@@ -57,7 +57,7 @@ describe('useChannelMessages — #520 回执渲染计时起点', () => {
   });
 
   async function renderLoaded(initial: ChannelMessage[] = []) {
-    mockListMessages.mockResolvedValue({ data: { data: initial, hasMore: false } });
+    mockListMessages.mockResolvedValue({ data: { data: { messages: initial, hasMore: false } } });
     const { result } = renderHook(() => useChannelMessages('ch-1'));
     await waitFor(() => expect(result.current.loading).toBe(false));
     return result;

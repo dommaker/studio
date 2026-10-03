@@ -18,10 +18,12 @@
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { ChannelMessageService } from '../modules/channels/channel-message.service.js';
-import { loadNotifyChannelsConfig, resolveWeComWebhookUrl } from '../modules/notify-channels/config-store.js';
-import { sendText } from '../modules/notify-channels/clawbot-client.js';
-import { postWeComMarkdown } from '../modules/notify-channels/wecom-client.js';
+import { ChannelMessageService } from '../modules/channels/index.js';
+import { loadNotifyChannelsConfig, resolveWeComWebhookUrl } from '../modules/notify-channels/index.js';
+import { sendText } from '../modules/notify-channels/index.js';
+import { postWeComMarkdown } from '../modules/notify-channels/index.js';
+import { getStore } from '../core/store.js';
+
 
 export type AlertLevel = 'info' | 'warning' | 'critical';
 
@@ -61,7 +63,7 @@ async function persistAlertNotification(
   opts?: NotifyAlertOptions,
 ): Promise<void> {
   if (level === 'info') return;
-  await new NotificationService(new FileStore()).createForAllUsers({
+  await new NotificationService(getStore()).createForAllUsers({
     type: 'monitor_alert',
     title,
     content: body,
@@ -74,7 +76,7 @@ async function persistAlertNotification(
  * 返回 false = 无可用频道（已跳过）；true = 已投递。
  */
 async function postToAlertChannel(level: AlertLevel, title: string, body: string): Promise<boolean> {
-  const fs = new FileStore();
+  const fs = getStore();
   const channelId = await resolveAlertChannelId(fs);
   if (!channelId) {
     logger.warn('[Notifier] No alert channel found (set STUDIO_ALERT_CHANNEL_ID or create a 系统/system channel), skipping');

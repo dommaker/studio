@@ -53,7 +53,8 @@ writeSkill('draft-skill', [
 ]);
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载（静态 import 会被 ESM 提升）
-const { default: skillsRouter } = await import('../routes.js');
+const { skillsOpenRoutes, skillsWriteRoutes } = await import('../routes.js');
+  const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
 
 let server: Server;
 let baseUrl: string;
@@ -61,7 +62,8 @@ let baseUrl: string;
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/skills', skillsRouter);
+  // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
+  app.use('/api/v1/skills', skillsOpenRoutes, requireAuth(), requireNotGuest(), skillsWriteRoutes);
   await new Promise<void>(resolve => {
     server = app.listen(0, () => resolve());
   });

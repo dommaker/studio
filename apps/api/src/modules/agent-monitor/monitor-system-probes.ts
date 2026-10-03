@@ -1,0 +1,394 @@
+/**
+ * Monitor Agent — 系统/知识级探测与自修复
+ *
+ * 从 monitor.service.ts 拆分（探测/告警/报告分离，零行为变更）。
+ * 本模块负责系统面检查：
+ *   - B1-008: 系统健康探测（内存/磁盘/僵尸进程/CPU/存储）
+ *   - 系统异常 3 次确认窗口 → Triage
+ *   - worktree GC
+ *   - P2a: 知识库健康评分（5min）/ 晋升 + 24h 衰减循环 + 用户模型更新（24h 门控）
+ *   - Circuit check → KnowledgeSync 自修复
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { execAsync } from '../../core/exec-async.js';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { logger } from '@dommaker/studio-shared';
+import type { TriageIncidentInput } from '../triage/index.js';
+import { triageService } from '../triage/index.js';
+import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
+import { sharedStore, sharedLifecycle } from '../knowledge/index.js';
+import { knowledgeSync } from '../knowledge/index.js';
+import { emitMonitorEvent } from './monitor-alerts.js';
+import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../../core/proc-probes.js';
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
+
+// #611: knowledge:consumption 连续 N 天为 0 → 消费链路疑似断裂（probe 去假绿后此告警才可信）
+const CONSUMPTION_SILENCE_DAYS = 3;
+
+// worktree GC 目录口径：WORKTREES_DIR > studioPath('worktrees')，与 agent-loop.resolveWorktreesDir
+// 创建侧一致（契约 §8 双口径收编）。按调用时解析（非模块加载期），保证 env 覆盖当轮生效。
+function resolveWorktreesDir(): string {
+  return process.env.WORKTREES_DIR || studioPath('worktrees');
+}
+
+// 系统健康确认窗口计数器（3 checks × 60s window）
+const systemHealthCounters = new Map<string, { count: number; firstSeen: number }>();
+const SYSTEM_HEALTH_CONFIRM_COUNT = 3;
+const SYSTEM_HEALTH_CONFIRM_WINDOW_MS = 60 * 1000; // 60s between checks (Monitor polls every 5 min, so this is per-check, not per-second)
+
+/**
+ * 知识循环的实例级状态（由 MonitorService 实例持有并传入，保持 per-instance 语义）。
+ */
+export interface KnowledgeCycleState {
+  lastDecayRun: number;
+  lastPromotionRun: number;
+}
+
+/**
+ * B7 F1 LLM 每日维护开关（2026-08-03 token 止血，docs/issues/2026-08-03-unattended-token-burn.md）：
+ * KnowledgeCurator 每日维护（语义去重/质量评估/过期验证/矛盾审查）是日级 LLM 批调用，
+ * 无人值守期间每天 + 每次进程重启各烧一波（实测单次 ~2M token），且不走 C3 预算闸。
+ * 与 A 档停用的日级 LLM 触发器同类，默认停用；STUDIO_KNOWLEDGE_MAINTENANCE=on 显式开启。
+ * 注意：lastDecayRun 为内存态，开启后每次重启会在首个 5-min check 立即重跑一波。
+ */
+export function knowledgeMaintenanceEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.STUDIO_KNOWLEDGE_MAINTENANCE === 'on';
+}
+
+/**
+ * GC: clean up stale git worktrees and orphaned task directories.
+ * Non-blocking — runs as part of the 5-min check loop.
+ *
+ * #409 双实现归一：OpsService.cleanupWorktrees 已删，本函数是唯一入口。
+ * 阈值 7d（24h 有误删暂停中 WU worktree 的风险，删除是破坏性操作，取更稳的值）；
+ * 不调 git worktree remove —— 每轮先跑的 git worktree prune 会在下一轮清掉
+ * 被删目录的注册引用，元数据最终一致，无需为当轮清引用引入同步 exec。
+ */
+export async function gcStaleWorktrees(): Promise<void> {
+  try {
+    // Prune git worktree references that point to deleted directories
+    const repoDir = process.env.REPO_DIR || path.join(os.homedir(), 'projects');
+    if (fs.existsSync(path.join(repoDir, '.git'))) {
+      await execAsync('git worktree prune', { cwd: repoDir, timeout: 5000 });
+    }
+
+    // Clean worktree dirs that are older than 7d
+    const worktreesDir = resolveWorktreesDir();
+    if (fs.existsSync(worktreesDir)) {
+      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const entries = fs.readdirSync(worktreesDir);
+      for (const entry of entries) {
+        const wtPath = path.join(worktreesDir, entry);
+        try {
+          const stat = fs.statSync(wtPath);
+          if (stat.isDirectory() && stat.mtimeMs < cutoff) {
+            fs.rmSync(wtPath, { recursive: true, force: true });
+            logger.info('[MonitorService] GC removed stale worktree', { path: wtPath, age: Math.round((Date.now() - stat.mtimeMs) / 86400000) + 'd' });
+          }
+        } catch { /* skip */ }
+      }
+    }
+  } catch (e) {
+    // Non-blocking — GC failure must not crash the monitor loop, but MUST be logged
+    logger.warn('[MonitorService] gcStaleWorktrees failed', { error: String(e) });
+  }
+}
+
+/**
+ * P2a: Knowledge base health check + decay cycle
+ * - Health score: every 5 min (Monitor cycle), escalates to Triage if < 60
+ * - Promotion scan: once per 24h (#408 晋升是日/周级语义，移出 5min 循环)
+ * - Decay cycle: once per 24h, runs maturity decay + linter auto-fix
+ */
+
+/**
+ * Circuit check → repair → write meta-knowledge to store.
+ * Runs at MonitorService startup + hourly. Makes knowledge system self-documenting.
+ */
+export async function runCircuitCheckAndRepair(): Promise<void> {
+  try {
+    // KnowledgeSync: detect staleness + unmonitored + heal
+    const syncResult = await knowledgeSync.runSyncCycle();
+    if (syncResult.stale.length > 0 || syncResult.unmonitored.length > 0) {
+      logger.warn('[MonitorService] KnowledgeSync detected issues', {
+        staleScopes: syncResult.stale.map(s => ({ scope: s.scope, changedFiles: s.changedFiles, hours: s.stalenessHours })),
+        unmonitored: syncResult.unmonitored.map(u => ({ scope: u.scope, reason: u.reason })),
+        healed: syncResult.healed,
+      });
+    }
+  } catch (e) {
+    logger.warn('[MonitorService] KnowledgeSync check failed', { error: String(e) });
+  }
+}
+
+export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<void> {
+  try {
+    const tracker = new ReferenceTracker(sharedStore);
+    const linter = new KnowledgeLinter(sharedStore, tracker);
+    const doctor = new KnowledgeHealthScorer(sharedStore, linter);
+
+    const { score, details } = doctor.healthScore();
+
+    logger.info('[MonitorService] Knowledge health score', { score, issueCount: details.length });
+
+    if (score < 60) {
+      // Escalate to Triage
+      triageService.handleAlert({
+        type: 'knowledge_health_degraded',
+        severity: 'warning',
+        message: `知识库健康评分: ${score}/100`,
+        details: { score, issues: details },
+      }).catch(err => {
+        logger.warn('[MonitorService] Knowledge health triage failed', { error: String(err) });
+      });
+
+      // Also emit as alert
+      emitMonitorEvent({
+        type: 'monitor:alert',
+        level: 'warning',
+        source: 'knowledge_health',
+        message: `Knowledge health score: ${score}/100`,
+        details,
+        timestamp: Date.now(),
+      });
+    }
+
+    // P2.5: Promotion cycle — 日级门控（#408：晋升是日/周级语义，原挂 5min 循环造成
+    // 稳态每轮全库归约；扫描范围/晋升判定本身不变，语义由 monitor-system-probes.test.ts 锁定）
+    if (Date.now() - state.lastPromotionRun > 24 * 60 * 60_000) {
+      const allEntries = sharedStore.list({ excludeArchived: false }).filter(e => e.maturity === 'draft' || e.maturity === 'verified');
+      let promoted = 0;
+      for (const entry of allEntries) {
+        try {
+          const result = sharedLifecycle.tryPromote(entry.id);
+          if (result) {
+            promoted++;
+            logger.info('[MonitorService] Knowledge promoted', { entryId: entry.id, from: result.from, to: result.to, reason: result.reason });
+          }
+        } catch { /* individual entry failure is non-blocking */ }
+      }
+      state.lastPromotionRun = Date.now();
+      if (promoted > 0) {
+        logger.info('[MonitorService] Knowledge promotion cycle completed', { promoted, scanned: allEntries.length });
+      }
+    }
+
+    // Daily cycle: decay + lint + LLM maintenance
+    if (Date.now() - state.lastDecayRun > 24 * 60 * 60_000) {
+      const decayChanges = sharedLifecycle.runDecayCycle();
+      const lintReport = linter.run(true);
+      state.lastDecayRun = Date.now();
+
+      // F1: KnowledgeCurator LLM-powered maintenance — B7 默认停用（见 knowledgeMaintenanceEnabled），
+      // STUDIO_KNOWLEDGE_MAINTENANCE=on 时才执行（semantic dedup, quality, freshness, contradictions）
+      if (knowledgeMaintenanceEnabled()) {
+        try {
+          const { knowledgeCurator } = await import('../agent-knowledge/index.js');
+          const maintenance = await knowledgeCurator.runDailyMaintenance();
+          logger.info('[MonitorService] KnowledgeCurator daily maintenance', maintenance);
+        } catch (err) {
+          logger.warn('[MonitorService] KnowledgeCurator maintenance failed', { error: String(err) });
+        }
+      }
+
+      logger.info('[MonitorService] Knowledge decay cycle completed', {
+        decayChanges: decayChanges.length,
+        autoFixed: lintReport.fixed,
+      });
+
+      if (decayChanges.length > 0) {
+        emitMonitorEvent({
+          type: 'monitor:info',
+          source: 'knowledge_decay',
+          message: `Decay: ${decayChanges.length} entries, Auto-fixed: ${lintReport.fixed} issues`,
+          timestamp: Date.now(),
+        });
+      }
+
+      // #611: consumption 归零告警——日级门控内检查，连续 N 天无 knowledge:consumption
+      // 事件说明消费链路断裂（recordReference → onReference → 事件落盘任一环）。
+      try {
+        const sinceMs = Date.now() - CONSUMPTION_SILENCE_DAYS * 24 * 60 * 60_000;
+        const recentEvents = await readStudioEventsSince({ sinceMs });
+        const consumptionCount = recentEvents.filter(e => e.type === 'knowledge:consumption').length;
+        if (consumptionCount === 0) {
+          emitMonitorEvent({
+            type: 'monitor:alert',
+            level: 'warning',
+            source: 'knowledge_consumption_silence',
+            message: `knowledge:consumption 连续 ${CONSUMPTION_SILENCE_DAYS} 天为 0 —— 消费链路疑似断裂（见 #611）`,
+            timestamp: Date.now(),
+          });
+        }
+      } catch (e) {
+        logger.warn('[MonitorService] Consumption silence check failed', { error: String(e) });
+      }
+    }
+  } catch (err) {
+    logger.warn('[MonitorService] Knowledge health check failed', { error: String(err) });
+  }
+}
+
+// ── B1-008: System health check for Triage ──
+
+export async function systemHealthCheck(): Promise<TriageIncidentInput[]> {
+  const anomalies: TriageIncidentInput[] = [];
+
+  try {
+    // 磁盘/内存/僵尸探测走 proc-probes 单出口（零子进程，ops 同源）——B4 #344
+
+    // 1. Internal process health check (no curl - avoids port mismatch)
+    try {
+      const memUsage = process.memoryUsage();
+      const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+      const uptime = process.uptime();
+      if (heapUsedMB > 2000) {
+        anomalies.push({
+          type: 'resource_critical',
+          severity: 'warning',
+          message: `High memory usage: ${heapUsedMB}MB heap used`,
+          details: { heapUsedMB },
+        });
+      }
+      if (uptime < 60) {
+        anomalies.push({
+          type: 'service_down',
+          severity: 'warning',
+          message: `Process restarted recently (uptime ${Math.round(uptime)}s)`,
+          details: { uptime },
+        });
+      }
+    } catch {
+      // Process health check itself failed - this is unexpected
+      anomalies.push({
+        type: 'service_down',
+        severity: 'critical',
+        message: 'Internal process health check failed',
+      });
+    }
+
+    // 2. Disk usage（statfs，/proc 口径同 ops.getStatus）
+    try {
+      const usePercent = readDiskUsage('/')?.usePercent ?? null;
+      if (usePercent !== null && usePercent > 90) {
+        anomalies.push({
+          type: 'resource_critical',
+          severity: 'warning',
+          message: `Disk usage ${usePercent}%`,
+          details: { usagePercent: usePercent },
+        });
+      }
+    } catch { /* ignore */ }
+
+    // 3. Memory usage（MemTotal - MemAvailable，/proc 口径同 ops.getStatus）
+    try {
+      const mem = readMemoryUsage();
+      if (mem.totalKb !== null && mem.usedKb !== null && mem.totalKb > 0) {
+        const memPercent = Math.round((mem.usedKb / mem.totalKb) * 100);
+        if (memPercent > 95) {
+          anomalies.push({
+            type: 'resource_critical',
+            severity: 'critical',
+            message: `Memory usage ${memPercent}%`,
+            details: { usagePercent: memPercent },
+          });
+        }
+      }
+    } catch { /* ignore */ }
+
+    // 4. Zombie processes（/proc/*/stat state=Z）
+    try {
+      const zCount = countZombieProcesses();
+      if (zCount > 0) {
+        anomalies.push({
+          type: 'zombie',
+          severity: 'warning',
+          message: `${zCount} zombie processes detected`,
+          details: { zombieCount: zCount },
+        });
+      }
+    } catch { /* ignore */ }
+
+    // 5. CPU load average
+    try {
+      const loadAvg = os.loadavg();
+      const cores = os.cpus().length;
+      const load1m = loadAvg[0];
+      if (load1m > cores * 4) {
+        anomalies.push({
+          type: 'resource_critical',
+          severity: 'critical',
+          message: `CPU overload: load ${load1m.toFixed(1)} on ${cores} cores (1m avg)`,
+          details: { load1m, load5m: loadAvg[1], load15m: loadAvg[2], cores },
+        });
+      } else if (load1m > cores * 2) {
+        anomalies.push({
+          type: 'resource_critical',
+          severity: 'warning',
+          message: `CPU high: load ${load1m.toFixed(1)} on ${cores} cores (1m avg)`,
+          details: { load1m, load5m: loadAvg[1], load15m: loadAvg[2], cores },
+        });
+      }
+    } catch { /* ignore */ }
+
+    // 6. Storage health check
+    try {
+      const probeFile = studioPath('data', '_monitor_probe');
+      await fs.promises.writeFile(probeFile, Date.now().toString());
+      await fs.promises.unlink(probeFile);
+    } catch {
+      anomalies.push({
+        type: 'ext_dependency',
+        severity: 'critical',
+        message: 'Storage access failed',
+      });
+    }
+  } catch (e) {
+    logger.warn('[MonitorService] System health check error', { error: String(e) });
+  }
+
+  return anomalies;
+}
+
+export async function systemTriageCheck(): Promise<void> {
+  const anomalies = await systemHealthCheck();
+  const now = Date.now();
+
+  // Track which anomaly keys are still present
+  const activeKeys = new Set<string>();
+
+  for (const anomaly of anomalies) {
+    const key = anomaly.type;
+    activeKeys.add(key);
+
+    const prev = systemHealthCounters.get(key);
+    if (prev) {
+      prev.count++;
+      if (prev.count >= SYSTEM_HEALTH_CONFIRM_COUNT) {
+        logger.error('[MonitorService] System anomaly confirmed, triggering Triage', {
+          type: anomaly.type,
+          confirmCount: prev.count,
+        });
+        systemHealthCounters.delete(key);
+
+        // Fire-and-forget: triage runs async
+        triageService.handleAlert(anomaly).catch(err => {
+          logger.error('[MonitorService] Triage handleAlert failed', { error: String(err) });
+        });
+      }
+    } else {
+      systemHealthCounters.set(key, { count: 1, firstSeen: now });
+    }
+  }
+
+  // Clear counters for anomalies that have resolved
+  for (const [key, counter] of systemHealthCounters) {
+    if (!activeKeys.has(key)) {
+      systemHealthCounters.delete(key);
+      logger.info('[MonitorService] System anomaly resolved', { type: key, wasSeen: counter.count });
+    }
+  }
+}

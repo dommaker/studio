@@ -208,7 +208,7 @@ class SessionSummaryService {
   private async extractFixPatterns(commits: Array<{ hash: string; type: string; message: string; files: string[] }>): Promise<number> {
     let count = 0;
     try {
-      const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+      const { knowledgeService } = await import('../knowledge/index.js');
 
       for (const c of commits) {
         if (c.type !== 'fix') continue;
@@ -239,7 +239,7 @@ class SessionSummaryService {
 
   private async extractFeatSummaries(commits: Array<{ hash: string; type: string; message: string; files: string[] }>): Promise<void> {
     try {
-      const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+      const { knowledgeService } = await import('../knowledge/index.js');
 
       for (const c of commits) {
         if (c.type !== 'feat') continue;

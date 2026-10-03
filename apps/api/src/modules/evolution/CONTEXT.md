@@ -6,6 +6,7 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `signals.ts` — 路径解析 + 信号加载（traces/outcomes）
 - `generator.ts` — 提案生成器（信号 → 约束提案）。三条链路全部在线（#602）：
   (a) harness usage report 退役候选 → retire 提案（buildConstraintsUsageReport，
@@ -92,6 +93,7 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 ### 注意事项
 
 - 保守策略：信号不足时零提案；`EVOLUTION_ENABLED=false` 关闭每日扫描 trigger（agents/default-triggers），不影响提案卡审批与 admin API
+- **fs 直写保留理由（P2-e 登记）**：applier.ts / constraint-adapter.ts 的裸 fs 全部落在**目标仓 `.harness/`**（config.yml / constraints.yml / reports，非数据区）与 `~/.studio/prompt-overrides/*.md`（markdown 形态 FileStore 不管，路径经 studio-shared `resolvePromptOverridesDir()` 统一入口）；备份/回滚/写后验证纪律要求文件级操作，不收 FileStore。
 - **harness 0.17.1 适配（2026-08-09，ADR-0001）**：E1 完整保留仅拆弹——存量 source='harness-autoEvolve' 提案仅为兼容保留。harness 侧 /evolve /degrade /schedule 端点已删除（见本文 `apps/api/src/modules/harness` 锚点）
 - **#602 Phase 1 全链路打通（2026-09-21）**：四断点全修——(a) 链路改吃 usage report 退役候选（harness 仓 5d0d84a 加公共导出，**ship 前须发布 harness patch 并 bump 本仓 lockfile**）；(b) override 文件接生产读者（knowledge-service injectContext「## 系统约束」段经 renderWithOverride，D3）；EP-0002 自锁修（TTL→stale，D2）；tool:call 埋点写真值（D4，见 agents/loop 锚点）。验收：scratch 环境五步全链路绿（信号→提案→人审→override 落盘→injectContext 消费；当时人审走频道，#623 起走正本卡片）
 - **#623 归位正本卡片（2026-09-22）**：频道文本审核通道（人类回复 approve/reject + EP 编号的文本解析）整体退役，提案改发 review-proposal 正本卡（cardType `evolution_proposal`）到 #系统，审批走通用端点 `/api/v1/review-proposals/evolution/:id/{approve,reject,status}`；存量 `evolution/` 数据零迁移（EP 编号体系保留，admin API decide 路径不动）
@@ -103,3 +105,4 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - 信号面无外部输入口：`loadWindowSignals` 只读三个固定文件源（traces.log + studio-events.jsonl 的 tool:call / knowledge:outcome:*），外部语义信号（如 distill 判出的「疑似过时约束」）要进飞轮须新建摄入机制，不是接线（#622 查实，2026-09-22）
 - 提案必须经人确认后才由 applier 生效，不做自动落地
 - **鉴权（2026-07-24 收紧）**：`/api/v1/evolution` 挂载级 `requireAuth()+requireAdmin()` —— approve/reject/run 直接让约束变更生效，此前仅 requireAuth。
+- **契约驱动（2026-10 批次 3/7）**：evolution.routes.ts 全端点走 core/http.ts defineRoute（契约 packages/studio-contract/src/evolution.ts）。wire 变化：`{ success: true, data }` 壳的 success 标志退役（`{ data }`）；`{ success: false, error: string }` 统一 `{ error: { code, message } }`，EvolutionError code 即 envelope code（NOT_FOUND→404 / CONFLICT→409 / APPLY_FAILED→500 保持）；decide body 的 reason/decidedBy 非字符串原静默忽略现 zod 400。通用提案卡审批端点 /api/v1/review-proposals/evolution/:id/* 归批次 4 未动。

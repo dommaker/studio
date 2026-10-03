@@ -29,7 +29,7 @@
 
 - `send()` 方法自动将 `components`（旧格式按钮）转换为 Discord 按钮格式；新调用应优先使用 `sendHighRiskNotification` 等方法。
 - 高风险会议通知使用 `sendWithConfirmButtons` 生成带确认按钮的Discord消息，中风险使用普通文字通知。
-- 路由 POST `/api/v1/notify/send` 要求请求体必须包含 `type`、`title`、`content`，否则返回 400。挂载点为 `/api/v1/notify`（middleware: admin）。
+- 路由 POST `/api/v1/notify/send` 要求请求体必须包含 `type`、`title`、`content`（zod 校验，含 type/priority 词表——契约驱动迁移 2026-10 批次 5/7：词表外值由透传收紧为 400，无消费方收紧安全），否则返回 400。挂载点为 `/api/v1/notify`（middleware: admin）。响应统一 `{ data: { success, message } }` 壳（原平铺进壳）；契约正本 = `packages/studio-contract/src/outbound-notify.ts`
 - 用户渠道配置端点（`POST /config`、`GET /config/status`）已于 #434（2026-09-02）删除：配置落盘 `~/.studio/notify-config.json` 后无任何发送方消费（真实通路走 env/外部配置），随设置页死配置清理一并移除。
 - `notifyService` 为单例，直接经 `eventBus.publish` 发通知事件，无需注入。
 - 通知发布到事件总线频道为 `'notifications'`，其他模块可通过订阅该频道消费。

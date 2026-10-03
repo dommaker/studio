@@ -87,7 +87,7 @@ describe('§10.6 skill-demotion routes', () => {
       expect(mocks.list).toHaveBeenCalledWith({ status: 'pending' });
     });
 
-    it('?scan=true -> 先扫描再 list（返回 scan 摘要）', async () => {
+    it('?scan=true -> 先扫描再 list（scan 摘要兄弟键已随统一 envelope 退役）', async () => {
       mocks.scanSkillDemotions.mockResolvedValue({ scanned: 5, created: 2 });
       mocks.list.mockReturnValue([]);
 
@@ -95,7 +95,7 @@ describe('§10.6 skill-demotion routes', () => {
       await getHandler.value!(req, res);
 
       expect(mocks.scanSkillDemotions).toHaveBeenCalled();
-      expect(res.json).toHaveBeenCalledWith({ data: [], scan: { scanned: 5, created: 2 } });
+      expect(res.json).toHaveBeenCalledWith({ data: [] });
     });
   });
 
@@ -108,7 +108,7 @@ describe('§10.6 skill-demotion routes', () => {
       await handler.fn(req, res);
 
       expect(mocks.approveDemotion).toHaveBeenCalledWith('p1');
-      expect(res.json).toHaveBeenCalledWith({ success: true, status: 'approved' });
+      expect(res.json).toHaveBeenCalledWith({ data: { success: true, status: 'approved' } });
     });
 
     it('approveDemotion 返回 false -> 404 NOT_FOUND', async () => {
@@ -134,7 +134,7 @@ describe('§10.6 skill-demotion routes', () => {
       await handler.fn(req, res);
 
       expect(mocks.rejectDemotion).toHaveBeenCalledWith('p2');
-      expect(res.json).toHaveBeenCalledWith({ success: true, status: 'rejected' });
+      expect(res.json).toHaveBeenCalledWith({ data: { success: true, status: 'rejected' } });
     });
 
     it('rejectDemotion 返回 false -> 404 NOT_FOUND', async () => {

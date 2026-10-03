@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { channelApi, type LocalProject } from '../../api/channel';
 import type { ChannelListItem, CreateChannelInput } from '../../hooks/useChannelList';
+import { serverErrorMessage } from '../../utils/errorMessage';
 import { Select, Button } from '../ui';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -53,8 +54,8 @@ export function CreateChannelForm({ createChannel, onCreated, onCancel }: Create
       });
       onCreated(ch);
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: string } } };
-      setError(e?.response?.data?.error || '创建失败');
+      // 契约 envelope：{ error: { code, message } }（原 {success:false,error:string} 壳退役）
+      setError(serverErrorMessage(err) ?? '创建失败');
     } finally {
       setCreating(false);
     }

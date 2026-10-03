@@ -1,43 +1,16 @@
-// PMO 页面共享领域类型 — KR / OKR / Project（从 pages/PMOPage.tsx 抽出，纯代码移动）
-export interface KR {
-  id: string;
-  objectiveId: string;
-  title: string;
-  target: number;
-  current: number;
-  unit: string;
-  metricType?: string;
-}
-
-export interface OKRObjective {
-  id: string;
-  title: string;
-  description?: string;
-}
-
-export interface OKR {
-  id: string;
-  title: string;
-  quarter: string;
-  status: string;
-  progress: number;
-  projectCount: number;
-  objectives?: OKRObjective[];
-  keyResults?: KR[];
-}
-
-export interface Project {
-  id: string;
-  pmoNumber: string;
-  title: string;
-  description?: string;
-  status: string;
-  progress: number;
-  createdAt: string;
-  // 🆕 PMO-a: REQ 只读别名 / 交付策略 / 分支 / 杂务标记
-  reqAlias?: string | null;
-  deliveryPolicy?: string;
-  gitBranch?: string | null;
-  isChore?: boolean;
-  OKR?: { id: string; title: string };
-}
+// PMO 页面共享领域类型 — KR / OKR / Project
+// 契约驱动迁移（2026-10 批次 2/7）：手抄 interface 删除，统一 re-export 自
+// @dommaker/studio-contract（原 Project 缺 companyId/okrId/gitRepo/deliveries 等
+// 后端恒返回字段是漂移；OKR objectives/keyResults 可缺省同理）。
+export type {
+  Project,
+  PmoMap,
+  PmoDecision,
+  FogItem,
+  FogStatus,
+  DeliveryLeg,
+  DeliveryPolicy,
+  Okr as OKR,
+  OkrObjective as OKRObjective,
+  OkrKeyResult as KR,
+} from '@dommaker/studio-contract';

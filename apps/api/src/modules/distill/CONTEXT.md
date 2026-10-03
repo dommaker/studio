@@ -10,6 +10,7 @@ GC 候选清单：蒸馏运行后按周期计龄--reference/context 层连续 3 
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `distill-threshold.ts` -- 门槛检测纯函数 + 阈值常量（3/5/7/20）
 - `distill-service.ts` -- 编排（subscribe/maybePropose/runGcCheck）+ prompt + 产出解析 + 两 adapter 审批后动作（executeDistill/executeGc + reject 留痕）
 - `distill-landings.ts` -- 两通道落地实现：skills 提案 / 角色记忆草稿
@@ -26,9 +27,11 @@ GC 候选清单：蒸馏运行后按周期计龄--reference/context 层连续 3 
 
 ### 运行时约定
 
+- **P2-e 存储收口**：`firstCompanyId` 的 companies 目录扫描改走 FileStore `readdir`/`readJson` seam（异步化），不再裸 fs 直读数据区。
 - 人审闸门：LLM 批处理永远有人确认。pending 期间不重复发卡；发卡失败标记 `card-failed`（终态不阻塞）。
 - 蒸馏即消费：approve 成功且产物 >=1 -> 原料 archived；空产出不消费。失败不阻塞（maybePropose 永不抛，失败推进熔断不推进消费基线）。
 - 预算守卫：approve 时查 daily-token-budget；耗尽跳过，提案保持 pending。
 - approve 非事务：崩溃可能留半成品（原料部分归档），重跑由新提案覆盖。
 - topic 来源白名单（#366）：门槛 topic 信号只计 `origin=agent/human` 条目；system（蒸馏产物/规则扫描/历史冷启动灌入）/external/未知来源不凑数不入组——批量同 tag 误触蒸馏的闸门，漏触发由 manual 信号与卡审兜底。「只认创建时自带 tag」未做（需 tag 来源持久化）。
 - 来源标定口径（#371 裁决）：`agent` = 会话沉淀，钦定矿石 session-summary 显式声明；机器流一律 `system` 不计入——monitor 告警（聚集=告警多≠可提炼模式）、knowledge-sync 遥测/design-doc 归档、pattern-miner 统计挖掘产物（#366 误触提案卡 pat-* 实证参与者）、resolution 自动落盘。`recordPattern` 缺省 `system`（fail-closed），经该门面的写入路径漏标来源不会误触——绕过门面直调 store 的写入仍须显式标定；存量 44 条经 studio-config/bin/knowledge-relabel-origins-371 一次性重标。
+- **契约驱动迁移（2026-10 批次 7/8）结论**：本模块无自有 HTTP 面——提案卡 approve/reject/status 全走 /review-proposals 通用端点（批次 4 已迁），前端 api/distill.ts 亦只消费该面。

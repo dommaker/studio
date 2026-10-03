@@ -25,8 +25,10 @@
 
 ### 注意事项
 
+- **worktrees 目录口径（P2-e）**：`progress` 子命令读 `<worktreesDir>/<execId>/.progress.json`，目录解析 `WORKTREES_DIR > studioPath('worktrees')`（契约 §8 双口径收编；progress 文件是 CLI 进程产物，FileStore 不管）。
 - 签名验证必须优先于任何业务逻辑，Discord 会通过无效签名请求检测服务器是否验证
 - 必须配置环境变量 `DISCORD_PUBLIC_KEY`，否则交互端点返回 500
 - `triggerRequirement` 依赖 `#研发` 频道存在，否则抛出错误
 - WorkUnit 创建时 `creationMode` 标记为 `'discord'`，用于区分来源
 - **WU 写路径走 service 单口（#538，ADR 2026-09-15 决策 2）**：按钮 retry/retry-new = `unclaim` 回池 + 重试标记（resumeAfterRetry/extraRounds/freshPrompt）经 WorkUnitService `updateMetadata` 语义口锁内合并（#554 起不再直摸 FileStore 原语）；abandon 与 `/studio stop` = `WorkUnitService.close()`（#550 状态机单口，closedBy: human-command，补 closedAt + status_changed + workunit:closed 记录 + 频道出声；decision/spec 无 closed 边 → 状态机抛错拒绝；#555 起路由层区分「not found」与「状态机拒绝/落库失败」，后者回真实原因不再误报 not found）。旧 closeAndEmit/updateWorkUnitStatus 直写原语已删（metadata 整写覆盖、不写 closedAt、不发事件三宗罪），legacy `events:goal-execution` 事件随 Goal 体系退役停发。测试：`__tests__/routes.test.ts`（按钮两路径 + stop 收口）与 `__tests__/routes-stop.test.ts`（stop 委托 agentRunner）
+- **契约驱动迁移（2026-10 批次 7/8）**：/interactions 为协议面例外保持原样（express.raw Ed25519 签名优先于一切解析，响应 `{ type, data.content }` 由 Discord 协议定形），出参形状声明在 studio-contract discord.ts。

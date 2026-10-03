@@ -27,72 +27,19 @@
  */
 
 import { eventBus, logger, createSettledTracker, type FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import { ChannelMessageService } from '../channels/channel-message.service.js';
+import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
+import { parseWuMetadata } from '../workunit/index.js';
+import { ChannelMessageService } from '../channels/index.js';
 import { projectService, resolveDeliveries, type ProjectData } from './project.service.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
+import { getStore } from '../../core/store.js';
 
-/** 物化任务条数上限（照 MAP_OPENING_FOG_MAX 先例防刷屏） */
-export const SPEC_TASKS_MAX = 12;
 
-/** 单行物化规格（TASK 行解析结果） */
-export interface SpecTaskSpec {
-  title: string;
-  ac: string[];
-  blockedBy: string[];
-  /** 交付腿 gitRepo（未指定为 undefined；是否命中项目在物化时判定） */
-  leg?: string;
-}
-
-/**
- * 从人工确认文本提取物化清单。逐行解析 `TASK:` 行，段内 `KEY: value`
- * 兼容中英文冒号；非约定行/非约定段原样忽略（确认文本可同时写其他结论）。
- */
-export function parseSpecTasks(summary: string): SpecTaskSpec[] {
-  const tasks: SpecTaskSpec[] = [];
-  for (const line of summary.split('\n')) {
-    const head = line.match(/^\s*TASK\s*[:：]\s*(.+?)\s*$/i);
-    if (!head || tasks.length >= SPEC_TASKS_MAX) continue;
-    const segments = head[1]!.split('|');
-    const task: SpecTaskSpec = { title: segments[0]!.trim(), ac: [], blockedBy: [] };
-    if (!task.title) continue;
-    for (const seg of segments.slice(1)) {
-      const m = seg.match(/^\s*(AC|BLOCKEDBY|LEG)\s*[:：]\s*(.+?)\s*$/i);
-      if (!m) continue;
-      const [, key, value] = m;
-      if (!value) continue;
-      switch (key.toUpperCase()) {
-        case 'AC':
-          task.ac.push(value);
-          break;
-        case 'BLOCKEDBY':
-          task.blockedBy.push(...value.split(/[,，]/).map(s => s.trim()).filter(Boolean));
-          break;
-        case 'LEG':
-          if (task.leg === undefined) task.leg = value;
-          break;
-      }
-    }
-    tasks.push(task);
-  }
-  return tasks;
-}
-
-/**
- * #463：SpecTaskSpec 清单 → TASK 物化行文本（parseSpecTasks 的逆运算，同一契约正本）。
- * 确认表单（review-passed confirm body）由后端序列化进 l3.summary——人永远不接触魔法行。
- * 空清单 → 空串（调用方据此不落 summary，哨兵不落档可补确认）。
- */
-export function serializeSpecTasks(tasks: SpecTaskSpec[]): string {
-  return tasks.map(task => {
-    const segments = [`TASK: ${task.title}`];
-    for (const ac of task.ac) segments.push(`AC: ${ac}`);
-    if (task.blockedBy.length > 0) segments.push(`BLOCKEDBY: ${task.blockedBy.join(',')}`);
-    if (task.leg) segments.push(`LEG: ${task.leg}`);
-    return segments.join(' | ');
-  }).join('\n');
-}
+/** 物化任务条数上限（照 MAP_OPENING_FOG_MAX 先例防刷屏）
+ *  P2-c：SPEC_TASKS_MAX / SpecTaskSpec / parseSpecTasks / serializeSpecTasks 正本下沉
+ *  @dommaker/studio-shared spec-tasks-codec.ts（跨域 wire 契约），此处转介保持 pmo 公共面不变 */
+import { parseSpecTasks } from '@dommaker/studio-shared';
+export { SPEC_TASKS_MAX, parseSpecTasks, serializeSpecTasks, type SpecTaskSpec } from '@dommaker/studio-shared';
 
 export class SpecMaterialization {
   private subscribed = false;
@@ -233,8 +180,8 @@ let _specMaterialization: SpecMaterialization | null = null;
 export function initSpecMaterialization(fileStore?: FileStore): SpecMaterialization {
   if (!_specMaterialization) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
-    const { WorkUnitService } = require('../workunit/workunit.service.js') as typeof import('../workunit/workunit.service.js');
-    const fs = fileStore ?? new FileStore();
+    const { WorkUnitService } = require('../workunit/index.js') as typeof import('../workunit/index.js');
+    const fs = fileStore ?? getStore();
     _specMaterialization = new SpecMaterialization(fs, new WorkUnitService(fs));
   }
   _specMaterialization.subscribeToEvents();

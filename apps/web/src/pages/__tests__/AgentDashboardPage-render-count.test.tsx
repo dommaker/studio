@@ -87,10 +87,10 @@ describe('AgentDashboardPage — #348 stream chunk 掀不掀静态卡', () => {
     mockTerminateInstance.mockResolvedValue({});
     mockListAllAgents.mockResolvedValue({ data: { data: [profile('p1', 'dev-agent'), profile('p2', 'ops-agent')] } });
     mockGetAgentSummary.mockResolvedValue({
-      data: {
+      data: { data: {
         agents: [instance('p1', 'i1', 'wu-1', '实现登录接口'), instance('p2', 'i2', 'wu-2', '清理定时任务')],
         summary: { total: 2, idle: 0, active: 2, error: 0, terminated: 0 },
-      },
+      } },
     });
     mockListChannels.mockResolvedValue({ data: { success: true, data: [] } });
     mockWuList.mockResolvedValue({ data: { data: [], total: 0, page: 1, limit: 20 } });

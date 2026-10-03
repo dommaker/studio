@@ -12,7 +12,9 @@
  */
 
 import { FileStore, type RuntimeStateData } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit/workunit.service.js';
+import { WorkUnitService } from '../workunit/index.js';
+import { getStore } from '../../core/store.js';
+
 
 const VALID_STATUSES = ['idle', 'active', 'terminated'] as const;
 
@@ -85,7 +87,7 @@ export class AgentInstanceService {
   private workUnitService: WorkUnitService;
 
   constructor(fileStore?: FileStore) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
     this.workUnitService = new WorkUnitService(this.fileStore);
   }
 

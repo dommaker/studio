@@ -1,20 +1,34 @@
 // Specs API 路由
 // SP-002: Spec 变更分级流程
+//
+// 契约驱动迁移（2026-10 批次 3/7）：全部端点走 core/http.ts defineRoute——
+// oldVersion/newVersion/data 手写 guard 收进 zod；GET /gates/:level 非法 level
+// 原 200 空体边缘收紧为 zod 400；统一 envelope（原已带 `{ data }` 壳，形状不变；
+// export 附件下载 handler 自写 res 不进壳）。无前端消费方。
 
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import {
-  ChangeAnalyzerService,
-  ChangeHistoryService,
-  GateCheckerService,
+  specIdParamsSchema,
+  changeIdParamsSchema,
+  gateLevelParamsSchema,
+  listSpecChangesQuerySchema,
+  analyzeChangeBodySchema,
+  validateChangeBodySchema,
+  importChangesBodySchema,
+  ERROR_CODES,
+  type ChangeLevel,
+} from '@dommaker/studio-contract';
+import {
   changeAnalyzerService,
   changeHistoryService,
   gateCheckerService,
 } from '@dommaker/studio-spec';
-import { logger } from '@dommaker/studio-shared';
-import { parsePagination, sendPaginated } from '../../utils/pagination.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { defineRoute, HttpError, paginated } from '../../core/http.js';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（读 + analyze-change，registry 挂 auth）/ write（changes validate +
+// changes import，registry 挂 authNotGuest）拆 router，路由内不再挂鉴权。
+const openRoutes = Router();
+const writeRoutes = Router();
 
 // ========================================
 // 变更分析 API
@@ -24,31 +38,16 @@ const router = Router();
  * POST /api/v1/specs/:id/analyze-change
  * 分析变更级别
  */
-router.post('/:id/analyze-change', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { oldVersion, newVersion } = req.body;
-
-    if (!oldVersion || !newVersion) {
-      return res.status(400).json({
-        error: 'Missing oldVersion or newVersion',
-      });
-    }
-
-    const result = await changeAnalyzerService.analyze({
-      specId: id,
-      oldVersion,
-      newVersion,
+openRoutes.post('/:id/analyze-change', defineRoute(
+  { params: specIdParamsSchema, body: analyzeChangeBodySchema },
+  async (_req, _res, { params, body }) => {
+    return changeAnalyzerService.analyze({
+      specId: params.id,
+      oldVersion: body.oldVersion as never,
+      newVersion: body.newVersion as never,
     });
-
-    res.json({
-      data: result,
-    });
-  } catch (error) {
-    logger.error('Failed to analyze change', { error: String(error) });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+  },
+));
 
 // ========================================
 // 变更提交 API（已删除 - SpecChangeRequest 表移除）
@@ -58,22 +57,14 @@ router.post('/:id/analyze-change', async (req: Request, res: Response) => {
  * GET /api/v1/specs/changes/:changeId
  * 获取变更详情
  */
-router.get('/changes/:changeId', async (req: Request, res: Response) => {
-  try {
-    const { changeId } = req.params;
-
-    const record = changeHistoryService.get(changeId);
-
-    if (!record) {
-      return res.status(404).json({ error: 'Change not found' });
-    }
-
-    res.json({ data: record });
-  } catch (error) {
-    logger.error('Failed to get change', { error: String(error) });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+openRoutes.get('/changes/:changeId', defineRoute(
+  { params: changeIdParamsSchema },
+  async (_req, _res, { params }) => {
+    const record = changeHistoryService.get(params.changeId);
+    if (!record) throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Change not found');
+    return record;
+  },
+));
 
 // ========================================
 // 门禁验证 API
@@ -83,56 +74,37 @@ router.get('/changes/:changeId', async (req: Request, res: Response) => {
  * POST /api/v1/specs/changes/:changeId/validate
  * 门禁验证
  */
-router.post('/changes/:changeId/validate', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const { changeId } = req.params;
-    const { checkpoints, harnessConfigs, strictMode } = req.body;
-
-    const result = await gateCheckerService.validate({
-      changeId,
-      checkpoints,
-      harnessConfigs,
+writeRoutes.post('/changes/:changeId/validate', defineRoute(
+  { params: changeIdParamsSchema, body: validateChangeBodySchema },
+  async (_req, _res, { params, body }) => {
+    const { checkpoints, harnessConfigs, strictMode } = body;
+    return gateCheckerService.validate({
+      changeId: params.changeId,
+      checkpoints: checkpoints as never,
+      harnessConfigs: harnessConfigs as never,
       strictMode,
     });
-
-    res.json({ data: result });
-  } catch (error) {
-    logger.error('Failed to validate change', { error: String(error) });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+  },
+));
 
 /**
  * GET /api/v1/specs/gates/:level
  * 获取门禁策略
  */
-router.get('/gates/:level', async (req: Request, res: Response) => {
-  try {
-    const { level } = req.params;
-
-    const policy = gateCheckerService.getPolicy(level as 'L1' | 'L2' | 'L3' | 'L4');
-
-    res.json({ data: policy });
-  } catch (error) {
-    logger.error('Failed to get gate policy', { error: String(error) });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+openRoutes.get('/gates/:level', defineRoute(
+  { params: gateLevelParamsSchema },
+  async (_req, _res, { params }) => {
+    return gateCheckerService.getPolicy(params.level as ChangeLevel);
+  },
+));
 
 /**
  * GET /api/v1/specs/gates
  * 获取所有门禁策略
  */
-router.get('/gates', async (req: Request, res: Response) => {
-  try {
-    const policies = gateCheckerService.getAllPolicies();
-
-    res.json({ data: policies });
-  } catch (error) {
-    logger.error('Failed to get all gate policies', { error: String(error) });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+openRoutes.get('/gates', defineRoute({}, async () => {
+  return gateCheckerService.getAllPolicies();
+}));
 
 // ========================================
 // 变更历史 API
@@ -142,80 +114,58 @@ router.get('/gates', async (req: Request, res: Response) => {
  * GET /api/v1/specs/:id/changes
  * 获取 Spec 的变更历史
  */
-router.get('/:id/changes', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { page, limit, offset } = parsePagination(req);
+openRoutes.get('/:id/changes', defineRoute(
+  { params: specIdParamsSchema, query: listSpecChangesQuerySchema },
+  async (_req, _res, { params, query }) => {
+    // 与 utils/pagination.ts parsePagination 同口径（clamp 1..100，缺省 1/20）
+    const page = Math.max(1, parseInt(query.page ?? '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? '20', 10) || 20));
+    const offset = (page - 1) * limit;
 
-    const allRecords = changeHistoryService.getHistory(id);
+    const allRecords = changeHistoryService.getHistory(params.id);
     const total = allRecords.length;
     const records = allRecords.slice(offset, offset + limit);
 
-    sendPaginated(res, records, total, page, limit);
-  } catch (error) {
-    logger.error('Failed to get change history', { error: String(error) });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+    return paginated(records, { page, limit, total, totalPages: Math.ceil(total / limit) });
+  },
+));
 
 /**
  * GET /api/v1/specs/:id/changes/stats
  * 获取变更统计
  */
-router.get('/:id/changes/stats', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    const stats = changeHistoryService.getStats(id);
-
-    res.json({ data: stats });
-  } catch (error) {
-    logger.error('Failed to get change stats', { error: String(error) });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+openRoutes.get('/:id/changes/stats', defineRoute(
+  { params: specIdParamsSchema },
+  async (_req, _res, { params }) => {
+    return changeHistoryService.getStats(params.id);
+  },
+));
 
 /**
  * GET /api/v1/specs/:id/changes/export
- * 导出变更历史
+ * 导出变更历史（附件下载，handler 自写 res 不进 envelope）
  */
-router.get('/:id/changes/export', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    const data = changeHistoryService.export(id);
-
+openRoutes.get('/:id/changes/export', defineRoute(
+  { params: specIdParamsSchema },
+  async (_req, res, { params }) => {
+    const data = changeHistoryService.export(params.id);
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', `attachment; filename="${id}-changes.json"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${params.id}-changes.json"`);
     res.send(data);
-  } catch (error) {
-    logger.error('Failed to export change history', { error: String(error) });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+    return undefined;
+  },
+));
 
 /**
  * POST /api/v1/specs/:id/changes/import
  * 导入变更历史
  */
-router.post('/:id/changes/import', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { data } = req.body;
+writeRoutes.post('/:id/changes/import', defineRoute(
+  { params: specIdParamsSchema, body: importChangesBodySchema },
+  async (_req, _res, { params, body }) => {
+    const count = changeHistoryService.import(params.id, body.data!);
+    return { imported: count };
+  },
+));
 
-    if (!data) {
-      return res.status(400).json({ error: 'Missing data' });
-    }
-
-    const count = changeHistoryService.import(id, data);
-
-    res.json({
-      data: { imported: count },
-    });
-  } catch (error) {
-    logger.error('Failed to import change history', { error });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-export default router;
+export { openRoutes as specsOpenRoutes, writeRoutes as specsWriteRoutes };

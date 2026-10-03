@@ -36,7 +36,9 @@ const { mockRecordPattern, mockLoggerWarn } = vi.hoisted(() => ({
   mockLoggerWarn: vi.fn(),
 }));
 
-vi.mock('../../knowledge/knowledge-service.js', () => ({
+// P2-c：mock 目标从深路径改模块根 barrel（SUT 动态 import 的就是 barrel；
+// 深路径 mock 挡不住 barrel 拉起的兄弟文件在 studio-shared 全量 mock 下炸链）
+vi.mock('../../knowledge/index.js', () => ({
   knowledgeService: { recordPattern: mockRecordPattern },
 }));
 

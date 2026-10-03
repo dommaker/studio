@@ -59,15 +59,15 @@ const setup = (messages: ChannelMessage[], channelId: string | undefined = 'ch-1
 describe('useChannelCardActions — action → api 映射', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockKnApprove.mockResolvedValue({ data: { success: true } });
+    mockKnApprove.mockResolvedValue({ data: { data: { success: true } } });
     mockKnReject.mockResolvedValue({});
-    mockMemApprove.mockResolvedValue({ data: { success: true } });
+    mockMemApprove.mockResolvedValue({ data: { data: { success: true } } });
     mockMemReject.mockResolvedValue({});
-    mockDistillApprove.mockResolvedValue({ data: { success: true } });
+    mockDistillApprove.mockResolvedValue({ data: { data: { success: true } } });
     mockDistillReject.mockResolvedValue({});
-    mockGcApprove.mockResolvedValue({ data: { success: true } });
+    mockGcApprove.mockResolvedValue({ data: { data: { success: true } } });
     mockGcReject.mockResolvedValue({});
-    mockAudApprove.mockResolvedValue({ data: { success: true } });
+    mockAudApprove.mockResolvedValue({ data: { data: { success: true } } });
     mockAudReject.mockResolvedValue({});
     mockRetractDecide.mockResolvedValue({});
   });
@@ -95,7 +95,7 @@ describe('useChannelCardActions — action → api 映射', () => {
 
   it('knowledge_proposal：approve success=false → false 不 refresh；proposalId 缺 → false 且不调 api', async () => {
     const { dispatch, refresh } = setup([msg('m1', { proposalId: 'kp-1' }), msg('m2', { entries: [{ id: 'k-1' }] })]);
-    mockKnApprove.mockResolvedValue({ data: { success: false } });
+    mockKnApprove.mockResolvedValue({ data: { data: { success: false } } });
     await expect(dispatch()('m1', 'knowledge_proposal_approve')).resolves.toBe(false);
     expect(refresh).not.toHaveBeenCalled();
 
@@ -119,7 +119,7 @@ describe('useChannelCardActions — action → api 映射', () => {
     await expect(dispatch()('m1', 'memory_proposal_approve')).resolves.toBe(false);
     expect(mockMemApprove).not.toHaveBeenCalled();
 
-    mockMemApprove.mockResolvedValue({ data: { success: false } });
+    mockMemApprove.mockResolvedValue({ data: { data: { success: false } } });
     await expect(dispatch()('m2', 'memory_proposal_approve')).resolves.toBe(false);
     expect(refresh).not.toHaveBeenCalled();
   });
@@ -130,7 +130,7 @@ describe('useChannelCardActions — action → api 映射', () => {
     await expect(dispatch()('m1', 'distill_proposal_approve')).resolves.toBe(true);
     expect(mockDistillApprove).toHaveBeenCalledWith('p-1');
 
-    mockDistillApprove.mockResolvedValue({ data: { success: false } });
+    mockDistillApprove.mockResolvedValue({ data: { data: { success: false } } });
     await expect(dispatch()('m1', 'distill_proposal_approve')).resolves.toBe(false);
     expect(refresh).toHaveBeenCalledTimes(1); // 仅第一次成功 refresh
 

@@ -45,7 +45,7 @@ const loadSkill: RegisteredTool = {
     }
 
     // 2. Try file-based loading via SkillLoaderService
-    const { skillLoaderService } = await import('../skills/skill-loader.js');
+    const { skillLoaderService } = await import('../skills/index.js');
     const loaded = await skillLoaderService.loadSkill({
       sessionId: `mcp-${Date.now()}`,
       skillName,

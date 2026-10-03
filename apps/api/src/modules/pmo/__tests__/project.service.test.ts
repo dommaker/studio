@@ -33,11 +33,28 @@ const {
 }));
 
 // ── Mock FileStore ──
-vi.mock('@dommaker/studio-shared', () => ({
+vi.mock('@dommaker/studio-shared', () => ({ createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), stripTrailingSlashes: (s) => s,
+  // P2-b：studio-notification 模块级单例经持有器取 store，wholesale mock 需补此出口
+  getDefaultFileStore: () => ({}),
   FileStore: vi.fn().mockImplementation(function () { return {
     readJson: mockReadJson,
     writeJson: mockWriteJson,
     readJsonl: mockReadJsonl,
+    // P2-e：project.service 目录清单收口 listJsonInDir——mock 以 mockReadDir/mockReadJson
+    // 复刻 seam 语义（.json 过滤 + 逐文件读 + ENOENT/损坏跳过），既有 per-test 控制面不变
+    listJsonInDir: async (dir: string) => {
+      let entries: Array<string | { name?: string; isFile?: () => boolean }>;
+      try { entries = await mockReadDir(dir); } catch { return []; }
+      const out: unknown[] = [];
+      for (const e of entries) {
+        const name = typeof e === 'string' ? e : e?.name ?? '';
+        if (!name.endsWith('.json')) continue;
+        if (typeof e === 'object' && typeof e.isFile === 'function' && !e.isFile()) continue;
+        const data = await mockReadJson(`${dir}/${name}`);
+        if (data) out.push(data);
+      }
+      return out;
+    },
     // #466：publish 查频道路由表（本测试不关心路由，恒无配置 → 回池涌现现状）
     getChannel: vi.fn().mockResolvedValue(null),
     getProfile: vi.fn().mockResolvedValue(null),

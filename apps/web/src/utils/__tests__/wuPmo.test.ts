@@ -30,7 +30,7 @@ const wu = (over: Partial<WorkUnit> = {}): WorkUnit =>
 describe('resolveWuPmo（单 WU 归属解析）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockProjectGet.mockResolvedValue({ data: PMO });
+    mockProjectGet.mockResolvedValue({ data: { data: PMO } });
   });
 
   it('metadata.pmoId 归因戳优先直查（有 reqId 也不查 requirement）', async () => {
@@ -71,7 +71,7 @@ describe('resolveWuPmo（单 WU 归属解析）', () => {
   });
 
   it('项目响应缺 pmoNumber（非 PMO 形状）→ null', async () => {
-    mockProjectGet.mockResolvedValue({ data: { id: 'proj-1' } });
+    mockProjectGet.mockResolvedValue({ data: { data: { id: 'proj-1' } } });
     expect(await resolveWuPmo(wu({ metadata: JSON.stringify({ pmoId: 'proj-1' }) }))).toBeNull();
   });
 });
@@ -79,7 +79,7 @@ describe('resolveWuPmo（单 WU 归属解析）', () => {
 describe('resolveWuPmoBatch（批量去重）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockProjectGet.mockResolvedValue({ data: PMO });
+    mockProjectGet.mockResolvedValue({ data: { data: PMO } });
     mockRequirementGet.mockResolvedValue({ data: { data: { projectId: 'proj-1' } } });
   });
 

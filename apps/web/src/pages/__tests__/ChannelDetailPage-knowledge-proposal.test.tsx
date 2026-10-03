@@ -98,7 +98,7 @@ describe('ChannelDetailPage — knowledge_proposal 审核分发', () => {
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-sys', name: '系统', type: 'system', members: '[]' } } });
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
-    mockApiPost.mockResolvedValue({ data: { success: true } });
+    mockApiPost.mockResolvedValue({ data: { data: { success: true } } });
   });
 
   it('approve → 整卡一次 POST /review-proposals/knowledge/:proposalId/approve，卡片显示已审核', async () => {

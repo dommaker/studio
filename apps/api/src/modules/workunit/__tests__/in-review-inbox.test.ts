@@ -11,10 +11,11 @@ import { FileStore } from '@dommaker/studio-shared';
 
 const { mockDispatch } = vi.hoisted(() => ({ mockDispatch: vi.fn() }));
 
-vi.mock('../../agents/monitor/monitor-alerts.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../agents/monitor/monitor-alerts.js')>();
-  return { ...actual, dispatchMonitorAlerts: (...args: unknown[]) => mockDispatch(...args) };
-});
+vi.mock('../../agent-monitor/index.js', () => ({
+  // P2-c：in-review-inbox 改经模块根 barrel 动态 import——mock 目标同步改到 barrel
+  // P2-d 刀6：dispatchMonitorAlerts 随 monitor 迁出，barrel 同步改 agent-monitor
+  dispatchMonitorAlerts: (...args: unknown[]) => mockDispatch(...args),
+}));
 
 import { initInReviewInbox } from '../in-review-inbox.js';
 import { WorkUnitService } from '../workunit.service.js';
@@ -39,6 +40,11 @@ afterAll(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+/** P2-c：订阅回调改异步（动态 import）——负向断言前等其跑完，防真空通过 */
+async function settleInbox(): Promise<void> {
+  await new Promise(r => setTimeout(r, 100));
+}
+
 /** 建 active WU 并迁入 in_review（走真实 status_changed 发射） */
 async function transitToInReview(input: Parameters<WorkUnitService['create']>[0]) {
   const wu = await service.create({ ...input, status: 'active' });
@@ -50,7 +56,8 @@ describe('#464 无频道 in_review 收件箱', () => {
   it('无频道 task 进 in_review → 收件箱告警（warning + relatedTaskIds 带 wuId）', async () => {
     const wu = await transitToInReview({ scope: '无频道评审单', type: 'task' });
 
-    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    // P2-c：订阅回调内改动态 import（异步），断言前等微任务链落地
+    await vi.waitFor(() => expect(mockDispatch).toHaveBeenCalledTimes(1));
     const [alerts] = mockDispatch.mock.calls[0];
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({
@@ -64,6 +71,7 @@ describe('#464 无频道 in_review 收件箱', () => {
 
   it('analysis 类型不走本路径（analysis-handoff 既有收件箱，不重复出声）', async () => {
     await transitToInReview({ scope: '分析单', type: 'analysis' });
+    await settleInbox();
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 
@@ -76,12 +84,14 @@ describe('#464 无频道 in_review 收件箱', () => {
       createdAt: now, updatedAt: now,
     });
     await transitToInReview({ scope: '有频道评审单', type: 'task', channelId: 'ch-ir' });
+    await settleInbox();
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 
   it('迁入非 in_review 状态 → 不出声', async () => {
     const wu = await service.create({ scope: '普通单', type: 'task', status: 'unassigned' });
     await service.transitionStatus(wu.id, 'active');
+    await settleInbox();
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 });

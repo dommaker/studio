@@ -7,8 +7,9 @@ import path from 'node:path';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { isTestEnv, resolveStudioLogsDir } from '../../utils/studio-log-path.js';
+import { getStore } from '../../core/store.js';
 
-const fileStore = new FileStore();
+
 const PERMS_PATH = studioPath('mcp-permissions.json');
 // P0 修复 5：测试（VITEST / NODE_ENV=test）改写到 os.tmpdir()/studio-test-logs，生产路径不变
 const AUDIT_PATH = isTestEnv()
@@ -40,11 +41,11 @@ export class MCPPermissionService {
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 min
 
   private async readPerms(): Promise<MCPPermissionRecord[]> {
-    return (await fileStore.readJson<MCPPermissionRecord[]>(PERMS_PATH)) ?? [];
+    return (await getStore().readJson<MCPPermissionRecord[]>(PERMS_PATH)) ?? [];
   }
 
   private async writePerms(perms: MCPPermissionRecord[]): Promise<void> {
-    await fileStore.writeJson(PERMS_PATH, perms);
+    await getStore().writeJson(PERMS_PATH, perms);
   }
 
   /**
@@ -124,7 +125,7 @@ export class MCPPermissionService {
         error: params.error,
         createdAt: new Date().toISOString(),
       };
-      await fileStore.appendJsonl(AUDIT_PATH, log);
+      await getStore().appendJsonl(AUDIT_PATH, log);
     } catch (error) {
       logger.error('[MCP Audit] Failed to log', { error: String(error) });
     }
@@ -140,7 +141,7 @@ export class MCPPermissionService {
     limit?: number;
     offset?: number;
   }): Promise<{ logs: any[]; total: number }> {
-    let logs = await fileStore.readJsonl<MCPAuditLogRecord>(AUDIT_PATH);
+    let logs = await getStore().readJsonl<MCPAuditLogRecord>(AUDIT_PATH);
 
     if (params.toolName) logs = logs.filter(l => l.toolName === params.toolName);
     if (params.roleId) logs = logs.filter(l => l.roleId === params.roleId);
@@ -162,11 +163,11 @@ export class MCPPermissionService {
    */
   async cleanupAudit(retentionDays = 30): Promise<number> {
     const cutoff = new Date(Date.now() - retentionDays * 86400_000);
-    const all = await fileStore.readJsonl<MCPAuditLogRecord>(AUDIT_PATH);
+    const all = await getStore().readJsonl<MCPAuditLogRecord>(AUDIT_PATH);
     const filtered = all.filter(l => new Date(l.createdAt) >= cutoff);
     const removed = all.length - filtered.length;
     if (removed > 0) {
-      await fileStore.writeJsonl(AUDIT_PATH, filtered);
+      await getStore().writeJsonl(AUDIT_PATH, filtered);
       logger.info(`[MCP Audit] Cleaned up ${removed} old logs`);
     }
     return removed;
@@ -213,7 +214,7 @@ export async function seedDefaultPermissions(toolNames: string[], externalToolNa
   let seeded = 0;
   let corrected = 0;
 
-  const perms = await fileStore.readJson<MCPPermissionRecord[]>(PERMS_PATH) ?? [];
+  const perms = await getStore().readJson<MCPPermissionRecord[]>(PERMS_PATH) ?? [];
 
   for (const roleId of systemRoles) {
     for (const toolName of toolNames) {
@@ -245,7 +246,7 @@ export async function seedDefaultPermissions(toolNames: string[], externalToolNa
   }
 
   if (seeded > 0 || corrected > 0) {
-    await fileStore.writeJson(PERMS_PATH, perms);
+    await getStore().writeJson(PERMS_PATH, perms);
     logger.info(`[MCP Permission] Seeded ${seeded} default permissions for ${systemRoles.length} roles, corrected ${corrected} dangerous-tool grants`);
   }
 }

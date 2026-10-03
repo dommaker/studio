@@ -1,20 +1,12 @@
 // DiscussionPanel — WorkUnit 讨论空间（MVP-4）
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { workunitApi } from '../api/workunit';
+import { workunitApi, type DiscussionMessage } from '../api/workunit';
 import { AuthorAvatar } from './channel/AuthorAvatar';
 import { SkeletonText } from './ui';
 import { toast } from '../utils/toast';
 
-interface Message {
-  id: string;
-  content: string;
-  authorType: string;
-  agentName?: string;
-  createdAt: string;
-}
-
 export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<DiscussionMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -32,8 +24,7 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
     setLoading(true);
     try {
       const { data } = await workunitApi.getMessages(workUnitId);
-      const resp = data as { data?: Message[] } | Message[];
-      setMessages(Array.isArray(resp) ? resp : resp?.data ?? []);
+      setMessages(data.data?.messages ?? []);
     } catch (e) {
       // 批次 E-2：失败不静默——console 留调试 + toast 可见反馈
       console.error('Failed to load messages:', e);

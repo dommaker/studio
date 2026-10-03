@@ -24,17 +24,18 @@ vi.mock('../../api/monitoring', () => ({
   monitoringApi: {
     getOverview: mockGetOverview,
     getFlywheel: mockGetFlywheel.mockResolvedValue({
-      data: {
+      // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+      data: { data: {
         quality: 42, hitRate: 67, improvement: 10, freshness: 80,
         source: 'events',
         proposalsPendingReview: 3,
         extraction: { count30d: 2, totalTokens30d: 1500 },
         windowDays: 30,
         timestamp: '2026-07-19T00:00:00Z',
-      },
+      } },
     }),
     getOverhead: mockGetOverhead.mockResolvedValue({
-      data: {
+      data: { data: {
         windowDays: 30, executions: 4, workUnits: 3,
         avgInjectedTokens: 800, injectedBudget: 2000, injectedBudgetUsedPct: 40,
         avgExecutionTokens: 20000, executionCoveragePct: 100,
@@ -42,7 +43,7 @@ vi.mock('../../api/monitoring', () => ({
         extractionTokens: 1500,
         source: 'events',
         timestamp: '2026-07-19T00:00:00Z',
-      },
+      } },
     }),
     getEfficiency: mockGetEfficiency,
   },
@@ -81,7 +82,7 @@ import { MonitoringPage } from '../MonitoringPage';
 /** 默认 overview 响应：evidence + roles + humanIntervention 三段（#398 起消费） */
 function defaultOverview() {
   return {
-    data: {
+    data: { data: {
       evidence: {
         engaged: 6, l1Approved: 5, l2Approved: 4, l3Approved: 2,
         selfReviewCount: 1, needsHuman: 3, derivedMismatch: 0,
@@ -97,14 +98,14 @@ function defaultOverview() {
         completedWorkUnits: 12, needInputCount: 7, reviewRejections: 3, mergeConflicts: 2,
         avgPerCompletedWu: 1.0,
       },
-    },
+    } },
   };
 }
 
 /** #120 输入缓存命中率（默认空数据形态；source='events' 形态见专项用例） */
 function emptyEfficiency() {
   return {
-    data: {
+    data: { data: {
       windowDays: 30,
       generatedAt: '2026-08-14T00:00:00Z',
       cacheHitRate: {
@@ -119,7 +120,7 @@ function emptyEfficiency() {
         totals: { trimEvents: 0, totalOriginalTokens: 0, totalTrimmedTokens: 0 },
         source: 'insufficient-data',
       },
-    },
+    } },
   };
 }
 
@@ -134,17 +135,17 @@ describe('MonitoringPage', () => {
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
     mockListPendingReview.mockResolvedValue({
-      data: {
+      data: { data: {
         entries: [
           { id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall', maturity: 'draft', created: new Date(Date.now() - 2 * 3600_000).toISOString() },
           { id: 'k-2', title: '登录流程统一走 auth-service', type: 'guideline', maturity: 'draft', created: new Date(Date.now() - 26 * 3600_000).toISOString() },
         ],
         total: 2,
-      },
+      } },
     });
     mockPromote.mockResolvedValue({ data: { success: true } });
     mockDemote.mockResolvedValue({ data: { success: true } });
-    mockEventSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
+    mockEventSearch.mockResolvedValue({ data: { data: { events: [], total: 0, nextCursor: null } } });
     document.querySelector('#toast-container')?.replaceChildren(); // 只清子节点——toast.ts 模块级缓存 container 引用，remove 会让后续 toast 挂到游离节点
   });
 
@@ -263,7 +264,7 @@ describe('MonitoringPage', () => {
 
   it('输入缓存命中率图表化：byDay 柱 + byRole 横条（events 形态）', async () => {
     mockGetEfficiency.mockResolvedValue({
-      data: {
+      data: { data: {
         windowDays: 30,
         generatedAt: '2026-08-14T00:00:00Z',
         cacheHitRate: {
@@ -278,8 +279,8 @@ describe('MonitoringPage', () => {
           ],
           coveragePct: 80, source: 'events',
         },
-        sectionTrim: emptyEfficiency().data.sectionTrim,
-      },
+        sectionTrim: emptyEfficiency().data.data.sectionTrim,
+      } },
     });
     render(<MonitoringPage />);
     await openMetrics();
@@ -431,13 +432,13 @@ describe('MonitoringPage', () => {
 
   it('查询：带 level/type/keyword/until 调 eventsApi.search 并渲染结果', async () => {
     mockEventSearch.mockResolvedValue({
-      data: {
+      data: { data: {
         events: [
           { type: 'workunit:failed', source: 'agent-loop', level: 'warning', payload: JSON.stringify({ blockReason: 'Verify FAILED: tsc' }), createdAt: '2026-08-15T10:00:00.000Z' },
         ],
         total: 1,
         nextCursor: null,
-      },
+      } },
     });
     render(<MonitoringPage />);
     fireEvent.click(screen.getByText('事件检索'));
@@ -464,18 +465,18 @@ describe('MonitoringPage', () => {
   it('加载更多：带 nextCursor 续翻并追加结果', async () => {
     mockEventSearch
       .mockResolvedValueOnce({
-        data: {
+        data: { data: {
           events: [{ type: 'a', source: 's', payload: '{}', createdAt: '2026-08-15T10:00:00.000Z' }],
           total: 1,
           nextCursor: '1234',
-        },
+        } },
       })
       .mockResolvedValueOnce({
-        data: {
+        data: { data: {
           events: [{ type: 'b', source: 's', payload: '{}', createdAt: '2026-08-15T09:00:00.000Z' }],
           total: 1,
           nextCursor: null,
-        },
+        } },
       });
     render(<MonitoringPage />);
     fireEvent.click(screen.getByText('事件检索'));
@@ -506,8 +507,8 @@ describe('MonitoringPage — 告警下钻（E4）', () => {
     vi.clearAllMocks();
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
-    mockListPendingReview.mockResolvedValue({ data: { entries: [], total: 0 } });
-    mockEventSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
+    mockListPendingReview.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
+    mockEventSearch.mockResolvedValue({ data: { data: { events: [], total: 0, nextCursor: null } } });
   });
 
   it('点击告警 → 切事件检索 tab，预填 type=monitor:alert + 签名关键词并自动检索', async () => {
@@ -550,18 +551,18 @@ describe('MonitoringPage — 子拉取失败错误行（web-ux-optional-fixes St
     vi.clearAllMocks();
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
-    mockListPendingReview.mockResolvedValue({ data: { entries: [], total: 0 } });
-    mockEventSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
+    mockListPendingReview.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
+    mockEventSearch.mockResolvedValue({ data: { data: { events: [], total: 0, nextCursor: null } } });
   });
 
   it('待审列表拉取失败：区块内错误行 + 重试，点击后重拉恢复（原 .catch(() => null) 静默）', async () => {
     mockListPendingReview
       .mockRejectedValueOnce(new Error('proposals boom'))
       .mockResolvedValue({
-        data: {
+        data: { data: {
           entries: [{ id: 'k-9', title: '恢复后的提案', type: 'pitfall', maturity: 'draft', created: new Date().toISOString() }],
           total: 1,
-        },
+        } },
       });
     render(<MonitoringPage />);
 

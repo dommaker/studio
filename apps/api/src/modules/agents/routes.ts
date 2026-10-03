@@ -1,12 +1,28 @@
 // Agent API 路由
 // ⚠️ LEGACY surface — web 端消费方已清（#347：agentStore/agentApi 删除，web 走 agent-profiles）。
 // 计划迁移到 agent-profiles / workunit API（见 docs/vision-2026.md），迁移前请勿在此扩展新功能。
-import { Router, Request, Response } from 'express';
+//
+// 契约驱动迁移（2026-10 批次 8/8）：全部端点走 core/http.ts defineRoute——
+// 裸 AgentMetadata 响应统一 `{ data }` 壳（无消费方）；409 AGENT_EXISTS 与
+// 400 VERSION_REQUIRED 保留原 code；500 code 'INTERNAL_ERROR' 归一 INTERNAL，
+// message 由固定串（'Failed to list agents' 等）变为实际错误消息。
+import { Router } from 'express';
 import { AgentRegistry } from '@dommaker/studio-agent';
-import { requireAuth, requireNotGuest, requireRole } from '../../middleware/auth.js';
-import { memoryStore, logger } from '@dommaker/studio-shared';
+import {
+  legacyAgentListQuerySchema,
+  legacyAgentRegisterBodySchema,
+  legacyAgentUpdateBodySchema,
+  legacyAgentIdParamsSchema,
+  legacyAgentVersionQuerySchema,
+} from '@dommaker/studio-contract';
+import { memoryStore } from '@dommaker/studio-shared';
+import { defineRoute, HttpError, paginated } from '../../core/http.js';
 
-const router = Router();
+// P2-e 鉴权声明式统一：open（GET 读）/ write（registry 挂 authNotGuest）/ admin（DELETE，registry 挂
+// requireAuth+requireAdmin）三档拆 router，路由内不再挂鉴权。
+const openRoutes = Router();
+const writeRoutes = Router();
+const adminRoutes = Router();
 
 // 延迟初始化：首次请求时创建 AgentRegistry 实例
 let registry: InstanceType<typeof AgentRegistry>;
@@ -20,125 +36,83 @@ async function initRegistry() {
 }
 
 // 获取 Agent 列表
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    const reg = await initRegistry();
-    const { category, tags, page = 1, limit = 20 } = req.query;
+openRoutes.get('/', defineRoute({ query: legacyAgentListQuerySchema }, async (_req, _res, { query }) => {
+  const reg = await initRegistry();
+  const page = parseInt(query.page ?? '1');
+  const limit = parseInt(query.limit ?? '20');
 
-    const result = await reg.list({
-      category: category as string,
-      tags: tags ? (tags as string).split(',') : undefined,
-      page: parseInt(page as string),
-      limit: parseInt(limit as string),
-    });
+  const result = await reg.list({
+    category: query.category,
+    tags: query.tags ? query.tags.split(',') : undefined,
+    page,
+    limit,
+  });
 
-    res.json({
-      data: result.data,
-      pagination: {
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
-        total: result.total,
-        totalPages: Math.ceil(result.total / parseInt(limit as string)),
-      },
-    });
-  } catch (error) {
-    logger.error('Failed to list agents', { error: String(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to list agents' },
-    });
-  }
-});
+  return paginated(result.data, {
+    page,
+    limit,
+    total: result.total,
+    totalPages: Math.ceil(result.total / limit),
+  });
+}));
 
 // 注册新 Agent
-router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
+writeRoutes.post('/', defineRoute(
+  { body: legacyAgentRegisterBodySchema },
+  {
+    status: 201,
+    errors: [{ match: 'already exists', status: 409, code: 'AGENT_EXISTS' }],
+  },
+  async (_req, _res, { body }) => {
     const reg = await initRegistry();
-    const metadata = await reg.register(req.body);
-
-    res.status(201).json(metadata);
-  } catch (error: any) {
-    logger.error('Failed to register agent', { error: String(error) });
-    if (error.message?.includes('already exists')) {
-      res.status(409).json({
-        error: { code: 'AGENT_EXISTS', message: error.message },
-      });
-    } else {
-      res.status(500).json({
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to register agent' },
-      });
-    }
-  }
-});
+    // body passthrough 全透传（字段集归 registry 自持）；z.infer 退化可选，边界收回
+    return reg.register(body as unknown as Parameters<AgentRegistry['register']>[0]);
+  },
+));
 
 // 获取 Agent 详情
-router.get('/:agentId', async (req: Request, res: Response) => {
-  try {
+openRoutes.get('/:agentId', defineRoute(
+  { params: legacyAgentIdParamsSchema, query: legacyAgentVersionQuerySchema },
+  async (_req, _res, { params, query }) => {
     const reg = await initRegistry();
-    const { agentId } = req.params;
-    const { version } = req.query;
-
-    const agent = await reg.get(agentId, version as string);
+    const agent = await reg.get(params.agentId, query.version);
 
     if (!agent) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: `Agent ${agentId} not found` },
-      });
+      throw new HttpError(404, 'NOT_FOUND', `Agent ${params.agentId} not found`);
     }
 
-    res.json(agent);
-  } catch (error) {
-    logger.error('Failed to get agent', { error: String(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get agent' },
-    });
-  }
-});
+    return agent;
+  },
+));
 
 // 更新 Agent
-router.put('/:agentId', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
+writeRoutes.put('/:agentId', defineRoute(
+  { params: legacyAgentIdParamsSchema, query: legacyAgentVersionQuerySchema, body: legacyAgentUpdateBodySchema },
+  async (_req, _res, { params, query, body }) => {
     const reg = await initRegistry();
-    const { agentId } = req.params;
-    const { version } = req.query;
 
-    if (!version) {
-      return res.status(400).json({
-        error: { code: 'VERSION_REQUIRED', message: 'Version is required' },
-      });
+    if (!query.version) {
+      throw new HttpError(400, 'VERSION_REQUIRED', 'Version is required');
     }
 
-    const agent = await reg.update(agentId, version as string, req.body);
-    res.json(agent);
-  } catch (error: any) {
-    logger.error('Failed to update agent', { error: String(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to update agent' },
-    });
-  }
-});
+    return reg.update(params.agentId, query.version, body as unknown as Parameters<AgentRegistry['update']>[2]);
+  },
+));
 
 // 删除 Agent
 // 🆕 SEC-002: Admin only
-router.delete('/:agentId', requireRole('Admin'), async (req: Request, res: Response) => {
-  try {
+adminRoutes.delete('/:agentId', defineRoute(
+  { params: legacyAgentIdParamsSchema, query: legacyAgentVersionQuerySchema },
+  { status: 204 },
+  async (_req, _res, { params, query }) => {
     const reg = await initRegistry();
-    const { agentId } = req.params;
-    const { version } = req.query;
 
-    if (!version) {
-      return res.status(400).json({
-        error: { code: 'VERSION_REQUIRED', message: 'Version is required' },
-      });
+    if (!query.version) {
+      throw new HttpError(400, 'VERSION_REQUIRED', 'Version is required');
     }
 
-    await reg.delete(agentId, version as string);
-    res.status(204).send();
-  } catch (error) {
-    logger.error('Failed to delete agent', { error: String(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to delete agent' },
-    });
-  }
-});
+    await reg.delete(params.agentId, query.version);
+  },
+));
 
-export default router;
+export { openRoutes as agentOpenRoutes, writeRoutes as agentWriteRoutes, adminRoutes as agentAdminRoutes };

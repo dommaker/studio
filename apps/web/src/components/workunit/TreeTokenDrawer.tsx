@@ -27,7 +27,7 @@ export function TreeTokenDrawer({ workUnitId, onClose }: Props) {
       .getTreeTokens(workUnitId)
       .then((res) => {
         if (!cancelled) {
-          setReport(res.data);
+          setReport(res.data.data);
           setError('');
         }
       })

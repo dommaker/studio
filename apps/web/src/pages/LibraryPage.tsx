@@ -5,12 +5,13 @@
  * E6 页面重设计：默认视图按项目分组（组内 updatedAt 降序），搜索/筛选态回退平铺。
  * 只读：无图谱、无编辑——文档随各仓演进，变更历史 = git 历史。
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { libraryApi } from '../api';
-import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
+import { maintenanceApi } from '../api/maintenance';
 import { usePmoDataStore } from '../stores/pmoDataStore';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { ManualTaskButton, SkeletonText } from '../components/ui';
 import { Select } from '../components/ui/Select';
 import { IconLibrary } from '../components/ui/icons';
@@ -39,21 +40,17 @@ const kindLabels: Record<string, string> = {
 
 export function LibraryPage() {
   const navigate = useNavigate();
-  const [docs, setDocs] = useState<LibraryDoc[]>([]);
-  const [loading, setLoading] = useState(true);
-  // 批次 F-1：加载失败 error state（原先 catch 只 console.error，落「暂无文档」假空态）
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [projectId, setProjectId] = useState('');
   // #436 B11：类型筛选（前端过滤已拉取列表，零后端改动）
   const [kind, setKind] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 手动任务成本（近 30 天 token；失败静默，不阻塞页面）
-  const [costs, setCosts] = useState<TriggerCosts | null>(null);
-  useEffect(() => {
-    maintenanceApi.getCosts().then(setCosts).catch(() => setCosts(null));
-  }, []);
+  // P3-b 拉取页收口：取数状态机统一走 useAsyncData——
+  // 手动任务成本（近 30 天 token）：error 由 hook 承接，页头渲染最小错误行 + 重试
+  // （2026-09 web-ux-optional-fixes Step 1 口径，对齐 KnowledgePage costsQ，不再静默落 null）
+  const costsQ = useAsyncData(() => maintenanceApi.getCosts(), []);
+  const costs = costsQ.data;
 
   // 项目筛选下拉数据源：默认公司下的 PMO 项目清单（#456 改读 pmoDataStore：companies 单份 +
   // projects per-companyId，PMO ↔ 阅览室 TTL 内零重拉；失败静默——缺键按空列表降级，下拉留空仍可全量浏览）
@@ -67,44 +64,34 @@ export function LibraryPage() {
     if (defaultCompanyId) void usePmoDataStore.getState().ensureProjects(defaultCompanyId);
   }, [defaultCompanyId]);
 
-  const fetchDocs = useCallback(async (searchTerm: string, project: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params: { search?: string; project?: string } = {};
-      if (searchTerm) params.search = searchTerm;
-      if (project) params.project = project;
-      const res = await libraryApi.list(params);
-      setDocs(res.data?.data || []);
-    } catch (err) {
-      console.error('[Library] Failed to fetch docs', err);
-      setError('加载文档列表失败，请重试');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Initial load（微任务触发：fetchDocs 首行同步置 loading，直接调用会触发
-  // set-state-in-effect；微任务推迟一拍，首屏时序与原实现等价——挂载即拉取，不防抖）
+  // 防抖后的检索条件（300ms，同原 debounceRef 定时器口径）——进 useAsyncData deps 驱动重拉；
+  // 挂载首拉由 useAsyncData 自身触发（微任务推迟，时序与原实现等价）
+  const [query, setQuery] = useState({ search: '', projectId: '' });
   useEffect(() => {
-    void Promise.resolve().then(() => fetchDocs('', ''));
-  }, [fetchDocs]);
-
-  // Debounced search / project filter（跳过首次运行：初始加载已由上方 effect 立即触发）
-  const firstSearchEffectRef = useRef(true);
-  useEffect(() => {
-    if (firstSearchEffectRef.current) {
-      firstSearchEffectRef.current = false;
-      return;
-    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      fetchDocs(search, projectId);
-    }, 300);
+    debounceRef.current = setTimeout(() => setQuery({ search, projectId }), 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [search, projectId, fetchDocs]);
+  }, [search, projectId]);
+
+  // 文档列表：deps 渲染期重置（切条件当帧清数据回骨架，替代原 fetchDocs 内同步 setLoading）
+  const docsQ = useAsyncData(async () => {
+    const params: { search?: string; project?: string } = {};
+    if (query.search) params.search = query.search;
+    if (query.projectId) params.project = query.projectId;
+    try {
+      const res = await libraryApi.list(params);
+      return (res.data?.data || []) as LibraryDoc[];
+    } catch (err) {
+      console.error('[Library] Failed to fetch docs', err);
+      throw new Error('加载文档列表失败，请重试');
+    }
+  }, [query]);
+  const docs = docsQ.data ?? [];
+  const loading = docsQ.loading;
+  // 批次 F-1：加载失败 error 上屏（原先 catch 只 console.error，落「暂无文档」假空态）
+  const error = docsQ.error;
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '';
@@ -182,18 +169,27 @@ export function LibraryPage() {
       <div className="u-page-head">
         <div className="flex items-center justify-between">
           <h1 className="page-title">阅览室</h1>
-          <ManualTaskButton
-            label="语义审查"
-            costTokens={costs?.byTrigger['doc-semantic-review']}
-            onRun={async () => {
-              const r = await maintenanceApi.fireTrigger('doc-semantic-review');
-              if (r.workUnit?.id) {
-                navigate(`/workunits/${r.workUnit.id}`);
-                return '已创建审查任务，可在任务列表查看';
-              }
-              return '已创建审查任务';
-            }}
-          />
+          <div className="flex gap-2 items-center">
+            {/* 成本子拉取失败：最小错误行 + 重试（KnowledgePage costsQ 同款口径） */}
+            {costsQ.error && (
+              <div className="p-2 rounded u-err-dim u-err text-sm flex items-center gap-2">
+                <span>{costsQ.error}</span>
+                <button onClick={costsQ.reload} className="btn btn-secondary btn-sm">重试</button>
+              </div>
+            )}
+            <ManualTaskButton
+              label="语义审查"
+              costTokens={costs?.byTrigger['doc-semantic-review']}
+              onRun={async () => {
+                const r = await maintenanceApi.fireTrigger('doc-semantic-review');
+                if (r.workUnit?.id) {
+                  navigate(`/workunits/${r.workUnit.id}`);
+                  return '已创建审查任务，可在任务列表查看';
+                }
+                return '已创建审查任务';
+              }}
+            />
+          </div>
         </div>
 
         {/* Search + project filter */}
@@ -235,7 +231,7 @@ export function LibraryPage() {
         {!loading && error && (
           <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
             <span>{error}</span>
-            <button onClick={() => fetchDocs(search, projectId)} className="btn btn-secondary btn-sm">重试</button>
+            <button onClick={docsQ.reload} className="btn btn-secondary btn-sm">重试</button>
           </div>
         )}
         {loading ? (

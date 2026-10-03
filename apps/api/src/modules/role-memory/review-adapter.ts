@@ -17,19 +17,19 @@
 import fs from 'node:fs';
 import * as path from 'node:path';
 import { FileStore, logger } from '@dommaker/studio-shared';
-import { postReviewProposalCard } from '../review-proposal/card.js';
+import { postReviewProposalCard } from '../review-proposal/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import {
   getReviewProposalAdapter,
   registerReviewProposalAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
-} from '../review-proposal/registry.js';
+} from '../review-proposal/index.js';
 import {
   ReviewProposalStore,
   type ReviewProposalRecord,
   type ReviewProposalStatus,
-} from '../review-proposal/store.js';
+} from '../review-proposal/index.js';
 import {
   foldDraftRows,
   resolveTopicSlug,
@@ -41,6 +41,8 @@ import {
   type MemoryDraftLine,
   type MemoryKind,
 } from './role-memory.js';
+import { getStore } from '../../core/store.js';
+
 
 /** kind → 人类可读标签（不暴露 execution-knowledge / preference 等内部分类词） */
 const KIND_LABELS: Record<MemoryKind, string> = {
@@ -170,7 +172,7 @@ export class MemoryProposalStore extends ReviewProposalStore<MemoryDraftEntry> {
 export function registerMemoryReviewAdapter(deps?: {
   fileStore?: FileStore;
 }): ReviewProposalAdapter<MemoryDraftEntry> {
-  const fileStore = deps?.fileStore ?? new FileStore();
+  const fileStore = deps?.fileStore ?? getStore();
   return registerReviewProposalAdapter<MemoryDraftEntry>({
     kind: 'memory',
     cardType: 'memory_proposal',

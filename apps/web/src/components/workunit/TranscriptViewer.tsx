@@ -20,8 +20,9 @@ export function TranscriptViewer({ workUnitId }: { workUnitId: string }) {
     transcriptsApi
       .get(workUnitId, { offset, limit: PAGE_SIZE })
       .then((r) => {
-        setEntries((prev) => (offset === 0 ? r.data.entries : [...(prev ?? []), ...r.data.entries]));
-        setTotal(r.data.total);
+        // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+        setEntries((prev) => (offset === 0 ? r.data.data.entries : [...(prev ?? []), ...r.data.data.entries]));
+        setTotal(r.data.data.total);
         setError('');
       })
       .catch(() => setError('加载失败'))

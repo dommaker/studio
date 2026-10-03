@@ -5,13 +5,14 @@
  * 提取完整推理链：背景→候选方案→选择理由→权衡。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
-import { getSystemExecutor } from '../agents/system-executor.js';
+import { logger } from '@dommaker/studio-shared';
+// P2-c 拆环：getSystemExecutor 转函数内动态 import（knowledge→agents 静态边清零）
 import { randomUUID } from 'crypto';
 import { sharedStore } from './knowledge-singletons.js';
 import type { KnowledgeEntry } from '@dommaker/harness';
+import { getStore } from '../../core/store.js';
 
-const fileStore = new FileStore();
+
 
 const EXTRACT_SYSTEM_PROMPT = `你是一个决策分析师。从以下讨论记录中提取决策链。
 
@@ -85,6 +86,7 @@ ${(diff || '').substring(0, 3000)}
 从这个任务执行中识别隐含的设计决策。这个任务做出了什么技术选择？`;
 
       const llmStart = Date.now();
+      const { getSystemExecutor } = await import('../agents/index.js');
       const result = await getSystemExecutor().runJson<{ decisions: any[] }>(prompt, { systemPrompt: EXTRACT_SYSTEM_PROMPT, eventSource: 'decision-chain-extraction' });
       const llmMs = Date.now() - llmStart;
 
@@ -133,8 +135,8 @@ ${(diff || '').substring(0, 3000)}
 
       if (count > 0) {
         try {
-          const { channelMessageService } = await import('../channels/channel-message.service.js');
-          const sysChannels = await fileStore.listChannels({ name: '#系统' });
+          const { channelMessageService } = await import('../channels/index.js');
+          const sysChannels = await getStore().listChannels({ name: '#系统' });
           const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {
             const decisionSummary = result.decisions

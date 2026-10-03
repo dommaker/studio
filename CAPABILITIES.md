@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-28
+> 最后更新: 2026-10-02
 
 ---
 
@@ -8,7 +8,6 @@
 |------|------|------|
 | src | packages/studio-agent/src/ | studio-agent 类型定义 |
 | audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
-| capability.service | packages/studio-capability/src/services/capability.service.ts | Capability Service - 能力管理服务 |
 | notification-service | packages/studio-notification/src/services/notification-service.ts | 通知服务 |
 | cli | packages/studio-shared/src/cli/ | 命令注册框架 |
 | levels | packages/studio-shared/src/constants/levels.ts | 级别配置 - 全局统一的职级定义 |
@@ -23,15 +22,9 @@
 | services | packages/studio-spec/src/services/ | ChangeAnalyzerService 单元测试 |
 | types | packages/studio-spec/src/types/ | Spec 变更分级类型定义 |
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
-| auditor | apps/api/src/modules/agents/auditor/ | Auditor Service — 跨任务审计 + 周期洞察 |
-| knowledge | apps/api/src/modules/agents/knowledge/ | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
-| monitor | apps/api/src/modules/agents/monitor/ | Monitor Service - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
-| ops | apps/api/src/modules/agents/ops/ | Ops Service — 系统生命周期守护 |
-| triage.service | apps/api/src/modules/agents/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | auth | apps/api/src/modules/auth/ | POST /api/v1/auth/guest-session |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
-| routes | apps/api/src/modules/capabilities/routes.ts | 从 YAML 文件读取 stage 字段 |
 | channels | apps/api/src/modules/channels/ | Seed default channels on startup (B1-001) |
 | companies | apps/api/src/modules/companies/ | Company API 路由 — 存储迁移 Prisma → FileStore |
 | routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
@@ -53,13 +46,11 @@
 | hooks | apps/web/src/hooks/ | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
 | stores | apps/web/src/stores/ | agentStore |
 | setup | apps/web/src/test/setup.ts | setup |
-| types | apps/web/src/types.ts | types.ts - Agent Studio 类型定义 |
 | utils | apps/web/src/utils/ | Lightweight toast notification system (zero dependencies) |
 | services | packages/studio-agent/src/services/ | Output Capture — 进度读取 + 输出文件收集 + session 指标记录 |
 | workspaces | apps/api/src/modules/workspaces/ | Local Workspace Registration — AS-020 P2-04 |
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
-| loop | apps/api/src/modules/agents/loop/ | Analyze agent log for knowledge search behavior. |
 | monitoring | apps/api/src/modules/monitoring/ | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | triggers | apps/api/src/modules/triggers/ | Cron Matcher — minimal cron expression evaluator (3.28c-4) |
 | workunit | apps/api/src/modules/workunit/ | WorkUnit API 路由 (AS-025 §3.28c-1, §5.16) |
@@ -82,7 +73,6 @@
 | LandingPage | apps/web/src/components/LandingPage.tsx | Lurk Wall: 个人网站展示页 — 不提示登录，不显示入口 |
 | MoreDropdown | apps/web/src/components/MoreDropdown.tsx | MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能） |
 | NotificationBell | apps/web/src/components/NotificationBell.tsx | Notification Bell — B2-003: 通知中心 |
-| OAuthCallback | apps/web/src/components/OAuthCallback.tsx | OAuth callback handler. |
 | PmoNumberBadge | apps/web/src/components/PmoNumberBadge.tsx | PMO 号显示组件 - GEN-005 |
 | SidebarNew | apps/web/src/components/SidebarNew.tsx | Sidebar.tsx - 侧边栏组件（最新设计） |
 | TopNav | apps/web/src/components/TopNav.tsx | TopNav.tsx - 顶部导航栏组件（L1 核心功能） |
@@ -118,13 +108,11 @@
 | AgentDetailPage | apps/web/src/pages/AgentDetailPage.tsx | AgentDetailPage — /agents/:profileId（2026-07-31 全流程串联 UX 重构 §5.3） |
 | AuditLogsPage | apps/web/src/pages/AuditLogsPage.tsx | 审计日志页面 - AR-012 |
 | ChannelDetailPage | apps/web/src/pages/ChannelDetailPage.tsx | 线程内过程消息折叠/聚合：连续 ≥3 条「过程消息」收成一组（默认折叠，点击展开）。 |
-| ForgotPasswordPage | apps/web/src/pages/ForgotPasswordPage.tsx | 忘记密码页面 — 输入邮箱，发送重置链接 |
 | KnowledgePage | apps/web/src/pages/KnowledgePage.tsx | 知识库页面 — 累积知识浏览 |
 | MonitoringPage | apps/web/src/pages/MonitoringPage.tsx | MonitoringPage — Agent Network MVP-6 |
 | NotFoundPage | apps/web/src/pages/NotFoundPage.tsx | 404 页面 - 路由表兜底（未匹配路径） |
 | PMOPage | apps/web/src/pages/PMOPage.tsx | PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33） |
 | ProjectDetailPage | apps/web/src/pages/ProjectDetailPage.tsx | Project 详情页 - GEN-005 + FL-013 |
-| ResetPasswordPage | apps/web/src/pages/ResetPasswordPage.tsx | 重置密码页面 — 使用 token 设置新密码 |
 | Settings | apps/web/src/pages/Settings.tsx | 设置页面 - API 配置 + 通知 + 公司 + 主题语言 |
 | WorkUnitDetailPage | apps/web/src/pages/WorkUnitDetailPage.tsx | WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4） |
 | WorkUnitListPage | apps/web/src/pages/WorkUnitListPage.tsx | WorkUnitListPage |
@@ -155,7 +143,6 @@
 | routes | apps/api/src/modules/review-proposal/routes.ts | review-proposal/routes (#351) — 人审提案卡通用端点（approve/reject/status，kind 走注册表分发） |
 | service | apps/api/src/modules/review-proposal/service.ts | review-proposal/service (#351) — 人审提案卡生命周期（唯一正本） |
 | store | apps/api/src/modules/review-proposal/store.ts | review-proposal/store (#351) — 人审提案卡通用存取（append-only JSONL + 状态墓碑折叠） |
-| review-adapter | apps/api/src/modules/agents/auditor/review-adapter.ts | review-adapter (#356) — auditor_suggestion 提案卡 adapter（接线 review-proposal 正本） |
 | review-adapter | apps/api/src/modules/knowledge/review-adapter.ts | review-adapter (#355) — knowledge 提案审批 adapter（接线 review-proposal 正本） |
 | review-adapter | apps/api/src/modules/role-memory/review-adapter.ts | review-adapter (#353) — role-memory 人审提案 adapter（接线 review-proposal 正本） |
 | review-adapter | apps/api/src/modules/skills/review-adapter.ts | review-adapter (#354) — skills 提案审批 adapter（接线 review-proposal 正本） |
@@ -186,7 +173,6 @@
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
-| routes | apps/api/src/modules/capabilities/routes.ts | 从 YAML 文件读取 stage 字段 |
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
@@ -214,7 +200,6 @@
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
-| routes | apps/api/src/modules/capabilities/routes.ts | 从 YAML 文件读取 stage 字段 |
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
@@ -242,4 +227,33 @@
 | proposal-source | apps/api/src/modules/audit-logs/proposal-source.ts | audit-logs/proposal-source (#591 A 类) — review-proposal 正本的聚合读面 |
 | DeleteRoleDialog | apps/web/src/components/monitoring/DeleteRoleDialog.tsx | 删除角色确认框（#630，ADR 2026-09-23 决策 5）：删除能力服务端早已完整（清频道成员与路由指名、 |
 | RoleFormModal | apps/web/src/components/monitoring/RoleFormModal.tsx | 角色表单唯一正本（#630，ADR 2026-09-23-role-form-module 决策 1/2/3）： |
+| config | packages/studio-shared/src/cli/config.ts | 配置加载器 |
+| seed | packages/studio-skill/src/seed.ts | seed — 内置 skill 库首启播种与升级（#223） |
+| agent-loop | apps/api/src/bootstrap/agent-loop.ts | ── AS-026: AgentLoop per AgentProfile ── |
+| bridges | apps/api/src/bootstrap/bridges.ts | ── 事件订阅初始化（workunit.status_changed 等 → 各域消费者）── |
+| channels | apps/api/src/bootstrap/channels.ts | ── Channel 初始化（Goal 管线需要）── |
+| config | apps/api/src/bootstrap/config.ts | ── 配置加载（无论怎么启动都会执行）── |
+| handlers | apps/api/src/bootstrap/handlers.ts | ── Trigger EXECUTE handler 注册（周期扫描类）── |
+| lifecycle | apps/api/src/bootstrap/lifecycle.ts | ── HTTP 服务生命周期：错误兜底 + listen + 优雅关闭 ── |
+| migrations | apps/api/src/bootstrap/migrations.ts | ── 数据区迁移 + 启动对账 ── |
+| seed | apps/api/src/bootstrap/seed.ts | ── 内置数据播种 ── |
+| services | apps/api/src/bootstrap/services.ts | ── 核心服务启动（监控/审计/rollup/巡检/进化调度）── |
+| tunnel | apps/api/src/bootstrap/tunnel.ts | ── Cloudflared Tunnel — 自动重启守护 + URL 变化通知 ── |
+| warmup | apps/api/src/bootstrap/warmup.ts | ── 冷启动异步任务（全部 fire-and-forget，不阻塞启动）── |
+| types | packages/studio-agent/src/services/types.ts | Executor 公共类型 |
+| types | packages/studio-agent/src/types.ts | studio-agent 类型定义 |
+| types | packages/studio-skill/src/types.ts | Skill 定义类型 |
+| incident-notification | apps/api/src/modules/triage/incident-notification.ts | incident 落通知（#468 行动中心）：incident.created/escalated 处理点同步写 |
+| incident-store | apps/api/src/modules/triage/incident-store.ts | incident-store（#255）— incidents.jsonl append-only 存储语义 |
+| triage.service | apps/api/src/modules/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
+| types | apps/api/src/modules/triage/types.ts | Triage Agent 类型定义（P2-d 自 agents/types.ts 拆分，随 triage 子系统归属） |
+| types | apps/web/src/components/pmo/types.ts | PMO 页面共享领域类型 — KR / OKR / Project |
+| channel | apps/web/src/api/channel.ts | Channel API — B1-001 + Phase 2 (AC-B4/C3/E3) |
+| workunit | apps/web/src/api/workunit.ts | 从 GET /events?type=workunit:tokens 的响应行中解析某个 WorkUnit 的 token 事件。 |
+| ChannelGuidance | apps/web/src/components/channel/ChannelGuidance.tsx | ChannelGuidance — 频道引导片区（P3-b 自 ChannelDetailPage 切出）： |
+| ChannelStreamHead | apps/web/src/components/channel/ChannelStreamHead.tsx | ChannelStreamHead — 消息流头部块（P3-b 自 ChannelDetailPage 切出）： |
+| ChannelTopbar | apps/web/src/components/channel/ChannelTopbar.tsx | ChannelTopbar — 频道页顶栏（P3-b 自 ChannelDetailPage 切出）： |
+| channel | apps/web/src/types/channel.ts | 频道域客户端本地类型（P3-a 自 api/channel.ts 迁出——api 层不声明导出类型， |
+| websocket | apps/web/src/types/websocket.ts | SSE 客户端本地类型（P3-a 自 api/websocketHooks.ts 迁出——api 层不声明导出类型）。 |
+| workunit | apps/web/src/types/workunit.ts | WorkUnit 事件负载本地类型（P3-a 自 api/workunit.ts 迁出——api 层不声明导出类型）。 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

@@ -140,13 +140,14 @@ describe('knowledge routes facade', () => {
   it('GET /requirements reaches files handler', async () => {
     const res = await api(basePublic, 'GET', '/requirements');
     expect(res.status).toBe(200);
-    expect(res.json).toHaveProperty('docs');
-    expect(res.json).toHaveProperty('total');
+    // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
+    expect(res.json.data).toHaveProperty('docs');
+    expect(res.json.data).toHaveProperty('total');
   });
 
   it('GET /api/knowledge/sync-status reachable on internal router', async () => {
     const res = await api(baseInternal, 'GET', '/sync-status');
     expect(res.status).toBe(200);
-    expect(res.json).toHaveProperty('trackedScopes');
+    expect(res.json.data).toHaveProperty('trackedScopes');
   });
 });

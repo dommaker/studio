@@ -5,8 +5,9 @@
  * 文档：https://open.feishu.cn/document/ukTMukTMukTM/uYjNwUjN2UjN2YjN-events-and-callbacks
  */
 
-import express, { Router, Request, Response } from 'express';
+import express, { Request, Response } from 'express';
 import crypto from 'crypto';
+import { defineRoute } from '../../core/http.js';
 import { logger } from '../../utils/logger.js';
 const router = express.Router();
 
@@ -82,8 +83,6 @@ router.post('/callback', async (req: Request, res: Response): Promise<void> => {
 /**
  * GET /api/v1/lark/health
  */
-router.get('/health', (_req: Request, res: Response): void => {
-  res.json({ status: 'ok', service: 'lark-callback' });
-});
+router.get('/health', defineRoute({}, async () => ({ status: 'ok', service: 'lark-callback' })));
 
 export default router;

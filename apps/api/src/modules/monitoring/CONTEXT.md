@@ -8,6 +8,7 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `default` (Router) | `monitoring.routes.ts` | Express 路由器，挂载 `/agents`、`/stats`、`/flywheel`、`/overhead`、`/overview`、`/efficiency` 六个 GET 端点 |
 | `MonitoringService` | `monitoring.service.ts` | 监控服务类，封装聚合逻辑，依赖 `KnowledgeMetricsSource` 获取度量数据 |
 | `MetricsService` | `metrics.service.ts` | D16 指标聚合服务：`getOverviewMetrics({windowDays})`，60s 内存缓存，`invalidateCache()` 测试用。工单 30 起类型区/纯函数区抽出（re-export 保持导出路径兼容，消费方 import 不变） |
@@ -16,7 +17,7 @@
 | `MetricsService.getEfficiencyMetrics` | `metrics.service.ts` | #120：加载统一事件 + WU index（角色归因）→ 组合 cacheHitRate + sectionTrim；60s 独立缓存（`efficiencyCache`），注入 `now` 跳过缓存 |
 | `OverviewMetrics` 等 9 组指标接口 | `metrics.types.ts`（经 `metrics.service.ts` re-export） | D16 类型契约（Percentile + 9 个指标组接口 + OverviewAggregateInput 在 metrics-aggregate.ts） |
 | `EvidenceMetrics` (接口) | `metrics.types.ts`（经 `metrics.service.ts` re-export） | F6 证据台账指标（决策 1）：l1/l2/l3 分层达成、selfReview 率、needsHuman、derivedMismatch 双轨偏差（持续为 0 才可停止手写 in_review）、派生列分布——派生一律过 deriveDisplayState |
-| `INJECTED_TOKEN_BUDGET` (常量) | `monitoring.service.ts` | 知识/约束注入红线上限：2000 tokens/任务 |
+| `INJECTED_TOKEN_BUDGET` (常量) | `monitoring.service.ts` | 知识/约束注入红线上限：927 tokens/任务（harness 1.16.0 estimateTokens 新尺子旧窗口反推值，与 knowledge-service INJECT_TOKEN_BUDGET 同数；推导正本见 agents/__tests__/prompt-composer.test.ts 反推块；旧尺子口径原值 2000） |
 | `OVERHEAD_RATIO_BUDGET` (常量) | `monitoring.service.ts` | 封装开销比红线：0.2（对应总 token 不超过直连 CLI 的 1.2x） |
 | `KnowledgeMetricsSource` (接口) | `monitoring.service.ts` | 知识度量源接口，定义 `getFlywheelMetrics` 和 `getAuditReport` 方法 |
 | `FlywheelStats` (接口) | `monitoring.service.ts` | M1 飞轮指标类型，包含 quality、hitRate、freshness 等字段 |
@@ -33,7 +34,7 @@
 
 ### 注意事项
 
-- 所有路由处理函数使用 `async/await`，异常统一捕获并返回 `{ error: { code: 'INTERNAL_ERROR', message } }` 格式。
+- 所有路由走 `core/http.ts` defineRoute（契约驱动迁移 2026-10 批次 5/7）：响应统一 `{ data }` 壳（原裸对象进壳），错误统一 `{ error: { code, message } }`（code 由 'INTERNAL_ERROR' 归一为 ERROR_CODES.INTERNAL，message = 实际错误消息不变）；契约正本 = `packages/studio-contract/src/monitoring.ts`（16 个实体手写 interface + parity，前端 api/monitoring.ts 手抄全删改 contract import）
 - 成本红线常量 (`INJECTED_TOKEN_BUDGET`、`OVERHEAD_RATIO_BUDGET`) 与 vision §3 对齐，修改需同步文档。
 - `KnowledgeMetricsSource` 接口设计为 DI 注入，默认 lazy 获取生产单例，避免模块加载期副作用。
 - 监控数据窗口默认 30 天，由 `KnowledgeMetricsSource` 的 `windowDays` 参数控制。

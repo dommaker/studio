@@ -28,7 +28,9 @@ vi.mock('../knowledge-singletons.js', async () => {
   const tmpDir = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'ks-wiring-'));
 
   const harness = await vi.importActual<any>('@dommaker/harness');
-  const { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } = harness;
+  const { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeLinter, ReferenceTracker } = harness;
+  // KnowledgeInjector 已收口为 studio 本地模块（harness 侧移除中），mock 与生产同款构造
+  const { KnowledgeInjector } = await vi.importActual<any>('../knowledge-injector.js');
 
   const sharedStore = new FileKnowledgeStore({ baseDir: tmpDir });
   const sharedLifecycle = new KnowledgeLifecycle(sharedStore, {
@@ -67,11 +69,11 @@ function seedEntries() {
   const active = sharedIngest.ingestEntry(
     { type: 'guideline', title: 'Alpha wiring probe guideline', content: ACTIVE_MARKER, tags: ['pattern'] },
     { source: 'pattern:wiring-test', layer: 'project', maturity: 'active', tags: ['pattern'], consumptionMode: 'signal' },
-  );
+  ).entry;
   const draft = sharedIngest.ingestEntry(
     { type: 'guideline', title: 'Zeta proposal draft pitfall', content: DRAFT_MARKER, tags: ['pattern'] },
     { source: 'pattern:wiring-test', layer: 'project', maturity: 'draft', tags: ['pattern'], consumptionMode: 'signal' },
-  );
+  ).entry;
   return { active, draft };
 }
 

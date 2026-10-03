@@ -6,11 +6,13 @@
  * studio 角色绑定的 CLI；角色未配置或调用失败时 suggest 返回空建议，非阻断).
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import type { WorkUnitData } from '../workunit/workunit.service.js';
+import { WorkUnitService } from '../workunit/index.js';
+import type { WorkUnitData } from '../workunit/index.js';
 import { ChannelMessageService, channelMessageService } from './channel-message.service.js';
-import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
-import { getSystemExecutor } from '../agents/system-executor.js';
+import { resolveReqIdForDispatch } from '../requirements/index.js';
+// P2-c 拆环：getSystemExecutor 转函数内动态 import（channels→agents 静态边清零）
+import { getStore } from '../../core/store.js';
+
 
 export interface ConvertInput {
   title?: string;
@@ -33,7 +35,7 @@ export class ConvertToTaskService {
   private messageService: ChannelMessageService;
 
   constructor(fileStore?: FileStore, messageService?: ChannelMessageService) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
     this.workUnitService = new WorkUnitService(this.fileStore);
     // #333：关联 WU 走 ChannelMessageService 统一更新路径（自带 channel.message_updated 双发）；
     // 注入口径：可注入；缺省 fileStore 新建 ChannelMessageService，无 fileStore 用单例
@@ -138,6 +140,7 @@ ${projectList || '(none)'}
 Return JSON only: {"title":"...","description":"...","suggestedAssigneeId":"...","suggestedProjectPath":"..."}`;
 
     // LLM 调用走 SystemExecutor（studio 角色绑定的 CLI）；角色未配置/失败由 suggest() 兜空
+    const { getSystemExecutor } = await import('../agents/index.js');
     const parsed = await getSystemExecutor().runJson<{
       title?: string;
       description?: string;

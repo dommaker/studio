@@ -20,7 +20,7 @@ const { mockBuildArgs } = vi.hoisted(() => ({
   mockBuildArgs: vi.fn(),
 }));
 
-vi.mock('@dommaker/studio-shared/node', () => ({
+vi.mock('@dommaker/studio-shared/node', () => ({ resolveWorkspacesDir: () => '/tmp/studio-test-workspaces',
   execSh: mockExecSh,
   resolveProviderDefinition: mockResolveProvider,
   buildArgsFromTemplate: mockBuildArgs,

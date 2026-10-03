@@ -20,7 +20,7 @@ import { eventBus } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../../utils/logger.js';
 import { SseReplayBuffer } from './sse-replay-buffer.js';
-import { EXECUTION_STREAM_SSE_TYPE } from '../agents/loop/execution-step-events.js';
+import { EXECUTION_STREAM_SSE_TYPE } from '../agent-loop/index.js';
 
 const router = Router();
 

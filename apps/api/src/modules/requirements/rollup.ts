@@ -55,7 +55,7 @@ export async function waitForRequirementRollupSettled(): Promise<void> {
 
 /**
  * 挂载汇总订阅，返回解绑函数（测试用）。
- * 生产环境在 API 启动时调用一次（见 apps/api/src/index.ts）。
+ * 生产环境在 API 启动时调用一次（见 apps/api/src/bootstrap/services.ts）。
  * memo/归属/去抖状态按挂载闭包隔离（测试多次挂载互不串扰；生产单存储单挂载）。
  */
 export function initRequirementRollup(service?: RequirementService): () => void {

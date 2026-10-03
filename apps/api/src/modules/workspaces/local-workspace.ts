@@ -18,8 +18,9 @@ import { resolveVpsWorkspace, resolveWorkspacesDir } from '@dommaker/studio-shar
 import { logger } from '../../utils/logger.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { getStore } from '../../core/store.js';
 
-const fileStore = new FileStore();
+
 const WORKSPACES_DIR = resolveWorkspacesDir();
 
 const VPS_WORKSPACE_NAME = 'VPS';
@@ -68,7 +69,7 @@ export async function ensureLocalWorkspace(): Promise<string> {
     createdAt: now,
     updatedAt: now,
   };
-  await fileStore.writeJson(path.join(WORKSPACES_DIR, `${id}.json`), workspace);
+  await getStore().writeJson(path.join(WORKSPACES_DIR, `${id}.json`), workspace);
 
   logger.info({ workspaceId: id, workspaceRoot }, '[LocalWorkspace] Created VPS workspace');
 
@@ -102,7 +103,7 @@ async function scanLocalRuntimes(workspaceId: string): Promise<void> {
     const detected = scanAllProviders();
 
     const wsFile = path.join(WORKSPACES_DIR, `${workspaceId}.json`);
-    const workspace = await fileStore.readJson<any>(wsFile);
+    const workspace = await getStore().readJson<any>(wsFile);
     if (!workspace) return;
 
     const now = new Date().toISOString();
@@ -130,7 +131,7 @@ async function scanLocalRuntimes(workspaceId: string): Promise<void> {
       };
     });
     workspace.updatedAt = now;
-    await fileStore.writeJson(wsFile, workspace);
+    await getStore().writeJson(wsFile, workspace);
 
     logger.info(
       { workspaceId, providers: detected.map(d => ({ provider: d.provider, version: d.version })) },

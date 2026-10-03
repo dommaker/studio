@@ -6,6 +6,7 @@ Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus�
 
 ### 核心导出
 
+- `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `trigger.types.ts` — Trigger 类型定义（SCHEDULE + EVENT 判别联合）
 - `cron-matcher.ts` — 最小 cron 表达式求值器
 - `trigger-store.ts` — YAML 持久化
@@ -24,7 +25,9 @@ Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus�
 ### 注意事项
 
 - EVENT 类型由 PMO-Channel-Agent-Flow SDD AC-1 重新引入；旧 subscribeEvent API 已删除
+- **fs 直写保留理由（P2-e 登记）**：TriggerStore 落 `~/.studio/triggers/*.yaml`——YAML 形态 FileStore（JSON/JSONL/md）不管，且属用户可改配置面；路径经 `studioPath('triggers')`，构造注入可覆盖。
 - 默认 trigger 清单变更需同步 agents/__tests__/default-triggers.test.ts 与 triggers/__tests__/trigger-cleanup.test.ts（两者均从 `TriggerScheduler.getStates()` 注册块取数，不再读 `getDefaultTriggerConfigs()`）
 - **#102 触发器五删（2026-08-14）**：`knowledge-quality-audit`（闸口移写时两档人审）、`session-knowledge-extraction`（收尾钩子替代）、`zero-consumption-audit`（读率降格为 GC 打分输入）、`knowledge-synthesis`（蒸馏职能移交 #83）四者从代码注册块删除；`daily-health-check` LLM 形态数据区 yaml 删除，监控面归 agents/monitor/monitor-system-probes.ts 确定性探针。保留 6 个：workunit-timeout / agent-timeout / okr-metric-sync / workunit-input-reminder / evolution-daily-scan / doc-semantic-review（enabled:false，恢复归 #103）
-- **鉴权（2026-07-24 收紧）**：`/api/v1/triggers` 挂载级 `requireAuth()+requireAdmin()` —— POST/DELETE 会热加载触发器直接驱动 AgentLoop 执行。另：`GET /status` 注册在 `GET /:id` 之后被遮蔽（历史 bug，未修）。
+- **鉴权（2026-07-24 收紧）**：`/api/v1/triggers` 挂载级 `requireAuth()+requireAdmin()` —— POST/DELETE 会热加载触发器直接驱动 AgentLoop 执行。~~另：`GET /status` 注册在 `GET /:id` 之后被遮蔽~~ **已修（2026-10-03 收尾）**：/status 移到 /:id 之前注册（防回归测试 trigger-status-route.test.ts）。
+- **契约驱动（2026-10 批次 3/7）**：trigger.routes.ts 全端点走 core/http.ts defineRoute（契约 packages/studio-contract/src/triggers.ts）。POST / 形状校验（id/name/enabled/scope）收进 zod 提前 400；语义校验（非法 cron、EVENT 落 store、UPDATE 改 workunit status）仍在 TriggerStore.validateTrigger → 错误映射表保持 400 文案。wire 变化：全部端点统一 `{ data }` 壳（原平铺 `{ triggers, schedulerRunning }` / `{ days, ... }` / `{ fired, ... }` / 裸 TriggerConfig / `{ ok }` / `{ logs }` / status 对象）；前端仅 api/maintenance.ts 消费 fire/costs，解包同步。注册顺序：/status 已修复前移（原 /:id 后遮蔽）。
 - **#163（T8-E2，2026-08-15）inspection-scan 巡检触发器**：`inspection-scan.ts` 事件闸挂 `trigger-scheduler.handleEvent` 分叉——判定链 = 嵌套 payload 自判（`payload.workunit.type==='bug' && status==='closed'`；**matchFilter 是顶层浅匹配，吃不了 `{workunit:{...}}` 嵌套形态，EVENT filter 对 WU 事件永不命中**）→ bug 关闭计数达 N（`INSPECTION_SCAN_THRESHOLD` 默认 3，<=0 关事件触发；计数 = 最近巡检单创建后关闭的 bug 数，从 FileStore 现算无独立计数器，建单即归零）→ 冷却（最近 `metadata.inspection===true` 单的 opportunities 有待处理条目 → 跳过落 `trigger:inspection_scan_skipped` 事件留痕含待处理条数，频道不打扰；无历史单放行）。**手动 fire 直调 executeCreateAction 不过闸**（T9 决策：人点按钮是显式意图）。`inspection-scan-schedule` = SCHEDULE 留位默认关闭（`INSPECTION_SCAN_SCHEDULE_ENABLED=true` 启用，tick 路径同过冷却闸 `checkInspectionCooldown`）。闸模块经 `trigger-action.getTriggerActionFileStore()` 共享 store（`setTriggerActionFileStore` 一处注入全覆盖）。本工程 tsconfig 非 strict：**union 判别窄化必须用显式判等（`verdict.fire === true`），真值窄化不能消除分支**

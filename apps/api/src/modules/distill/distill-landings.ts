@@ -11,24 +11,25 @@
  * 两类产物都带 sourceReferences 原料指针（skill→metadata、memory→sourceRefs）。
  * 通道返回落地产物 id；返回 null / 抛错 → DistillService 回落知识条目（产物不丢）。
  */
-import fs from 'node:fs';
 import path from 'node:path';
 import { logger, type FileStore } from '@dommaker/studio-shared';
-import { skillStore } from '../skills/skill-store.js';
-import { submitSkillProposal } from '../skills/review-adapter.js';
-import { type MemoryKind } from '../role-memory/role-memory.js';
-import { submitMemoryProposal } from '../role-memory/review-adapter.js';
-import { ensureStudioProfile } from '../agents/agent-profile.service.js';
+import { skillStore } from '../skills/index.js';
+import { submitSkillProposal } from '../skills/index.js';
+import { type MemoryKind } from '../role-memory/index.js';
+import { submitMemoryProposal } from '../role-memory/index.js';
+import { ensureStudioProfile } from '../agents/index.js';
 import type { DistillLanding } from './distill-service.js';
 
 /** companies 目录取第一家可用公司 id（skill 记录必填 companyId；无公司 → null，调用方回落）。
+ *  P2-e：目录清单/读取走 FileStore seam（readdir + readJson），替代裸 fs 直读数据区。
  *  TODO(#145 后续)：多公司环境下「第一家」语义粗糙，公司归属解析待显式化（蒸馏无公司上下文）。 */
-function firstCompanyId(companiesDir: string): string | null {
+async function firstCompanyId(fileStore: FileStore, companiesDir: string): Promise<string | null> {
   try {
-    const file = fs.readdirSync(companiesDir).filter(f => f.endsWith('.json')).sort()[0];
+    const entries = await fileStore.readdir(companiesDir);
+    const file = entries.filter(e => e.isFile() && e.name.endsWith('.json')).map(e => e.name).sort()[0];
     if (!file) return null;
-    const parsed = JSON.parse(fs.readFileSync(path.join(companiesDir, file), 'utf-8')) as { id?: unknown };
-    return typeof parsed.id === 'string' && parsed.id ? parsed.id : null;
+    const parsed = await fileStore.readJson<{ id?: unknown }>(path.join(companiesDir, file));
+    return parsed && typeof parsed.id === 'string' && parsed.id ? parsed.id : null;
   } catch {
     return null;
   }
@@ -41,7 +42,7 @@ function firstCompanyId(companiesDir: string): string | null {
  */
 export function createSkillLanding(opts: { fileStore: FileStore; companiesDir: string }): DistillLanding {
   return async (product, ctx) => {
-    const companyId = firstCompanyId(opts.companiesDir);
+    const companyId = await firstCompanyId(opts.fileStore, opts.companiesDir);
     if (!companyId) {
       logger.warn('[Distill] skill landing skipped: no company available', { title: product.title });
       return null;

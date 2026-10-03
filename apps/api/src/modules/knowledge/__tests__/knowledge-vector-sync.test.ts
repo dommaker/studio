@@ -23,12 +23,14 @@ function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnTyp
   }));
   vi.doMock('@dommaker/harness', () => ({
     FileKnowledgeStore: class { list() { return []; } },
-    KnowledgeIngest: class { ingestEntry() { return { id: 'x' }; } },
+    KnowledgeIngest: class { ingestEntry() { return { status: 'accepted', entry: { id: 'x' } }; } },
     KnowledgeLifecycle: class { shouldAutoPromote() { return false; } },
     KnowledgeQuery: class {},
-    KnowledgeInjector: class {},
     KnowledgeLinter: class { validateEntry() { return []; } },
     ReferenceTracker: class {},
+    // 本地 knowledge-injector.ts 从包根 import estimateTokens / EXTERNAL_SOURCE_MARKER，整体 mock 必须提供
+    estimateTokens: (text: string) => Math.ceil(text.length / 4),
+    EXTERNAL_SOURCE_MARKER: '[External Source — verify before acting]',
   }));
 }
 

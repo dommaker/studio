@@ -133,7 +133,8 @@ describe('api interceptor', () => {
       const originalPost = axios.post;
       vi.spyOn(axios, 'post').mockImplementation(async (url: string, data?: unknown) => {
         if (url.includes('/auth/refresh')) {
-          return { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } as AxiosResponse;
+          // { data } 壳（契约驱动批次 6/7）
+          return { data: { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } } as AxiosResponse;
         }
         return originalPost(url, data);
       });
@@ -232,7 +233,8 @@ describe('api interceptor', () => {
       vi.spyOn(axios, 'post').mockImplementation(async (url: string) => {
         if (url.includes('/auth/refresh')) {
           refreshCount++;
-          return { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } as AxiosResponse;
+          // { data } 壳（契约驱动批次 6/7）
+          return { data: { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } } as AxiosResponse;
         }
         throw new Error('unexpected post');
       });
@@ -267,7 +269,8 @@ describe('api interceptor', () => {
       vi.spyOn(axios, 'post').mockImplementation(async (url: string) => {
         if (url.includes('/auth/refresh')) {
           refreshCount++;
-          return { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } as AxiosResponse;
+          // { data } 壳（契约驱动批次 6/7）
+          return { data: { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } } as AxiosResponse;
         }
         throw new Error('unexpected post');
       });
@@ -295,7 +298,7 @@ describe('api interceptor', () => {
       const { refreshToken } = await import('../index.js');
 
       const postSpy = vi.spyOn(axios, 'post').mockResolvedValue({
-        data: { accessToken: 'new-access', refreshToken: 'new-refresh' },
+        data: { data: { accessToken: 'new-access', refreshToken: 'new-refresh' } },
       } as AxiosResponse);
 
       const result = await refreshToken('my-refresh-token');
@@ -315,7 +318,7 @@ describe('api interceptor', () => {
       api.defaults.adapter = adapterSpy;
 
       vi.spyOn(axios, 'post').mockResolvedValue({
-        data: { accessToken: 'a', refreshToken: 'b' },
+        data: { data: { accessToken: 'a', refreshToken: 'b' } },
       } as AxiosResponse);
 
       await refreshToken('token');

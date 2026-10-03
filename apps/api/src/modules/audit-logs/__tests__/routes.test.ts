@@ -271,7 +271,8 @@ describe('audit-logs source/actorType 维度 (#591)', () => {
     const res = await invokeGetById('p-1');
     expect(mockAuditGetById).toHaveBeenCalledWith('p-1');
     expect(mockGetProposalRowById).toHaveBeenCalledWith('p-1');
-    expect(res.json.mock.calls[0][0].id).toBe('p-1');
+    // 契约驱动（批次 6/7）：裸行进 { data } 壳
+    expect(res.json.mock.calls[0][0].data.id).toBe('p-1');
   });
 
   it('GET /:id 两源都未命中 → 404', async () => {

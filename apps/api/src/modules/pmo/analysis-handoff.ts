@@ -23,11 +23,13 @@
  */
 
 import { eventBus, logger, createSettledTracker, type FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import { ChannelMessageService } from '../channels/channel-message.service.js';
-import { resolveStageRouting, resolveOrNotice } from '../channels/routing.js';
-import { dispatchMonitorAlerts } from '../agents/monitor/monitor-alerts.js';
+import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
+import { parseWuMetadata } from '../workunit/index.js';
+import { ChannelMessageService } from '../channels/index.js';
+import { resolveStageRouting, resolveOrNotice } from '../channels/index.js';
+// P2-c 拆环：dispatchMonitorAlerts 转方法内动态 import（pmo→agents 静态边清零）
+import { getStore } from '../../core/store.js';
+
 
 export class AnalysisHandoff {
   private subscribed = false;
@@ -131,7 +133,8 @@ export class AnalysisHandoff {
   /** 决议 2：无频道确认提示投 Web「需要处理」收件箱（dispatchMonitorAlerts 既有管线，warning 级） */
   private postConfirmGuidanceToInbox(wu: WorkUnitData, isTrigger: boolean): void {
     const hasTasks = this.taskScopes(this.readMeta(wu)).length > 0;
-    dispatchMonitorAlerts([{
+    // P2-c 拆环：pmo→agents 静态边转动态 import（fire-and-forget，方法签名不变）
+    void import('../agent-monitor/index.js').then(({ dispatchMonitorAlerts }) => dispatchMonitorAlerts([{
       source: 'analysis_confirm',
       level: 'warning',
       relatedTaskIds: [wu.id],
@@ -139,7 +142,7 @@ export class AnalysisHandoff {
         + `${isTrigger ? 'trigger 自动巡检' : 'analysis'}，无频道可投递）——请在 Web WorkUnit 列表/详情点「通过」`
         + (hasTasks ? '（确认后将按 TASK 拆分自动派工）' : '')
         + '；结论有问题点「拒绝」返工',
-    }]);
+    }])).catch(err => logger.warn('[AnalysisHandoff] dispatchMonitorAlerts failed', { error: String(err) }));
   }
 
   /** in_review：发 analysis_confirm 接力卡（#284，决策 #250 D6——「去确认」开 WU 抽屉并自动弹确认弹窗） */
@@ -366,8 +369,8 @@ let _analysisHandoff: AnalysisHandoff | null = null;
 export function initAnalysisHandoff(fileStore?: FileStore): AnalysisHandoff {
   if (!_analysisHandoff) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
-    const { WorkUnitService } = require('../workunit/workunit.service.js') as typeof import('../workunit/workunit.service.js');
-    const fs = fileStore ?? new FileStore();
+    const { WorkUnitService } = require('../workunit/index.js') as typeof import('../workunit/index.js');
+    const fs = fileStore ?? getStore();
     _analysisHandoff = new AnalysisHandoff(fs, new WorkUnitService(fs));
   }
   _analysisHandoff.subscribeToEvents();

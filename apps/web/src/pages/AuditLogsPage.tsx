@@ -63,7 +63,8 @@ export const AuditLogsPage: React.FC = () => {
     };
   }, [filters.action, filters.resource, filters.status, filters.userId, filters.source, filters.actorType, filters.startDate, filters.endDate, page]);
 
-  const statsData = useAsyncData(async () => (await auditLogApi.getStats()).data, []);
+  // GET /stats 进 { data } 壳（契约驱动批次 6/7）→ .data.data 解包
+  const statsData = useAsyncData(async () => (await auditLogApi.getStats()).data.data, []);
 
   const optionsData = useAsyncData(async () => {
     const [actionsRes, resourcesRes] = await Promise.all([

@@ -21,17 +21,17 @@ import {
   type EvolutionProposalStatus,
 } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { postReviewProposalCard } from '../review-proposal/card.js';
+import { postReviewProposalCard } from '../review-proposal/index.js';
 import {
   registerReviewProposalAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
-} from '../review-proposal/registry.js';
+} from '../review-proposal/index.js';
 import {
   ReviewProposalStore,
   type ReviewProposalRecord,
   type ReviewProposalStatus,
-} from '../review-proposal/store.js';
+} from '../review-proposal/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import type { EvolutionService } from './evolution.service.js';
 import { CONSTRAINT_CANDIDATE_KIND_LABELS, formatConstraintStats } from './format-constraint-stats.js';

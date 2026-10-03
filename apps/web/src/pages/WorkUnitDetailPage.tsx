@@ -7,8 +7,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { deriveDisplayState, parseAttestations, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS, formatChannelName } from '@dommaker/studio-shared/web';
-import { workunitApi, type Opportunity, type WorkUnit } from '../api/workunit';
+import { workunitApi, type Opportunity } from '../api/workunit';
 import { useRosterStore } from '../stores/rosterStore';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
 import { ExecutionFlow } from '../components/workunit/ExecutionFlow';
 import { BlockedActions } from '../components/workunit/BlockedActions';
@@ -29,12 +30,11 @@ import { parseBlockedBy } from '../components/pmo/mapUtils';
 import { buildLifecycle } from '../utils/wuLifecycle';
 import { formatShortTime } from '../utils/datetime';
 import { parseWuMeta } from '../utils/wuMeta';
-import { resolveWuPmo, type WuPmoInfo } from '../utils/wuPmo';
+import { resolveWuPmo } from '../utils/wuPmo';
 import { errorMessage } from '../utils/errorMessage';
 import '../styles/wu-detail.css';
 
 // #630：归属条 PMO 解析收敛到共享正本 utils/wuPmo（删除确认框在途清单同路径复用）
-type PmoInfo = WuPmoInfo;
 
 /** 关键事实卡行：label + 值（值超长截断） */
 function FactRow({ k, children }: { k: string; children: React.ReactNode }) {
@@ -48,40 +48,30 @@ function FactRow({ k, children }: { k: string; children: React.ReactNode }) {
 
 export function WorkUnitDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [wu, setWu] = useState<WorkUnit | null>(null);
-  const [error, setError] = useState('');
-  const [pmo, setPmo] = useState<PmoInfo | null>(null);
+  // P3-b 拉取页收口：主拉取统一走 useAsyncData——deps=[id] 渲染期重置替代 prevId hack
+  // （切 id 当帧清空上一 WU 全部展示数据）；重拉入口（闸门处置/错误重试）= reload()
+  // （保留旧数据重拉、即清 error，语义与原 actionTick 重拉一致）；error 由 hook 承接
+  const wuQ = useAsyncData(async () => {
+    if (!id) return null;
+    try {
+      return (await workunitApi.get(id)).data.data;
+    } catch (e) {
+      throw new Error(errorMessage(e));
+    }
+  }, [id]);
+  const wu = wuQ.data;
+  const error = wuQ.error ?? '';
+  // 归属解析：best-effort 子拉取（resolveWuPmo 内部全 catch 落 null），deps=[wu] 随主拉取级联
+  const pmoQ = useAsyncData(async () => (wu ? resolveWuPmo(wu) : null), [wu]);
+  const pmo = pmoQ.data;
   // #455：频道名读 rosterStore channels 切片（TTL + single-flight），不再每次进页直发 GET /channels
   const channels = useRosterStore((s) => s.channels);
   const [chainReqId, setChainReqId] = useState<string | null>(null);
-  // #185：blocked 处置动作成功后 +1 触发重拉详情
-  const [actionTick, setActionTick] = useState(0);
 
-  // id 切换时在渲染期同步清空上一 WU 的全部展示数据（替代原 effect 顶部的同步重置）
-  const [prevId, setPrevId] = useState(id);
-  if (prevId !== id) {
-    setPrevId(id);
-    setWu(null);
-    setError('');
-    setPmo(null);
-  }
-
+  // 频道名经 rosterStore 切片解析（ensureFresh 永不 reject，TTL 内零重拉）
   useEffect(() => {
-    if (!id) return;
-    let alive = true;
-    workunitApi.get(id)
-      .then(r => {
-        if (!alive) return;
-        const unit = r.data;
-        setWu(unit);
-        // 归属解析全部 best-effort 并行：解析不到就不显示对应行，不阻塞页面
-        resolveWuPmo(unit).then(p => { if (alive) setPmo(p); });
-        // 频道名经 rosterStore 切片解析（ensureFresh 永不 reject，TTL 内零重拉）
-        if (unit.channelId) void useRosterStore.getState().ensureFresh();
-      })
-      .catch(e => { if (alive) setError(errorMessage(e)); });
-    return () => { alive = false; };
-  }, [id, actionTick]);
+    if (wu?.channelId) void useRosterStore.getState().ensureFresh();
+  }, [wu?.channelId]);
 
   const channelName = wu?.channelId
     ? (channels.find(c => c.id === wu.channelId)?.name ?? null)
@@ -96,21 +86,22 @@ export function WorkUnitDetailPage() {
   const opportunities = Array.isArray(meta.opportunities) && (meta.opportunities as Opportunity[]).length > 0
     ? (meta.opportunities as Opportunity[])
     : null;
-  // #163 T8-E2: 采纳/忽略机会后重拉 WU（走与首屏相同的 workunitApi.get 路径，只刷新 wu 本体）
+  // #163 T8-E2: 采纳/忽略机会后重拉 WU（走与首屏相同的 workunitApi.get 路径，只刷新 wu 本体；
+  // 直写 setData 不走 reload——失败静默保持旧态，不落 error 条整屏替换）
   const reloadWu = () => {
     if (!id) return;
     workunitApi.get(id)
-      .then(r => setWu(r.data))
+      .then(r => wuQ.setData(r.data.data))
       .catch(() => { /* best-effort：失败时清单保持旧态，下轮手动刷新 */ });
   };
   const title = wu ? (typeof meta.title === 'string' && meta.title ? meta.title : wu.scope) : '';
 
   /** E2-4：闸门动作 = 共享 WuGateActions（与列表行/抽屉同一组件，文案视觉唯一）；
-   *  写路径 #545 起内建于组件（gateWriter 双写落点 + onUpdated 直替本地 wu，不再 actionTick 整页重拉）；
-   *  BlockedActions 状态处置仍走 actionTick 重拉 */
-  const reloadOnGate = () => setActionTick(t => t + 1);
-  // 批次 E-2：错误条「重试」——清 error 后经 actionTick 复用同一 effect 重拉
-  const retryLoad = () => { setError(''); setActionTick(t => t + 1); };
+   *  写路径 #545 起内建于组件（gateWriter 双写落点 + onUpdated 直写本地 wu，不再整页重拉）；
+   *  BlockedActions 状态处置仍走 reload 重拉 */
+  const reloadOnGate = wuQ.reload;
+  // 批次 E-2：错误条「重试」——reload 即清 error 重拉（保留旧数据）
+  const retryLoad = wuQ.reload;
   // F6 派生（铁律：徽章/证据判断一律过 deriveDisplayState，不自行解释 attestations）
   const derived = wu ? deriveDisplayState({ status: wu.status, metadata: wu.metadata }) : null;
   const attestations = wu ? parseAttestations(wu.metadata) : undefined;
@@ -268,7 +259,7 @@ export function WorkUnitDetailPage() {
               <section className="wu-detail-sec">
                 <h3 className="wu-detail-sec-title">闸门动作</h3>
                 <div className="wu-detail-card">
-                  <WuGateActions wu={wu} onUpdated={setWu} />
+                  <WuGateActions wu={wu} onUpdated={wuQ.setData} />
                   <BlockedActions wu={wu} onChanged={reloadOnGate} />
                 </div>
               </section>

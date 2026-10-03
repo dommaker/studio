@@ -5,20 +5,22 @@
  * （语义去重/质量评估/过期验证/矛盾审查，LLM 批调用）的自动日循环已由
  * knowledgeMaintenanceEnabled 门控默认停用；本端点是手动触发入口——人点按钮是明确意图，
  * 不走 B7 开关。一次运行约几十批 LLM 调用、持续数分钟，端点同步等待返回聚合结果。
+ *
+ * 契约驱动迁移（2026-10 批次 4/7）：走 core/http.ts defineRoute——响应统一
+ * `{ data }` 壳（原平铺裸结果对象）；错误统一 `{ error: { code, message } }`
+ * （原 `{ error: { message } }` 补 code）。
  */
 import { Router } from 'express';
-import { knowledgeCurator } from '../agents/knowledge/knowledge-curator.service.js';
+// P2-c 拆环：knowledgeCurator 转函数内动态 import（knowledge→agents 静态边清零）
+import { defineRoute } from '../../core/http.js';
 
 const router = Router();
 
 /** POST /api/v1/knowledge/maintenance/run — 手动运行 F1 知识库维护 */
-router.post('/maintenance/run', async (_req, res) => {
-  try {
-    const result = await knowledgeCurator.runDailyMaintenance();
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: { message: (err as Error).message } });
-  }
-});
+router.post('/maintenance/run', defineRoute({}, async () => {
+  // P2-c 拆环：knowledge→agents 静态边转函数内动态 import
+  const { knowledgeCurator } = await import('../agent-knowledge/index.js');
+  return knowledgeCurator.runDailyMaintenance();
+}));
 
 export { router as maintenanceRoutes };

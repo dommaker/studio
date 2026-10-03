@@ -19,7 +19,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { FileKnowledgeStore, type KnowledgeEntry } from '@dommaker/harness';
-import { resetDailyTokenBudgetState } from '../../agents/loop/daily-token-budget.js';
+import { resetDailyTokenBudgetState } from '../../agent-loop/daily-token-budget.js';
 
 const { mockRunJson, mockCreateCardMessage } = vi.hoisted(() => ({
   mockRunJson: vi.fn(),

@@ -399,7 +399,7 @@ vi.mock('../../api/workunit', () => ({
   workunitApi: {
     get: vi.fn(),
     listExecutionStepEvents: vi.fn().mockResolvedValue({ data: { events: [], total: 0 } }),
-    getMessages: vi.fn().mockResolvedValue({ data: { data: [] } }),
+    getMessages: vi.fn().mockResolvedValue({ data: { data: { messages: [] } } }),
   },
 }));
 

@@ -31,9 +31,11 @@ beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ch-attach-'));
   process.env.STUDIO_DATA_DIR = tmpDir;
 
-  const { default: channelRoutes } = await import('../channel.routes.js');
+  const { channelReadRoutes, channelWriteRoutes, channelAttachmentRoutes } = await import('../channel.routes.js');
+  const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
   const app = express();
-  app.use('/api/v1/channels', channelRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（attachment 先挂 + read 挂 requireAuth + write 挂 authNotGuest）
+  app.use('/api/v1/channels', channelAttachmentRoutes, requireAuth(), channelReadRoutes, requireNotGuest(), channelWriteRoutes);
   await new Promise<void>(resolve => {
     server = app.listen(0, '127.0.0.1', () => resolve());
   });
@@ -75,7 +77,6 @@ describe('POST /channels/:id/attachments', () => {
     const res = await upload({ mime: 'image/png', dataBase64: PNG_BYTES.toString('base64') });
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body.success).toBe(true);
     expect(body.data.id).toMatch(/^[0-9a-f-]{36}\.png$/);
     expect(body.data.url).toBe(`/api/v1/channels/${CH}/attachments/${body.data.id}`);
     expect(body.data.size).toBe(PNG_BYTES.length);
@@ -86,7 +87,7 @@ describe('POST /channels/:id/attachments', () => {
   it('mime 不在白名单 → 400', async () => {
     const res = await upload({ mime: 'image/bmp', dataBase64: PNG_BYTES.toString('base64') });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain('图片类型');
+    expect((await res.json()).error.message).toContain('图片类型');
   });
 
   it('缺 dataBase64 → 400', async () => {
@@ -98,7 +99,7 @@ describe('POST /channels/:id/attachments', () => {
     const big = Buffer.alloc(5 * 1024 * 1024 + 1, 1).toString('base64');
     const res = await upload({ mime: 'image/png', dataBase64: big });
     expect(res.status).toBe(413);
-    expect((await res.json()).error).toContain('5MB');
+    expect((await res.json()).error.message).toContain('5MB');
   });
 
   it('未认证（STUDIO_AUTH=on 无 token）→ 401', async () => {

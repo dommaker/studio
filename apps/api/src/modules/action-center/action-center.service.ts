@@ -8,9 +8,11 @@
  */
 import { FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import { MANUAL_GATE_TYPES } from '../workunit/workunit.types.js';
-import { parseWuMetadata, parseWuTitle } from '../workunit/wu-metadata.js';
+import { WorkUnitService } from '../workunit/index.js';
+import { MANUAL_GATE_TYPES } from '../workunit/index.js';
+import { parseWuMetadata, parseWuTitle } from '../workunit/index.js';
+import { getStore } from '../../core/store.js';
+
 
 export interface ActionCenterStateItem {
   kind: 'reply' | 'review' | 'confirm';
@@ -34,7 +36,7 @@ export interface ActionCenterPayload {
 
 export class ActionCenterService {
   constructor(
-    private fileStore: FileStore = new FileStore(),
+    private fileStore: FileStore = getStore(),
     private notificationService: NotificationService = new NotificationService(fileStore),
   ) {}
 

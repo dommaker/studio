@@ -64,11 +64,11 @@ describe('analysis endpoints with a corrupted traces.log（#451 AC）', () => {
 
     const res = await api('/analysis');
     expect(res.status).toBe(200);
-    // summaries 只含合法记录：同一约束 pass/fail 各 1
-    expect(res.json.summaries).toHaveLength(1);
-    expect(res.json.summaries[0]).toMatchObject({ constraintId: 'fx1', passCount: 1, failCount: 1 });
-    expect(res.json.totalSummaries).toBe(1);
-    expect(res.json.skippedLines).toBe(1);
+    // summaries 只含合法记录：同一约束 pass/fail 各 1（{ data } 壳，批次 6/7）
+    expect(res.json.data.summaries).toHaveLength(1);
+    expect(res.json.data.summaries[0]).toMatchObject({ constraintId: 'fx1', passCount: 1, failCount: 1 });
+    expect(res.json.data.totalSummaries).toBe(1);
+    expect(res.json.data.skippedLines).toBe(1);
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('skipped'),
       expect.objectContaining({ skippedLines: 1 }),
@@ -78,7 +78,7 @@ describe('analysis endpoints with a corrupted traces.log（#451 AC）', () => {
   it('GET /analysis/anomalies returns 200 + skippedLines=1', async () => {
     const res = await api('/analysis/anomalies');
     expect(res.status).toBe(200);
-    expect(res.json.skippedLines).toBe(1);
-    expect(res.json.total).toBe(res.json.data.length);
+    expect(res.json.data.skippedLines).toBe(1);
+    expect(res.json.data.total).toBe(res.json.data.anomalies.length);
   });
 });

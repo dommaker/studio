@@ -9,7 +9,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi, afterEach } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
-import pmoRoutes from '../routes.js';
+import { pmoOpenRoutes, pmoWriteRoutes, pmoAdminRoutes } from '../routes.js';
+import { requireAuth, requireNotGuest, requireAdmin } from '../../../middleware/auth.js';
 import { okrService } from '../okr.service.js';
 import { clearCache } from '../../../middleware/api-cache.js';
 
@@ -23,7 +24,8 @@ function uniqueQuarter(): string {
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/pmo', pmoRoutes);
+  // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest + admin 挂 requireAuth+requireAdmin）
+  app.use('/api/v1/pmo', pmoOpenRoutes, requireAuth(), requireNotGuest(), pmoWriteRoutes, requireAdmin(), pmoAdminRoutes);
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', () => resolve());
   });
@@ -90,7 +92,8 @@ describe('#448 问题1: OKR 列表缓存写后失效', () => {
     const url = `${baseUrl}/okr?companyId=${companyId}`;
     const created = await createOkr(uniqueQuarter(), `okr-put-${Date.now()}`);
     expect(created.status).toBe(201);
-    const { id } = (await created.json()) as { id: string };
+    // 契约驱动迁移后单体响应统一 { data } 壳（原裸对象）
+    const { data: { id } } = (await created.json()) as { data: { id: string } };
 
     await fetch(url); // MISS，写入缓存
     const cached = await fetch(url);
@@ -112,7 +115,7 @@ describe('#448 问题1: OKR 列表缓存写后失效', () => {
     const url = `${baseUrl}/okr?companyId=${companyId}`;
     const created = await createOkr(uniqueQuarter(), `okr-del-${Date.now()}`);
     expect(created.status).toBe(201);
-    const { id } = (await created.json()) as { id: string };
+    const { data: { id } } = (await created.json()) as { data: { id: string } };
 
     await fetch(url); // MISS，写入缓存
     const cached = await fetch(url);
@@ -139,11 +142,11 @@ describe('#448 问题2: OKR 撞重返回 409', () => {
     expect(body.error.message).toContain('already exists');
   });
 
-  it('service 层非冲突错误仍返回 500 INTERNAL_ERROR', async () => {
+  it('service 层非冲突错误仍返回 500（错误码统一 INTERNAL，原 INTERNAL_ERROR）', async () => {
     vi.spyOn(okrService, 'create').mockRejectedValueOnce(new Error('disk exploded'));
     const res = await createOkr(uniqueQuarter());
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('INTERNAL_ERROR');
+    expect(body.error.code).toBe('INTERNAL');
   });
 });

@@ -44,7 +44,7 @@ function seed(title: string, maturity: string): { id: string } {
     { type: 'guideline', title, content: `${title} — 足够长的内容以通过形态与质量门禁检查。`, tags: ['test'] },
     { source: 'test:routes', layer: 'project', maturity, tags: ['test'], consumptionMode: 'signal' },
   );
-  return { id: saved.id };
+  return { id: saved.entry.id };
 }
 
 beforeAll(async () => {
@@ -57,10 +57,12 @@ beforeAll(async () => {
   sharedStore = singletons.sharedStore;
 
   const routes = (await import('../knowledge-service.routes.js')).knowledgeServiceRoutes;
+  const { requireAuth } = await import('../../../middleware/auth.js');
   knowledgeServiceRoutes = routes;
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/knowledge-service', routes);
+  // P2-e：镜像 route-registry 挂载姿态（/api/v1/knowledge-service 挂 requireAuth）
+  app.use('/api/v1/knowledge-service', requireAuth(), routes);
   await new Promise<void>(resolve => { server = app.listen(0, '127.0.0.1', () => resolve()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/knowledge-service`;
 });
@@ -77,7 +79,8 @@ describe('KnowledgeService routes — 审核闭环生命周期端点', () => {
     const { id } = seed('路由测试 promote 条目', 'draft');
     const res = await api('POST', '/promote', { entryId: id });
     expect(res.status).toBe(200);
-    expect(res.json.success).toBe(true);
+    // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
+    expect(res.json.data.success).toBe(true);
     expect(sharedStore.get(id).maturity).toBe('verified');
   });
 
@@ -85,14 +88,16 @@ describe('KnowledgeService routes — 审核闭环生命周期端点', () => {
     const { id } = seed('路由测试 demote 条目', 'draft');
     const res = await api('POST', '/demote', { entryId: id });
     expect(res.status).toBe(200);
-    expect(res.json.success).toBe(true);
+    expect(res.json.data.success).toBe(true);
     expect(sharedStore.get(id).maturity).toBe('archived');
   });
 
   it('POST /demote：缺 entryId → 400', async () => {
     const res = await api('POST', '/demote', {});
     expect(res.status).toBe(400);
-    expect(res.json.error).toContain('entryId');
+    // 必填 guard 收进 zod（原手写 400 文案）
+    expect(res.json.error.code).toBe('BAD_REQUEST');
+    expect(res.json.error.message).toContain('entryId');
   });
 
   it('POST /demote：verified 条目不受影响（仅 draft 可 demote）', async () => {
@@ -110,7 +115,7 @@ describe('KnowledgeService routes — GET /entries maturity 过滤', () => {
     seed('Zeta 已审核通过条目', 'verified');
     const res = await api('GET', '/entries?maturity=draft&limit=50');
     expect(res.status).toBe(200);
-    const entries = res.json.entries as any[];
+    const entries = res.json.data.entries as any[];
     expect(entries.length).toBeGreaterThan(0);
     expect(entries.every(e => e.maturity === 'draft')).toBe(true);
     expect(entries.some(e => e.title === 'Alpha 待审提案条目')).toBe(true);

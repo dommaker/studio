@@ -15,7 +15,7 @@ import {
   INSPECTION_SCAN_TRIGGER_ID, INSPECTION_SCAN_SCHEDULE_TRIGGER_ID,
 } from './inspection-scan.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
-import { recordAgentDecision } from '../audit-logs/agent-decision.js';
+import { recordAgentDecision } from '../audit-logs/index.js';
 import { randomUUID } from 'node:crypto';
 import type { TriggerConfig, TriggerState, TriggerLogEntry } from './trigger.types.js';
 

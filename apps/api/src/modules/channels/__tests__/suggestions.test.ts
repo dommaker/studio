@@ -17,7 +17,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
-import { ReviewDispatcher } from '../../agents/loop/review-dispatcher.js';
+import { ReviewDispatcher } from '../../agent-loop/review-dispatcher.js';
 import {
   deriveChannelSuggestions,
   SUGGESTION_TIMING,
@@ -705,10 +705,12 @@ describe('channel routes（#443）：GET /:id/suggestions', () => {
     fileStore = new FileStore(tmpDir);
     wuService = new WorkUnitService(fileStore);
 
-    const { default: channelRoutes } = await import('../channel.routes.js');
+    const { channelReadRoutes, channelWriteRoutes, channelAttachmentRoutes } = await import('../channel.routes.js');
+  const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
     const app = express();
     app.use(express.json());
-    app.use('/api/v1/channels', channelRoutes);
+    // P2-e：镜像 route-registry 挂载姿态（attachment 先挂 + read 挂 requireAuth + write 挂 authNotGuest）
+  app.use('/api/v1/channels', channelAttachmentRoutes, requireAuth(), channelReadRoutes, requireNotGuest(), channelWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });
@@ -738,7 +740,6 @@ describe('channel routes（#443）：GET /:id/suggestions', () => {
     const r = await fetch(`${baseUrl}/${channel.id}/suggestions`);
     expect(r.status).toBe(200);
     const body = await r.json();
-    expect(body.success).toBe(true);
     expect(body.data).toEqual({
       currentWuId: null,
       suggestions: [{ id: 'channel-no-members', kind: 'status', params: {} }],

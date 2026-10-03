@@ -10,6 +10,7 @@
 
 | 文件 | 职责 |
 |------|------|
+| index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | workspace.routes.ts | Workspace 只读查询（list/get/runtimes）+ 删除 API |
 | local-workspace.ts | VPS 本地 Workspace 自动注册 + 本地 CLI 运行时扫描（`rescanLocalRuntimes` 供按需重扫） |
 | workspace-store.ts | 记录读取与 root 解析（`getWorkspaceRecord`/`resolveWorkspaceRoot`），仅供 wu-verification 的 workspace 级 `verifyCommands` 覆盖、file-ref-vocabulary 候选集与 channel.routes 绑定存在性校验使用（**无执行语义**） |
@@ -26,6 +27,7 @@
 
 ### 注意事项
 
+- **契约驱动迁移（2026-10 批次 2/7）**：全部端点走 core/http.ts defineRoute + `@dommaker/studio-contract` workspaces.ts schema——统一 envelope `{ data }`（原 `{ success, data, total }` 的 total 与平铺 `{ runtimes }` 无壳退役，GET /runtimes 现为 `{ data: { runtimes } }`）；平铺错误壳 `{ error: string, code: 'WORKSPACE_*' }` 退役——404 走 HttpError NOT_FOUND，500 兜底统一 INTERNAL。鉴权挂载（requireAuth+requireAdmin）已随 P2-e 上移至 route-registry entry，路由内不再挂载。
 - Local workspace token=NULL，Server 启动时自动创建
 - **'VPS' 命名约定的唯一属主在 studio-shared（2026-08 seam 修复）**：判定"哪条记录是本机 VPS workspace"（name='VPS' 且无 tokenId）由 `@dommaker/studio-shared/node` 的 `resolveVpsWorkspace()` 统一定义；本模块的 `local-workspace.findLocalWorkspace` 委托给它。改写存储格式/重命名 VPS workspace 时需同步该函数。
 - 本地 CLI 扫描链（2026-07 修复后）：`local-workspace.scanLocalRuntimes()` 复用 `daemon/cli-scanner.scanAllProviders()`（provider 注册表驱动：内置 claude/kimi/codex/opencode，用户可经 `~/.studio/providers.json` 扩展），结果**全量替换 local workspace 记录的 `runtimes` 数组**；每次启动重扫 + `GET /workspaces/runtimes` 返回前 best-effort 重扫。扫描在 Server 所在机器执行：线上扫服务器，本地起服务扫本地。

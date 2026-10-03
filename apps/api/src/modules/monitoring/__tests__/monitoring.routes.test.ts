@@ -57,8 +57,9 @@ describe('Monitoring Routes', () => {
     const handler = router.stack.find((l: any) => l.route?.path === '/agents')?.route?.stack[0]?.handle;
     await handler!(req, res, () => {});
     expect(res.statusCode).toBe(200);
-    expect(res.body.agents).toHaveLength(1);
-    expect(res.body.summary.total).toBe(1);
+    // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+    expect(res.body.data.agents).toHaveLength(1);
+    expect(res.body.data.summary.total).toBe(1);
   });
 
   it('GET /stats returns monitoring stats', async () => {
@@ -67,9 +68,9 @@ describe('Monitoring Routes', () => {
     const handler = router.stack.find((l: any) => l.route?.path === '/stats')?.route?.stack[0]?.handle;
     await handler!(req, res, () => {});
     expect(res.statusCode).toBe(200);
-    expect(res.body.workunits.total).toBe(5);
-    expect(res.body.agents.total).toBe(1);
-    expect(res.body.recent.completedLast24h).toBe(1);
+    expect(res.body.data.workunits.total).toBe(5);
+    expect(res.body.data.agents.total).toBe(1);
+    expect(res.body.data.recent.completedLast24h).toBe(1);
   });
 
   it('GET /agents returns 500 on service error', async () => {
@@ -79,7 +80,8 @@ describe('Monitoring Routes', () => {
     const handler = router.stack.find((l: any) => l.route?.path === '/agents')?.route?.stack[0]?.handle;
     await handler!(req, res, () => {});
     expect(res.statusCode).toBe(500);
-    expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    // 错误壳 code 归一：INTERNAL_ERROR → INTERNAL（message = 实际错误消息不变）
+    expect(res.body.error.code).toBe('INTERNAL');
   });
 
   it('GET /overview returns D16 聚合指标（默认窗口）', async () => {
@@ -88,8 +90,8 @@ describe('Monitoring Routes', () => {
     const handler = router.stack.find((l: any) => l.route?.path === '/overview')?.route?.stack[0]?.handle;
     await handler!(req, res, () => {});
     expect(res.statusCode).toBe(200);
-    expect(res.body.windowDays).toBe(7);
-    expect(res.body.humanIntervention.avgPerCompletedWu).toBe(0.5);
+    expect(res.body.data.windowDays).toBe(7);
+    expect(res.body.data.humanIntervention.avgPerCompletedWu).toBe(0.5);
     expect(mockGetOverviewMetrics).toHaveBeenCalledWith({ windowDays: undefined });
   });
 
@@ -116,7 +118,7 @@ describe('Monitoring Routes', () => {
     const handler = router.stack.find((l: any) => l.route?.path === '/overview')?.route?.stack[0]?.handle;
     await handler!(req, res, () => {});
     expect(res.statusCode).toBe(500);
-    expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    expect(res.body.error.code).toBe('INTERNAL');
   });
 
   it('GET /efficiency returns #120 缓存命中率 + 段 trim 率（默认窗口）', async () => {
@@ -125,8 +127,8 @@ describe('Monitoring Routes', () => {
     const handler = router.stack.find((l: any) => l.route?.path === '/efficiency')?.route?.stack[0]?.handle;
     await handler!(req, res, () => {});
     expect(res.statusCode).toBe(200);
-    expect(res.body.cacheHitRate.overall.hitRatePct).toBe(47);
-    expect(res.body.sectionTrim.totals.trimEvents).toBe(3);
+    expect(res.body.data.cacheHitRate.overall.hitRatePct).toBe(47);
+    expect(res.body.data.sectionTrim.totals.trimEvents).toBe(3);
     expect(mockGetEfficiencyMetrics).toHaveBeenCalledWith({ windowDays: undefined });
   });
 
@@ -149,6 +151,6 @@ describe('Monitoring Routes', () => {
     const handler = router.stack.find((l: any) => l.route?.path === '/efficiency')?.route?.stack[0]?.handle;
     await handler!(req, res, () => {});
     expect(res.statusCode).toBe(500);
-    expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    expect(res.body.error.code).toBe('INTERNAL');
   });
 });

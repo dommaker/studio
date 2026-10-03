@@ -146,7 +146,8 @@ describe('harness routes facade', () => {
   it('GET /api/v1/harness/health reachable (200 ok)', async () => {
     const res = await fetch(`${baseHarness}/health`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: 'ok', harness: 'connected', constraintsActive: true });
+    // { data } 壳（批次 6/7）
+    expect(await res.json()).toEqual({ data: { status: 'ok', harness: 'connected', constraintsActive: true } });
   });
 
   it('GET /api/v1/harness/agents reaches agents handler (200 empty list, not 404)', async () => {
@@ -154,13 +155,14 @@ describe('harness routes facade', () => {
     // 若未挂载则为 Express 默认 404。
     const res = await fetch(`${baseHarness}/agents`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ data: [], total: 0 });
+    // 列表壳内层 data 键改名词键 agents（批次 6/7）
+    expect(await res.json()).toEqual({ data: { agents: [], total: 0 } });
   });
 
   it('GET /api/v1/cso/validate reachable on cso mount (validator unavailable note)', async () => {
     const res = await fetch(`${baseCso}/validate`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ valid: true, issues: [], note: 'CSOValidator not available' });
+    expect(await res.json()).toEqual({ data: { valid: true, issues: [], note: 'CSOValidator not available' } });
   });
 
   it('unregistered path falls through to Express 404', async () => {

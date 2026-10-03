@@ -23,6 +23,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { parseStudioEventPayload } from './studio-events.js';
+import { getStore } from '../core/store.js';
+
 
 /** per-WU 累计行：全部数值字段为「该 WU 所有 token 事件的 Σ（仅计有限数字）」 */
 export interface TokenLedgerRow {
@@ -54,7 +56,6 @@ export interface TokenLedger {
 /** 账本文件名（与事件文件同目录，随测试隔离/STUDIO_EVENTS_FILE 自动跟随） */
 export const TOKEN_LEDGER_FILE_NAME = 'token-ledger.json';
 
-const fileStore = new FileStore();
 
 export function resolveTokenLedgerFile(eventsFile: string): string {
   return path.join(path.dirname(eventsFile), TOKEN_LEDGER_FILE_NAME);
@@ -141,19 +142,19 @@ export async function syncTokenLedger(eventsFile: string): Promise<TokenLedger> 
   }
 
   const ledgerFile = resolveTokenLedgerFile(eventsFile);
-  const cached = await fileStore.readJson<TokenLedger>(ledgerFile).catch(() => null);
+  const cached = await getStore().readJson<TokenLedger>(ledgerFile).catch(() => null);
   if (isTokenLedger(cached) && cached.watermark.bytes === size) return cached;
 
   const lockDir = path.join(path.dirname(ledgerFile), '.token-ledger.lock');
-  return fileStore.withLock(lockDir, async () => {
+  return getStore().withLock(lockDir, async () => {
     const ledger = readLedgerBare(ledgerFile) ?? emptyTokenLedger();
     // 锁内复核：另一进程可能刚同步完
     if (ledger.watermark.bytes === size) return ledger;
-    const rows = await fileStore.readJsonl<{ type?: unknown; payload?: unknown }>(eventsFile);
+    const rows = await getStore().readJsonl<{ type?: unknown; payload?: unknown }>(eventsFile);
     const base = rows.length < ledger.watermark.lines ? emptyTokenLedger() : ledger; // 行数倒退 = 轮转重建
     for (const row of rows.slice(base.watermark.lines)) accumulate(base, row);
     base.watermark = { lines: rows.length, bytes: size };
-    await fileStore.writeJson(ledgerFile, base);
+    await getStore().writeJson(ledgerFile, base);
     return base;
   });
 }

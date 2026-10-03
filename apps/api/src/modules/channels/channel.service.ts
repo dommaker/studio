@@ -4,8 +4,10 @@
 import { randomUUID } from 'crypto';
 import { logger, FileStore, type ChannelData } from '@dommaker/studio-shared';
 import { clearCache } from '../../middleware/api-cache.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
+import { WorkUnitService } from '../workunit/index.js';
+import { getWorkspaceRecord } from '../workspaces/index.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 缓存失效键 = 路由挂载点（route-registry `/api/v1/channels`，与现状 req.baseUrl 一致） */
 const CHANNELS_BASE_PATH = '/api/v1/channels';
@@ -34,7 +36,7 @@ export class ChannelService {
   private workUnitService: WorkUnitService;
 
   constructor(fileStore?: FileStore) {
-    this.fileStore = fileStore ?? new FileStore();
+    this.fileStore = fileStore ?? getStore();
     this.workUnitService = new WorkUnitService(this.fileStore);
   }
 

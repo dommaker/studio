@@ -86,7 +86,7 @@ describe('useUnreadStoreSync', () => {
     mockOnEvent.mockReturnValue(() => {});
     mockOnReconnect.mockImplementation((h: () => void) => { reconnectHandler = h; return () => {}; });
     mockListMessages.mockResolvedValue({
-      data: { data: [{ id: 'm-1', channelId: 'ch-1', authorType: 'agent', content: 'x', createdAt: new Date(1500).toISOString() }] },
+      data: { data: { messages: [{ id: 'm-1', channelId: 'ch-1', authorType: 'agent', content: 'x', createdAt: new Date(1500).toISOString() }], total: 1, hasMore: false } },
     });
     useUnreadStore.setState({ lastSeenAt: { 'ch-1': 1000 } });
 

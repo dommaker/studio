@@ -16,11 +16,11 @@ import { logger } from '../../utils/logger.js';
 import {
   getReviewProposalAdapter,
   listReviewProposalAdapters,
-} from '../review-proposal/registry.js';
+} from '../review-proposal/index.js';
 import type {
   ReviewProposalBase,
   ReviewProposalRecord,
-} from '../review-proposal/store.js';
+} from '../review-proposal/index.js';
 
 /** 聚合读面行（与 AuditService 的 AuditLogRow 子集同形） */
 export interface ProposalDecisionRow {
@@ -89,18 +89,18 @@ const KNOWN_KINDS = ['distill', 'gc', 'memory', 'skill', 'knowledge', 'auditor',
 
 async function ensureAdaptersRegistered(): Promise<void> {
   const [skills, knowledge, auditor, memory, evolution] = await Promise.all([
-    import('../skills/review-adapter.js'),
-    import('../knowledge/review-adapter.js'),
-    import('../agents/auditor/review-adapter.js'),
-    import('../role-memory/review-adapter.js'),
-    import('../evolution/review-adapter.js'),
+    import('../skills/index.js'),
+    import('../knowledge/index.js'),
+    import('../agent-auditor/index.js'),
+    import('../role-memory/index.js'),
+    import('../evolution/index.js'),
   ]);
   skills.getSkillReviewAdapter();
   knowledge.getKnowledgeReviewAdapter();
   auditor.getAuditorReviewAdapter();
   if (!getReviewProposalAdapter('memory')) memory.registerMemoryReviewAdapter();
   if (!getReviewProposalAdapter('evolution')) {
-    const { getEvolutionService } = await import('../evolution/evolution.service.js');
+    const { getEvolutionService } = await import('../evolution/index.js');
     const svc = getEvolutionService();
     evolution.registerEvolutionReviewAdapter({ fileStore: svc.store, service: svc });
   }

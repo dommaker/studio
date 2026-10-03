@@ -38,8 +38,6 @@ interface AuthState {
   getRole: () => string;
 
   // Actions
-  requestPasswordReset: (email: string) => Promise<string>;
-  resetPassword: (token: string, password: string) => Promise<string>;
   init: () => Promise<void>;
   createGuestSession: () => Promise<void>;
   checkAuth: () => Promise<void>;
@@ -75,30 +73,6 @@ export const useAuthStore = create<AuthState>()(
       getRole: () => get().user?.role || 'Guest',
 
       // Actions
-      requestPasswordReset: async (email: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const { data } = await authApi.forgotPassword(email);
-          set({ isLoading: false });
-          return data.message as string;
-        } catch (e) {
-          set({ error: e.response?.data?.error || e.message || '请求失败', isLoading: false });
-          throw e;
-        }
-      },
-
-      resetPassword: async (token: string, password: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const { data } = await authApi.resetPassword(token, password);
-          set({ isLoading: false });
-          return data.message as string;
-        } catch (e) {
-          set({ error: e.response?.data?.error || e.message || '重置失败', isLoading: false });
-          throw e;
-        }
-      },
-
       init: async () => {
         if (get().token) {
           await get().checkAuth();
@@ -111,17 +85,18 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         try {
           const guestId = get().guestId || generateGuestId();
-          const { data } = await authApi.createGuestSession(guestId);
+          // { data } 壳（契约驱动批次 6/7）；AuthUser.role 为 string，as User 收回词表
+          const data = (await authApi.createGuestSession(guestId)).data.data;
 
           set({
             token: data.token,
-            session: { id: data.session?.id, expiresAt: data.session?.expiresAt },
-            user: data.user || { id: guestId, email: '', role: 'Guest' },
+            session: { id: data.session.id, expiresAt: data.session.expiresAt },
+            user: data.user ? (data.user as User) : { id: guestId, email: '', role: 'Guest' },
             guestId,
             isLoading: false,
           });
         } catch (e) {
-          set({ error: e.message || '创建 Session 失败', isLoading: false });
+          set({ error: e.response?.data?.error?.message || e.message || '创建 Session 失败', isLoading: false });
         }
       },
 
@@ -131,16 +106,16 @@ export const useAuthStore = create<AuthState>()(
 
         set({ isLoading: true, error: null });
         try {
-          const { data } = await authApi.checkAuth();
+          const data = (await authApi.checkAuth()).data.data;
 
           if (data.user) {
-            set({ user: { ...data.user, role: data.user.role }, isLoading: false });
+            set({ user: data.user as User, isLoading: false });
           } else {
             set({ isLoading: false });
             await get().createGuestSession();
           }
         } catch (e) {
-          set({ error: e.message, isLoading: false });
+          set({ error: e.response?.data?.error?.message || e.message, isLoading: false });
           await get().createGuestSession();
         }
       },
@@ -148,23 +123,19 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string) => {
         set({ isLoading: true, error: null });
         try {
-          const { data } = await authApi.login(email, password);
-
-          if (data.error) {
-            set({ error: data.error || '登录失败', isLoading: false });
-            return false;
-          }
+          // { data } 壳（契约驱动批次 6/7）；失败恒走 4xx 拒绝（原 200+{error} 分支退役）
+          const data = (await authApi.login(email, password)).data.data;
 
           set({
             token: data.token,
             refreshToken: data.refreshToken || null,
-            user: data.user,
-            session: { id: data.session?.id, expiresAt: data.session?.expiresAt },
+            user: (data.user as User) ?? null,
+            session: { id: data.session.id, expiresAt: data.session.expiresAt },
             isLoading: false,
           });
           return true;
         } catch (e) {
-          set({ error: e.message || '登录失败', isLoading: false });
+          set({ error: e.response?.data?.error?.message || e.message || '登录失败', isLoading: false });
           return false;
         }
       },
@@ -172,23 +143,18 @@ export const useAuthStore = create<AuthState>()(
       register: async (email: string, password: string, name?: string) => {
         set({ isLoading: true, error: null });
         try {
-          const { data } = await authApi.register(email, password, name);
-
-          if (data.error) {
-            set({ error: data.error || '注册失败', isLoading: false });
-            return false;
-          }
+          const data = (await authApi.register(email, password, name)).data.data;
 
           set({
             token: data.token,
             refreshToken: data.refreshToken || null,
-            user: data.user,
-            session: { id: data.session?.id, expiresAt: data.session?.expiresAt },
+            user: (data.user as User) ?? null,
+            session: { id: data.session.id, expiresAt: data.session.expiresAt },
             isLoading: false,
           });
           return true;
         } catch (e) {
-          set({ error: e.message || '注册失败', isLoading: false });
+          set({ error: e.response?.data?.error?.message || e.message || '注册失败', isLoading: false });
           return false;
         }
       },
@@ -206,9 +172,9 @@ export const useAuthStore = create<AuthState>()(
 
       fetchMe: async () => {
         try {
-          const { data } = await authApi.fetchMe();
+          const data = (await authApi.fetchMe()).data.data;
           if (data.user) {
-            set({ user: data.user, session: data.session });
+            set({ user: data.user as User, session: data.session });
           }
         } catch (e) {
           console.error('Fetch me error:', e);

@@ -35,11 +35,14 @@ const backendRow = {
   createdAt: '2026-08-18T08:00:00.000Z', read: false, readAt: null,
 };
 
+// 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳——mock 体即壳体
 const actionCenterPayload = (overrides: Record<string, unknown> = {}) => ({
-  stateItems: [stateItem()],
-  notifications: [backendRow],
-  unreadCount: 1,
-  ...overrides,
+  data: {
+    stateItems: [stateItem()],
+    notifications: [backendRow],
+    unreadCount: 1,
+    ...overrides,
+  },
 });
 
 beforeEach(() => {

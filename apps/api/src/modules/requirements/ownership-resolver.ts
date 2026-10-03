@@ -22,8 +22,10 @@
  * （与 task.parameters.workspaceRoot 消费方式兼容，不经 workspace 记录解析）。
  */
 import { logger, FileStore, stripTrailingSlashes, type ChannelData } from '@dommaker/studio-shared';
-import { projectService } from '../pmo/project.service.js';
+// P2-c 拆环：projectService 转闭包内动态 import（requirements→pmo 静态边清零）
 import type { RequirementWithProject } from './requirement.service.js';
+import { getStore } from '../../core/store.js';
+
 
 /** 无归属挂起时的提问文案（message-routing 建 WU 时写入 metadata.waitingQuestion） */
 export const OWNERSHIP_WAITING_QUESTION = '这个任务要修改哪个工程？请回复工程名或路径';
@@ -63,7 +65,7 @@ const NONE: OwnershipResolution = { source: 'none', workspaceRoot: null, project
  * 各优先级独立 try/catch：单步读取失败记日志并落到下一优先级。
  */
 export async function resolveWorkspaceForWU(input: ResolveWorkspaceInput): Promise<OwnershipResolution> {
-  const fileStore = input.fileStore ?? new FileStore();
+  const fileStore = input.fileStore ?? getStore();
 
   // 1. Requirement → PMO 项目 gitRepo（第一性归属）
   if (input.reqId) {
@@ -71,7 +73,7 @@ export async function resolveWorkspaceForWU(input: ResolveWorkspaceInput): Promi
       const requirement = (await fileStore.getRequirement(input.reqId)) as RequirementWithProject | null;
       const projectId = requirement?.projectId ?? null;
       if (projectId) {
-        const getProject = input.getProject ?? (async (id: string) => projectService.get(id));
+        const getProject = input.getProject ?? (async (id: string) => (await import('../pmo/index.js')).projectService.get(id));
         const project = await getProject(projectId);
         if (project?.gitRepo) {
           return { source: 'requirement', workspaceRoot: project.gitRepo, projectId };

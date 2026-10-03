@@ -84,14 +84,14 @@ describe('trigger manual fire + costs', () => {
     const port = typeof addr === 'object' && addr ? addr.port : 0;
     base = `http://127.0.0.1:${port}/triggers`;
 
-    // costs 端点走 STUDIO_EVENTS_JSONL 覆盖（与 agent-loop 同一测试隔离约定）
+    // costs 端点走 STUDIO_EVENTS_FILE 覆盖（与 agent-loop 同一测试隔离约定）
     eventsTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trigger-fire-test-'));
     eventsFile = path.join(eventsTmpDir, 'events.jsonl');
-    process.env.STUDIO_EVENTS_JSONL = eventsFile;
+    process.env.STUDIO_EVENTS_FILE = eventsFile;
   });
 
   afterAll(async () => {
-    delete process.env.STUDIO_EVENTS_JSONL;
+    delete process.env.STUDIO_EVENTS_FILE;
     await new Promise<void>(resolve => server.close(() => resolve()));
     fs.rmSync(eventsTmpDir, { recursive: true, force: true });
   });
@@ -107,9 +107,9 @@ describe('trigger manual fire + costs', () => {
     const res = await fetch(`${base}/disabled-yaml/fire`, { method: 'POST' });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.fired).toBe(true);
-    expect(body.wasDisabled).toBe(true);
-    expect(body.workUnit.id).toBe('wu-1');
+    expect(body.data.fired).toBe(true);
+    expect(body.data.wasDisabled).toBe(true);
+    expect(body.data.workUnit.id).toBe('wu-1');
     // 手动触发不做同分钟去重：第三参不带 dedupeWithinMinute（#591 起带 traceId 贯穿埋点与 WU metadata）
     expect(mockExecuteCreateAction).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'CREATE' }),
@@ -137,9 +137,9 @@ describe('trigger manual fire + costs', () => {
     const res = await fetch(`${base}/knowledge-synthesis/fire`, { method: 'POST' });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.fired).toBe(true);
-    expect(body.wasDisabled).toBe(true);
-    expect(body.workUnit.id).toBe('wu-2');
+    expect(body.data.fired).toBe(true);
+    expect(body.data.wasDisabled).toBe(true);
+    expect(body.data.workUnit.id).toBe('wu-2');
   });
 
   it('同分钟连续 fire 两次：两次都创建 WU（手动路径不去重）', async () => {
@@ -150,8 +150,8 @@ describe('trigger manual fire + costs', () => {
 
     const r1 = await fetch(`${base}/twice/fire`, { method: 'POST' });
     const r2 = await fetch(`${base}/twice/fire`, { method: 'POST' });
-    expect((await r1.json()).workUnit.id).toBe('wu-a');
-    expect((await r2.json()).workUnit.id).toBe('wu-b');
+    expect((await r1.json()).data.workUnit.id).toBe('wu-a');
+    expect((await r2.json()).data.workUnit.id).toBe('wu-b');
     expect(mockExecuteCreateAction).toHaveBeenCalledTimes(2);
   });
 
@@ -161,8 +161,8 @@ describe('trigger manual fire + costs', () => {
     const res = await fetch(`${base}/exec-trigger/fire`, { method: 'POST' });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.fired).toBe(true);
-    expect(body.wasDisabled).toBe(false);
+    expect(body.data.fired).toBe(true);
+    expect(body.data.wasDisabled).toBe(false);
     expect(mockExecuteExecuteAction).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'EXECUTE' }),
       expect.objectContaining({ manual: true }),
@@ -197,9 +197,9 @@ describe('trigger manual fire + costs', () => {
     const res = await fetch(`${base}/inspection-scan/fire`, { method: 'POST' });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.fired).toBe(true);
+    expect(body.data.fired).toBe(true);
     // 建单落 pending（#162 人闸手动 fire 继承，由 executeCreateAction 统一落地）
-    expect(body.workUnit.status).toBe('pending');
+    expect(body.data.workUnit.status).toBe('pending');
     expect(mockExecuteCreateAction).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'CREATE' }),
       'inspection-scan',
@@ -213,6 +213,8 @@ describe('trigger manual fire + costs', () => {
     const now = new Date();
     const old = new Date(now.getTime() - 40 * 24 * 3600_000);
     const lines = [
+      // 窗口外 → 过滤（写在最前：事件文件 append-only 时间单调，readStudioEventsSince 倒扫遇窗口外行即停）
+      { type: 'workunit:tokens', source: 'agent-loop', payload: JSON.stringify({ triggerId: 'doc-semantic-review', billedTokens: 7777 }), createdAt: old.toISOString() },
       // billed 优先
       { type: 'workunit:tokens', source: 'agent-loop', payload: JSON.stringify({ triggerId: 'doc-semantic-review', billedTokens: 1000, totalTokens: 100 }), createdAt: now.toISOString() },
       // 旧事件无 billed → totalTokens 兜底
@@ -222,16 +224,14 @@ describe('trigger manual fire + costs', () => {
       // system:tokens：usage 缺失 → calls 准确、tokens 为 0
       { type: 'system:tokens', source: 'knowledge-maintenance', payload: JSON.stringify({ inputTokens: null, outputTokens: null, durationMs: 1000 }), createdAt: now.toISOString() },
       { type: 'system:tokens', source: 'knowledge-maintenance', payload: JSON.stringify({ inputTokens: 10, outputTokens: 5, durationMs: 1000 }), createdAt: now.toISOString() },
-      // 窗口外 → 过滤
-      { type: 'workunit:tokens', source: 'agent-loop', payload: JSON.stringify({ triggerId: 'doc-semantic-review', billedTokens: 7777 }), createdAt: old.toISOString() },
     ];
     fs.writeFileSync(eventsFile, lines.map(l => JSON.stringify(l)).join('\n') + '\n');
 
     const res = await fetch(`${base}/costs?days=30`);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.byTrigger['doc-semantic-review']).toBe(1050);
-    expect(body.callsBySource['knowledge-maintenance']).toBe(2);
-    expect(body.bySource['knowledge-maintenance']).toBe(15);
+    expect(body.data.byTrigger['doc-semantic-review']).toBe(1050);
+    expect(body.data.callsBySource['knowledge-maintenance']).toBe(2);
+    expect(body.data.bySource['knowledge-maintenance']).toBe(15);
   });
 });

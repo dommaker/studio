@@ -96,7 +96,7 @@ const renderDetail = () =>
 describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 }, () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetProject.mockResolvedValue({ data: mockProject });
+    mockGetProject.mockResolvedValue({ data: { data: mockProject } });
     mockGetDelivery.mockRejectedValue(new Error('no delivery'));
     mockGetChain.mockResolvedValue({
       data: { data: { requirement: { id: 'REQ-0011', title: '探路' }, workunits: chainWorkunits } },
@@ -104,7 +104,7 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
     mockGetAgentSummary.mockResolvedValue({ data: { agents: [] } });
     mockWuList.mockResolvedValue({ data: { data: unassignedRows, total: 3 } });
     mockWuGet.mockImplementation((id: string) => {
-      if (id === 'wu-d2') return Promise.resolve({ data: { id, status: 'in_review' } });
+      if (id === 'wu-d2') return Promise.resolve({ data: { data: { id, status: 'in_review' } } });
       return Promise.reject(new Error('not found'));
     });
   });
@@ -147,7 +147,7 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
   });
 
   it('非探路型（无 map）不渲染地图区；有可认领单仍显示下一个该干什么', async () => {
-    mockGetProject.mockResolvedValue({ data: { ...mockProject, map: null } });
+    mockGetProject.mockResolvedValue({ data: { data: { ...mockProject, map: null } } });
     mockWuList.mockResolvedValue({
       data: {
         data: [{

@@ -21,9 +21,11 @@
  */
 import { FileStore, logger, type ChannelMessageData } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { ChannelMessageService, type MessageMeta, type MessageRecord } from '../channels/channel-message.service.js';
+import type { MessageMeta, MessageRecord } from '../channels/index.js';
 import { parseWuMetadata, parseWuTitle } from './wu-metadata.js';
 import type { WorkUnitData } from './workunit.service.js';
+import { getStore } from '../../core/store.js';
+
 
 export interface PostWuSystemMessageOptions {
   /** 消息署名（默认 'Studio'；agent-loop 回帖传本 loop 的 role.name） */
@@ -34,7 +36,7 @@ export interface PostWuSystemMessageOptions {
   meta?: MessageMeta;
   /** 显式线程锚点（提供时跳过 anchor 查找，如挂在派发消息上） */
   replyToId?: string;
-  /** 测试注入；缺省 new FileStore() */
+  /** 测试注入；缺省 getStore() */
   fileStore?: FileStore;
 }
 
@@ -58,7 +60,7 @@ async function findAnchorMessage(workUnitId: string, channelId: string, fileStor
  */
 async function milestoneMeta(wu: WorkUnitData, fileStore: FileStore): Promise<MessageMeta> {
   try {
-    const { resolvePmoProjectIdForWU } = await import('../requirements/pmo-branch-resolver.js');
+    const { resolvePmoProjectIdForWU } = await import('../requirements/index.js');
     const pmoId = await resolvePmoProjectIdForWU(
       { reqId: wu.reqId ?? null, metadata: wu.metadata },
       fileStore,
@@ -106,7 +108,7 @@ export async function postWuSystemMessage(
   const trimmed = content.trim();
   if (!trimmed || !wu.channelId) return null;
 
-  const fileStore = opts?.fileStore ?? new FileStore();
+  const fileStore = opts?.fileStore ?? getStore();
   // #494：WU metadata.anchorMessageId（派单建单时落档的派发消息 id）优先于
   // findAnchorMessage——workunit.created 同步触发 observe→claim→认领播报，显式 anchor
   // 消除「派发消息尚未落库 → 找不到 anchor → 播报落独立根」的时序竞态；缺失时回退既有语义。
@@ -118,7 +120,7 @@ export async function postWuSystemMessage(
     ? { ...await milestoneMeta(wu, fileStore), ...opts?.meta }
     : opts?.meta;
 
-  const record = await new ChannelMessageService(fileStore).createAgentMessage(
+  const record = await new (await import('../channels/index.js')).ChannelMessageService(fileStore).createAgentMessage(
     wu.channelId,
     opts?.agentName ?? 'Studio',
     trimmed,

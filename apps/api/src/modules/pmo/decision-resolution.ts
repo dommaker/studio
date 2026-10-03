@@ -23,10 +23,12 @@
  */
 
 import { eventBus, logger, type FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
+import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
+import { parseWuMetadata } from '../workunit/index.js';
 import { projectService, type ProjectData, type PmoMap } from './project.service.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
+import { getStore } from '../../core/store.js';
+
 
 export class DecisionResolution {
   private subscribed = false;
@@ -162,8 +164,8 @@ let _decisionResolution: DecisionResolution | null = null;
 export function initDecisionResolution(fileStore?: FileStore): DecisionResolution {
   if (!_decisionResolution) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
-    const { WorkUnitService } = require('../workunit/workunit.service.js') as typeof import('../workunit/workunit.service.js');
-    const fs = fileStore ?? new FileStore();
+    const { WorkUnitService } = require('../workunit/index.js') as typeof import('../workunit/index.js');
+    const fs = fileStore ?? getStore();
     _decisionResolution = new DecisionResolution(fs, new WorkUnitService(fs));
   }
   _decisionResolution.subscribeToEvents();

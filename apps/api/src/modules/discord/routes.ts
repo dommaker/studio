@@ -6,12 +6,14 @@
  */
 
 import express, { Router, Request, Response } from 'express';
-import { FileStore } from '@dommaker/studio-shared';
+
 import { logger } from '../../utils/logger.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { WorkUnitService } from '../workunit/index.js';
+import { getStore } from '../../core/store.js';
+
 const router = express.Router();
-const fileStore = new FileStore();
-const workUnitService = new WorkUnitService(fileStore);
+const workUnitService = new WorkUnitService(getStore());
 
 // Discord 斜杠命令名（/studio …）；与角色域的 studio 系统角色无关，仅命令注册名
 const STUDIO_COMMAND_NAME = 'studio';
@@ -140,10 +142,9 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
           try {
             const fs = await import('fs');
             const path = await import('path');
-            const os = await import('os');
-            const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+            const WORKTREES_DIR = process.env.WORKTREES_DIR || studioPath('worktrees');
 
-            const allActive = await fileStore.getIndex({ status: 'active' });
+            const allActive = await getStore().getIndex({ status: 'active' });
             const runningExecs = allActive
               .filter(s => s.parentId !== null)
               .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -202,7 +203,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
           const eid = String(executionId).trim();
 
           try {
-            const allSnapshots = await fileStore.getIndex();
+            const allSnapshots = await getStore().getIndex();
             const exec = allSnapshots.find(s => s.id === eid);
             if (!exec) {
               // Try partial match
@@ -313,7 +314,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
  * 状态机拒绝/落库失败（error 携带真实原因），调用方不再把后两者混报为 not found。
  */
 async function closeWorkUnit(wuId: string, reason: string): Promise<{ closed: boolean; error?: string }> {
-  const snap = (await fileStore.getIndex({ id: wuId }))[0];
+  const snap = (await getStore().getIndex({ id: wuId }))[0];
   if (!snap) return { closed: false };
   try {
     await workUnitService.close(wuId, { reason, closedBy: 'human-command' });

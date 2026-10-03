@@ -10,7 +10,7 @@
 
 import type { RegisteredTool } from './tool-registry.js';
 import { ConstraintViolationError } from '@dommaker/harness';
-import { sanitizeConstraintContext, downgradeAnnotation, VIOLATION_PARTIAL_VIEW } from '../harness/sanitize-context.js';
+import { sanitizeConstraintContext, downgradeAnnotation, VIOLATION_PARTIAL_VIEW } from '../harness/index.js';
 
 // ─── 安全约束 ───
 

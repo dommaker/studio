@@ -24,8 +24,8 @@ vi.mock('../../api/knowledge', () => ({
     createUnifiedEntry: mockCreateUnifiedEntry,
     promote: mockPromote,
     demote: mockDemote,
-    listGaps: vi.fn().mockResolvedValue({ data: { data: [] } }),
-    listResolutions: vi.fn().mockResolvedValue({ data: { resolutions: [] } }),
+    listGaps: vi.fn().mockResolvedValue({ data: { data: { data: [] } } }),
+    listResolutions: vi.fn().mockResolvedValue({ data: { data: { resolutions: [] } } }),
     search: mockSearch,
   },
 }));
@@ -43,7 +43,7 @@ import { KnowledgePage } from '../KnowledgePage';
 describe('工单 38: KnowledgePage 新建条目失败反馈', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockListUnified.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
   });
 
   it('创建失败时 toast 报错、表单保留且内容不清空', async () => {
@@ -118,13 +118,13 @@ describe('#435: 统一视图内容消化 + 徽标类别色 + 占位符', () => {
 
   it('JSON 内容条目结构化键值呈现，不裸出存储层原文', async () => {
     mockListUnified.mockResolvedValue({
-      data: {
+      data: { data: {
         entries: [{
           id: 'e1', title: '用户偏好', consumptionMode: 'context', source: 'preference-extractor',
           content: '{"responseStyle":"简洁","preferredModel":"k2"}', tags: [],
         }],
         total: 1,
-      },
+      } },
     });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
 
@@ -137,10 +137,10 @@ describe('#435: 统一视图内容消化 + 徽标类别色 + 占位符', () => {
   it('长文本截断 200 字符，点击展开显示全文', async () => {
     const longText = '告警：Agent 执行失败。'.repeat(30); // >200 字符
     mockListUnified.mockResolvedValue({
-      data: {
+      data: { data: {
         entries: [{ id: 'e2', title: 'Monitor 告警', consumptionMode: 'signal', source: 'monitor', content: longText, tags: [] }],
         total: 1,
-      },
+      } },
     });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
 
@@ -154,14 +154,14 @@ describe('#435: 统一视图内容消化 + 徽标类别色 + 占位符', () => {
 
   it('consumptionMode 徽标用 chart 类别色，不占 err/warn/accent 状态色', async () => {
     mockListUnified.mockResolvedValue({
-      data: {
+      data: { data: {
         entries: [
           { id: 'e3', title: 'r', consumptionMode: 'rule', source: 's', content: 'x', tags: [] },
           { id: 'e4', title: 's', consumptionMode: 'signal', source: 's', content: 'x', tags: [] },
           { id: 'e5', title: 'c', consumptionMode: 'context', source: 's', content: 'x', tags: [] },
         ],
         total: 3,
-      },
+      } },
     });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
 
@@ -173,7 +173,7 @@ describe('#435: 统一视图内容消化 + 徽标类别色 + 占位符', () => {
   });
 
   it('搜索占位符不含已删类型「行为模式」', () => {
-    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockListUnified.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
     expect(screen.queryByPlaceholderText(/行为模式/)).toBeNull();
   });
@@ -182,20 +182,20 @@ describe('#435: 统一视图内容消化 + 徽标类别色 + 占位符', () => {
 describe('E5: 待审筛选 + draft 条目审批（promote/demote）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSearch.mockResolvedValue({ data: { results: [] } });
+    mockSearch.mockResolvedValue({ data: { data: { results: [] } } });
     mockPromote.mockResolvedValue({ data: {} });
     mockDemote.mockResolvedValue({ data: {} });
   });
 
   it('「待审」筛选以 maturity=draft 调 listUnified；draft 条目带成熟度徽标与卡底「通过/拒绝」', async () => {
     mockListUnified.mockResolvedValue({
-      data: {
+      data: { data: {
         entries: [
           { id: 'd1', title: '待审条目', consumptionMode: 'rule', source: 'extractor', content: '短内容', tags: [], maturity: 'draft' },
           { id: 'v1', title: '已审条目', consumptionMode: 'rule', source: 'extractor', content: '短内容', tags: [], maturity: 'verified' },
         ],
         total: 2,
-      },
+      } },
     });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
 
@@ -215,13 +215,13 @@ describe('E5: 待审筛选 + draft 条目审批（promote/demote）', () => {
 
   it('点「通过」调 promote 并把条目移出列表；点「拒绝」调 demote', async () => {
     mockListUnified.mockResolvedValue({
-      data: {
+      data: { data: {
         entries: [
           { id: 'd1', title: '待审条目甲', consumptionMode: 'rule', source: 's', content: 'x', tags: [], maturity: 'draft' },
           { id: 'd2', title: '待审条目乙', consumptionMode: 'rule', source: 's', content: 'x', tags: [], maturity: 'draft' },
         ],
         total: 2,
-      },
+      } },
     });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
 
@@ -239,10 +239,10 @@ describe('E5: 待审筛选 + draft 条目审批（promote/demote）', () => {
 
   it('审批失败 toast 报错（服务端 error.message 优先）且条目保留可重试', async () => {
     mockListUnified.mockResolvedValue({
-      data: {
+      data: { data: {
         entries: [{ id: 'd1', title: '待审条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [], maturity: 'draft' }],
         total: 1,
-      },
+      } },
     });
     mockPromote.mockRejectedValue(new Error('network down'));
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
@@ -258,13 +258,13 @@ describe('E5: 搜索态替换 tab 内容区', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListUnified.mockResolvedValue({
-      data: { entries: [{ id: 'e1', title: '普通条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }], total: 1 },
+      data: { data: { entries: [{ id: 'e1', title: '普通条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }], total: 1 } },
     });
   });
 
   it('搜索后结果替换 tab 内容区（tab 栏与条目列表不并存），「清除」返回 tab 视图', async () => {
     mockSearch.mockResolvedValue({
-      data: { results: [{ type: 'resolution', id: 'r1', title: '命中结果', snippet: '片段', score: 0.9 }] },
+      data: { data: { results: [{ type: 'resolution', id: 'r1', title: '命中结果', snippet: '片段', score: 0.9 }] } },
     });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
 
@@ -286,7 +286,7 @@ describe('E5: 搜索态替换 tab 内容区', () => {
   });
 
   it('搜索无结果时搜索态内出空态，而非静默回 tab 视图', async () => {
-    mockSearch.mockResolvedValue({ data: { results: [] } });
+    mockSearch.mockResolvedValue({ data: { data: { results: [] } } });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
 
     fireEvent.change(screen.getByPlaceholderText(/全局搜索知识/), { target: { value: '不存在' } });
@@ -300,7 +300,7 @@ describe('E5: 搜索态替换 tab 内容区', () => {
 describe('E5: 「加载更多」真追加（对齐 E2 WU 列表口径）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSearch.mockResolvedValue({ data: { results: [] } });
+    mockSearch.mockResolvedValue({ data: { data: { results: [] } } });
   });
 
   it('加载更多按 offset 累加拼接（非翻页替换），页脚出「已加载 X / 共 N」', async () => {
@@ -308,9 +308,9 @@ describe('E5: 「加载更多」真追加（对齐 E2 WU 列表口径）', () =>
       id: `p1-${i}`, title: `首页条目${i}`, consumptionMode: 'rule', source: 's', content: 'x', tags: [],
     }));
     mockListUnified.mockImplementation(({ offset = 0 }: { offset?: number }) => Promise.resolve({
-      data: offset === 0
+      data: { data: offset === 0
         ? { entries: page1, total: 51 }
-        : { entries: [{ id: 'p2-0', title: '追加条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }], total: 51 },
+        : { entries: [{ id: 'p2-0', title: '追加条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }], total: 51 } },
     }));
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
 
@@ -332,7 +332,7 @@ describe('E5: 「加载更多」真追加（对齐 E2 WU 列表口径）', () =>
 describe('批次 F-1: 全局搜索失败反馈（原先 catch 静默置空，落「无匹配结果」假空态）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockListUnified.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
   });
 
   it('搜索失败 toast 报错并回 tab 视图，不落「无匹配结果」假空态', async () => {
@@ -352,7 +352,7 @@ describe('批次 F-1: 全局搜索失败反馈（原先 catch 静默置空，落
   it('失败后再次点「搜索」重新发起请求并出结果', async () => {
     mockSearch
       .mockRejectedValueOnce(new Error('search boom'))
-      .mockResolvedValue({ data: { results: [{ type: 'resolution', id: 'r1', title: '命中结果', snippet: '片段', score: 0.9 }] } });
+      .mockResolvedValue({ data: { data: { results: [{ type: 'resolution', id: 'r1', title: '命中结果', snippet: '片段', score: 0.9 }] } } });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
 
     fireEvent.change(screen.getByPlaceholderText(/全局搜索知识/), { target: { value: '解法' } });
@@ -368,7 +368,7 @@ describe('批次 F-1: 全局搜索失败反馈（原先 catch 静默置空，落
 describe('批次 F-4: 统一视图空态挂「手动新建」入口（双语境）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockListUnified.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
   });
 
   it('真空态出图标 + 说明 + 「手动新建」按钮，点击展开新建表单', async () => {
@@ -412,7 +412,7 @@ describe('批次 F-1: tab 列表加载失败错误条 + 重试（tabQ.error 原�
     mockListUnified
       .mockRejectedValueOnce(new Error('load boom'))
       .mockResolvedValue({
-        data: { entries: [{ id: 'e1', title: '恢复条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }], total: 1 },
+        data: { data: { entries: [{ id: 'e1', title: '恢复条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }], total: 1 } },
       });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
 
@@ -427,7 +427,7 @@ describe('批次 F-1: tab 列表加载失败错误条 + 重试（tabQ.error 原�
 describe('成本子拉取失败错误行（2026-09 web-ux-optional-fixes Step 1，原 .catch(() => null) 静默）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockListUnified.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
     mockGetCosts.mockResolvedValue(null);
   });
 
@@ -459,13 +459,13 @@ describe('Step 2: SSE knowledge.entry_changed 实时刷新（无轮询）', () =
   it('事件到达 → 当前 tab 防抖重拉，agent 新产出条目上屏', async () => {
     mockListUnified
       .mockResolvedValueOnce({
-        data: { entries: [{ id: 'e1', title: '旧条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }], total: 1 },
+        data: { data: { entries: [{ id: 'e1', title: '旧条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }], total: 1 } },
       })
       .mockResolvedValue({
-        data: { entries: [
+        data: { data: { entries: [
           { id: 'e1', title: '旧条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] },
           { id: 'e2', title: 'agent 新产出', consumptionMode: 'signal', source: 'distill', content: 'y', tags: [] },
-        ], total: 2 },
+        ], total: 2 } },
       });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
     expect(await screen.findByText('旧条目')).toBeTruthy();
@@ -478,7 +478,7 @@ describe('Step 2: SSE knowledge.entry_changed 实时刷新（无轮询）', () =
   });
 
   it('无关事件类型不触发重拉', async () => {
-    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockListUnified.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
     await screen.findByText('暂无数据');
 
@@ -488,7 +488,7 @@ describe('Step 2: SSE knowledge.entry_changed 实时刷新（无轮询）', () =
   });
 
   it('批量事件（逐条目审批一串）防抖合并为一次重拉', async () => {
-    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockListUnified.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
     render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
     await screen.findByText('暂无数据');
 
@@ -504,7 +504,7 @@ describe('Step 2: SSE knowledge.entry_changed 实时刷新（无轮询）', () =
   });
 
   it('页面不可见时不重拉（零额外开销），记脏回 visible 补拉一次', async () => {
-    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockListUnified.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
     let hidden = false;
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
     try {
