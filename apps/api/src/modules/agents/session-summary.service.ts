@@ -7,14 +7,20 @@
  *   - .agent.log 中的 session stats → KB
  *
  * 纯代码，不依赖 LLM。
- * 非阻塞，失败不影响 daemon 启动。
+ * git 子进程全链异步（execFile），失败不影响 daemon 启动。
+ * 2026-10-03（D 批 / #663）：原 execFileSync 首跑全量提取阻塞事件循环 ≈10s
+ * （listen 后 3s warmup 窗口，期间请求/SSE 排队）；异步化后事件循环不再冻结，
+ * 提取结果与 checkpoint 语义不变。
  */
 
-import { execFileSync } from 'child_process';
 import { logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+// git 子进程唯一出口 = core/exec-async（#374 单出口纪律：execFile 回调式 + 段计时，
+// 不经 shell 数组参数防注入）。错误语义：任何失败 reject → commitExists=false /
+// getNewCommits=[]（超时/非零退出/ENOENT 同口径，与原 execFileSync try/catch 一致）
+import { execFileAsync } from '../../core/exec-async.js';
 
 const CHECKPOINT_FILE = studioPath('session-checkpoint.json');
 const REPO_DIR = process.env.REPO_DIR || process.cwd();
@@ -46,8 +52,8 @@ class SessionSummaryService {
       // checkpoint 的 lastCommit 可能已不在仓库（历史被改写 / 换过 REPO_DIR）——
       // 直接用会让 git log 每次启动都报 Invalid revision range 且 checkpoint 永不更新
       // （getNewCommits 失败返回 [] → 不写新 checkpoint → 周期性报错）。先校验再回退。
-      const sinceCommit = this.resolveSinceCommit(cp.lastCommit);
-      const commits = this.getNewCommits(sinceCommit);
+      const sinceCommit = await this.resolveSinceCommit(cp.lastCommit);
+      const commits = await this.getNewCommits(sinceCommit);
       commitCount = commits.length;
 
       if (commits.length === 0) {
@@ -108,9 +114,9 @@ class SessionSummaryService {
   // ── Git ──
 
   /** rev 是否存在于仓库（git cat-file -e；失败=false） */
-  private commitExists(rev: string): boolean {
+  private async commitExists(rev: string): Promise<boolean> {
     try {
-      execFileSync('git', ['cat-file', '-e', `${rev}^{commit}`], { cwd: REPO_DIR, stdio: 'pipe', timeout: 5_000 });
+      await execFileAsync('git', ['cat-file', '-e', `${rev}^{commit}`], { cwd: REPO_DIR, timeout: 5_000 });
       return true;
     } catch {
       return false;
@@ -122,25 +128,25 @@ class SessionSummaryService {
    * readCheckpoint 默认值同口径），HEAD~50 也不存在（仓库不足 50 提交）则返回 ''
    * （getNewCommits 以 --max-count=50 兜底）。
    */
-  private resolveSinceCommit(checkpointCommit: string): string {
-    if (checkpointCommit && this.commitExists(checkpointCommit)) return checkpointCommit;
+  private async resolveSinceCommit(checkpointCommit: string): Promise<string> {
+    if (checkpointCommit && await this.commitExists(checkpointCommit)) return checkpointCommit;
     if (checkpointCommit) {
       logger.info('[SessionSummary] Checkpoint commit missing from repo, falling back', { stale: checkpointCommit });
     }
-    if (this.commitExists('HEAD~50')) return 'HEAD~50';
+    if (await this.commitExists('HEAD~50')) return 'HEAD~50';
     return '';
   }
 
-  private getNewCommits(sinceCommit: string): CommitInfo[] {
+  private async getNewCommits(sinceCommit: string): Promise<CommitInfo[]> {
     try {
       // sinceCommit 为空（短仓库兜底）：全量但封顶 50 条
-      // execFileSync 数组参数不经 shell：--format=%H||%s 作为单个 argv 元素直传 git
+      // execFile 数组参数不经 shell：--format=%H||%s 作为单个 argv 元素直传 git
       const args = sinceCommit
         ? ['log', `${sinceCommit}..HEAD`, '--format=%H||%s', '--name-only']
         : ['log', '--max-count=50', '--format=%H||%s', '--name-only'];
-      const out = execFileSync(
+      const out = await execFileAsync(
         'git', args,
-        { cwd: REPO_DIR, encoding: 'utf-8', timeout: 10_000, stdio: 'pipe' },
+        { cwd: REPO_DIR, timeout: 10_000 },
       );
       const result = this.parseGitLog(out);
       if (result.length <= 1 && out.length > 1000) {
