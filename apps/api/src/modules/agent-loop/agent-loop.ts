@@ -16,7 +16,6 @@
 // guardUpdates 保真 F6-c 后置 mutate）。
 // 本文件保留 AgentLoop 类编排逻辑；导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
 // 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
-import { execSync } from 'child_process';
 import { eventBus, logger, FileStore, parseChannels, withAttestation, isStaleClaimSleep, parseStreamEvents, extractCliSessionId, type RuntimeStateData } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';
 import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
@@ -27,6 +26,7 @@ import { LocalExecutor, type Executor } from './executor.js';
 import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitData } from '../workunit/index.js';
 import { claimWorkUnitAndAnnounce } from '../workunit/index.js';
 import type { AgentProfileData, ChannelMessageData } from '@dommaker/studio-shared';
+import { execAsync } from '../../core/exec-async.js';
 import { isSystemRole } from '../../core/system-role.js';
 import { getTriggerScheduler } from '../triggers/index.js';
 import { knowledgeService } from '../knowledge/index.js';
@@ -175,10 +175,11 @@ export class AgentLoop {
   async start(): Promise<boolean> {
     try {
       // AC-4.5 + F4: Health probe — verify the profile's provider CLI is available
+      // 异步 exec（#374 纪律：loop/启动链禁止 sync 子进程阻塞事件循环）；失败/超时 reject
       const providerId = this.role.provider || 'claude';
       const probeCmd = buildHealthProbeCommand(providerId);
       try {
-        execSync(probeCmd, { timeout: 5000 });
+        await execAsync(probeCmd, { timeout: 5000 });
       } catch {
         const message = `${resolveProviderDefinition(providerId).displayName} CLI not available (health probe \`${probeCmd}\` failed)`;
         logger.error(`[AgentLoop] ${message} — agent ${this.role.name} unavailable`);

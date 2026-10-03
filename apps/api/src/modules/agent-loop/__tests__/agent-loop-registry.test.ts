@@ -10,11 +10,20 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 
-const { mockExecSync } = vi.hoisted(() => ({
-  mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
-}));
+const { mockExec, mockExecSync, execSuccess } = vi.hoisted(() => {
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  const execSuccess = (cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  };
+  return {
+    mockExec: vi.fn(execSuccess),
+    mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
+    execSuccess,
+  };
+});
 
-vi.mock('child_process', () => ({ exec: vi.fn(),
+vi.mock('child_process', () => ({ exec: mockExec,
   execSync: mockExecSync,
 }));
 
@@ -98,6 +107,7 @@ describe('AgentLoopRegistry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockExecSync.mockReturnValue('Claude Code CLI version 1.0.0');
+    mockExec.mockImplementation(execSuccess);
     testDir = path.join(os.tmpdir(), `agent-loop-registry-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
     fileStore = new FileStore(testDir);
     registry = new AgentLoopRegistry(fileStore);
@@ -157,7 +167,8 @@ describe('AgentLoopRegistry', () => {
   describe('start-failure isolation', () => {
     it('marks the failed profile without throwing; other profiles still mount (F2 error state recorded)', async () => {
       // Health probe fails only for the first mount
-      mockExecSync.mockImplementationOnce(() => { throw new Error('ENOENT: claude not found'); });
+      mockExec.mockImplementationOnce((cmd: any, opts: any, cb: any) =>
+        (typeof opts === 'function' ? opts : cb)(new Error('ENOENT: claude not found'), '', ''));
 
       const healthEvents: unknown[] = [];
       eventBus.subscribe('agent.health.failed', (payload: unknown) => healthEvents.push(payload));
@@ -185,7 +196,8 @@ describe('AgentLoopRegistry', () => {
     });
 
     it('does not register an EVENT trigger for a failed loop', async () => {
-      mockExecSync.mockImplementationOnce(() => { throw new Error('ENOENT'); });
+      mockExec.mockImplementationOnce((cmd: any, opts: any, cb: any) =>
+        (typeof opts === 'function' ? opts : cb)(new Error('ENOENT'), '', ''));
 
       await registry.mount(makeProfile('bad'));
       expect(mockTriggerScheduler.registerTrigger).not.toHaveBeenCalled();
@@ -345,7 +357,8 @@ describe('AgentLoopRegistry', () => {
 
     it('新 provider 探测失败 → 落 failed 状态可见，不回退旧 provider', async () => {
       await mountViaEvent('p1', 'claude');
-      mockExecSync.mockImplementationOnce(() => { throw new Error('ENOENT: kimi not found'); });
+      mockExec.mockImplementationOnce((cmd: any, opts: any, cb: any) =>
+        (typeof opts === 'function' ? opts : cb)(new Error('ENOENT: kimi not found'), '', ''));
 
       await fileStore.updateProfile('p1', { provider: 'kimi' });
       publishProviderChange('p1', 'kimi');

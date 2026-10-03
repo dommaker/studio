@@ -10,7 +10,14 @@ import { FileStore, stringifyChannels, type ChannelMessageData, type AgentProfil
 import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
 
 const { mockExecSync } = vi.hoisted(() => ({ mockExecSync: vi.fn() }));
-vi.mock('child_process', () => ({ exec: vi.fn(), execSync: mockExecSync }));
+vi.mock('child_process', () => ({
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  exec: vi.fn((cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  }),
+  execSync: mockExecSync,
+}));
 
 // 决策 7：skill 匹配挪到 step 时后会读真实 skill 库 —— 隔离为不存在目录（manifest 为空），
 // 避免宿主 ~/.studio/skills 内容影响注入预算断言（manifest-loader 模块加载时读取 SKILLS_DIR）

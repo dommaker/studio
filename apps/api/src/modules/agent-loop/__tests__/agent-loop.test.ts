@@ -7,12 +7,21 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 
-const { mockExecSync, mockProcessKill } = vi.hoisted(() => ({
-  mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
-  mockProcessKill: vi.fn(),
-}));
+const { mockExec, mockExecSync, mockProcessKill, execSuccess } = vi.hoisted(() => {
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  const execSuccess = (cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  };
+  return {
+    mockExec: vi.fn(execSuccess),
+    mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
+    mockProcessKill: vi.fn(),
+    execSuccess,
+  };
+});
 
-vi.mock('child_process', () => ({ exec: vi.fn(),
+vi.mock('child_process', () => ({ exec: mockExec,
   execSync: mockExecSync,
 }));
 
@@ -118,6 +127,7 @@ describe('AgentLoop', () => {
     vi.clearAllMocks();
     // mockImplementation from prior test persists through clearAllMocks; reset explicitly
     mockExecSync.mockReturnValue('Claude Code CLI version 1.0.0');
+    mockExec.mockImplementation(execSuccess);
     testDir = path.join(os.tmpdir(), `agent-loop-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
     fileStore = new FileStore(testDir);
   });
@@ -613,7 +623,7 @@ describe('AgentLoop', () => {
 
   describe('AC-4.5: Health probe', () => {
     it('start() continues normally when claude CLI is available', async () => {
-      mockExecSync.mockReturnValue('Claude Code CLI version 1.0.0');
+      mockExec.mockImplementation(execSuccess);
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
@@ -621,11 +631,12 @@ describe('AgentLoop', () => {
       const agentStates = await fileStore.listStates();
       const match = agentStates.find(s => s.roleId === 'role-1');
       expect(match).toBeDefined();
-      expect(mockExecSync).toHaveBeenCalledWith('claude --version', expect.objectContaining({ timeout: 5000 }));
+      expect(mockExec).toHaveBeenCalledWith('claude --version', expect.objectContaining({ timeout: 5000 }), expect.any(Function));
     });
 
     it('start() does not start the loop when claude CLI is not available (F2: records error state)', async () => {
-      mockExecSync.mockImplementation(() => { throw new Error('ENOENT'); });
+      mockExec.mockImplementation((cmd: any, opts: any, cb: any) =>
+        (typeof opts === 'function' ? opts : cb)(new Error('ENOENT'), '', ''));
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       const started = await agentLoop.start();
