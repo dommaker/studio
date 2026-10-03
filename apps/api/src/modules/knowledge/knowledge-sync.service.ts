@@ -9,12 +9,15 @@
  *   3. Heal:     过期知识 → 标记 freshness、触发重分析
  */
 
-import { execFileSync } from 'child_process';
 import { logger } from '@dommaker/studio-shared';
 import { sharedStore, sharedLifecycle } from './knowledge-singletons.js';
 import { upsertKnowledge } from './knowledge-design-doc.js';
 import type { KnowledgeSource } from './knowledge-design-doc.js';
 import { knowledgeService } from './knowledge-service.js';
+// 2026-10-03（D 批）：staleness 检测的 git log 从 execFileSync 换 execFileAsync——
+// 本方法跑在 monitor 周期轮（monitor-system-probes）与 internal 路由上，sync 子进程
+// × scope 文件数串行阻塞事件循环（#374 纪律：轮询路径禁 sync exec，唯一出口 core/exec-async）
+import { execFileAsync } from '../../core/exec-async.js';
 
 // ── Scope Registry ──
 // scope → associated source files (glob patterns). When any of these files change, the scope is stale.
@@ -190,8 +193,10 @@ class KnowledgeSyncService {
    * Cycle 2 — Detect:
    * 对比每个 tracked scope 的关联文件 git log 和知识的 lastReferenced。
    * 如果关联文件在知识最后一次更新后有新 commit → stale。
+   * 2026-10-03（D 批）：async 化——git log 走 execFileAsync，不再阻塞事件循环
+   * （monitor 周期轮 / internal 路由调用方同步 await）。
    */
-  detectStaleness(repoDir?: string): { stale: StaleReport[]; unmonitored: UnmonitoredReport[] } {
+  async detectStaleness(repoDir?: string): Promise<{ stale: StaleReport[]; unmonitored: UnmonitoredReport[] }> {
     const startTime = Date.now();
     const baseDir = repoDir || process.env.REPO_DIR || process.cwd();
     const stale: StaleReport[] = [];
@@ -220,11 +225,11 @@ class KnowledgeSyncService {
           filesChecked++;
           try {
             const since = lastUpdated.toISOString().slice(0, 19).replace('T', ' ');
-            // execFileSync 数组参数不经 shell；git 失败走 catch 兜底（原 2>/dev/null 语义），
+            // execFileAsync 数组参数不经 shell；git 失败走 catch 兜底（原 2>/dev/null 语义），
             // 取第一行非空行替代原 `| head -1`
-            const out = execFileSync(
+            const out = await execFileAsync(
               'git', ['log', `--since=${since}`, '--oneline', '--', filePattern],
-              { cwd: baseDir, encoding: 'utf-8', stdio: 'pipe', timeout: 10_000 },
+              { cwd: baseDir, timeout: 10_000 },
             );
             const result = out.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? '';
             if (result) changedFiles.push(filePattern);
@@ -321,7 +326,7 @@ class KnowledgeSyncService {
   async runSyncCycle(repoDir?: string): Promise<{ stale: StaleReport[]; unmonitored: UnmonitoredReport[]; healed: string[] }> {
     const startTime = Date.now();
 
-    const { stale, unmonitored } = this.detectStaleness(repoDir);
+    const { stale, unmonitored } = await this.detectStaleness(repoDir);
 
     // Auto-register unmonitored scopes so they get tracked next cycle
     for (const u of unmonitored) {

@@ -14,7 +14,7 @@ describe('KnowledgeSync staleness detection', () => {
   it('returns empty stale/unmonitored when no design-docs exist', async () => {
     // Dynamic import to avoid init failures in non-Studio environments
     const { knowledgeSync } = await import('../knowledge-sync.service.js');
-    const result = knowledgeSync.detectStaleness('/nonexistent');
+    const result = await knowledgeSync.detectStaleness('/nonexistent');
     expect(result).toHaveProperty('stale');
     expect(result).toHaveProperty('unmonitored');
     expect(Array.isArray(result.stale)).toBe(true);

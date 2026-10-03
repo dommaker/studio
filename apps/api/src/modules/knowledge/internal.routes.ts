@@ -30,7 +30,7 @@ export const internalRoutes = Router();
  * GET /api/knowledge/sync-status — 知识同步状态（新鲜度检测）
  */
 internalRoutes.get('/sync-status', defineRoute({}, async () => {
-  const { stale, unmonitored } = knowledgeSync.detectStaleness();
+  const { stale, unmonitored } = await knowledgeSync.detectStaleness();
   const trackedScopes = knowledgeSync.getTrackedScopes();
 
   // Heal stale entries

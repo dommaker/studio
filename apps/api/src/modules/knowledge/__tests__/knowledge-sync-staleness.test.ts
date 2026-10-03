@@ -113,8 +113,8 @@ describe('R5: KnowledgeSync staleness signal (fixed scope paths)', () => {
     try { fs.rmSync(storeDir, { recursive: true, force: true }); } catch { /* best-effort */ }
   });
 
-  it('touching a monitored file (git commit) produces a staleness signal for its scope', () => {
-    const { stale } = knowledgeSync.detectStaleness(repoDir);
+  it('touching a monitored file (git commit) produces a staleness signal for its scope', async () => {
+    const { stale } = await knowledgeSync.detectStaleness(repoDir);
     const hit = stale.find(s => s.scope === SCOPE);
     expect(hit).toBeDefined();
     expect(hit!.changedFiles).toContain(WATCHED_FILE);
@@ -122,7 +122,7 @@ describe('R5: KnowledgeSync staleness signal (fixed scope paths)', () => {
     expect(hit!.knowledgeEntryId).toBe('r5-probe-stale');
   });
 
-  it('scope watching an untouched path stays fresh (no false positive)', () => {
+  it('scope watching an untouched path stays fresh (no false positive)', async () => {
     const FRESH_SCOPE = 'r5-fresh-scope';
     knowledgeSync.registerScope(FRESH_SCOPE, {
       files: ['src/never-committed.ts'],
@@ -132,11 +132,11 @@ describe('R5: KnowledgeSync staleness signal (fixed scope paths)', () => {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     saveDesignDoc(sharedStore, 'r5-probe-fresh', FRESH_SCOPE, twoHoursAgo);
 
-    const { stale } = knowledgeSync.detectStaleness(repoDir);
+    const { stale } = await knowledgeSync.detectStaleness(repoDir);
     expect(stale.find(s => s.scope === FRESH_SCOPE)).toBeUndefined();
   });
 
-  it('entry refreshed within the last hour is not stale (freshness threshold)', () => {
+  it('entry refreshed within the last hour is not stale (freshness threshold)', async () => {
     const RECENT_SCOPE = 'r5-recent-scope';
     knowledgeSync.registerScope(RECENT_SCOPE, {
       files: [WATCHED_FILE],
@@ -146,7 +146,7 @@ describe('R5: KnowledgeSync staleness signal (fixed scope paths)', () => {
     // 同是被监控文件，但知识刚刷新过（<1h）→ 不报过期
     saveDesignDoc(sharedStore, 'r5-probe-recent', RECENT_SCOPE, new Date().toISOString());
 
-    const { stale } = knowledgeSync.detectStaleness(repoDir);
+    const { stale } = await knowledgeSync.detectStaleness(repoDir);
     expect(stale.find(s => s.scope === RECENT_SCOPE)).toBeUndefined();
   });
 });
