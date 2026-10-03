@@ -1,10 +1,22 @@
 // ── Trigger EXECUTE handler 注册（周期扫描类）──
 // P2-a：自 apps/api/src/index.ts 拆出。注册顺序与原 index.ts 逐行一致。
+// 2026-10-03 根因修复（C 批）：整体 try/catch warn——listen 前移（ff546ba9）后
+// 本步 throw 会经 bootstrap catch 落到 process.exit(1)，发生在端口可服务之后：
+// deploy 健康检查可能已判绿、进程随后死亡、回滚不触发。listen 后各步一律
+// 「失败只 log 不拒启」，与 startCoreServices/startAgentLoops/initChannels 同纪律。
 import { logger } from '@dommaker/studio-shared';
 import { getStore } from '../core/store.js';
 
 
 export async function registerScanHandlers(): Promise<void> {
+  try {
+    await registerScanHandlersInner();
+  } catch (e) {
+    logger.warn('[ScanHandlers] Registration failed (non-blocking)', { error: String(e) });
+  }
+}
+
+async function registerScanHandlersInner(): Promise<void> {
   const { registerExecuteHandler } = await import('../modules/triggers/index.js');
 
   // ── Agent Timeout Scan（超时释放 handler）──

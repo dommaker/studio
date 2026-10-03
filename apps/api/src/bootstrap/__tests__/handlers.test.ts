@@ -1,6 +1,8 @@
 /**
  * bootstrap/handlers 测试（P2-a）：6 个 EXECUTE handler 按原 index.ts 顺序注册；
  * handler 本体接线正确（以 agent-timeout-scan 为例）；evolution adapter 单例构造即注册。
+ * 2026-10-03（C 批）：注册过程 throw 只 warn 不外抛——listen 前移后本步 throw 会经
+ * bootstrap catch 落到 exit(1)，发生在端口可服务之后（deploy 判绿后进程死、回滚不触发）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -8,10 +10,14 @@ const registry = vi.hoisted(() => new Map<string, () => Promise<void>>());
 const spies = vi.hoisted(() => ({
   scanStaleAgentInstances: vi.fn(async () => ({ terminated: 2 })),
   getEvolutionService: vi.fn(() => ({})),
+  failOnRegister: { value: false },
 }));
 
 vi.mock('../../modules/triggers/trigger-action.js', () => ({
-  registerExecuteHandler: (name: string, fn: () => Promise<void>) => registry.set(name, fn),
+  registerExecuteHandler: (name: string, fn: () => Promise<void>) => {
+    if (spies.failOnRegister.value) throw new Error('duplicate handler');
+    registry.set(name, fn);
+  },
 }));
 vi.mock('../../modules/agent-monitor/index.js', () => ({
   scanStaleAgentInstances: spies.scanStaleAgentInstances,
@@ -26,6 +32,7 @@ beforeEach(() => {
   registry.clear();
   spies.scanStaleAgentInstances.mockClear();
   spies.getEvolutionService.mockClear();
+  spies.failOnRegister.value = false;
 });
 
 describe('registerScanHandlers', () => {
@@ -50,5 +57,10 @@ describe('registerScanHandlers', () => {
   it('evolution review-proposal adapter 随注册构造单例', async () => {
     await registerScanHandlers();
     expect(spies.getEvolutionService).toHaveBeenCalled();
+  });
+
+  it('注册失败只 warn 不外抛（listen 后步骤失败不拒启，C 批）', async () => {
+    spies.failOnRegister.value = true;
+    await expect(registerScanHandlers()).resolves.toBeUndefined();
   });
 });
