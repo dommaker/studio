@@ -39,13 +39,19 @@ export class DiscordNotifier {
   }
 
   private loadConfig(): void {
-    // 从 openclaw 配置读取 bot token（可通过环境变量自定义路径）
+    // 从 openclaw 配置读取 bot token（可通过环境变量自定义路径）。
+    // 测试环境默认不读用户真实配置（globalSetup 起 server 继承 shell 环境，
+    // 会把生产真凭证带进测试进程）；确需测试本逻辑时显式设 OPENCLAW_CONFIG_PATH。
     try {
-      const configPath = process.env.OPENCLAW_CONFIG_PATH
-        || path.join(os.homedir(), '.openclaw', 'openclaw.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        this.botToken = config?.channels?.discord?.token || '';
+      if (process.env.NODE_ENV === 'test' && !process.env.OPENCLAW_CONFIG_PATH) {
+        this.botToken = '';
+      } else {
+        const configPath = process.env.OPENCLAW_CONFIG_PATH
+          || path.join(os.homedir(), '.openclaw', 'openclaw.json');
+        if (fs.existsSync(configPath)) {
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          this.botToken = config?.channels?.discord?.token || '';
+        }
       }
     } catch (error) {
       logger.error('[DiscordNotifier] Failed to load config', { error: String(error) });
@@ -118,8 +124,9 @@ export class DiscordNotifier {
       const payload = JSON.stringify(body);
 
       return new Promise((resolve) => {
-        // execFile 数组参数不经 shell：token 直接作为 curl argv，
-        // 不拼进命令字符串；curl 报错不回显 argv（含 -d / -H 内容），明文 token 不落日志
+        // execFile 数组参数不经 shell，token 直接作为 curl argv。
+        // 但注意：execFile 失败时 String(error)/error.message 会把完整 argv（含 Authorization
+        // 头里的明文 token）拼进 'Command failed: ...'——错误日志只能记退出码/信号，绝不记 message。
         execFile(
           'curl',
           [
@@ -132,7 +139,10 @@ export class DiscordNotifier {
           ],
           (error, stdout) => {
             if (error) {
-              logger.error('[DiscordNotifier] curl failed', { error: String(error) });
+              logger.error('[DiscordNotifier] curl failed', {
+                code: error.code,
+                signal: error.signal,
+              });
             } else if (stdout.includes('"id"')) {
               logger.info('[DiscordNotifier] Message sent via curl');
             }

@@ -354,8 +354,7 @@ export interface KnowledgeEntryListResult {
   total: number;
 }
 
-/** GET /knowledge-service/entries/stats 响应 data（stats 分桶 + healthScore——
- * 漂移：HealthReport 只有 score 字段，healthScore 恒 undefined 被 JSON 丢弃，保持原样） */
+/** GET /knowledge-service/entries/stats 响应 data（stats 分桶 + healthScore ← HealthReport.score） */
 export const knowledgeEntryStatsResultSchema = z.record(z.unknown());
 export type KnowledgeEntryStatsResult = z.infer<typeof knowledgeEntryStatsResultSchema>;
 

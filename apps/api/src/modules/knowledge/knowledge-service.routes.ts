@@ -72,6 +72,13 @@ knowledgeServiceRoutes.get('/entries', defineRoute({ query: listKnowledgeEntries
   return { entries, total: entries.length };
 }));
 
+// 必须注册在 /entries/:id 之前（否则被 /:id 以 id='stats' 吞掉——历史遮蔽 bug，已修复）
+knowledgeServiceRoutes.get('/entries/stats', defineRoute({}, async () => {
+  const stats = knowledgeService.getStats();
+  const health = await knowledgeService.getHealthReport();
+  return { ...stats, healthScore: health.score };
+}));
+
 knowledgeServiceRoutes.get('/entries/:id', defineRoute({ params: knowledgeEntryIdParamsSchema }, async (_req, _res, { params }) => {
   const entry = await knowledgeService.get(params.id);
   if (!entry) throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Not found');
@@ -106,12 +113,6 @@ knowledgeServiceRoutes.delete('/entries/:id', requireNotGuest(), defineRoute(
     return { success: true };
   },
 ));
-
-knowledgeServiceRoutes.get('/entries/stats', defineRoute({}, async () => {
-  const stats = knowledgeService.getStats();
-  const health = await knowledgeService.getHealthReport();
-  return { ...stats, healthScore: (health as any).healthScore };
-}));
 
 // ── Produce ──
 

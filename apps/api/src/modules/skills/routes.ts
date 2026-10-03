@@ -119,6 +119,51 @@ openRoutes.get('/manifest', defineRoute({}, async () => {
 }));
 
 /**
+ * GET /api/v1/skills/stats
+ * 技能统计（从 SkillStore 聚合）。
+ * 必须注册在 GET /:id 之前（否则被 /:id 以 id='stats' 吞掉——历史遮蔽 bug，已修复）。
+ */
+openRoutes.get('/stats', defineRoute({ query: skillsStatsQuerySchema }, async (_req, _res, { query }) => {
+  const filter = query.company_id ? { companyId: query.company_id } : {};
+
+  const skills = skillStore.list(filter);
+
+  const totalSkills = skills.length;
+  const publishedSkills = skills.filter(s => s.status === 'published').length;
+  const totalUsage = skills.reduce((sum, s) => sum + s.usageCount, 0);
+  const avgSuccessRate = totalSkills > 0
+    ? Math.round((skills.reduce((sum, s) => sum + s.successRate, 0) / totalSkills) * 100) / 100
+    : 0;
+  const avgDuration = totalSkills > 0
+    ? Math.round(skills.reduce((sum, s) => sum + s.avgDuration, 0) / totalSkills)
+    : 0;
+
+  const byCategory: Record<string, { count: number; usage: number }> = {};
+  for (const s of skills) {
+    const cat = s.category || 'uncategorized';
+    if (!byCategory[cat]) byCategory[cat] = { count: 0, usage: 0 };
+    byCategory[cat].count++;
+    byCategory[cat].usage += s.usageCount;
+  }
+
+  const topSkills = skills
+    .filter(s => s.usageCount > 0)
+    .sort((a, b) => b.usageCount - a.usageCount)
+    .slice(0, 10)
+    .map(s => ({ id: s.id, name: s.name, usageCount: s.usageCount, successRate: s.successRate, avgDuration: s.avgDuration }));
+
+  return {
+    totalSkills,
+    publishedSkills,
+    totalUsage,
+    avgSuccessRate,
+    avgDuration,
+    byCategory,
+    topSkills,
+  };
+}));
+
+/**
  * GET /api/v1/skills/:id
  */
 openRoutes.get('/:id', defineRoute({ params: skillIdParamsSchema }, async (_req, _res, { params }) => {
@@ -317,51 +362,5 @@ writeRoutes.post('/:id/usage', defineRoute(
     });
   },
 ));
-
-/**
- * GET /api/v1/skills/stats
- * 技能统计（从 SkillStore 聚合）
- * 注意：注册在 GET /:id 之后是历史遮蔽 bug（实际请求被 /:id 以 id='stats' 吞掉），
- * 迁移保持原注册顺序，行为不变（见 CONTEXT.md 遗留）。
- */
-openRoutes.get('/stats', defineRoute({ query: skillsStatsQuerySchema }, async (_req, _res, { query }) => {
-  const filter = query.company_id ? { companyId: query.company_id } : {};
-
-  const skills = skillStore.list(filter);
-
-  const totalSkills = skills.length;
-  const publishedSkills = skills.filter(s => s.status === 'published').length;
-  const totalUsage = skills.reduce((sum, s) => sum + s.usageCount, 0);
-  const avgSuccessRate = totalSkills > 0
-    ? Math.round((skills.reduce((sum, s) => sum + s.successRate, 0) / totalSkills) * 100) / 100
-    : 0;
-  const avgDuration = totalSkills > 0
-    ? Math.round(skills.reduce((sum, s) => sum + s.avgDuration, 0) / totalSkills)
-    : 0;
-
-  const byCategory: Record<string, { count: number; usage: number }> = {};
-  for (const s of skills) {
-    const cat = s.category || 'uncategorized';
-    if (!byCategory[cat]) byCategory[cat] = { count: 0, usage: 0 };
-    byCategory[cat].count++;
-    byCategory[cat].usage += s.usageCount;
-  }
-
-  const topSkills = skills
-    .filter(s => s.usageCount > 0)
-    .sort((a, b) => b.usageCount - a.usageCount)
-    .slice(0, 10)
-    .map(s => ({ id: s.id, name: s.name, usageCount: s.usageCount, successRate: s.successRate, avgDuration: s.avgDuration }));
-
-  return {
-    totalSkills,
-    publishedSkills,
-    totalUsage,
-    avgSuccessRate,
-    avgDuration,
-    byCategory,
-    topSkills,
-  };
-}));
 
 export { openRoutes as skillsOpenRoutes, writeRoutes as skillsWriteRoutes };

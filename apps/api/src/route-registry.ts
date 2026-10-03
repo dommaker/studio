@@ -276,10 +276,11 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     // 若 SkillHub 先挂载，GET /api/v1/skills/demotion-proposals 会被 :id='demotion-proposals' 吞掉，降级提案端点死路。
     { path: '/api/v1/skills/demotion-proposals', router: skillDemotionOpenRoutes, comment: '§10.6: skill 降级提案（先于 SkillHub 注册；读开放）' },
     { path: '/api/v1/skills/demotion-proposals', router: skillDemotionWriteRoutes, middleware: authNotGuest },
-    { path: '/api/v1/skills', router: skillsOpenRoutes, comment: 'FL-025: SkillHub（读开放，含 /stats 被 /:id 遮蔽的历史顺序）' },
-    { path: '/api/v1/skills', router: skillsWriteRoutes, middleware: authNotGuest },
+    // §10.6 同理：skillsOpenRoutes 的 GET /:id 未命中直接 404，proposals 必须先于 SkillHub 挂载
     { path: '/api/v1/skills/proposals', router: skillProposalOpenRoutes },
     { path: '/api/v1/skills/proposals', router: skillProposalWriteRoutes, middleware: authNotGuest },
+    { path: '/api/v1/skills', router: skillsOpenRoutes, comment: 'FL-025: SkillHub（读开放）' },
+    { path: '/api/v1/skills', router: skillsWriteRoutes, middleware: authNotGuest },
 
     // 运行时
     { path: '/api/v1/iron-laws', router: ironLawsRoutes, comment: 'Iron Laws (ex-runtime-proxy)' },
@@ -341,6 +342,11 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
       before: { path: '/api/v1/skills/demotion-proposals', router: skillDemotionOpenRoutes },
       after: { path: '/api/v1/skills', router: skillsOpenRoutes },
       reason: '§10.6: skillsOpenRoutes 的 GET /:id 未命中直接 404，降级提案必须先于 SkillHub 挂载，否则端点被 :id 吞掉。',
+    },
+    {
+      before: { path: '/api/v1/skills/proposals', router: skillProposalOpenRoutes },
+      after: { path: '/api/v1/skills', router: skillsOpenRoutes },
+      reason: '§10.6 同理：proposals 必须先于 SkillHub 挂载，否则 GET /api/v1/skills/proposals 被 :id=\'proposals\' 吞掉。',
     },
   ]);
 

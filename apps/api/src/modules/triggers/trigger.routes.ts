@@ -98,6 +98,15 @@ router.get('/costs', defineRoute({ query: triggerCostsQuerySchema }, async (_req
   return { days, byTrigger, bySource, callsBySource };
 }));
 
+/** GET /api/triggers/status — scheduler status。必须注册在 /:id 之前（否则被吞——历史遮蔽 bug，已修复） */
+router.get('/status', defineRoute({}, async () => {
+  return {
+    running: scheduler.isRunning(),
+    triggerCount: scheduler.getStates().length,
+    logCount: scheduler.getLogs().length,
+  };
+}));
+
 /** GET /api/triggers/:id — get single trigger */
 router.get('/:id', defineRoute({ params: triggerIdParamsSchema }, async (_req, _res, { params }) => {
   const trigger = store.get(params.id);
@@ -183,15 +192,6 @@ router.delete('/:id', defineRoute({ params: triggerIdParamsSchema }, async (_req
 router.get('/:id/logs', defineRoute({ params: triggerIdParamsSchema }, async (_req, _res, { params }) => {
   const logs = scheduler.getLogs().filter(l => l.triggerId === params.id);
   return { logs };
-}));
-
-/** GET /api/triggers/status — scheduler status */
-router.get('/status', defineRoute({}, async () => {
-  return {
-    running: scheduler.isRunning(),
-    triggerCount: scheduler.getStates().length,
-    logCount: scheduler.getLogs().length,
-  };
 }));
 
 export { router as triggerRouter, scheduler };
