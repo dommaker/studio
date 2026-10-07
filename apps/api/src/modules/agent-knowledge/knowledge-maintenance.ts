@@ -9,6 +9,7 @@
  *   - resolveContradictions F1d 矛盾审查（按 tag 分组检测，保留高 maturity）
  */
 
+import type { MaturityLevel } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared';
 import { getSystemExecutor } from '../agents/index.js';
 import { sharedStore } from '../knowledge/index.js';
@@ -327,7 +328,7 @@ ${entryList}
         if (conflictEntries.length < 2) continue;
 
         // Sort by maturity (proven > verified > draft)
-        const maturityRank = { proven: 3, verified: 2, draft: 1, archived: 0 };
+        const maturityRank: Record<MaturityLevel, number> = { proven: 3, verified: 2, draft: 1, active: 0, archived: 0, deprecated: 0 };
         conflictEntries.sort((a, b) => (maturityRank[b.maturity] || 0) - (maturityRank[a.maturity] || 0));
 
         // Mark lower-maturity entries as draft for re-analysis

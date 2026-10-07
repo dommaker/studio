@@ -467,9 +467,9 @@ export function KnowledgePage() {
                       </div>
                       {/* draft 条目不显全文——UnifiedEntryContent 默认截断/消化摘要，审批按钮在卡底 */}
                       <UnifiedEntryContent content={entry.content} />
-                      {entry.tags?.length > 0 && (
+                      {(entry.tags?.length ?? 0) > 0 && (
                         <div className="flex gap-1 flex-wrap">
-                          {entry.tags.map((tag: string) => (
+                          {(entry.tags ?? []).map((tag: string) => (
                             <span key={tag} className="text-xs px-1.5 py-0.5 rounded u-surface-2 u-text-3">
                               {tag}
                             </span>

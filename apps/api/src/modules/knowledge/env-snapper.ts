@@ -147,7 +147,7 @@ export class EnvSnapper {
       const data = await this.fileStore.readJson<any>(path.join(SNAPSHOTS_DIR, latestFile));
       if (!data) return;
 
-      const limitations = data.knownLimitations || [];
+      const limitations: Array<{ issue: string; since?: string }> = data.knownLimitations || [];
       if (limitations.some(l => l.issue === issue)) return;
 
       limitations.push({ issue, since: since || new Date().toISOString().split('T')[0] });
@@ -171,7 +171,7 @@ export class EnvSnapper {
       const data = await this.fileStore.readJson<any>(path.join(SNAPSHOTS_DIR, latestFile));
       if (!data) return;
 
-      const limitations = data.knownLimitations || [];
+      const limitations: Array<{ issue: string; since?: string }> = data.knownLimitations || [];
       const filtered = limitations.filter(l => l.issue !== issue);
 
       if (filtered.length < limitations.length) {

@@ -34,12 +34,14 @@ export function degradeMessage(m: ChannelMessage): ChannelMessage {
   const keep: Record<string, unknown> = {};
   if (typeof meta.status === 'string') keep.status = meta.status;
   if (typeof meta.cardType === 'string') keep.cardType = meta.cardType;
-  return {
-    ...m,
-    content: '',
-    meta: Object.keys(keep).length > 0 ? keep : undefined,
-    degraded: true,
-  };
+  const out: ChannelMessage = { ...m, content: '', degraded: true };
+  if (Object.keys(keep).length > 0) {
+    out.meta = keep;
+  } else {
+    // meta 大头剥除：契约类型必填（undefined 不可赋），运行态缺省由 parseMeta 容忍
+    Reflect.deleteProperty(out, 'meta');
+  }
+  return out;
 }
 
 export interface PrunePlan {

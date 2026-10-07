@@ -869,7 +869,7 @@ export class KnowledgeService {
   }
 
   async get(id: string): Promise<KnowledgeEntry | null> {
-    return this.store.get(id);
+    return this.store.get(id) ?? null;
   }
 
   async create(entry: KnowledgeEntry): Promise<void> {

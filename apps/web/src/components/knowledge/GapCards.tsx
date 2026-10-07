@@ -80,7 +80,7 @@ export function PreferenceCard({ item }: { item: PreferenceGap }) {
         <span className="text-xs ml-auto u-text-3">置信度: {Math.round((item.confidence || 0) * 100)}%</span>
       </div>
       <div className="grid grid-cols-3 gap-3 text-sm">
-        {item.activeHours?.length > 0 && <div><span className="u-text-3">活跃时段: </span><span className="u-text">{(item.activeHours || []).join(', ')}点</span></div>}
+        {(item.activeHours?.length ?? 0) > 0 && <div><span className="u-text-3">活跃时段: </span><span className="u-text">{(item.activeHours || []).join(', ')}点</span></div>}
         {item.avgMessageLength && <div><span className="u-text-3">平均消息长度: </span><span className="u-text">{item.avgMessageLength} 字符</span></div>}
         {item.autoApproveThreshold !== undefined && <div><span className="u-text-3">自动审批阈值: </span><span className="u-text">{Math.round(item.autoApproveThreshold * 100)}%</span></div>}
       </div>
@@ -204,9 +204,9 @@ export function ResolutionCard({ item }: { item: ResolutionGap }) {
       <div className="flex items-center gap-2 mb-2">
         <IconWrench />
         <span className="font-medium u-text">{item.title}</span>
-        <span className={`text-xs px-2 py-0.5 rounded ${MATURITY_BADGE_CLASSES[item.status] || 'u-surface-2 u-text-3'}`}>{item.status}</span>
+        <span className={`text-xs px-2 py-0.5 rounded ${MATURITY_BADGE_CLASSES[item.status ?? ''] || 'u-surface-2 u-text-3'}`}>{item.status}</span>
         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">
-          {layerLabels[item.layer] || item.layer}
+          {layerLabels[item.layer ?? ''] || item.layer}
         </span>
         <span className="text-xs ml-auto u-text-3">
           验证: {item.verifyCount}x

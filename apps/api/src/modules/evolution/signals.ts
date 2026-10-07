@@ -112,7 +112,7 @@ export async function loadWindowSignals(
   const outcomes: OutcomeEvent[] = [];
   for (const row of outcomeRows) {
     try {
-      const p = JSON.parse(row.payload ?? '{}');
+      const p = JSON.parse(String(row.payload ?? '{}'));
       outcomes.push({
         executionId: p.executionId,
         agentType: p.agentType,

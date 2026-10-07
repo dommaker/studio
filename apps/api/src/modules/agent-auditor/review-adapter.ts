@@ -114,7 +114,7 @@ async function executeAuditorApproval(
       channelId: channel.id,
       type: 'task',
       status: 'unassigned',
-      assigneeId: null,
+      assigneeId: undefined,
       workspaceId: channel.defaultWorkspaceId ?? null,
       metadata: {
         creationMode: 'card-decision',

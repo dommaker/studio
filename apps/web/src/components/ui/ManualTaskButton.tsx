@@ -31,7 +31,9 @@ export function ManualTaskButton({ label, onRun, costTokens, costNote, className
       const message = await onRun();
       toast.success(message);
     } catch (err) {
-      toast.error(err?.response?.data?.error?.message ?? '执行失败');
+      // 拒绝值不限于 AxiosError（调用方/测试可直拒信封形状对象）——结构收窄取 error.message
+      const env = err as { response?: { data?: { error?: { message?: string } } } } | null;
+      toast.error(env?.response?.data?.error?.message ?? '执行失败');
     } finally {
       setRunning(false);
     }

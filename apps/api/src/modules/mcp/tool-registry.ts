@@ -238,7 +238,7 @@ export class MCPToolRegistry {
       const s = this.stats.get(t.name);
       return {
         name: t.name,
-        enabled: t.enabled,
+        enabled: t.enabled ?? true,
         errorRate: s && s.totalCalls > 0 ? Math.round((s.errorCalls / s.totalCalls) * 100) : 0,
         lastCallAt: s?.lastCallAt,
       };

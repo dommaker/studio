@@ -329,7 +329,7 @@ writeRoutes.post('/:id/messages/:messageId/convert-to-task/suggest', defineRoute
         getStore().listProfiles({ status: 'active' }),
         projectDiscoveryService.discover(),
       ]);
-      const agents = allProfiles.map(p => ({ id: p.id, name: p.name, description: p.description }));
+      const agents = allProfiles.map(p => ({ id: p.id, name: p.name, description: p.description ?? undefined }));
 
       // 4. Get LLM suggestion
       return await convertToTaskService.suggest(

@@ -228,7 +228,7 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
       const el = streamRef.current;
       const idx = messageToItemIndex.get(anchor.mid);
       const meas = idx != null && el ? virtualizer.measurementsCache[idx] : undefined;
-      if (meas) {
+      if (meas && el) {
         const withinItemOffset = (el.scrollTop + anchor.top) - meas.start;
         scrollStateRef.current.anchor = { ...anchor, itemKey: String(meas.key), withinItemOffset };
       } else {
@@ -275,7 +275,7 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
         if (restoreRef.current?.channelId !== channelId) {
           restoreRef.current = { channelId, pos: channelId ? loadReadingPosition(channelId) : undefined };
         }
-        const restore = restoreRef.current.pos;
+        const restore = restoreRef.current?.pos;
         if (virtualEnabled) {
           // 两段式：scrollToIndex 粗定位（自带动态重算收敛，验证约束 3）→ 锚行进 DOM 后精校正
           const idx = restore ? messageToItemIndex.get(restore.mid) : undefined;

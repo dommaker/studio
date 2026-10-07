@@ -184,7 +184,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       };
     } catch (execErr) {
       const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
-      const stdoutText = execErr?.stdout?.toString().slice(0, 2000) || '';
+      const stdoutText = String((execErr as { stdout?: unknown })?.stdout ?? '').slice(0, 2000);
 
       await emitSessionEnd(sessionId, task.executionId, 1, sessionExtras);
 

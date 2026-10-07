@@ -149,13 +149,13 @@ export class PatternMiner {
     const entries = listInteractionPatterns(sharedStore, ['active']);
 
     return entries
-      .map((e) => {
+      .map((e): Record<string, any> | null => {
         const d = parsePatternContent(e.content);
         if (d === null) return null; // 正文损坏条目跳过（见 pattern-entry.ts 根因注释）
         if (category && d.category !== category) return null;
         return { ...d, id: e.id, name: e.title, status: d.status || 'active' };
       })
-      .filter(Boolean)
+      .filter((p): p is Record<string, any> => p !== null)
       .sort((a: any, b: any) => (b?.confidence || 0) - (a?.confidence || 0) || (b?.frequency || 0) - (a?.frequency || 0))
       .slice(0, 20);
   }

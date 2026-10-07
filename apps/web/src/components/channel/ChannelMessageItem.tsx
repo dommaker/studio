@@ -285,11 +285,11 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
           {isHuman ? (
             <>
               <span className="mc-time">{formatTime(message.createdAt)}</span>
-              <AuthorAvatar isHuman={isHuman} agentName={message.agentName} />
+              <AuthorAvatar isHuman={isHuman} agentName={message.agentName ?? undefined} />
             </>
           ) : (
             <>
-              <AuthorAvatar isHuman={isHuman} agentName={message.agentName} />
+              <AuthorAvatar isHuman={isHuman} agentName={message.agentName ?? undefined} />
               <span className="mc-author mc-author-agent">{`@${message.agentName || 'Agent'}`}</span>
               <span className="mc-time">{formatTime(message.createdAt)}</span>
             </>

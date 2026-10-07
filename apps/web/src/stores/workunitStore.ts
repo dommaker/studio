@@ -143,7 +143,7 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         loading: false,
       });
     } catch (e) {
-      set({ error: e?.message ?? 'Failed to load workunits', loading: false });
+      set({ error: (e instanceof Error ? e.message : undefined) ?? 'Failed to load workunits', loading: false });
     }
   },
 
@@ -172,7 +172,7 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         loading: false,
       });
     } catch (e) {
-      set({ error: e?.message ?? 'Failed to load workunits', loading: false });
+      set({ error: (e instanceof Error ? e.message : undefined) ?? 'Failed to load workunits', loading: false });
     }
   },
 

@@ -375,7 +375,7 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
       scope,
       // F4: 默认未指派 —— 任何频道成员可认领（排除实现者由 metadata.excludeAssignee 约束）；
       // #466: 频道路由 review 档命中时指名评审角色（assigneeId 硬约束）
-      assigneeId: opts.assigneeId ?? null,
+      assigneeId: opts.assigneeId ?? undefined,
       status: 'unassigned',
       channelId: parent.channelId,
       parentId: parent.id,

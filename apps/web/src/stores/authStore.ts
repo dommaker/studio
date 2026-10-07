@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { authApi } from '../api';
+import { serverErrorMessage } from '../utils/errorMessage';
 
 export interface User {
   id: string;
@@ -96,7 +97,7 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
           });
         } catch (e) {
-          set({ error: e.response?.data?.error?.message || e.message || '创建 Session 失败', isLoading: false });
+          set({ error: serverErrorMessage(e) || (e instanceof Error ? e.message : undefined) || '创建 Session 失败', isLoading: false });
         }
       },
 
@@ -115,7 +116,7 @@ export const useAuthStore = create<AuthState>()(
             await get().createGuestSession();
           }
         } catch (e) {
-          set({ error: e.response?.data?.error?.message || e.message, isLoading: false });
+          set({ error: serverErrorMessage(e) || (e instanceof Error ? e.message : null), isLoading: false });
           await get().createGuestSession();
         }
       },
@@ -135,7 +136,7 @@ export const useAuthStore = create<AuthState>()(
           });
           return true;
         } catch (e) {
-          set({ error: e.response?.data?.error?.message || e.message || '登录失败', isLoading: false });
+          set({ error: serverErrorMessage(e) || (e instanceof Error ? e.message : undefined) || '登录失败', isLoading: false });
           return false;
         }
       },
@@ -154,7 +155,7 @@ export const useAuthStore = create<AuthState>()(
           });
           return true;
         } catch (e) {
-          set({ error: e.response?.data?.error?.message || e.message || '注册失败', isLoading: false });
+          set({ error: serverErrorMessage(e) || (e instanceof Error ? e.message : undefined) || '注册失败', isLoading: false });
           return false;
         }
       },
@@ -181,7 +182,7 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      getAuthHeader: () => {
+      getAuthHeader: (): Record<string, string> => {
         const token = get().token;
         if (!token) return {};
         return { Authorization: `Bearer ${token}` };

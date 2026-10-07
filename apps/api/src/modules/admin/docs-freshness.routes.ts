@@ -31,7 +31,7 @@ interface FreshnessResult {
   /** T-059: harness checkDocsFreshness result */
   harnessCheck?: {
     passed: boolean;
-    details: Array<{ id: string; passed: boolean; message: string }>;
+    details: Array<{ id: string; passed: boolean; message?: string }>;
   };
 }
 

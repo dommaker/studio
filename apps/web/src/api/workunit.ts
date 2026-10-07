@@ -105,7 +105,7 @@ export function parseExecutionStepEvents(
           ? p.toolCalls
               .filter((c: unknown): c is { tool: string; summary?: unknown } =>
                 !!c && typeof (c as { tool?: unknown }).tool === 'string')
-              .map((c) => ({ tool: c.tool, summary: typeof c.summary === 'string' ? c.summary : '' }))
+              .map((c: { tool: string; summary?: unknown }) => ({ tool: c.tool, summary: typeof c.summary === 'string' ? c.summary : '' }))
           : [],
         skills: Array.isArray(p.skills) ? p.skills.filter((s: unknown) => typeof s === 'string') : [],
         text: typeof p.text === 'string' ? p.text : undefined,

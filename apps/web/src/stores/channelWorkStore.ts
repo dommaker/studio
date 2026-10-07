@@ -86,7 +86,7 @@ const wuFilesFetched = new Set<string>();
 /** #488 工作条占位三态的派生（wuIdle 唯一口径，#528 边界：由 store 派生）：
  *  已 resolved（端点成功返回非 degraded）且 currentWuId=null → 空闲态；缺键/未 resolved/有当前工单 → 加载态 */
 export function wuIdleOf(slice: SuggestionsSlice | undefined): boolean {
-  return (slice?.resolved ?? false) && slice.currentWuId === null;
+  return slice !== undefined && slice.resolved && slice.currentWuId === null;
 }
 
 const REQ_STATUSES = new Set<RequirementStatus>(['open', 'in-progress', 'done', 'archived']);

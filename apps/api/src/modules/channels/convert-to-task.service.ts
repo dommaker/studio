@@ -77,7 +77,7 @@ export class ConvertToTaskService {
       // 直接建 active + assigneeId=profile.id 是卡死态：myActive 按 instance.id 续跑查询、
       // 认领过滤要求 unassigned，两边都看不到该 WU（同 d7bd1e8 修过的 ownership resume）。
       status: 'unassigned',
-      assigneeId: input.assigneeId ?? null,
+      assigneeId: input.assigneeId ?? undefined,
       projectPath: input.projectPath ?? null,
       reqId,
       metadata: {

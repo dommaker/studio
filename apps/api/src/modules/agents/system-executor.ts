@@ -123,7 +123,7 @@ export class SystemExecutor {
       ? (opts.systemPrompt ? `${opts.systemPrompt}\n\n${prompt}` : prompt)
       : undefined;
     const { stdout } = await execSh(cmd, {
-      cwd: opts.cwd,
+      cwd: opts.cwd ?? process.cwd(),
       stdin: stdinContent,
       env: {
         ...process.env,

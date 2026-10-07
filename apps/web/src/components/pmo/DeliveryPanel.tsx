@@ -86,16 +86,23 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         await onRefresh();
       }
     } catch (err) {
-      const status = err?.response?.status;
-      const errData = err?.response?.data?.error;
+      // strict：catch 变量为 unknown——按错误信封结构收窄（拒绝值不限于 AxiosError，测试直拒信封形状对象）
+      const env = err as {
+        response?: {
+          status?: number;
+          data?: { error?: { message?: string }; data?: { hint?: string } };
+        };
+      } | null;
+      const status = env?.response?.status;
+      const errData = env?.response?.data?.error;
       if (action === 'verify' && status === 422) {
-        toast.error(err?.response?.data?.data?.hint || '未配置验证命令（verifyCommands）');
+        toast.error(env?.response?.data?.data?.hint || '未配置验证命令（verifyCommands）');
       } else if (action === 'verify' && status === 409) {
         toast.error(errData?.message || '无 worktree，无法重跑验证');
       } else if (action === 'dispatchReview' && status === 409) {
         toast.info('评审已在途或已完成');
       } else {
-        toast.error(errData?.message || err?.message || '操作失败');
+        toast.error(errData?.message || (err instanceof Error ? err.message : undefined) || '操作失败');
       }
     } finally {
       setGapActionPending(prev => ({ ...prev, [key]: false }));
@@ -117,15 +124,19 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
       // 刷新台账与项目信息（显示 deliveredAt/deliveredBy/deliverCommit）
       await onRefresh();
     } catch (err) {
-      const errData = err?.response?.data?.error;
-      if (err?.response?.status === 409 && errData) {
+      // strict：catch 变量为 unknown——按错误信封结构收窄（拒绝值不限于 AxiosError，测试直拒信封形状对象）
+      const env = err as {
+        response?: { status?: number; data?: { error?: { message?: string; missing?: string[]; conflictFiles?: string[] } } };
+      } | null;
+      const errData = env?.response?.data?.error;
+      if (env?.response?.status === 409 && errData) {
         setDeliverError({
           message: errData.message || '交付被拒绝',
-          missing: errData.missing,
-          conflictFiles: errData.conflictFiles,
+          ...(errData.missing ? { missing: errData.missing } : {}),
+          ...(errData.conflictFiles ? { conflictFiles: errData.conflictFiles } : {}),
         });
       } else {
-        toast.error(errData?.message || err?.message || '交付失败');
+        toast.error(errData?.message || (err instanceof Error ? err.message : undefined) || '交付失败');
       }
     } finally {
       setDelivering(false);
@@ -143,8 +154,9 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
       setMarkCommit('');
       await onRefresh();
     } catch (err) {
-      const errData = err?.response?.data?.error;
-      toast.error(errData?.message || err?.message || '标记已交付失败');
+      const errData = (err as { response?: { data?: { error?: { message?: string } } } } | null)
+        ?.response?.data?.error;
+      toast.error(errData?.message || (err instanceof Error ? err.message : undefined) || '标记已交付失败');
     } finally {
       setMarking(false);
     }

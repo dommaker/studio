@@ -225,7 +225,7 @@ export class GateCheckerService {
       return {
         type,
         passed: false,
-        message: `Harness 检查失败: ${error.message}`,
+        message: `Harness 检查失败: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
   }

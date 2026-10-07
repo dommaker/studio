@@ -394,7 +394,7 @@ export async function routeMessage(
       type: 'task',
       // B3a: 无归属 → 立即 NEED_INPUT 挂起（blocked），等人回复工程名/路径
       status: parked ? 'blocked' : 'unassigned',
-      assigneeId: agent?.id ?? null,
+      assigneeId: agent?.id ?? undefined,
       reqId,
       metadata: {
         // #496: 前缀兜底命中时落解析后的成员名（展示/认领播报以角色正名为准）
@@ -447,7 +447,7 @@ export async function routeMessage(
         ...(prefixMatchName ? { prefixFallback: true } : {}),
         ...(parked ? { parked: true } : {}),
       },
-      requestId: ctx?.traceId,
+      requestId: ctx?.traceId ?? undefined,
     });
     // #494: 回填派发消息 ↔ WU 关联（best-effort：失败仅缺 back-link，线程锚定已由 anchorMessageId 承载）。
     // 返回值替换派发消息记录，保持 routeMessage 返回值的 workUnitId 契约不变。
@@ -509,7 +509,7 @@ export async function routeMessage(
       channelId,
       type: 'task',
       status: 'unassigned',
-      assigneeId: null, // 涌现认领（agent-loop observe 未指派过滤）
+      assigneeId: undefined, // 涌现认领（agent-loop observe 未指派过滤）
       metadata: {
         creationMode: 'channel-new-task',
         // #494: 认领播报的显式线程锚点
@@ -530,7 +530,7 @@ export async function routeMessage(
       resource: 'workunit',
       resourceId: workUnit.id,
       details: { via: 'new-task', channelId },
-      requestId: ctx?.traceId,
+      requestId: ctx?.traceId ?? undefined,
     });
     const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id, channelId).catch(err => {
       logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {
@@ -590,7 +590,7 @@ export async function routeMessage(
         resource: 'workunit',
         resourceId: mergeTarget.id,
         details: { via: 'merge', channelId },
-        requestId: ctx?.traceId,
+        requestId: ctx?.traceId ?? undefined,
       });
       await reportDroppedRefs(message);
       return message;

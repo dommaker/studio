@@ -11,6 +11,11 @@ expect.extend(jestDomMatchers);
 // React 19 CJS interop: `act` is an ESM-only named export.
 // Add it to the CJS module so react-dom/test-utils can find React.act.
 // vi.mock('react') in each test file provides the polyfill.
+declare global {
+  // React 19 act 环境标志（react-dom/test-utils 读取）
+  var IS_REACT_ACT_ENVIRONMENT: boolean;
+}
+
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 afterEach(() => {
