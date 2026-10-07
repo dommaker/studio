@@ -13,7 +13,7 @@ function opt(name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] :
 
 const PKGS = [
   'apps/api', 'apps/web',
-  'packages/studio-shared', 'packages/studio-agent',
+  'packages/studio-contract', 'packages/studio-shared', 'packages/studio-agent',
   'packages/studio-skill', 'packages/studio-spec', 'packages/studio-audit',
   'packages/studio-notification',
 ];

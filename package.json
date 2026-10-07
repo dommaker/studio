@@ -38,7 +38,7 @@
     "=== 工具脚本 ===": "",
     "tools:health": "./scripts/tools/health-check.sh",
     "tools:status": "./scripts/tools/status.sh",
-    "typecheck": "node bin/tsc-gate.js --check --baseline .tsc-baseline.json --packages apps/api,apps/web,packages/studio-shared,packages/studio-agent",
+    "typecheck": "node bin/tsc-gate.js --check --baseline .tsc-baseline.json --packages apps/api,apps/web,packages/studio-contract,packages/studio-shared,packages/studio-agent,packages/studio-skill,packages/studio-spec,packages/studio-audit,packages/studio-notification",
     "cleanup:data": "npx tsx scripts/cleanup-runtime-data.ts",
     "gen:agents-md": "node scripts/gen-agents-md.mjs",
     "agents-md:sync": "npx harness sync-docs --agents && node scripts/gen-agents-md.mjs",
@@ -74,7 +74,7 @@
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.18.2",
+    "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
     "helmet": "^8.1.0",
     "js-yaml": "^4.1.1",
@@ -84,6 +84,7 @@
     "prom-client": "^15.1.3",
     "uuid": "^9.0.0",
     "ws": "^8.16.0",
-    "yaml": "^2.4.0"
+    "yaml": "^2.4.0",
+    "zod": "^3.22.0"
   }
 }
