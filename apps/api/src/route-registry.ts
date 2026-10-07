@@ -65,6 +65,44 @@ const LOCALHOST = [requireLocalhost()];
 export type AuthPosture = 'open' | 'auth' | 'authNotGuest' | 'admin' | 'localhost';
 
 /**
+ * 协议面例外清单（#664 固化）：全仓 raw Express 路由（非 defineRoute）的完整集合。
+ *
+ * 口径：例外清单之外出现新 raw 路由 = 违规；例外被收编 defineRoute 后须同步从本表删除。
+ * 机械守卫 = openapi/__tests__/openapi.probe.ts 断言「skipped 集合 ≡ 本表」（双向精确相等），
+ * 与 OpenAPI `x-studio-undocumented` 同一数据源（discover 的 skipped 即本表路由）。
+ *
+ * 例外成立的唯一理由是「协议/运维面，defineRoute 的 JSON envelope 模型不适用」，
+ * 业务面一律收编（knowledge/harness 已于 2026-10 批次 4/7 收编，不在此表）。
+ */
+export interface ProtocolSurfaceException {
+  /** 大写方法（GET/POST），与 discover skipped.method 大小写无关比较 */
+  method: string;
+  /** 完整路径（含挂载前缀），与 discover skipped.path 对齐 */
+  path: string;
+  /** 例外原因（为什么 defineRoute 模型不适用） */
+  reason: string;
+}
+
+export const PROTOCOL_SURFACE_EXCEPTIONS: readonly ProtocolSurfaceException[] = [
+  // 事件流（HZ-028）：text/event-stream 长连接 + 手写 SSE 帧（id/data/heartbeat），非请求-响应壳
+  { method: 'GET', path: '/api/v1/events/stream', reason: 'SSE 长连接流：defineRoute 的「返回数据包 envelope」模型不适用（res.writeHead + 持续写帧）' },
+  { method: 'GET', path: '/api/v1/events/clients', reason: 'SSE 连接管理伴生调试端点，随 SSE 路由同进出' },
+  // MCP 消息面（§12.9）：JSON-RPC over HTTP + SSE transport，自有协议壳
+  { method: 'POST', path: '/api/v1/mcp', reason: 'MCP 协议端点：JSON-RPC 消息壳（jsonrpc/id/result|error），非 { data } envelope' },
+  { method: 'GET', path: '/api/v1/mcp/sse', reason: 'MCP SSE transport：长连接协议通道' },
+  { method: 'POST', path: '/api/v1/mcp/messages', reason: 'MCP SSE transport 消息回传：协议会话帧，非独立 REST 端点' },
+  { method: 'GET', path: '/api/v1/mcp/external/sse', reason: '外部 MCP SSE transport：长连接协议通道' },
+  { method: 'POST', path: '/api/v1/mcp/external/messages', reason: '外部 MCP SSE transport 消息回传：协议会话帧' },
+  // 第三方回调：验签需 raw body / 响应形状由对方平台规定，非自有 envelope
+  { method: 'POST', path: '/api/v1/discord/interactions', reason: 'Ed25519 验签需 express.raw 原始 body（app.ts 挂载）；响应形状由 Discord Interactions 协议规定' },
+  { method: 'POST', path: '/api/v1/deploy/webhook', reason: 'HMAC-SHA256 验签（X-Hub-Signature-256）需 raw body；GitHub webhook 协议面' },
+  { method: 'POST', path: '/api/v1/lark/callback', reason: '飞书回调：url_verification 握手须原样回 { challenge }（平台规定形状），verification token 校验先于一切' },
+  { method: 'GET', path: '/api/v1/dingtalk/action', reason: '钉钉 ActionCard URL 跳转回调：响应是给人看的 HTML 页（res.send），非 JSON API' },
+  // 运维探针：响应形状对外固定（监控消费），且带 5s timeout race 分支
+  { method: 'GET', path: '/api/v1/health', reason: '健康探针：{ status, ... } 平铺壳对外固定（Uptime 消费方），503 降级分支不走统一错误壳' },
+];
+
+/**
  * 判别 entry 的鉴权姿态（OpenAPI 派生用）：entry.middleware 与模块级姿态数组同一引用即该档；
  * 无 middleware = open（含混合粒度留路由内的例外面，语义见各 entry 注释）。
  */
@@ -284,11 +322,11 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
     // 运行时
     { path: '/api/v1/iron-laws', router: ironLawsRoutes, comment: 'Iron Laws (ex-runtime-proxy)' },
-    { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE' },
+    { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
     { path: '/api/v1/events', router: eventOpenRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD（读：登录即可）' },
     { path: '/api/v1/events', router: eventWriteRoutes, middleware: authNotGuest },
     { path: '/api/v1/transcripts', router: transcriptRoutes, middleware: auth, comment: '#174: WU transcript 只读查看（#60 C5）' },
-    { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server（localhost/admin/permission service 三态混合粒度，鉴权留路由内；rate limit via tool-registry）' },
+    { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server（localhost/admin/permission service 三态混合粒度，鉴权留路由内；rate limit via tool-registry；消息面为协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
     { path: '/api/v1/harness', router: harnessRoutes, middleware: admin, comment: 'T-015: Harness 监控集成' },
     { path: '/api/v1/cso', router: csoRoutes, comment: 'Decision #5: CSO 验证（无需认证；仅 csoRoutes，不再整挂 harness router）' },
     { path: '/api/v1/builtin-tools', router: builtinToolRoutes, middleware: admin, comment: 'HZ-026: Built-in Toolset' },
@@ -302,7 +340,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/action-center', router: actionCenterRoutes, middleware: authNotGuest, comment: '#468: 统一行动中心（状态派生 + 事件持久）' },
     { path: '/api/v1/notify', router: notifyRoutes, middleware: admin, comment: 'DD-009: 出站推送（内部调用）' },
     { path: '/api/v1/notify-channels', router: notifyChannelRoutes, middleware: admin, comment: '#525 P2-6: 通知渠道配置（企微 webhook + ClawBot 扫码绑定，/settings 配置区）' },
-    { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
+    { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth, comment: '知识条目/文件/检索（2026-10 批次 4/7 收编 defineRoute，#664 验证全覆盖）' },
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
     { path: '/api/v1/review-proposals', router: reviewProposalOpenRoutes, middleware: auth, comment: '#351: 人审提案卡通用端点 status（只读，登录即可；distill/gc/audit/memory 经注册表分发；#353 起取代 /role-memory 专有端点）' },
     { path: '/api/v1/review-proposals', router: reviewProposalWriteRoutes, middleware: authNotGuest, comment: '#351: approve/reject（原路由内 requireNotGuest 等价上移）' },
@@ -310,24 +348,24 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/library', router: libraryRoutes, comment: 'T5 #155: library 阅览室——跨项目 .studio/ 聚合只读层' },
 
     // 运维
-    { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Health check' },
+    { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Health check（运维探针面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
     { path: '/api/v1/audit-logs', router: auditLogRoutes, middleware: admin, comment: 'AR-012' },
     { path: '/api/v1/admin/docs-freshness', router: docsFreshnessRoutes, middleware: admin, comment: 'T-020: CLAUDE.md 新鲜度检查' },
 
-    // Discord
-    { path: '/api/v1/discord', router: discordRoutes, comment: 'Discord Interactions' },
+    // Discord（协议面例外：Ed25519 raw body 验签，固化于 PROTOCOL_SURFACE_EXCEPTIONS）
+    { path: '/api/v1/discord', router: discordRoutes, comment: 'Discord Interactions（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
 
     // Deploy（触发式部署：GitHub push webhook，HMAC 校验，免登录见 app.ts PUBLIC_API）
-    { path: '/api/v1/deploy', router: deployWebhookRoutes, comment: 'GitHub push webhook → auto-deploy' },
+    { path: '/api/v1/deploy', router: deployWebhookRoutes, comment: 'GitHub push webhook → auto-deploy（协议面例外：HMAC raw body 验签，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
 
     // Workspace（AS-020 P2：只读查询 + 删除；token 管理已随 #481 退役——远程节点方向的纯残骸）
     { path: '/api/v1/workspaces', router: workspaceRoutes, middleware: admin, comment: 'AS-020: Workspace read-only + delete（P2-e：原路由内 requireAuth+requireAdmin 等价上移）' },
 
-    // Lark (飞书)
-    { path: '/api/v1/lark', router: larkRoutes, comment: '飞书机器人回调' },
+    // Lark (飞书)（协议面例外：url_verification 握手 + token 验签，固化于 PROTOCOL_SURFACE_EXCEPTIONS）
+    { path: '/api/v1/lark', router: larkRoutes, comment: '飞书机器人回调（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
 
-    // DingTalk (钉钉)
-    { path: '/api/v1/dingtalk', router: dingtalkRoutes, comment: '钉钉机器人回调' },
+    // DingTalk (钉钉)（协议面例外：HTML 响应，固化于 PROTOCOL_SURFACE_EXCEPTIONS）
+    { path: '/api/v1/dingtalk', router: dingtalkRoutes, comment: '钉钉机器人回调（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
   ];
 
   // 启动断言（fail-fast）：两处顺序敏感注册约束，顺序被改动破坏时启动即报错，

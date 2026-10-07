@@ -156,7 +156,7 @@ export function buildOpenApiDocument(routes: DiscoveredRoute[], skipped: Skipped
         '由 packages/studio-contract 的 zod schema 派生（正本在 contract，本文档不手写）。',
         `覆盖 ${routes.length} 条契约驱动端点（defineRoute）：请求 params/query/body 全量准确；`,
         `成功响应逐字段 schema 已映射 ${mappedCount} 条，其余为通用 { data } 壳（映射增量补齐中）。`,
-        '协议面不进文档：discord/deploy webhook、lark/dingtalk 回调、SSE、MCP 消息面（原始 handler，见 x-studio-undocumented）。',
+        '协议面不进文档：discord/deploy webhook、lark/dingtalk 回调、SSE、MCP 消息面、health 运维探针（原始 handler，例外清单固化于 route-registry PROTOCOL_SURFACE_EXCEPTIONS，见 x-studio-undocumented）。',
         '统一响应壳：成功 { data }（分页 { data, pagination }），失败 { error: { code, message } }。',
       ].join('\n'),
     },
