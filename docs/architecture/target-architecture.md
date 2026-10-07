@@ -33,7 +33,7 @@ apps/api（Express 5）
 
 - 跨模块只允许 import 对方模块根 `index.ts` 导出的公共面；深路径 import 由 lint 拦截。
 - routes.ts 只做 HTTP 翻译（校验 → service → envelope），业务逻辑在 service 层。
-- 循环依赖以 lint 规则显形，新增环即 CI 红。
+- 循环依赖以 lint 规则显形（规则待补建，docs/plans/2026-10-arch-deepening.md Phase 2），现阶段以 barrel 边界（no-deep-module-import）约束。
 
 ## 存储边界（R4）
 
@@ -55,4 +55,12 @@ apps/api（Express 5）
 - **已固化 lint**：`local/no-deep-module-import`（跨模块深路径，error）、无参 `new FileStore()` 封禁（error）、`local/no-hand-copied-api-types`（前端手抄类型，error）。
 - **已固化测试/探针**：route-registry 启动顺序断言 + 鉴权姿态探针（`apps/api/src/__tests__/route-registry-auth.probe.ts`）、模块 barrel 测试、contract 各域 parity 测试、OpenAPI 覆盖探针（下条）。
 - **OpenAPI 已复活**：`GET /api/docs` 由 contract zod schema 实时派生（转换层 `packages/studio-contract/src/openapi.ts`，装配 `apps/api/src/openapi/`：路由栈发现 + defineRoute meta + response-map 装订），`GET /api/docs/ui` 为 Swagger CDN 页；协议面（discord/deploy/lark/dingtalk 回调、SSE、MCP 消息面）不进文档，列 `x-studio-undocumented`。
-- **性能**：重构前后对比见 performance-baseline.md §6（读 p95 全绿、零回归；冷启动改善 34%–78%，「端口可服务 < 10s」贴线未达——listen 仍在初始化链尾，两口径分离留作后续优化项）。
+- **性能**：重构前后对比见 performance-baseline.md §6（读 p95 全绿、零回归；冷启动改善 34%–78%，「端口可服务 < 10s」贴线未达——listen 仍在初始化链尾，两口径分离留作后续优化项。
+
+## 深化状态（2026-10-07，Phase 1：strict 类型根基）
+
+计划 docs/plans/2026-10-arch-deepening.md：
+
+- **全仓 strict:true 落地**（根 + apps/api + apps/web + 7 包，含修复全部 ~60 个存量 strict 错误）——z.infer 退化根治，契约类型推导恢复完整效力（判别联合 narrowing、必填字段检测）。
+- **typecheck 门禁扩到全部 9 个目标**（bin/tsc-gate.js PKGS + 根 typecheck script 补 studio-contract 等 5 个）。
+- **根依赖收敛**：express 对齐 ^5.2.1（原 ^4 与 apps/api 漂移，npm 包形态会装错大版本）；补 zod 声明（原漏声明会被 esbuild 静默内嵌并触发 build-npm metafile 校验失败）。
