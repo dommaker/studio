@@ -19,12 +19,12 @@
 - `step-guards.ts`（#541 入口守卫链：B2 测试 WU / #585 需求+AC / C3 日预算 / #162 WU 预算 / #471 plan 额度）、`step-retry-policy.ts`（#543 重试策略：#94 续用丢失降级 + #96 上下文溢出收敛为 runStepRetry 一份）
 - `claim-fitness.ts`（认领前适任判断，决策 14；2026-09-25 起落 `agent:claim_fitness` 台账事件）
 - `daily-token-budget.ts`（每日 token 预算熔断，C3）、`delegate-branch.ts`（A2A DELEGATE 分支委派）
-- `prompt-composer.ts`（prompt/上下文组装，分段软定额截断）、`session-resume.ts`（#94）、`context-overflow.ts`（溢出识别+滚动摘要）
+- `prompt-composer.ts`（prompt/上下文组装编排：composeStepPrompt 段序与池共享 runSection、hint 读取/消费清除、base prompt 选择、knowledge 段、files 截断播报；#671 按组装段拆分后 318 行，拆分前公共面经 re-export 保持不变）、`prompt-quota.ts`（SECTION_QUOTAS 九段软定额 + BuiltSection + sliceToTokenBudget 截断共享件）、`prompt-section-{persona,roster,skill,map,memory,files,contract,handoff}.ts`（八个注入段组装各居其文件；段模板正本 CONTRACT_TEMPLATES/INSPECTION_CONTRACT 居 contract 段文件）、`session-resume.ts`（#94）、`context-overflow.ts`（溢出识别+滚动摘要）
 - `wu-lease.ts` / `lease-heartbeat.ts`（WU 租约/fencing 追踪器 #209 / 心跳 30s）
 - `executor.ts`（Executor 接口，LocalExecutor 委托 agentRunner）、`execution-step-events.ts`（步级事件落盘+步内流式 SSE；#665 起 payload 类型与 studio-contract/sse-events.ts 同源——ExecutionStepEventPayload/ExecutionStreamChunk 是契约类型别名，改形状先改契约，wire parity 见 events/__tests__/sse-payload-contract.test.ts）
 - `wu-verification.ts`（自动验证可复用实现）、`completion-gates.ts`（收口守卫链）、`completion-harvest.ts`（#542 per-WU-type COMPLETE 收割注册表）、`result-bookkeeping.ts`（#655 recordResult 簿记段）、`review-contract.ts`（verdict 语义单一来源）
 - `review-dispatcher.ts`（F4 review 派发）、`dispatch-reconciliation.ts`（派工/评审断链 5min 对账，P2-d 刀5 自 agents 根随迁——依赖 review-dispatcher + monitor-alerts，留 agents 会拉成 agents↔agent-loop 环）
-- `__tests__/` — 59 个测试文件（agents root __tests__ loop 系 47 + 原 loop/__tests__ 9 + #668 新增 2：execution-cwd 直测 / loop-segments 段接线钉线；段行为由既有测试网兜底）
+- `__tests__/` — 60 个测试文件（agents root __tests__ loop 系 47 + 原 loop/__tests__ 9 + #668 新增 2：execution-cwd 直测 / loop-segments 段接线钉线 + #671 新增 1：prompt-composer-snapshot 全九段产出快照钉线（拆分前后逐字节等价兜底）；段行为由既有测试网兜底）
 
 ### 核心导出
 

@@ -1,0 +1,124 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`#671: composeStepPrompt 全段产出快照（拆分前后逐字节等价钉线） > 九段 + hint 全触发场景：prompt / knowledgeContext / 附带产出整量快照 1`] = `
+{
+  "consumedHintUpdates": {
+    "childGuardHint": undefined,
+    "commitGuardHint": undefined,
+    "contractArtifactHint": undefined,
+    "diffEmptyHint": undefined,
+    "pendingReplies": undefined,
+    "processCheckHint": undefined,
+    "verifyFailHint": undefined,
+  },
+  "injectedKnowledgeIds": [
+    "rule-1",
+  ],
+  "knowledgeContext": "## 你的角色
+
+你是资深实现工程师。
+技能：tdd-implement
+工具：read、write
+约束：can_delegate=true
+
+## 频道成员与委派
+
+本频道可协作成员：
+- reviewer（provider: claude）：评审担当
+- dev-helper（provider: kimi）：开发助手
+
+如需把一部分工作交给更合适的成员，输出一行：ACTION: DELEGATE:@<成员名>:<子任务 scope>（scope 为该行剩余内容）。仅可委派给上述成员，不可委派给自己；委派深度上限 2 跳（根任务 depth=0），同一任务最多委派 3 次，不可对同一成员重复委派。系统校验通过后会创建子任务并在频道发卡片，你继续按 PROGRESS 推进自己的部分；校验不通过则转为 NEED_INPUT 请人裁决。
+
+## 本次任务 Skills
+
+以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。
+
+### tdd-implement
+测试先行实现｜触发：登录
+全文：<STUDIO_HOME>/skills/tdd-implement/SKILL.md
+
+完整 skill 清单见 skills MANIFEST.md（<STUDIO_HOME>/skills/MANIFEST.md）
+
+## PMO 地图
+目标：做出多 agent 协作平台
+已落地决策（新→旧，近 10 条）：
+- [10-05] 新决策：裁决轮一次问齐
+- [09-30] 旧决策：先单仓后多仓
+开放雾（2 条）：
+- [open] 知识引擎要不要引入向量检索？
+- [in-discussion] 评审派发走事件还是轮询？
+
+## 角色记忆索引
+
+以下为你在往次任务中沉淀的记忆索引（每行 = topic 路径 + 一句话摘要）；任务内容命中相关记忆时，先用文件工具按需读对应 topic 正文再据此执行，不相关则忽略。
+
+topics/deploy.md — 部署链踩坑记录
+topics/review.md — 评审口径沉淀
+
+## 项目上下文
+## 系统约束
+- test rule
+
+## 引用文件
+
+- /repo/studio/src/login.ts（本工程内，相对路径：src/login.ts）
+- /repo/other/docs/auth.md（位于本工程之外）
+
+以下引用中位于本工程之外的文件为只读上下文，请勿修改；跨仓写入请显式提出并等人确认。大文件请按需分段读取，不要全文吞入。",
+  "pendingReplies": [
+    "人类回复：按方案 B 继续",
+  ],
+  "prompt": "## 当前工作
+
+实现登录功能
+
+## 人类新回复
+
+（你此前提出的问题：要不要连带改掉旧登录入口？）
+人类回复：按方案 B 继续
+
+## 要求
+
+根据回复调整方案，继续工作。仓库根有 AGENTS.md/CLAUDE.md 时以它们为准。每步结束后输出：
+  ACTION: PROGRESS:<summary>      完成一步，继续中
+  ACTION: COMPLETE:<summary>      全部完成
+  ACTION: NEED_INPUT:<需要什么>   需要人类输入（有选项时下一行加 OPTIONS: [{"label":"方案 A","value":"a"},...]，value 可省）
+
+## 产出契约
+
+测试先行：先写失败测试（RED）再实现到测试全绿（GREEN），测试全绿后才算完成。
+Phase commit：按阶段分批提交，commit message 用 \`phase(<阶段名>): <摘要>\` 格式。
+本环节标准打法：tdd-implement（索引见 skills 段，先 loadSkill 读全文再开工）。
+
+## 前序进展
+以下是你在此任务中已完成的步骤（旧→新）：
+- 第 1 步 [PROGRESS]：搭好登录模块骨架
+
+## 提交提醒
+
+上次 COMPLETE 缺测试被提交守卫打回
+
+## 验证失败
+
+pnpm test 红：login.test.ts
+
+## 子任务提醒
+
+子任务 wu-2 未完结
+
+## 过程检查提醒
+
+上轮未先写测试
+
+## 提交内容提醒
+
+base..HEAD 无提交内容
+
+## 契约产物提醒
+
+缺 REVIEW_RESULT 协议行",
+  "skillMatched": [
+    "tdd-implement",
+  ],
+}
+`;

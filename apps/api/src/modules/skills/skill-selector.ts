@@ -224,7 +224,7 @@ export function selectSkillsWithDomain(
 /**
  * #92（#88 决策）：skills 索引硬预裁剪 —— 注入段只含 hint（+skill 点名）+ 域匹配两类。
  * scope 文本匹配与「rest 热度」不进注入段（由段尾 skills MANIFEST 指针按需兜底，见
- * prompt-composer buildSkillSection）。复用 selectSkillsWithDomain 的 active 过滤 / hint 解析 /
+ * agent-loop/prompt-section-skill buildSkillSection）。复用 selectSkillsWithDomain 的 active 过滤 / hint 解析 /
  * 域匹配口径（normalizeToStage 归一化），不重写。hint 保点名顺序置顶，按 name 去重。
  * #462：role.skills 显式声明经 roleSkills 参数纳入索引候选（与 +skill 点名同权——
  * 同 resolveHints 按名解析、同 active 口径，未知/不活跃/loop-only 跳过记日志），

@@ -83,7 +83,7 @@ export interface WorkUnitMetadata {
     options: { name: string; summary: string; tradeoffs: string; impact: string; recommended: boolean }[];
   };
   // #567：方向锁定开关——派单时显式 directionPick:false 关闭 plan 契约的方向锁定段
-  // （prompt-composer buildContractSection 替换为「本单已关闭方向锁定」提示）
+  // （agent-loop prompt-section-contract buildContractSection 替换为「本单已关闭方向锁定」提示）
   directionPick?: boolean;
   // #471（Triage 定稿 1）：plan 步数续期授权额度——缺省 = PLAN_STEP_LIMIT；到线挂起后人回复
   // 续期 += PLAN_STEP_LIMIT（waiting-input.ts）。非会话簿记（不随 clearSessionBookkeeping 清除），
