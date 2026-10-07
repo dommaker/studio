@@ -31,8 +31,6 @@ import type {
   KnowledgeLinter,
   QueryFilter,
   MaturityLevel,
-  KnowledgeSubsystem,
-  KnowledgeOrigin,
 } from '@dommaker/harness';
 import { estimateTokens } from '@dommaker/harness';
 import { logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
@@ -71,24 +69,9 @@ import {
   keywordHitsToSemantic,
 } from './knowledge-semantic-search.js';
 
-// ── Type mapping (absorbed from KnowledgeBus) ──
+// ── Type mapping (absorbed from KnowledgeBus)：正本 knowledge-types.ts（#669 归位）──
 
-const ENTRY_TYPE_MAP: Record<string, KnowledgeSubsystem> = {
-  pattern: 'guideline',
-  failure: 'pitfall',
-  incident: 'pitfall',
-  pitfall: 'pitfall',
-  guideline: 'guideline',
-  trend: 'process',
-  fix: 'guideline',
-  analyst_accuracy: 'model',
-  review: 'guideline',
-  alert: 'pitfall',
-  audit: 'guideline',
-  deploy: 'guideline',
-  gap: 'guideline',
-  resolution: 'guideline',
-};
+import { ENTRY_TYPE_MAP } from './knowledge-types.js';
 
 // ── Data layer: trends directory ──
 
@@ -113,89 +96,38 @@ const TYPE_WEIGHT: Record<string, number> = {
   process: 1, analysis: 1, trend: 1,
 };
 
-// ── Studio-side types ──
+// ── Studio-side types：正本 knowledge-types.ts（#669 归位），re-export 保持导出面不变 ──
 
-export interface PatternEntry {
-  type: string;
-  title: string;
-  content: string;
-  tags: string[];
-  maturity?: MaturityLevel;
-  /**
-   * 条目来源（#371）：缺省 'system'。蒸馏 topic 信号只认 agent/human（#366），
-   * 机器流（monitor/knowledge-sync/auditor/triage/模板兜底）落默认即可；
-   * 真会话沉淀（session-summary）必须显式 origin:'agent' 才计入信号。
-   */
-  origin?: KnowledgeOrigin;
-}
-
-export interface IncidentEntry {
-  title: string;
-  content: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  tags: string[];
-}
-
-export interface TrendEntry {
-  title: string;
-  content: string;
-  metric: string;
-  tags: string[];
-}
-
-export interface AnalystAccuracyInput {
-  docId: string;
-  goalTitle: string;
-  predictedFiles: string[];
-  actualFiles: string[];
-  predictedDeps: string[];
-  actualDeps: string[];
-  acMatchRate: number;
-  missesByType: Record<string, number>;
-  tierStats?: Record<string, { total: number; succeeded: number; failed: number; avgDurationMs: number }>;
-}
-
-export interface ExtractionResult {
-  task: string;
-  diff: string;
-  success: boolean;
-  duration: number;
-  agentType: string;
-  consumedKnowledge: string[];
-  /** 来源 execution ID，用于 AC-3.2 来源追溯 */
-  sourceExecutionId?: string;
-}
-
-/** R3: extractFromConversation 的可选上下文（来源追溯 / 事件归因） */
-export interface ConversationExtractionCtx {
-  workUnitId?: string;
-  source?: string;
-}
-
-export interface ExecutionOutcome {
-  executionId: string;
-  agentType: string;
-  consumedKnowledge: string[];
-  success: boolean;
-  details: string;
-  timestamp: string;
-  mode?: 'external_agent' | 'channel';
-  /** #90: 失败步的错误类型（execution_failed 等）；success=false 时落 payload 供失败分析 */
-  errorType?: string;
-}
-
-export interface InjectContextResult {
-  prompt: string;
-  injectedIds: string[];
-  /** #91: 注入尺寸（originalTokens > keptTokens 即发生了段内截断），供调用方落 prompt:section_trimmed 事件 */
-  usage?: { originalTokens: number; keptTokens: number };
-}
-
-export interface InjectOpts {
-  tags?: string[];
-  maxTokens?: number;
-  includeRules?: boolean;
-}
+import type {
+  PatternEntry,
+  IncidentEntry,
+  TrendEntry,
+  AnalystAccuracyInput,
+  ExtractionResult,
+  ConversationExtractionCtx,
+  ExecutionOutcome,
+  InjectContextResult,
+  InjectOpts,
+  SearchOpts,
+  SemanticSearchResult,
+  SearchResult,
+  KnowledgeServiceDeps,
+} from './knowledge-types.js';
+export type {
+  PatternEntry,
+  IncidentEntry,
+  TrendEntry,
+  AnalystAccuracyInput,
+  ExtractionResult,
+  ConversationExtractionCtx,
+  ExecutionOutcome,
+  InjectContextResult,
+  InjectOpts,
+  SearchOpts,
+  SemanticSearchResult,
+  SearchResult,
+  KnowledgeServiceDeps,
+} from './knowledge-types.js';
 
 /**
  * E2 检索主动性（断点 G）：知识上下文注入时附带的「何时查知识库」指引。
@@ -212,39 +144,6 @@ export const KNOWLEDGE_QUERY_GUIDANCE = [
   '- 查询入口：MCP 工具 `mcp__local-rag__query_documents`（local-rag server），query 传关键词或问题描述。',
   '- 有现成经验就复用，不要重复踩坑；查不到再自行解决。',
 ].join('\n');
-
-export interface SearchOpts {
-  limit?: number;
-  tags?: string[];
-  type?: string;
-  mode?: 'keyword' | 'semantic' | 'hybrid';
-}
-
-export interface SemanticSearchResult {
-  entryId: string;
-  filePath: string;
-  chunkIndex: number;
-  text: string;
-  score: number;
-  fileTitle: string;
-}
-
-export interface SearchResult {
-  entry: KnowledgeEntry;
-  score: number;
-  highlights: string[];
-}
-
-// ── Dependencies interface ──
-
-export interface KnowledgeServiceDeps {
-  store: KnowledgeStore;
-  lifecycle: KnowledgeLifecycle;
-  ingest: KnowledgeIngest;
-  linter: KnowledgeLinter;
-  query: any;  // UnifiedQuery
-  eventEmitter: any; // EventEmitter
-}
 
 // ── KnowledgeService ─────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 /**
  * knowledge 域契约——正本字段以 apps/api/src/modules/knowledge/ 实测 wire 为准：
  * knowledge-service.ts（KnowledgeService list/get/stats/health/flywheel/audit 等）、
- * knowledge-types.ts（FlywheelMetrics/HealthReport/AuditReport/AccuracyReport）、
+ * knowledge-metrics.ts（FlywheelMetrics/HealthReport/AuditReport/AccuracyReport）、
  * resolution.service.ts（Resolution 投影/density/cross-session，Resolution 实体原在
  * studio-shared types/resolution.ts——Node 依赖不 import，wire 形状在此重声明）、
  * engine/unified-query.ts（ListEntriesResult）、knowledge-sync.service.ts、
