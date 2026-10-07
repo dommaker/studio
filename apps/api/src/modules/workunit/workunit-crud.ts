@@ -6,8 +6,10 @@
  *
  * 本文件：create/update/delete + claim/unclaim + updateMetadata 增量合并语义口（#554）、
  * workunit.created 与 workunit.status_changed 事件发布、父状态聚合（aggregateParentStatus），
- * 以及快照转换函数与输入/数据类型。状态机迁移（transitionStatus）、
- * 查询（getById/list）与评审验收收口在 workunit.service.ts 的 WorkUnitService。
+ * 以及快照转换函数与输入/数据类型。#672 起继承链按职责分层（每层一个文件）：
+ * 查询派生在 workunit-query.ts（WorkUnitQueryService），状态机迁移与 persistSnapshot
+ * 统一尾部在 workunit-lifecycle.ts（WorkUnitLifecycleService），评审验收收口在
+ * workunit-review.ts（WorkUnitReviewService），WorkUnitService 门面在 workunit.service.ts。
  */
 
 import { randomUUID } from 'crypto';
