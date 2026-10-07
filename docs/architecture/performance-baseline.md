@@ -170,3 +170,36 @@ listen 前移复盘发现四处同源/伴生根因并修复（计划 docs/plans/
 - **FileStore 全量扫描的退化如实出现但量级温和**：workunits 列表（内存全量装载 500 条快照后分页，limit=20 只截返回不省扫描）p95 2.1 → 5.3ms（+152%），写 update p95 12.8 → 30.5ms（+138%，FileStore 写为全量重写）。相对翻倍多，绝对值距 读 p95 < 100ms / 写 p95 < 300ms 预算仍有一个量级余量。
 - **500 条规模下无一端点触预算线**；全量扫描类端点的退化斜率（约线性）意味着 ~万条规模才会逼近 100ms 读预算——届时 workunits 列表/monitoring 汇总是第一梯队，update 全量重写是写侧第一梯队。
 - 画像覆盖面：仅预置了 workunit 单域 500 条；频道消息、通知、知识条目等高频增长域的数据量画像留待有对应规模需求时补（同一条命令 `--seed` 机制可扩展）。
+
+---
+
+## 9. 前端 bundle 预算 + 已认证主应用 LCP（2026-10-08，#674）
+
+§7.1 遗留的「已认证主应用 LCP 未测」收口，并补上前端 bundle 预算设施（计划 docs/plans/2026-10-arch-deepening.md Phase 4）。
+
+### 9.1 bundle 预算门（进日常 CI）
+
+- **`pnpm perf:bundle`**：测 `apps/web/dist` 产物四项指标（原始字节，非 gzip；KB = 1024 B）——totalJs / entryJs（index entry）/ maxChunk（最大单 chunk）/ totalCss，对比 `scripts/perf/bundle-budget.json` 预算，超预算 exit 1。阈值 = 基线实测 + ~20-25% 余量，正本即该 json（含基线 commit）。
+- **接线**：ci.yml `pnpm build` 之后，**进日常 CI**——同 lockfile 同代码 size 稳定、断言毫秒级、无异机噪声，与 perf-gate（机器敏感、挂周频）不同口径。超预算红的有效性本票实测过（doctored 配置 totalJs 500 KB → exit 1，违例清单正确）。
+- 基线实测（commit `8e415aa9`，vite 8 生产构建）：totalJs 933.5 KB（63 chunk）/ entryJs 78.9 KB / maxChunk 196.2 KB（vendor-utils）/ totalCss 96.7 KB → 预算 1150 / 100 / 240 / 120 KB。
+
+### 9.2 已认证主应用 LCP 实测（目标 < 2s：**达标**，余量约 4 倍）
+
+方法（固化在 `scripts/perf/lcp.ts`，`pnpm perf:lcp` 一条命令复现）：
+
+- 形态 = **生产构建产物**（vite preview 起 `apps/web/dist`，反代 `/api` 到隔离 API）——区别于 §7.1 落地页测量用的线上实例；本机回环、无 CDN/压缩中间层。
+- 链路：隔离 `STUDIO_HOME=$(mktemp -d)` 起 API（`STUDIO_AUTH=none` + `REGISTER_ENABLED=true`，§2 同纪律不碰默认数据根）→ `POST /auth/register` 造已认证 User（role=User，过 Lurk Wall 进主应用，区别于 guest 落地页）→ playwright chromium 每轮新开 context（无缓存共享，接近冷访问），localStorage 预置 zustand `auth-storage`（免 UI 登录仪式）→ web-vitals `onLCP(reportAllChanges)` 探针 → 打开 `/`（ChannelHomeRedirect → `/channels/<id>` 主界面，消息列表数据真实加载），networkidle + 1s 稳定后读值。
+- 测量 commit `8e415aa9`，同一台 4 vCPU / 3.7 GB RAM 开发机，5 轮：
+
+| 轮次 | LCP |
+|------|-----|
+| run1 | 672 ms |
+| run2 | 512 ms |
+| run3 | 516 ms |
+| run4 | 520 ms |
+| run5 | 404 ms |
+
+**p50 516 ms / max 672 ms，对照 < 2000 ms 目标达标，余量约 4 倍。** run1 略高（vite preview 首请求编译/系统缓存冷），其后稳定 400–520 ms。
+
+- **LCP 不设 CI 门**：本机资源受限 + 异机方差大，设为测量工具（`pnpm perf:lcp`）人工判读；日常回归由 bundle 预算门（size 是 LCP 的主导因子且机器无关）兜底。若日后要设门，须先换参考机重锚并按 perf-gate 同纪律挂周频而非日常 CI。
+- 坑（后续测量者须知）：playwright `addInitScript({ path })` 分注 web-vitals IIFE 拿不到全局 `webVitals`（init script 的作用域包装使 `var` 不进 window）——须把 IIFE 源码与探针拼成同一段 content 注入（lcp.ts 内注释固化了此结论）。

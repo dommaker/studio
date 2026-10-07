@@ -68,6 +68,8 @@ async function pollUntil200(url: string, timeoutMs: number, proc: ChildProcess):
 export interface StartOptions {
   studioHome?: string;
   timeoutMs?: number;
+  /** 追加环境变量（#674 LCP 测量需要 REGISTER_ENABLED=true 造已认证用户） */
+  extraEnv?: Record<string, string>;
 }
 
 export async function startServer(opts: StartOptions = {}): Promise<ServerHandle> {
@@ -81,6 +83,7 @@ export async function startServer(opts: StartOptions = {}): Promise<ServerHandle
       PORT: String(port),
       STUDIO_AUTH: 'none',
       NODE_ENV: 'production',
+      ...opts.extraEnv,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     // 独立进程组：npx→tsx→node 三层派生，停服须杀整个组，否则孙进程成孤儿

@@ -24,6 +24,8 @@
     "lint:cycles": "node scripts/check-module-cycles.mjs",
     "perf:bench": "node node_modules/tsx/dist/cli.mjs scripts/perf/bench.ts",
     "perf:gate": "node node_modules/tsx/dist/cli.mjs scripts/perf/gate.ts",
+    "perf:bundle": "node node_modules/tsx/dist/cli.mjs scripts/perf/bundle-budget.ts",
+    "perf:lcp": "node node_modules/tsx/dist/cli.mjs scripts/perf/lcp.ts",
     "=== 开发环境 ===": "",
     "dev:start": "./scripts/dev/start.sh",
     "dev:stop": "./scripts/dev/stop.sh",
@@ -61,7 +63,8 @@
     "tsx": "^4.22.3",
     "typescript": "^5.3.0",
     "typescript-eslint": "^8.65.0",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "web-vitals": "^6.2.3"
   },
   "engines": {
     "node": ">=20",

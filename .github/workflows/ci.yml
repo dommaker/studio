@@ -45,6 +45,10 @@ jobs:
       - name: Cycle gate (module deps)
         run: pnpm lint:cycles
       - run: pnpm build
+      # 前端 bundle 预算门（#674）：vite build 产物 size 断言，阈值正本 scripts/perf/bundle-budget.json。
+      # 确定性断言（同 lockfile 同代码 size 稳定），进日常 CI 不拖慢（毫秒级）；超预算即红。
+      - name: Bundle budget gate
+        run: pnpm perf:bundle
       - run: pnpm test
       # 顺序约束：本步骤必须在 pnpm test 之后串行执行（不可提前或并行）。
       # 历史原因：旧版 sync-docs 在 AGENTS.md 写入知识库条数（harness ≤0.16.5），测试写知识库导致计数抖动误报；

@@ -5,6 +5,23 @@ import path from 'path'
 // 测试环境端口（通过环境变量 VITE_DEV_API_PORT 控制）
 const DEV_API_PORT = parseInt(process.env.VITE_DEV_API_PORT || '13001'); // 默认开发环境端口
 
+// dev server 与 vite preview 共用的反代表（#674：preview 供 LCP 测量以构建产物形态起服）
+const apiProxy = {
+  '/api': {
+    target: `http://localhost:${DEV_API_PORT}`,
+    changeOrigin: true,
+  },
+  '/ws': {
+    target: `http://localhost:${DEV_API_PORT}`,
+    changeOrigin: true,
+    ws: true,  // WebSocket 代理
+  },
+  '/health': {
+    target: `http://localhost:${DEV_API_PORT}`,
+    changeOrigin: true,
+  },
+};
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
@@ -26,21 +43,13 @@ export default defineConfig({
       // host 不设置，让客户端自动使用访问地址
       port: parseInt(process.env.VITE_PORT || '5173'),
     },
-    proxy: {
-      '/api': {
-        target: `http://localhost:${DEV_API_PORT}`,
-        changeOrigin: true,
-      },
-      '/ws': {
-        target: `http://localhost:${DEV_API_PORT}`,
-        changeOrigin: true,
-        ws: true,  // WebSocket 代理
-      },
-      '/health': {
-        target: `http://localhost:${DEV_API_PORT}`,
-        changeOrigin: true,
-      },
-    },
+    proxy: apiProxy,
+  },
+  // #674：LCP 测量（scripts/perf/lcp.ts）以构建产物形态起服，反代表与 dev 同源
+  preview: {
+    host: '127.0.0.1',
+    port: parseInt(process.env.VITE_PREVIEW_PORT || '4173'),
+    proxy: apiProxy,
   },
   build: {
     rollupOptions: {
