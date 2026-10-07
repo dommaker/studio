@@ -11,6 +11,12 @@
  * 2026-10-03（D 批 / #663）：原 execFileSync 首跑全量提取阻塞事件循环 ≈10s
  * （listen 后 3s warmup 窗口，期间请求/SSE 排队）；异步化后事件循环不再冻结，
  * 提取结果与 checkpoint 语义不变。
+ * 2026-10-08（#675）：异步化后的残余根因——首跑提取循环（HEAD~50..HEAD 在合并
+ * 历史下可达数百提交）逐条 recordPattern 是「同步 ingest 写 + microtask await」
+ * 紧循环，await 同步函数只让出 microtask，事件循环 I/O 在整个提取期间插不进来
+ * （实测 fix/feat 两段循环各成 ≈1.3s/2.0s 连续阻塞，请求 max 3.3s，见
+ * performance-baseline.md §10）。修复：逐条提取之间 setImmediate 让出
+ * （macrotask），请求/SSE 得以穿插；提取结果与 checkpoint 语义不变。
  */
 
 import { logger } from '@dommaker/studio-shared';
@@ -24,6 +30,13 @@ import { execFileAsync } from '../../core/exec-async.js';
 
 const CHECKPOINT_FILE = studioPath('session-checkpoint.json');
 const REPO_DIR = process.env.REPO_DIR || process.cwd();
+
+/**
+ * #675：逐条同步 ingest（harness ingestEntry 为同步文件写）之间让出事件循环。
+ * macrotask 让出（非 microtask）——setImmediate 排入 check 阶段，pending I/O
+ * （请求/SSE 回调）在两次提取之间得以执行；单次最长阻塞收敛为单条 ingest 耗时。
+ */
+const yieldToEventLoop = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
 
 interface SessionCheckpoint {
   lastCommit: string;
@@ -236,6 +249,8 @@ class SessionSummaryService {
         } catch (e) {
           logger.warn('[SessionSummary] Failed to record pattern', { commit: c.hash.slice(0, 8), error: String(e) });
         }
+        // #675：见文件头——逐条让出事件循环，避免首跑数百条同步写串成秒级连续阻塞
+        await yieldToEventLoop();
       }
     } catch (e) {
       logger.warn('[SessionSummary] Pattern extraction failed (import phase)', { error: String(e) });
@@ -257,6 +272,8 @@ class SessionSummaryService {
           tags: ['session-summary'],
           origin: 'agent', // #371：同上，钦定矿石
         });
+        // #675：同 fix 循环，逐条让出事件循环
+        await yieldToEventLoop();
       }
     } catch {
       // non-blocking

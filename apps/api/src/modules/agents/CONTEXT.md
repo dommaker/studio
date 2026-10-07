@@ -16,7 +16,7 @@ P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 
 - `default-triggers.ts` — 10 个系统 trigger（inspection-scan/dispatch-reconciliation/doc-semantic-review/#523 workunit-gate-escalation 等）
 - `system-executor.ts` — SystemExecutor 系统级 LLM 直调（读 studio 角色 provider，轻量 spawn 无状态；6+ 模块经 barrel 消费）
 - `system-role.ts` — 系统角色断言门面（正本 core/system-role.ts）
-- `session-summary.service.ts` — 会话级知识提取（daemon 启动/6h 增量，纯代码无 LLM；2026-10-03 D 批/#663 起 git 子进程全链走 `core/exec-async.execFileAsync`——原 execFileSync 首跑全量提取阻塞事件循环 ≈10s）
+- `session-summary.service.ts` — 会话级知识提取（daemon 启动/6h 增量，纯代码无 LLM；2026-10-03 D 批/#663 起 git 子进程全链走 `core/exec-async.execFileAsync`——原 execFileSync 首跑全量提取阻塞事件循环 ≈10s；2026-10-08 #675 起提取循环逐条 `setImmediate` 让出——首跑 HEAD~50..HEAD 在合并历史下可达数百提交（实测 692），逐条同步 ingest 写的 microtask 紧循环曾饿死事件循环 ≈3.3s，见 performance-baseline.md §10）
 
 ### 核心导出
 

@@ -203,3 +203,38 @@ listen 前移复盘发现四处同源/伴生根因并修复（计划 docs/plans/
 
 - **LCP 不设 CI 门**：本机资源受限 + 异机方差大，设为测量工具（`pnpm perf:lcp`）人工判读；日常回归由 bundle 预算门（size 是 LCP 的主导因子且机器无关）兜底。若日后要设门，须先换参考机重锚并按 perf-gate 同纪律挂周频而非日常 CI。
 - 坑（后续测量者须知）：playwright `addInitScript({ path })` 分注 web-vitals IIFE 拿不到全局 `webVitals`（init script 的作用域包装使 `var` 不进 window）——须把 IIFE 源码与探针拼成同一段 content 注入（lcp.ts 内注释固化了此结论）。
+
+---
+
+## 10. warmup SessionSummary 首跑事件循环阻塞根治（2026-10-08，#675）
+
+§7 记录的「SessionSummary 首跑全量 git 提取 10.9s 阻塞事件循环」经 #663（commit `dbca5942`，git 子进程全链异步化）后**残余根因转移**：子进程 wait 已出事件循环，但首跑提取循环本身仍是阻塞源。本票定位并根治残余，前后对比如下。
+
+### 10.1 残余根因
+
+- `HEAD~50..HEAD` 在合并历史下并非 50 个提交——本仓实测 **692 个**（#663 测量时 1511 个）：`HEAD~50` 是 first-parent 50 代前，range 包含其间所有合入的侧枝提交。全新数据区首跑 checkpoint 缺省即 `HEAD~50`，「全量提取」= 692 commits 分类，其中 fix 119 + feat 158 = **277 次 `recordPattern`**。
+- `recordPattern → ingestWithQualityGate → harness ingestEntry` 是**同步文件写**；提取循环 `await` 一个同步完成的函数只让出 microtask，事件循环的 I/O（请求/SSE 回调）在整个提取期间插不进来——fix/feat 两段循环各成一段连续阻塞。
+
+### 10.2 测量方法
+
+隔离纪律同 §2（`STUDIO_HOME=$(mktemp -d)`、空闲端口、`STUDIO_AUTH=none`、node 直跑 tsx cli）。进程内 `NODE_OPTIONS --import` 预挂 `perf_hooks.monitorEventLoopDelay` 直方图（500ms 窗，max>100ms 才输出）；listen（/health 首次 200）后串行打 /health 25s 记录每发延迟。修复前后各跑 fresh（全新数据区首跑）+ restart（同数据区重启，增量路径）各一轮，同机同压。
+
+### 10.3 结果
+
+**fresh 首跑提取窗口（listen 后 ~3–10s）：**
+
+| 指标 | 修复前（#663 后现状） | 修复后（#675） |
+|------|----------------------|----------------|
+| 事件循环单窗 max | **1314 ms** | ≤ 140 ms |
+| /health 请求 p50 / p95 | 5 / 21 ms | 5 / 20 ms（不变） |
+| /health 请求 max | **3309 ms**（1 发 >200ms 尖刺） | **293 ms**（−91%） |
+| summarize 墙钟 | 4520 ms | 7681 ms（让出代价，后台任务可接受） |
+
+**restart 增量路径（checkpoint 存在）：** 修复后 max 148 ms、>200ms 尖刺 0 发，与修复前 58ms 无感口径一致——增量行为不变。
+
+### 10.4 修复与结论
+
+- 修复：`session-summary.service.ts` 提取循环逐条 `setImmediate` 让出（macrotask），请求/SSE 在两次提取之间得以穿插；单次最长阻塞收敛为单条 ingest 写耗时（本机 ~10–140ms）。提取结果与 checkpoint 语义不变（防回归：`session-summary-yield.test.ts` 以「上一次调度的 setImmediate 在下一次 recordPattern 前已执行」锁定让出真实发生 + 计数/checkpoint 语义用例；既有 3 用例无改动通过）。
+- worker_threads 未采用（同 #663 判断）：瓶颈是同步 IO 的**连续拼接**而非单点 CPU，逐条让出已把秒级连续阻塞拆成毫秒级碎片。
+- 残余 ~100–140ms 级单窗 max 与同窗口其他 warmup 任务（knowledge 域 coldStartAll/ruleScanner 等）及本机内存压力叠加，量级已在请求预算内，不再细分。
+- 口径备注：票面引用的「10.9s」是 #663 修复前（execFileSync 时代）的实测；本票前后对比以 #663 后现状为基线（§7 的「另立票」即 #663 已先行落地，本票收口其残余）。
