@@ -47,6 +47,7 @@ apps/api（Express 5）
 ## 性能预算
 
 - 目标值与基线见 `docs/architecture/performance-baseline.md`；ship 前对比，回归 > 20% 需说明。
+- 对比已脚本化（#673）：`pnpm perf:gate` 一条命令复现 baseline 同口径测量并对 `scripts/perf/baseline.json` 判定，回归 > 20%（含 5ms 绝对噪声地板）exit 1；CI 侧 `.github/workflows/perf-gate.yml` 每周定时 + 手动触发（不进日常 CI）。用法与基线重锚流程见 `scripts/perf/README.md`。
 
 ## 落地状态（2026-10-02，重构收官）
 

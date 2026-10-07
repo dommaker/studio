@@ -141,3 +141,32 @@ listen 前移复盘发现四处同源/伴生根因并修复（计划 docs/plans/
 - **readiness 无对外出口** → `/readyz`（bootstrap 链尾 markReady 才 200），deploy 健康检查自 `/health`（liveness）切换（studio-config 同步）；
 - **listen 后 exit(1) 路径**（registerScanHandlers 裸 throw → 部署判绿后进程死）→ 全步 try/catch warn；
 - **sync 子进程残留**（SessionSummary git 提取 #663、agent-loop health probe、knowledge-sync detectStaleness）→ 全部换 `core/exec-async` 异步链；warmup 组其余任务审计结论为 ms 级或全 async（结论落计划文档）。
+
+---
+
+## 8. 测量脚本化 + 回归门 + 数据量画像（2026-10-08，#673）
+
+§2 的手工方法论已固化为 `scripts/perf/`（计划 docs/plans/2026-10-perf-bench-automation.md）：
+
+- **`pnpm perf:bench`**：一条命令复现本文同口径测量——隔离 `STUDIO_HOME=$(mktemp -d)`、随机空闲端口、`STUDIO_AUTH=none`、tsx 直跑（与 §2 启动命令同形态）；冷启动 3 轮（/health 首次 200）+ 读 8 端点 + 写 2 端点（各 3 warmup + 50 串行，p50/p95/max）+ SSE 20 轮（真实业务事件链）。markdown 报告上 stdout，JSON 落盘供对比。`--seed N` 先经 API 预置 N 条 workunit 再测（数据量画像）。
+- **回归门 `pnpm perf:gate`**：bench + 对比 `scripts/perf/baseline.json`（冻结参考值 = §6.2/§7/§7.1，commit ff546ba9）。判定：相对恶化 >20% 且超绝对噪声地板（端点/SSE 5ms；冷启动按**中位数**对比、地板 1s——run1 含首启 seed/迁移，单轮噪声大，逐轮对比会被击穿）记回归；baseline 有而本次未测的端点、出现非 2xx 同样判红。
+- **接线**：`.github/workflows/perf-gate.yml`（每周 schedule + workflow_dispatch，**不进日常 CI**——票规「以不拖慢日常 CI 为准」二选一决策；ship 前置在 studio-config 仓，不在本仓接线，ship 前本地跑同一 `pnpm perf:gate` 即可）。换参考机/架构大版本后按 `scripts/perf/README.md`「基线重锚」流程重测 baseline.json。
+- **本机坑（后续测量者须知）**：本机 earlyoom `--avoid` 名单只含 `node` comm，`npm exec`/`npx` 壳不在名单内，内存紧张时 bench 的 npm 壳会被优先 SIGTERM（本次实测连击两次）。scripts/perf 一律 `node node_modules/tsx/dist/cli.mjs` 直跑，无 npm 壳。
+
+### 8.1 数据量画像（预置 500 条 workunit，同日同机对比空数据区）
+
+方法同 §2（隔离 STUDIO_HOME、50 发串行），commit `476d391e`。环境：同一台 4 vCPU / 3.7 GB RAM 开发机（当日内存压力较 §6/§7 测量时低，绝对值不与历史节直接比，看相对退化）。
+
+| 端点 | 空区 p50/p95/max | 500 条 p50/p95/max | p95 变化 |
+|------|------------------|--------------------|----------|
+| workunits 列表 | 1.3 / 2.1 / 2.8 | 3.6 / 5.3 / 8.0 | +152% |
+| monitoring 汇总 | 1.5 / 4.5 / 6.7 | 3.7 / 4.9 / 6.5 | +9% |
+| workunits create | 7.1 / 13.2 / 18.0 | 7.5 / 11.7 / 19.1 | −11%（噪声） |
+| workunits update | 8.7 / 12.8 / 15.3 | 10.8 / 30.5 / 36.3 | +138% |
+| health | 8.0 / 13.1 / 15.4 | 4.5 / 6.2 / 7.8 | −53%（机器状态噪声） |
+
+观察：
+
+- **FileStore 全量扫描的退化如实出现但量级温和**：workunits 列表（内存全量装载 500 条快照后分页，limit=20 只截返回不省扫描）p95 2.1 → 5.3ms（+152%），写 update p95 12.8 → 30.5ms（+138%，FileStore 写为全量重写）。相对翻倍多，绝对值距 读 p95 < 100ms / 写 p95 < 300ms 预算仍有一个量级余量。
+- **500 条规模下无一端点触预算线**；全量扫描类端点的退化斜率（约线性）意味着 ~万条规模才会逼近 100ms 读预算——届时 workunits 列表/monitoring 汇总是第一梯队，update 全量重写是写侧第一梯队。
+- 画像覆盖面：仅预置了 workunit 单域 500 条；频道消息、通知、知识条目等高频增长域的数据量画像留待有对应规模需求时补（同一条命令 `--seed` 机制可扩展）。

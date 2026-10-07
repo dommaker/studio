@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "meta": {
+    "commit": "ff546ba9",
+    "node": "v22.22.0",
+    "date": "2026-10-03",
+    "seed": 0,
+    "runs": 50,
+    "note": "冻结参考值，摘自 docs/architecture/performance-baseline.md §6.2（读）+ §7（冷启动）+ §7.1（写/SSE）。参考机：4 vCPU / 3.7 GB RAM 内存受限开发机；异机对比先读 README「基线重锚」。"
+  },
+  "coldStart": { "runs": [1500, 2600, 2300] },
+  "endpoints": [
+    { "name": "health", "method": "GET", "path": "/api/v1/health", "statusCounts": { "200": 50 }, "p50": 5.7, "p95": 9.5, "max": 12.9 },
+    { "name": "agents 列表", "method": "GET", "path": "/api/v1/agents", "statusCounts": { "200": 50 }, "p50": 1.2, "p95": 4.7, "max": 8.7 },
+    { "name": "channels 列表", "method": "GET", "path": "/api/v1/channels", "statusCounts": { "200": 50 }, "p50": 1.2, "p95": 1.7, "max": 2.9 },
+    { "name": "workunits 列表", "method": "GET", "path": "/api/v1/workunits", "statusCounts": { "200": 50 }, "p50": 1.2, "p95": 2.7, "max": 3.5 },
+    { "name": "pmo 项目列表", "method": "GET", "path": "/api/v1/pmo/project", "statusCounts": { "200": 50 }, "p50": 1.4, "p95": 2.8, "max": 4.6 },
+    { "name": "skills 列表", "method": "GET", "path": "/api/v1/skills", "statusCounts": { "200": 50 }, "p50": 1.0, "p95": 1.4, "max": 3.0 },
+    { "name": "monitoring 汇总", "method": "GET", "path": "/api/v1/monitoring/stats", "statusCounts": { "200": 50 }, "p50": 1.2, "p95": 3.5, "max": 10.8 },
+    { "name": "notifications", "method": "GET", "path": "/api/v1/notifications", "statusCounts": { "200": 50 }, "p50": 0.8, "p95": 1.0, "max": 1.8 },
+    { "name": "workunits create", "method": "POST", "path": "/api/v1/workunits", "statusCounts": { "201": 50 }, "p50": 6.2, "p95": 9.3, "max": 10.9 },
+    { "name": "workunits update", "method": "PUT", "path": "/api/v1/workunits/:id", "statusCounts": { "200": 50 }, "p50": 5.9, "p95": 8.5, "max": 9.8 }
+  ],
+  "sse": {
+    "rounds": 20,
+    "postToSse": { "p50": 0.2, "p95": 1.3 },
+    "endToEnd": { "p50": 11.7, "p95": 23.8 }
+  }
+}

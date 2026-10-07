@@ -22,6 +22,8 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "lint": "pnpm lint:cycles && pnpm -r lint",
     "lint:cycles": "node scripts/check-module-cycles.mjs",
+    "perf:bench": "node node_modules/tsx/dist/cli.mjs scripts/perf/bench.ts",
+    "perf:gate": "node node_modules/tsx/dist/cli.mjs scripts/perf/gate.ts",
     "=== 开发环境 ===": "",
     "dev:start": "./scripts/dev/start.sh",
     "dev:stop": "./scripts/dev/stop.sh",
