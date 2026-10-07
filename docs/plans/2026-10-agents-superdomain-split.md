@@ -1,6 +1,6 @@
 # P2-d：agents 超级域拆分为顶层模块
 
-日期：2026-10-02　状态：实施中　类型：架构重构（Phase 2 第四刀，上位 plan：docs/plans/2026-09-arch-refactor.md §4 Phase 2.3）
+日期：2026-10-02　状态：已完成（刀8 已收口，target-architecture.md 2026-10-02 宣布重构收官；状态回写 2026-10-07）　类型：架构重构（Phase 2 第四刀，上位 plan：docs/plans/2026-09-arch-refactor.md §4 Phase 2.3）
 
 ## 方案
 
