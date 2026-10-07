@@ -1,7 +1,15 @@
 // ChannelMessage Service — centralized message creation + event publishing
 import { eventBus, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
+// #665（ADR 2026-08-24 落地）：channel.message_* SSE 负载与 studio-contract 同源——
+// 字段集取自契约 payload 类型；message 在进程内是 MessageRecord（createdAt: Date），
+// wire 上 JSON 序列化为 ISO string 后 = 契约 ChannelMessage（wire parity 见契约 __tests__）。
+import type { SseEventPayloadMap } from '@dommaker/studio-contract';
 import { getStore } from '../../core/store.js';
+
+type SseChannelEventType = 'channel.message_sent' | 'channel.message_updated';
+type SseChannelData<K extends SseChannelEventType> =
+  Omit<SseEventPayloadMap[K], 'message'> & { message: MessageRecord };
 
 
 export interface MessageMeta {
@@ -72,7 +80,7 @@ export class ChannelMessageService {
   }
 
   /** B2: 发布 SSE 事件到 events channel（供前端 EventSource 消费） */
-  private publishSSE(eventType: string, data: Record<string, unknown>) {
+  private publishSSE<K extends SseChannelEventType>(eventType: K, data: SseChannelData<K>) {
     // #324：直发 eventBus（同步 void，订阅侧各自 try/catch 兜底）
     eventBus.publish('events', {
       event_type: eventType,

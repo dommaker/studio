@@ -1,14 +1,19 @@
-// types/websocket.ts — SSE 信封类型锚定测试（P3-a）：
-// 信封形状 + api/websocketHooks.ts re-export 同一性。
+// types/websocket.ts — SSE 信封类型锚定测试：
+// #665 起信封与 studio-contract 同源（WebSocketMessage = SseEventEnvelope 别名），
+// 此处锁定别名同一性 + api/websocketHooks.ts re-export 同一性 + WebSocketStatus 词表。
 import { describe, it, expect } from 'vitest';
+import { sseEnvelopeSchema, type SseEventEnvelope } from '@dommaker/studio-contract';
 import type { WebSocketMessage, WebSocketStatus } from '../websocket';
 import type { WebSocketMessage as FromHooks, WebSocketStatus as StatusFromHooks } from '../../api/websocketHooks';
 
-describe('types/websocket（SSE 信封）', () => {
-  it('WebSocketMessage 信封四字段', () => {
-    const msg: WebSocketMessage = { event_id: 'e-1', event_type: 'channel.message_sent', timestamp: '2026-10-02T00:00:00Z', data: { x: 1 } };
-    expect(msg.event_type).toBe('channel.message_sent');
-    expect((msg.data as { x: number }).x).toBe(1);
+describe('types/websocket（SSE 信封，契约同源）', () => {
+  it('WebSocketMessage = 契约 SseEventEnvelope（别名同一性，双向可赋）', () => {
+    const msg: WebSocketMessage = { event_id: 'e-1', event_type: 'channel.message_sent', timestamp: '2026-10-08T00:00:00Z', data: { x: 1 } };
+    const asContract: SseEventEnvelope = msg;
+    const back: WebSocketMessage = asContract;
+    expect(back.event_type).toBe('channel.message_sent');
+    // 契约 loose 信封运行时校验可用（event_id/data 可缺省，event_type 必填）
+    expect(sseEnvelopeSchema.parse({ event_type: 't' }).event_type).toBe('t');
   });
 
   it('WebSocketStatus 词表 + websocketHooks re-export 同一性', () => {

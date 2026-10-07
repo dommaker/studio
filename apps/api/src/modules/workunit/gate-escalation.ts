@@ -22,6 +22,8 @@
 import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import { NotificationService } from '@dommaker/studio-notification';
+// #665（ADR 2026-08-24 落地）：notification.created SSE 负载与 studio-contract 同源
+import type { NotificationCreatedPayload } from '@dommaker/studio-contract';
 import { WorkUnitService, type WorkUnitData } from './workunit.service.js';
 import { MANUAL_GATE_TYPES } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
@@ -146,7 +148,7 @@ async function escalateOne(
       event_type: 'notification.created',
       event_id: uuidv4(),
       timestamp: now.toISOString(),
-      data: { title: tier1Title, content: kind.tier1Hint, wuId: wu.id, link },
+      data: { title: tier1Title, content: kind.tier1Hint, wuId: wu.id, link } satisfies NotificationCreatedPayload,
     });
     await markTier(fileStore, wu.id, 'gateReminderTier1At', now);
     result.tier1++;

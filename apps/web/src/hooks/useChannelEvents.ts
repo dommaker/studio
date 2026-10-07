@@ -7,7 +7,9 @@ import { useEffect, useCallback, useRef } from 'react';
 import { type ChannelMessage, type FileRef, type SendIntent } from '../api/channel';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useGatedPoll } from './useGatedPoll';
-import { useChannelMessageStore, type MessageUpdatedPayload } from '../stores/channelMessageStore';
+import { useChannelMessageStore } from '../stores/channelMessageStore';
+// #665：channel.message_sent/updated 负载类型 = studio-contract 同源
+import type { ChannelMessageSentPayload, ChannelMessageUpdatedPayload } from '@dommaker/studio-contract';
 import type { PruneOptions } from '../utils/messagePruning';
 
 /** 缺键（未加载）时的稳定空列表——防下游 memo 因每渲染新引用失效 */
@@ -52,12 +54,12 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
     if (!channelId) return;
     const unsub = onEvent((msg) => {
       if (msg.event_type === 'channel.message_sent') {
-        const data = msg.data as { channelId?: string; message?: ChannelMessage };
+        const data = msg.data as ChannelMessageSentPayload | undefined;
         if (data?.channelId === channelId && data?.message) {
           useChannelMessageStore.getState().applyMessageSent(channelId, data.message);
         }
       } else if (msg.event_type === 'channel.message_updated') {
-        const data = msg.data as ({ channelId?: string } & MessageUpdatedPayload) | undefined;
+        const data = msg.data as ChannelMessageUpdatedPayload | undefined;
         if (data?.channelId === channelId) {
           useChannelMessageStore.getState().applyMessageUpdated(channelId, data);
         }

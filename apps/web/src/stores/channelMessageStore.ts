@@ -14,6 +14,8 @@
 // - syncPruning 数据层降级（#326）：planPrune 判定 + 200ms 防抖整页水合（不触碰 hasMore）
 import { create } from 'zustand';
 import { channelApi, type ChannelMessage, type FileRef, type SendIntent } from '../api/channel';
+// #665（ADR 2026-08-24 落地）：channel.message_updated 负载与 studio-contract 同源，本地声明清零
+import type { ChannelMessageUpdatedPayload } from '@dommaker/studio-contract';
 import { insertMessage, mergePage } from '../utils/messageList';
 import {
   degradeMessage, planPrune,
@@ -36,14 +38,6 @@ export interface ChannelMessagesSlice {
   loaded: boolean;
 }
 
-/** message_updated 负载（全量本体优先；旧形状回退增量 patch，见 #315 ADR 2026-08-24 D1/D2） */
-export interface MessageUpdatedPayload {
-  messageId?: string;
-  meta?: string | Record<string, unknown>;
-  content?: string;
-  message?: ChannelMessage;
-}
-
 interface ChannelMessageState {
   channels: Record<string, ChannelMessagesSlice | undefined>;
 
@@ -56,7 +50,7 @@ interface ChannelMessageState {
   /** SSE channel.message_sent：有序插入 + id 去重（含 #520 回执计时起点） */
   applyMessageSent: (channelId: string, message: ChannelMessage) => void;
   /** SSE channel.message_updated：全量本体原位替换 / legacy 增量 patch */
-  applyMessageUpdated: (channelId: string, data: MessageUpdatedPayload) => void;
+  applyMessageUpdated: (channelId: string, data: ChannelMessageUpdatedPayload) => void;
   /** #486 乐观回显：成功返回服务端本体；失败回滚 pending + 上抛；空内容返回 null。
       #632：intent 透传归属预览条的显式选择（'new-task' / 'plain'；undefined = 自动合并判定） */
   sendMessage: (channelId: string, content: string, replyToId?: string, files?: FileRef[], intent?: SendIntent) => Promise<ChannelMessage | null>;

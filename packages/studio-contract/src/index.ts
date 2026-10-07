@@ -27,6 +27,7 @@ export * from './review-proposals.js';
 export * from './action-center.js';
 export * from './library.js';
 export * from './events.js';
+export * from './sse-events.js';
 export * from './transcripts.js';
 export * from './monitoring.js';
 export * from './notifications.js';

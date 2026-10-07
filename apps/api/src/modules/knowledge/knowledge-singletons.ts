@@ -22,6 +22,9 @@ import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel
 import { KnowledgeInjector } from './knowledge-injector.js';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { wrapWithSegmentSpan } from '@dommaker/studio-shared/read-metrics';
+// #665（ADR 2026-08-24 落地）：knowledge.entry_changed SSE 负载与 studio-contract 同源
+// （import type 编译期擦除，不入运行时依赖图，与本文件头依赖纪律不冲突）
+import type { KnowledgeEntryChangedPayload } from '@dommaker/studio-contract';
 import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
@@ -432,7 +435,7 @@ export function publishKnowledgeEntryChanged(
     eventBus.publish('events', {
       event_type: 'knowledge.entry_changed',
       timestamp: new Date().toISOString(),
-      data: { action, ...info },
+      data: { action, ...info } satisfies KnowledgeEntryChangedPayload,
     });
   } catch (e: any) {
     logger.warn('[Knowledge] entry_changed SSE publish failed', { error: String(e) });

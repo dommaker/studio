@@ -40,6 +40,8 @@ import { writeStudioEvent, resolveStudioEventsFile } from '../../utils/studio-ev
 import { getErrorMessage } from '../../utils/errors.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart, emitWorkUnitFailedEvent } from './execution-step-events.js';
 import { loadCurrentWuContexts, type CurrentWuContext } from '../monitoring/index.js';
+// #665（ADR 2026-08-24 落地）：agent.* SSE 负载与 studio-contract 同源
+import type { AgentHealthFailedPayload, AgentInstanceStatusChangedPayload } from '@dommaker/studio-contract';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
 import { prepareRecordBookkeeping } from './result-bookkeeping.js';
@@ -334,7 +336,7 @@ export class AgentLoop {
       logger.warn(`[AgentLoop] Failed to record startup failure state: ${getErrorMessage(err)}`);
     }
 
-    const payload = { profileId: this.role.id, name: this.role.name, provider: this.role.provider ?? 'claude', error: message };
+    const payload: AgentHealthFailedPayload = { profileId: this.role.id, name: this.role.name, provider: this.role.provider ?? 'claude', error: message };
     eventBus.publish('agent.health.failed', payload);
     // SSE 'events' topic (same shape as channel-message.service.ts publishSSE)
     eventBus.publish('events', {
@@ -375,7 +377,7 @@ export class AgentLoop {
     startedAt: string | null;
     lastError: string | null;
     lastErrorAt: string | null;
-  }) {
+  }): AgentInstanceStatusChangedPayload {
     return {
       profileId: this.role.id,
       instanceId: input.instanceId,

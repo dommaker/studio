@@ -7,10 +7,12 @@
 import { useEffect, useRef } from 'react';
 import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';
 import { useUnreadStore } from '../stores/unreadStore';
+// #665：channel.message_sent 负载 = studio-contract 同源
+import type { ChannelMessageSentPayload } from '@dommaker/studio-contract';
 
 function handleUnreadEvent(msg: WebSocketMessage) {
   if (msg.event_type !== 'channel.message_sent') return;
-  const data = msg.data as { channelId?: string; message?: { authorType?: string; createdAt?: string } } | null;
+  const data = msg.data as ChannelMessageSentPayload | null;
   if (!data?.channelId) return;
   const at = data.message?.createdAt ? Date.parse(data.message.createdAt) : undefined;
   useUnreadStore.getState().applyMessageSent(

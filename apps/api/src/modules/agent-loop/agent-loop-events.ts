@@ -7,6 +7,8 @@ import { appendFileSync, existsSync, mkdirSync } from 'fs';
 import { extractToolCalls, extractProviderUsage, eventBus, FileStore, type StreamEvent } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import type { ExecutionResult } from '@dommaker/studio-agent';
+// #665（ADR 2026-08-24 落地）：workunit.tokens SSE 负载与 studio-contract 同源
+import type { WorkunitTokenEvent } from '@dommaker/studio-contract';
 import { noteTokensWritten } from './daily-token-budget.js';
 import { noteTokenLedgerWritten } from '../../utils/token-ledger.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
@@ -120,7 +122,7 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
   const billedTokens = typeof args.billedTokens === 'number' && Number.isFinite(args.billedTokens)
     ? args.billedTokens
     : null;
-  const payload = {
+  const payload: WorkunitTokenEvent = {
     workUnitId: args.workUnitId,
     executionId: args.executionId,
     injectedTokens: args.injectedTokens,

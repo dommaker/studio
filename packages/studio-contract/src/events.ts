@@ -3,9 +3,9 @@
  * utils/studio-events.ts（@dommaker/studio-shared 写口）实测 wire 为准。
  *
  * 挂载（route-registry）：/api/v1/events 双挂——sseRoutes（SSE /stream，HZ-028）
- * 先于 eventRoutes（REST CRUD，G30/B9-014，auth）。**SSE /events/stream 不是 REST
- * 契约范围**：事件流 payload 契约保留前端本地解析器（workunit/channels 批次同例），
- * 本文件只覆盖 REST 端点。
+ * 先于 eventRoutes（REST CRUD，G30/B9-014，auth）。**SSE /events/stream 事件流 payload
+ * 契约在 ./sse-events.ts**（#665，ADR 2026-08-24 落地：事件词表 + payload 判别联合，
+ * 前端本地解析器声明已清零），本文件只覆盖 REST 端点。
  *
  * wire 形状（defineRoute 统一壳后）：
  * - POST /            201 `{ data: { type, source, payload(string), createdAt } }`（原裸对象进壳）

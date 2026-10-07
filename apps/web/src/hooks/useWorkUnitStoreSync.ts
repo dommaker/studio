@@ -14,21 +14,22 @@
 import { type WebSocketMessage } from '../api/websocketHooks';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { useDataPlaneSync } from './useDataPlaneSync';
-import type { WorkUnit } from '../api/workunit';
+// #665：workunit 域 SSE 负载 = studio-contract 同源（{ workunit } 信封 / workunit:removed { id, channelId }）
+import type { WorkunitEventPayload, WorkunitRemovedPayload } from '@dommaker/studio-contract';
 
 function handleWorkUnitEvent(msg: WebSocketMessage) {
   const store = useWorkUnitStore.getState();
 
   if (msg.event_type === 'workunit:removed') {
     // #538：负载 { id, channelId }，缺 id 属畸形 fail-closed 跳过
-    const data = msg.data as { id?: string } | null | undefined;
+    const data = msg.data as WorkunitRemovedPayload | null | undefined;
     if (typeof data?.id === 'string' && data.id) store.removeWorkunit(data.id);
     return;
   }
 
   if (msg.event_type !== 'workunit.status_changed' && msg.event_type !== 'workunit.created') return;
   // 负载 = { workunit } 信封全量快照（同 workunitApi.get 形状）；缺 workunit 属畸形跳过
-  const wu = (msg.data as { workunit?: WorkUnit | null } | null | undefined)?.workunit;
+  const wu = (msg.data as WorkunitEventPayload | null | undefined)?.workunit;
   if (!wu) return;
   store.applyWorkunitEvent(wu, { insertIfMissing: msg.event_type === 'workunit.created' });
   if (msg.event_type === 'workunit.created') store.markWuFresh(wu.id);

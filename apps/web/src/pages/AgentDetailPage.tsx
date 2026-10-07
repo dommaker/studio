@@ -10,7 +10,9 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { formatChannelName, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { monitoringApi } from '../api/monitoring';
-import { workunitApi, type WorkUnit } from '../api/workunit';
+import { workunitApi } from '../api/workunit';
+// #665：workunit.status_changed 负载 = studio-contract 同源（{ workunit } 信封）
+import type { WorkunitEventPayload } from '@dommaker/studio-contract';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { AgentAvatar } from '../components/channel/AgentAvatar';
 import { RoleSkillsModal } from '../components/monitoring/RoleSkillsModal';
@@ -116,7 +118,7 @@ export function AgentDetailPage() {
 
   useEffect(() => onEvent((msg) => {
     if (msg.event_type !== 'workunit.status_changed') return;
-    const wu = (msg.data as { workunit?: WorkUnit } | null)?.workunit;
+    const wu = (msg.data as WorkunitEventPayload | null)?.workunit;
     if (!wu) return;
     // 历史行就地更新（负载为全量快照，claimable 与本页无关不覆盖）
     historyQ.setData(prev => prev && prev.items.some(h => h.id === wu.id)

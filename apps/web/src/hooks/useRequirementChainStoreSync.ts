@@ -7,13 +7,14 @@ import { type WebSocketMessage } from '../api/websocketHooks';
 import {
   useRequirementChainStore,
   REQUIREMENT_CHAIN_POLL_INTERVAL_MS,
-  type WorkunitStatusPayload,
 } from '../stores/requirementChainStore';
+// #665：workunit.status_changed 负载 = studio-contract 同源（{ workunit: WorkUnit } 信封）
+import type { WorkunitEventPayload } from '@dommaker/studio-contract';
 import { useDataPlaneSync } from './useDataPlaneSync';
 
 function handleChainEvent(msg: WebSocketMessage) {
   if (msg.event_type !== 'workunit.status_changed') return;
-  const wu = (msg.data as { workunit?: WorkunitStatusPayload | null } | null)?.workunit;
+  const wu = (msg.data as WorkunitEventPayload | null)?.workunit;
   if (wu?.id) useRequirementChainStore.getState().applyWorkunitStatusChanged(wu);
 }
 

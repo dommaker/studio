@@ -42,8 +42,9 @@ export type { InspectionOpportunity as Opportunity } from '@dommaker/studio-cont
 export type PaginatedResponse<T> = PaginatedBody<T>;
 
 // 事件负载类型（WorkunitTokenEvent/ExecutionStepToolCall/ExecutionStepEvent/ExecutionStreamChunk）
-// P3-a 迁至 src/types/workunit.ts（api 层不声明导出类型），此处仅 re-export，消费方 import 路径不变。
-import type { WorkunitTokenEvent, ExecutionStepToolCall, ExecutionStepEvent, ExecutionStreamChunk } from '../types/workunit';
+// #665（ADR 2026-08-24 落地）：与 studio-contract 同源（sse-events.ts），本地声明清零，
+// 此处仅 re-export，消费方 import 路径不变。
+import type { WorkunitTokenEvent, ExecutionStepToolCall, ExecutionStepEvent, ExecutionStreamChunk } from '@dommaker/studio-contract';
 export type { WorkunitTokenEvent, ExecutionStepToolCall, ExecutionStepEvent, ExecutionStreamChunk };
 
 /**
@@ -67,7 +68,6 @@ export function parseWorkunitTokenEvents(
         executionTokens: typeof p.executionTokens === 'number' ? p.executionTokens : null,
         executionSource: p.executionSource,
         totalTokens: typeof p.totalTokens === 'number' ? p.totalTokens : p.injectedTokens,
-        createdAt: row.createdAt,
       });
     } catch {
       // 跳过损坏行

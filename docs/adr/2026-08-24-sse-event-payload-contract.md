@@ -2,6 +2,13 @@
 
 > 来源：架构评审「studio 性能优化方向」候选 2 的 grilling 决策树（计划：docs/plans/2026-08-sse-event-payload-deepening.md），全树经所有者确认。
 > 状态：**active**（2026-08-24 实施收尾，验证：vitest --changed 749 passed + tsc-gate 绿）。
+> 落地回写（#665，2026-10-08）：D1/D2 的事件负载从「口径共识」落成「同源契约」——SSE 事件词表 +
+> payload zod 判别联合落 `packages/studio-contract/src/sse-events.ts`（14 个收编事件 +
+> loose 信封兜底词表外遗留），后端发射点类型同源（import type 契约 payload）+
+> wire parity 测试锁定（apps/api events/__tests__/sse-payload-contract.test.ts），
+> 前端本地事件类型声明清零（types/workunit.ts 删除，stores/组件改 import 契约）。
+> 两个 wire 特例如实记录不改形状（D2 additive 纪律）：connection.established 裸帧
+> （无信封无 event_type）、knowledge 桥 `payload` 键；workunit:removed 冒号命名如实入词表。
 
 ## 背景
 

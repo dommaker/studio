@@ -18,6 +18,9 @@
 import { Router, Request, Response } from 'express';
 import { eventBus } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
+// #665（ADR 2026-08-24 落地）：SSE 事件负载契约在 studio-contract/sse-events.ts——
+// connection.established 裸帧类型同源；事件词表 + payload 判别联合见契约文件。
+import type { ConnectionEstablishedFrame } from '@dommaker/studio-contract';
 import { logger } from '../../utils/logger.js';
 import { SseReplayBuffer } from './sse-replay-buffer.js';
 import { EXECUTION_STREAM_SSE_TYPE } from '../agent-loop/index.js';
@@ -147,7 +150,9 @@ router.get('/stream', (req: Request, res: Response) => {
   }
 
   // Send initial connection event（id = 当前 seq：新连接游标就位，后续重连从断点续）
-  sendSSE(client, 'connection.established', { clientId, topics: Array.from(topics) }, String(sseReplayBuffer.currentSeq));
+  // 裸帧（无信封无 event_type——前端按 event_type 分发天然忽略），形状 = 契约 ConnectionEstablishedFrame
+  const connectionFrame: ConnectionEstablishedFrame = { clientId, topics: Array.from(topics) };
+  sendSSE(client, 'connection.established', connectionFrame, String(sseReplayBuffer.currentSeq));
 
   // Heartbeat to keep connection alive
   const heartbeat = setInterval(() => {

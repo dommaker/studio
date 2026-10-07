@@ -9,25 +9,14 @@
 // 失败语义：error 落 errors[key]（抽屉/面板显示「加载失败」），chains 缺键；不落 TTL 锚点 → 下次 ensure 重试。
 import { create } from 'zustand';
 import { requirementApi, type RequirementChain } from '../api/requirements';
+// #665（ADR 2026-08-24 落地）：workunit.status_changed 负载的 WU 快照 = 契约 WorkUnit，本地声明清零
+import type { WorkUnit } from '../api/workunit';
 import { createFetchGate, disciplinedFetch, type FetchGate, type FetchGateState } from './fetchDiscipline';
 
 /** 缺省 TTL：与 rosterStore / channelDataStore 30s 同频——同 chain 会话内零重拉（#412 验收） */
 export const REQUIREMENT_CHAIN_TTL_MS = 30000;
 /** SSE 兜底轮询周期（useRequirementChainStoreSync 消费） */
 export const REQUIREMENT_CHAIN_POLL_INTERVAL_MS = 30000;
-
-/** workunit.status_changed 负载里的 WU 快照（snapshotToData 形状的消费子集；坏数据按 no-op 防护） */
-export interface WorkunitStatusPayload {
-  id: string;
-  status: string;
-  reqId?: string | null;
-  scope?: string | null;
-  assigneeId?: string | null;
-  assigneeRoleId?: string | null;
-  metadata?: string | null;
-  claimedAt?: string | null;
-  completedAt?: string | null;
-}
 
 interface RequirementChainState {
   /** reqId → chain（缺键 = 未拉到：含拉取失败，消费方按降级渲染） */
@@ -39,7 +28,7 @@ interface RequirementChainState {
   /** 已缓存 chain 全量对齐（SSE 重连强刷 / 兜底轮询 / 回 visible 补拉，useDataPlaneSync 消费） */
   ensureFresh: (opts?: { maxAgeMs?: number }) => Promise<void>;
   /** workunit.status_changed 就地更新（唯一一份；见文件头推导规则） */
-  applyWorkunitStatusChanged: (wu: WorkunitStatusPayload | null | undefined) => void;
+  applyWorkunitStatusChanged: (wu: WorkUnit | null | undefined) => void;
   /** 测试隔离：清空数据面 + 纪律簿记（模块级 loadedAt/inflight/gate 不在 zustand 内） */
   __resetForTests: () => void;
 }
