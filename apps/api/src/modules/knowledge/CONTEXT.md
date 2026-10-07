@@ -1,6 +1,6 @@
 # apps/api/src/modules/knowledge
 
-> Updated: 2026-09-30 (KnowledgeInjector 收口为本地 knowledge-injector.ts；前次：pattern-entry 交互模式查询/解析口径收敛，/search 500 根因修复)
+> Updated: 2026-10-08（#669 knowledge-service.ts 1228 行沿六能力边界拆深模块：门面 365 行 + produce/consume/track/lifecycle/measure 五实现模块，类型正本归位 knowledge-types，死副本清除；前次：KnowledgeInjector 收口为本地 knowledge-injector.ts）
 
 ### 职责
 
@@ -20,15 +20,17 @@
 | `KnowledgeInjector` | `knowledge-injector.ts` | 知识注入策略本地正本（harness KnowledgeInjector 收口承接，ADR-0031~0034 分工：消费编排归 studio）：按阶段/预算查询 → exclude 去重 → 预算不足摘要降级 → ContextSource（本地同构类型）；token 尺子用 harness `estimateTokens`；EXTERNAL_SOURCE_MARKER 自 harness 2.0.0 起 import 包根正本并 re-export；formatEntry/formatEntrySummary 为本地复刻（harness formatForPrompt 是简化格式，与注入路径富格式不等价） |
 | `MtimeMemoKnowledgeStore` | `knowledge-store-memo.ts` | sharedStore 的 mtime 校验聚合 memo 包装（#343，缓存 seam ADR 外部包条款）：mtime+size 指纹兜底跨进程外部写 + 本进程写穿透失效；命中深克隆保持「每次读全新对象」契约；readEntriesFromDisk/snapshot 直通不缓存；harness 1.8.0 起补齐 KnowledgeStore 15 成员——`applyAll`（写穿透失效，与 saveAll 同口径）+ `getConsumptionStats`（直通不缓存：stats 文件不在 .md/index.json 指纹内，缓存必过期） |
 | `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore），knowledgeService 的 query 引擎（R4 修复接线） |
-| `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder）；E2：有注入时附「何时查知识库」指引（`KNOWLEDGE_QUERY_GUIDANCE`）；#91：maxTokens 由 prompt-composer 按分段定额传入（knowledge 493 新尺子反推值 + 池余量；缺省回退 INJECT_TOKEN_BUDGET=927，同为 estimateTokens 口径旧窗口反推值，推导正本见 agents/__tests__/prompt-composer.test.ts 反推块），`knowledge:inject-trimmed` 事件补 originalTokens/keptTokens 尺寸字段，返回值带 `usage` 供 `prompt:section_trimmed` 埋点；#602 D3：「## 系统约束」段经 `renderWithOverride('knowledge.rules-section', …)` 渲染（E1 prompt-template 提案生效落点的真实消费端；无覆盖文件时逐字节等同原行为，token 计量按渲染后文本） |
-| `knowledgeService.semanticSearch` | `knowledge-service.ts` | mcp-local-rag 语义检索；E2：可用性探测（进程内缓存 5min）+ 失败降级关键词检索，不再静默返回 [] |
-| `knowledge-types` | `knowledge-types.ts` | KnowledgeService 的 Studio 侧类型 + `KnowledgeServiceDeps` + `ENTRY_TYPE_MAP`（knowledge-service.ts 拆出，门面 re-export） |
-| `knowledge-data-layer` | `knowledge-data-layer.ts` | 数据层：`writeTrendData`（data/trends 趋势写入）+ resolution 影子库 FileStore helpers + 共享 `fileStore`（knowledge-service.ts 拆出；#654 起不再导出事件文件路径常量，事件路径一律调用时 `resolveStudioEventsFile()` 解析） |
-| `knowledge-forms` | `knowledge-forms.ts` | 知识形态门禁 `validateKnowledgeForm`（knowledge/data/skill/rule，代码层判断不调 LLM）（knowledge-service.ts 拆出，门面 re-export） |
+| `knowledgeService.injectContext` | `knowledge-service.ts`（门面薄封装；实现体 `knowledge-consume.ts injectContextImpl`） | 统一 prompt 注入入口（absorbed from prompt-builder）；E2：有注入时附「何时查知识库」指引（`KNOWLEDGE_QUERY_GUIDANCE`）；#91：maxTokens 由 prompt-composer 按分段定额传入（knowledge 493 新尺子反推值 + 池余量；缺省回退 INJECT_TOKEN_BUDGET=927，同为 estimateTokens 口径旧窗口反推值，推导正本见 agents/__tests__/prompt-composer.test.ts 反推块），`knowledge:inject-trimmed` 事件补 originalTokens/keptTokens 尺寸字段，返回值带 `usage` 供 `prompt:section_trimmed` 埋点；#602 D3：「## 系统约束」段经 `renderWithOverride('knowledge.rules-section', …)` 渲染（E1 prompt-template 提案生效落点的真实消费端；无覆盖文件时逐字节等同原行为，token 计量按渲染后文本） |
+| `knowledgeService.semanticSearch` | `knowledge-service.ts`（门面薄封装；实现体 `knowledge-consume.ts semanticSearchImpl`） | mcp-local-rag 语义检索；E2：可用性探测（实例 RagProbeState 缓存 5min）+ 失败降级关键词检索，不再静默返回 [] |
+| `knowledge-types` | `knowledge-types.ts` | KnowledgeService 的 Studio 侧类型 + `KnowledgeServiceDeps` + `ENTRY_TYPE_MAP` 正本（#669 刀1 归位：PatternEntry.origin #371 / InjectContextResult.usage #91 漂移字段补齐，Measure 类型正本在 knowledge-metrics.ts 不重复定义）；门面 re-export 保持导出面 |
+| `knowledge-produce` | `knowledge-produce.ts` | Produce 实现体（#669 刀2）：extractFromExecution/extractFromConversation/recordPattern/recordIncident/recordTrend/recordAnalystAccuracy 的模块级 impl（deps 显式传入） |
+| `knowledge-consume` | `knowledge-consume.ts` | Consume 实现体（#669 刀3）：injectContext/semanticSearch/search 族 impl + 注入/检索 helpers（STOP_WORDS/TYPE_WEIGHT/extractKeywords/stripFormat/注入闸门/injectPriority）+ INJECT_TOKEN_BUDGET / KNOWLEDGE_QUERY_GUIDANCE 常量正本（门面 re-export） |
+| `knowledge-track` | `knowledge-track.ts` | Track 实现体（#669 刀2）：recordConsumption/recordOutcome/recordSkillExecution impl |
+| `knowledge-lifecycle` | `knowledge-lifecycle.ts` | Lifecycle 实现体（#669 刀2）：promote/demote/decay/merge/graduateConstraint impl |
+| `knowledge-measure` | `knowledge-measure.ts` | Measure 实现体（#669 刀2）：getFlywheelMetrics/getHealthReport/getAuditReport/getAnalystAccuracy/getStats impl（实算内核在 knowledge-metrics 纯函数） |
 | `conversation-extractor` | `conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门（knowledge-service.ts 拆出；提案卡 #355 起归 review-adapter）。总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`（默认开，P7/P8 批次 2026-09-16）：整体跳过 LLM 提取——无凭证/fake-provider 环境豁免真实 CLI 空转 |
 | `review-adapter` | `review-adapter.ts` | #355：knowledge 人审提案 adapter（kind='knowledge'），接线 review-proposal 正本——聚合卡渲染（knowledge_proposal 旧文案，cardData 旧形状 + proposalId）+ onApprove 逐条目 promote / onReject 逐条目 demote；存取物化 <dataDir>/knowledge-proposals.jsonl；knowledge-service.ts 模块加载即注册 |
 | `knowledge-metrics` | `knowledge-metrics.ts` | R1/M1 事件流度量纯函数：computeOutcomeMetrics（hitRate/improvement）+ scanKnowledgeEvents（审计计数）（knowledge-service.ts 拆出） |
-| `knowledge-search-helpers` | `knowledge-search-helpers.ts` | 检索 helpers：关键词抽取（STOP_WORDS）/TYPE_WEIGHT + mcp-local-rag 探测与关键词降级映射（knowledge-service.ts 拆出） |
 | `knowledgeRoutes` | `routes.ts` | REST API 挂载门面（挂载下方 6 个子路由，含 /unified 统一浏览） |
 | `ImproverScheduler` | `improver-scheduler.service.ts` | 自文档化调度器（每小时刷新 stale CONTEXT.md + 生成架构文档） |
 
@@ -42,17 +44,19 @@ knowledge/
 ├── knowledge-injector.ts      # 知识注入策略本地正本（harness KnowledgeInjector 收口承接）+ ContextSource 同构类型
 ├── knowledge-store-memo.ts    # MtimeMemoKnowledgeStore：sharedStore 的 mtime 校验聚合 memo（#343）
 ├── knowledge-design-doc.ts    # 设计时知识沉淀：upsertKnowledge + checkDocumentFreshness（#343 起自 KnowledgeBus 迁出）
-├── knowledge-service.ts       # 统一知识能力层（KnowledgeService 编排 + 单例接线；工单 29 拆分后聚焦编排）
+├── knowledge-service.ts       # 统一知识能力层面门（KnowledgeService 类 + 单例接线；#669 拆分后 365 行，方法为薄封装）
+├── knowledge-types.ts         # KnowledgeService 类型 + KnowledgeServiceDeps + ENTRY_TYPE_MAP 正本（#669 刀1 归位）
+├── knowledge-produce.ts       # Produce 实现体（#669 刀2）
+├── knowledge-consume.ts       # Consume 实现体 + 注入常量正本（#669 刀3）
+├── knowledge-track.ts         # Track 实现体（#669 刀2）
+├── knowledge-lifecycle.ts     # Lifecycle 实现体（#669 刀2）
+├── knowledge-measure.ts       # Measure 实现体（#669 刀2）
 ├── knowledge-metrics.ts       # Measure 纯函数内核：飞轮度量/健康/审计 + 度量类型（工单 29 拆出）
 ├── trend-data.ts              # trends 数据层 writeTrendData（工单 29 拆出）
 ├── knowledge-form-gate.ts     # 知识形态门禁 validateKnowledgeForm（工单 29 拆出）
 ├── conversation-extractor.ts  # R3 会话提取管道（工单 29 拆出；提案卡 #355 起归 review-adapter）
 ├── review-adapter.ts          # #355：knowledge 提案审批 adapter（kind='knowledge'，接线 review-proposal 正本）
 ├── knowledge-semantic-search.ts # mcp-local-rag 语义检索支撑：探测/CLI/降级映射（工单 29 拆出）
-├── knowledge-types.ts         # KnowledgeService 类型 + ENTRY_TYPE_MAP（knowledge-service 拆出）
-├── knowledge-data-layer.ts    # trends/resolutions 数据层 + 共享 fileStore（knowledge-service 拆出）
-├── knowledge-forms.ts         # 知识形态门禁 validateKnowledgeForm（knowledge-service 拆出）
-├── knowledge-search-helpers.ts # 关键词/RAG 降级检索 helpers（knowledge-service 拆出）
 ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
 ├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测（2026-10-03 D 批起 detectStaleness 为 async——git log 走 core/exec-async，monitor 轮/路由路径不再 sync 阻塞）
@@ -98,7 +102,7 @@ knowledge/
 - **inject-context.ts 已删（#357，2026-08-26）**：拆分后未接线的死副本（R3 闸门/来源凭证/INJECT_TOKEN_BUDGET/injectPriority/KNOWLEDGE_QUERY_GUIDANCE/stripFormat）。处置结论 = 反向删副本：活实现一直在 knowledge-service.ts 底部（测试全从该门面导入），接线抽出版对 1182 行热文件零收益，故删抽出版、保留 knowledge-service 自持。
 - **测试稳定性（2026-08-04 已修）**：`__tests__/knowledge-vector-sync.test.ts`（原 knowledge-bus-sync.test.ts，#343 改名）的「失败后恢复 → recovered」用例原为预存 flake，根因非定时器节奏——是该用例对 `@dommaker/studio-shared` 重复 `vi.doMock` 两次，import 偶发绑定先注册的 factory（`logger.info` 为不可见 `vi.fn()`），致 recovered/synced 断言抖动。已收敛为单一注册点（`mockDeps` 增 `loggerInfo` 参数），100 轮复跑零失败。
 - **#343 知识库存储栈过缓存 seam（2026-08-28）**：`sharedStore` = `MtimeMemoKnowledgeStore`（mtime+size 指纹校验聚合 memo）——此前 FileKnowledgeStore `list()` = readIndex + 逐条目 readFileSync（N+1 同步读），injectContext 每执行步 4 次全库扫描（queryEntries×2+getIndexes+count）。memo 后稳态每步 = 指纹 stat 校验 + memo 查（recordReference 同日去重保证跨步指纹稳定）。语义基线：命中深克隆（调用方如 recordOutcome 原地改嵌套数组，不得污染 memo）；读口埋点 op=`knowledgeRead`（bench 分桶 `knowledge`）。KnowledgeBus 兼容类已删：`upsertKnowledge`/`checkDocumentFreshness`/`KnowledgeSource` 迁 `knowledge-design-doc.ts`；`knowledgeBus.search`（search.routes）→ `knowledgeService.search` + 路由层补发 `knowledge:search_hit`（monitor-reports 指标消费）；测试改名 `knowledge-vector-sync.test.ts`（原 knowledge-bus-sync）/ `knowledge-quality-gate-events.test.ts`（原 knowledge-bus-events，直测 ingestWithQualityGate）。ADR 增补见 docs/adr/2026-08-24-cache-seam-decision-rules.md「外部包存储栈」条款。
-- **knowledge-service.ts 类体不再拆分（2026-08-04 决议，接受现状 1143 行）**：模块级代码已全部抽至上述 7 个模块；KnowledgeService 类体（约 1021 行）整体保留，因 `__tests__/knowledge-service.test.ts` 锁定 prototype 恰好 35 个方法（含 5 个 private，TS private 运行时挂 prototype），任何拆类都会打破该测试。后续若要拆类，须先获批准放宽该断言（如改为 ≥35 或只锁 public 集合）。
+- **knowledge-service.ts 已沿六能力边界拆分（#669，2026-10-08，取代 2026-08-04「类体不再拆分」决议）**：2026-08-04 决议担心的是「拆类打破 prototype 锁定测试」——#669 的解法是**类不拆、实现体搬出**：KnowledgeService 类整体保留在门面（365 行），33 个 prototype 方法（含 5 个 TS private 运行时方法）全为薄封装，委托 knowledge-produce / knowledge-consume / knowledge-track / knowledge-lifecycle / knowledge-measure 的模块级 impl 函数（deps 显式传入；ragProbeCache 改实例 RagProbeState 传入 consume impl）。约束仍然成立：`knowledge-service.test.ts` 锁定 prototype 恰好 33 方法 + `knowledge-service-structure.test.ts` 锁定能力模块导出/门面公共面/门面 <500 行——新增公共能力时宁可加 impl 模块函数 + 既有方法委托，也不要轻动 prototype 面（动了须同步两处测试）。同期清账：类型正本归位 knowledge-types.ts（此前零 importer 漂移），删除历史拆分死副本 knowledge-search-helpers/knowledge-data-layer/knowledge-forms。
 - Producer（preference-observer 等）直写 KnowledgeStore（FileStore 存储；Prisma 已全量移除）
 - **运行时知识库目录正本 = `studioPath('knowledge')`（即 `~/.studio/knowledge`，`knowledge-singletons.ts:36` 的 `UNIFIED_KNOWLEDGE_DIR`）**，不是仓内 `.harness/knowledge/`。后者是 harness 自己读的项目侧文档面，两者互不写入。判"某版 harness 的 store 写入闸会不会打脸 studio 存量数据"时，清点是前者（2026-09-22 采纳 harness 1.11.0 时实测：前者 180 条 lint `invalid_enum` = 0，后者脏值不进入运行时写路径）。
 - Resolution 和 Incident 是独立子系统，不纳入统一查询
