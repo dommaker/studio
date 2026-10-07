@@ -1,6 +1,6 @@
 # 架构深化：strict 类型根基 + 契约收口 + 巨型文件治理 + 性能自动化
 
-> 状态：Phase 1 实施中（2026-10-07 批准，会话当场）
+> 状态：Phase 1 已完成（2026-10-07，commit 62e48e90/95a31ca9/ac00fd34）；Phase 2–4 待起票
 > 前置：docs/plans/2026-09-arch-refactor.md（首轮架构重构，已收官）；目标架构正本 docs/architecture/target-architecture.md
 
 ## 定位
