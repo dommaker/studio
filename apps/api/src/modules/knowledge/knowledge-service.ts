@@ -13,53 +13,38 @@
  *   Resolve  — known problem→fix management
  *   Measure  — flywheel metrics, health, audit, accuracy
  *
- * 工单 29 拆分（纯搬运，导出语义经 re-export 保持不变）：
- *   knowledge-metrics.ts          — Measure 纯函数内核 + 度量类型
- *   trend-data.ts                 — trends 数据层（writeTrendData）
- *   knowledge-form-gate.ts        — 知识形态门禁（validateKnowledgeForm）
- *   conversation-extractor.ts     — R3 会话提取管道（提案卡 #355 起归 review-adapter.ts → review-proposal 正本）
- *   knowledge-semantic-search.ts  — mcp-local-rag 语义检索支撑
+ * #669 拆分（纯结构移动，不改行为；prototype 方法面 33 不变，薄封装委托实现模块）：
+ *   knowledge-types.ts              — Studio 侧类型 + KnowledgeServiceDeps + ENTRY_TYPE_MAP（刀1 归位）
+ *   knowledge-produce.ts            — Produce 实现体（刀2）
+ *   knowledge-track.ts              — Track 实现体（刀2）
+ *   knowledge-lifecycle.ts          — Lifecycle 实现体（刀2）
+ *   knowledge-measure.ts            — Measure 实现体（刀2）
+ * 工单 29 既有拆分：
+ *   knowledge-metrics.ts            — Measure 纯函数内核 + 度量类型
+ *   trend-data.ts                   — trends 数据层（writeTrendData）
+ *   knowledge-form-gate.ts          — 知识形态门禁（validateKnowledgeForm）
+ *   conversation-extractor.ts       — R3 会话提取管道（提案卡 #355 起归 review-adapter.ts → review-proposal 正本）
+ *   knowledge-semantic-search.ts    — mcp-local-rag 语义检索支撑
  *
  * @see docs/specs/arch/knowledge-service.md
  */
 
 import type {
   KnowledgeEntry,
-  KnowledgeStore,
-  KnowledgeIngest,
-  KnowledgeLifecycle,
-  KnowledgeLinter,
   QueryFilter,
-  MaturityLevel,
 } from '@dommaker/harness';
 import { estimateTokens } from '@dommaker/harness';
 import { logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
-// P2-c 拆环：getSystemExecutor/StudioRoleNotConfiguredError 改函数内动态 import（见 extractFromConversation）
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import type { CreateResolutionInput } from '@dommaker/studio-shared';
-import { scheduleVectorDbSync, ingestWithQualityGate, publishKnowledgeEntryChanged } from './knowledge-singletons.js';
-import {
-  computeOutcomeMetrics,
-  scanKnowledgeEvents,
-  computeFlywheelStoreMetrics,
-  computeHealthReport,
-  emptyHealthReport,
-  computeAuditStorePartition,
-  deriveOutcomeTrend,
-  buildAuditFindings,
-  unavailableAnalystAccuracyReport,
-} from './knowledge-metrics.js';
-import type { FlywheelMetrics, HealthReport, AuditReport, AccuracyReport } from './knowledge-metrics.js';
-// Measure 类型已抽到 knowledge-metrics.ts（工单 29），此处 re-export 保持对外导出语义不变
+// Measure 类型正本在 knowledge-metrics.ts（工单 29），此处 re-export 保持对外导出语义不变
 export type { FlywheelMetrics, HealthReport, AuditReport, AuditFinding, AccuracyReport, AccuracyData } from './knowledge-metrics.js';
 // trends 数据层与形态门禁已抽到 trend-data.ts / knowledge-form-gate.ts（工单 29），
 // 此处 re-export 保持对外导出语义不变
-import { writeTrendData } from './trend-data.js';
-import { buildConversationTranscript, ingestConversationEntry } from './conversation-extractor.js';
-import { registerKnowledgeReviewAdapter, submitKnowledgeProposal } from './review-adapter.js';
 export { writeTrendData } from './trend-data.js';
 export { validateKnowledgeForm } from './knowledge-form-gate.js';
 export type { FormValidationResult } from './knowledge-form-gate.js';
+import { registerKnowledgeReviewAdapter } from './review-adapter.js';
 // 语义检索/RAG 支撑已抽到 knowledge-semantic-search.ts（工单 29）
 import {
   RAG_PROBE_TTL_MS,
@@ -68,12 +53,26 @@ import {
   resolveKnowledgeEntryId,
   keywordHitsToSemantic,
 } from './knowledge-semantic-search.js';
+// #669 刀2：Produce/Track/Lifecycle/Measure 实现体（模块级函数，不占 prototype 方法数）
+import {
+  extractFromExecutionImpl,
+  extractFromConversationImpl,
+  recordPatternImpl,
+  recordIncidentImpl,
+  recordTrendImpl,
+  recordAnalystAccuracyImpl,
+} from './knowledge-produce.js';
+import { recordConsumptionImpl, recordOutcomeImpl, recordSkillExecutionImpl } from './knowledge-track.js';
+import { promoteImpl, demoteImpl, decayImpl, mergeImpl, graduateConstraintImpl } from './knowledge-lifecycle.js';
+import {
+  getFlywheelMetricsImpl,
+  getHealthReportImpl,
+  getAuditReportImpl,
+  getAnalystAccuracyImpl,
+  getStatsImpl,
+} from './knowledge-measure.js';
 
-// ── Type mapping (absorbed from KnowledgeBus)：正本 knowledge-types.ts（#669 归位）──
-
-import { ENTRY_TYPE_MAP } from './knowledge-types.js';
-
-// ── Data layer: trends directory ──
+// ── Type mapping (absorbed from KnowledgeBus)：正本 knowledge-types.ts（#669 刀1 归位）──
 
 // #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
 
@@ -148,278 +147,48 @@ export const KNOWLEDGE_QUERY_GUIDANCE = [
 // ── KnowledgeService ─────────────────────────────────────────
 
 export class KnowledgeService {
-  private store: KnowledgeStore;
-  private lifecycle: KnowledgeLifecycle;
-  private ingest: KnowledgeIngest;
-  private linter: KnowledgeLinter;
-  private query: any;
-  private eventEmitter: any;
+  private readonly deps: KnowledgeServiceDeps;
+  /** R4 接线回归测试（knowledge-service-inject-wiring）经实例 introspect query 是否为 UnifiedQuery */
+  private readonly query: any;
   /** E2（断点 G）：mcp-local-rag 可用性探测缓存（实例字段，不占 prototype 方法数） */
   private ragProbeCache: { available: boolean; checkedAt: number } | null = null;
 
   constructor(deps: KnowledgeServiceDeps) {
-    this.store = deps.store;
-    this.lifecycle = deps.lifecycle;
-    this.ingest = deps.ingest;
-    this.linter = deps.linter;
+    this.deps = deps;
     this.query = deps.query;
-    this.eventEmitter = deps.eventEmitter;
   }
 
-  // ═══════════ Produce (write knowledge) ════════════
+  // ═══════════ Produce (write knowledge) — 实现体 knowledge-produce.ts（#669 刀2）════════════
 
   async extractFromExecution(result: ExtractionResult): Promise<void> {
-    // Extract knowledge patterns from execution diff/task
-    if (!result.diff && !result.task) return;
-
-    const title = `[Exec] ${result.agentType}: ${result.task.slice(0, 80)}`;
-    const content = [
-      `Agent: ${result.agentType}`,
-      `Success: ${result.success}`,
-      `Duration: ${result.duration}ms`,
-      result.diff ? `Diff (${result.diff.length} chars): ${result.diff.slice(0, 500)}` : '',
-      result.consumedKnowledge.length > 0 ? `Consumed: ${result.consumedKnowledge.join(', ')}` : '',
-    ].filter(Boolean).join('\n');
-
-    // AC-3.1: Failure → mark for review with need_review tag
-    const tags = ['execution', result.agentType];
-    if (!result.success) {
-      tags.push('need_review');
-    }
-
-    // AC-3.3: Dedup — check if existing published entry on same topic exists
-    const allEntries = this.store.list({});
-    const existingSameTopic = allEntries.find((e: any) =>
-      e.title && e.title.startsWith(`[Exec] ${result.agentType}:`) &&
-      e.title.includes(result.task.slice(0, 40))
-    );
-
-    if (existingSameTopic) {
-      // Merge: update existing entry with new content
-      const mergedContent = `${existingSameTopic.content}\n\n---\n${content}`;
-      const updatedRefs = [
-        ...(existingSameTopic.sourceReferences || []),
-        { source: `execution:${result.agentType}`, timestamp: new Date().toISOString() },
-      ];
-      this.store.save({ ...existingSameTopic, content: mergedContent, sourceReferences: updatedRefs.slice(-20) });
-    } else {
-      await this.recordPattern({
-        type: result.success ? 'pattern' : 'failure',
-        title,
-        content,
-        tags,
-      });
-    }
-
-    // Record outcome for consumed knowledge entries
-    if (result.consumedKnowledge.length > 0) {
-      this.recordConsumption(result.consumedKnowledge, `execution:${result.agentType}`);
-    }
-
-    this.eventEmitter.emit('knowledge', { type: 'extractFromExecution', data: { agentType: result.agentType, success: result.success } });
-
-    // B59-002: persist to StudioEvent for OKR queryKnowledgeQualityGatePassRate
-    try {
-      await getStore().appendJsonl(resolveStudioEventsFile(), {
-        type: 'extractFromExecution',
-        payload: JSON.stringify({ agentType: result.agentType, success: result.success }),
-        createdAt: new Date().toISOString(),
-      });
-    } catch (e) {
-      logger.warn('[KnowledgeService] Failed to persist extractFromExecution event', { error: String(e) });
-    }
+    return extractFromExecutionImpl(this.deps, result);
   }
 
   /**
-   * R3 会话提取（断点 B）：任务 COMPLETE 时由 agent-loop 触发一次 LLM 提取
-   * （根因/模式/可复用经验），结果以 proposal（maturity=draft）入库。
-   *
-   * - LLM 路径复用 KnowledgeCurator 的提取链路：systemExecutor.run +
-   *   getExtractFromTextSystemPrompt()（单一 prompt 来源，不复制；E1 支持
-   *   ~/.studio/prompt-overrides/knowledge.extract-from-text.md 文件覆盖）。
-   * - proposal 须经审核（promote → verified）才参与注入（见 injectContext 的
-   *   isInjectableMaturity 闸门）；模板式 extractFromExecution 保留为兜底。
-   * - 提取开销（tokens/duration）以 knowledge:extraction 事件单独度量，
-   *   不计入注入红线。
-   * - 永不抛出：LLM 未配置/调用失败仅记日志（e2e 无 LLM 时静默跳过）。
-   * - P8（2026-09-16 perf 实测）：总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`
-   *   整体跳过——无凭证/fake-provider 环境里 studio 角色 provider 仍指向真实
-   *   CLI，每次 WU 完成都起真实 LLM 进程挂到超时，纯空转+日志噪声。
+   * R3 会话提取（断点 B）：任务 COMPLETE 时由 agent-loop 触发一次 LLM 提取。
+   * 实现体在 knowledge-produce.ts extractFromConversationImpl（含完整契约注释）。
    */
   async extractFromConversation(
     messages: { role: string; content: string }[],
     ctx?: ConversationExtractionCtx,
   ): Promise<void> {
-    const source = ctx?.source ?? `conversation:${ctx?.workUnitId ?? 'unknown'}`;
-    if (process.env.STUDIO_KNOWLEDGE_EXTRACTION === 'false') {
-      logger.info('[KnowledgeService] extractFromConversation skipped: STUDIO_KNOWLEDGE_EXTRACTION=false', { source });
-      return;
-    }
-    // P2-c 拆环：knowledge→agents 静态边转函数内动态 import（置于 try 外，catch 的 instanceof 也要用）
-    // P2-d 刀7：getExtractFromTextSystemPrompt 随知识维护 Agent 迁 agent-knowledge
-    const { getExtractFromTextSystemPrompt } = await import('../agent-knowledge/index.js');
-    const { getSystemExecutor, StudioRoleNotConfiguredError } = await import('../agents/index.js');
-    try {
-      const transcript = buildConversationTranscript(messages);
-      if (!transcript) return;
-
-      // 复用 KnowledgeCurator 的提取 prompt（动态 import 避免静态循环依赖：
-      // knowledge-curator.service 已静态引用本模块的 validateKnowledgeForm/writeTrendData）
-      // E1: 经 getter 取值以支持 prompt-override 文件覆盖（约束进化提案生效路径）
-
-      const startMs = Date.now();
-      const execResult = await getSystemExecutor().run(transcript, {
-        systemPrompt: getExtractFromTextSystemPrompt(),
-        eventSource: 'conversation-extraction',
-      });
-      const durationMs = Date.now() - startMs;
-      const result = JSON.parse(execResult.output) as { entries?: Array<{ type?: string; title?: string; content?: string; tags?: string[] }> };
-
-      // 提取开销：systemExecutor.run 返回的 usage（CLI --output-format json envelope）
-      const promptTokens = execResult.usage?.inputTokens ?? 0;
-      const completionTokens = execResult.usage?.outputTokens ?? 0;
-      const totalTokens = promptTokens + completionTokens;
-
-      const entries = Array.isArray(result?.entries) ? result.entries.slice(0, 5) : [];
-      const ingested: Array<{ id: string; title: string; type: string }> = [];
-      for (const raw of entries) {
-        const saved = ingestConversationEntry({ linter: this.linter, ingest: this.ingest }, raw, source);
-        if (saved) ingested.push(saved);
-      }
-      const entryIds = ingested.map(e => e.id);
-      if (ingested.length > 0) {
-        scheduleVectorDbSync();
-        // 审核闭环：入库即建提案发审核卡到 #系统（#355 起走 review-proposal 正本，
-        // 人在频道 approve/reject → 通用端点 → adapter onApprove/onReject → promote/demote）。
-        // best-effort：频道缺失/发卡失败落 card-failed 墓碑静默跳过，绝不阻断提取链路。
-        await submitKnowledgeProposal(ingested, { workUnitId: ctx?.workUnitId, source });
-      }
-
-      logger.info('[KnowledgeService] extractFromConversation completed', {
-        source, entryCount: entryIds.length, totalTokens, durationMs,
-      });
-
-      // M2 成本度量：提取开销单独记事件，与注入 tokens 分开核算
-      const eventData = {
-        trigger: 'task-complete',
-        workUnitId: ctx?.workUnitId,
-        entryIds,
-        entryCount: entryIds.length,
-        promptTokens,
-        completionTokens,
-        totalTokens,
-        durationMs,
-      };
-      this.eventEmitter.emit('knowledge', { type: 'extractFromConversation', data: eventData });
-      try {
-        await getStore().appendJsonl(resolveStudioEventsFile(), {
-          type: 'knowledge:extraction',
-          source,
-          payload: JSON.stringify(eventData),
-          createdAt: new Date().toISOString(),
-        });
-      } catch (e) {
-        logger.warn('[KnowledgeService] Failed to persist knowledge:extraction event', { error: String(e) });
-      }
-    } catch (err) {
-      if (err instanceof StudioRoleNotConfiguredError) {
-        logger.info('[KnowledgeService] extractFromConversation skipped: studio role provider not configured', { source });
-        return;
-      }
-      // 提取失败绝不影响任务完成（模板兜底仍由 extractFromExecution 独立承担）
-      logger.warn('[KnowledgeService] extractFromConversation failed', { source, error: String(err) });
-    }
+    return extractFromConversationImpl(this.deps, messages, ctx);
   }
 
   async recordPattern(entry: PatternEntry): Promise<void> {
-    try {
-      const source = entry.tags?.[0] || 'monitor';
-
-      // Merge input tags (e.g., need_review) with type-derived tags
-      const tags: string[] = [entry.type, ...(entry.tags || []).filter(t => t !== entry.type)];
-      const knowledgeType = ENTRY_TYPE_MAP[entry.type] || 'guideline';
-
-      // R4: 统一质量门（断点 H）— 与 KnowledgeBus.recordPattern 单一路径。
-      // triage 业务门 + harness ingest 门（reject 跳过 / flag 自动 low_quality）
-      // 均在 ingestWithQualityGate 内处理；studio 侧不再另起 linter 预检。
-      ingestWithQualityGate(
-        { ingest: this.ingest },
-        {
-          type: knowledgeType,
-          title: entry.title,
-          content: entry.content,
-          tags,
-          source,
-          entryType: entry.type,
-          layer: 'project',
-          maturity: 'active',
-          consumptionMode: 'signal',
-          origin: entry.origin ?? 'system',
-        },
-      );
-    } catch {
-      // best-effort — don't block producers
-    }
+    return recordPatternImpl(this.deps, entry);
   }
 
   async recordIncident(entry: IncidentEntry): Promise<void> {
-    try {
-      this.ingest.ingestEntry(
-        {
-          type: 'pitfall',
-          title: entry.title,
-          content: entry.content,
-          tags: ['incident', entry.severity],
-        },
-        {
-          source: `incident:ops:${new Date().toISOString()}`,
-          layer: 'tech',
-          maturity: 'active',
-          tags: ['incident', entry.severity],
-          consumptionMode: 'signal',
-          origin: 'system',
-        },
-      );
-      scheduleVectorDbSync();
-    } catch {
-      // best-effort
-    }
+    return recordIncidentImpl(this.deps, entry);
   }
 
   async recordTrend(entry: TrendEntry): Promise<void> {
-    try {
-      const dateStr = new Date().toISOString().split('T')[0];
-      const content = `## ${entry.title}\n\n${entry.content}\n\nmetric: ${entry.metric}`;
-      writeTrendData(`${dateStr}.md`, content);
-      logger.debug('[KnowledgeService] recordTrend → data/', { metric: entry.metric });
-    } catch (e) {
-      logger.warn('[KnowledgeService] recordTrend failed', { error: String(e) });
-    }
+    return recordTrendImpl(this.deps, entry);
   }
 
   async recordAnalystAccuracy(data: AnalystAccuracyInput): Promise<void> {
-    try {
-      const dateStr = new Date().toISOString().split('T')[0];
-      const missedFiles = data.predictedFiles.filter(f => !data.actualFiles.includes(f));
-      const extraFiles = data.actualFiles.filter(f => !data.predictedFiles.includes(f));
-      const missedDeps = data.predictedDeps.filter(d => !data.actualDeps.includes(d));
-
-      const content = [
-        `## AnalystAccuracy: ${data.goalTitle.slice(0, 80)}`,
-        ``,
-        `- AC匹配率: ${Math.round(data.acMatchRate * 100)}%`,
-        `- 预测文件: [${data.predictedFiles.join(', ')}]`,
-        `- 实际文件: [${data.actualFiles.join(', ')}]`,
-        missedFiles.length > 0 ? `- 漏预测: [${missedFiles.join(', ')}]` : '',
-        extraFiles.length > 0 ? `- 多预测: [${extraFiles.join(', ')}]` : '',
-        missedDeps.length > 0 ? `- 漏依赖: [${missedDeps.join(', ')}]` : '',
-      ].filter(Boolean).join('\n');
-
-      writeTrendData(`${dateStr}.md`, content);
-      logger.debug('[KnowledgeService] recordAnalystAccuracy → data/');
-    } catch (e) {
-      logger.warn('[KnowledgeService] recordAnalystAccuracy failed', { error: String(e) });
-    }
+    return recordAnalystAccuracyImpl(this.deps, data);
   }
 
   // ═══════════ Consume (read knowledge) ════════════
@@ -438,15 +207,15 @@ export class KnowledgeService {
     // 归一化到阶段词表再过滤——applicableAgents 为阶段词表（决策 8 单一词表），
     // 不归一化则 legacy WU 与阶段定向规则零交集，rule 段再度恒空。
     const stageAgentType = normalizeToStage(agentType);
-    const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType: stageAgentType, status: 'published' });
+    const rules = await this.deps.query.queryEntries({ consumptionModes: ['rule'], agentType: stageAgentType, status: 'published' });
     const filteredRules = (rules || []).filter((r: any) => hasSourceReferences(r) && !isRoleMemory(r) && r.status !== 'stale' && isInjectableMaturity(r.maturity));
 
     // 2. context — full content injection (preferences + environment)
-    const context = await this.query.queryEntries({ consumptionModes: ['context'], status: 'published' });
+    const context = await this.deps.query.queryEntries({ consumptionModes: ['context'], status: 'published' });
     const filteredContext = (context || []).filter((c: any) => hasSourceReferences(c) && !isRoleMemory(c) && c.status !== 'stale' && isInjectableMaturity(c.maturity));
 
     // 3. signal — index injection (informational)
-    const signals = this.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
+    const signals = this.deps.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
     const filteredSignals = (signals || []).filter((s: any) => !isRoleMemory(s) && s.status !== 'stale' && isInjectableMaturity(s.maturity));
 
     // ③（wireups）：注入红线（INJECT_TOKEN_BUDGET）执行 — 候选按注入优先级（成熟度 → 引用计数）排序，
@@ -512,7 +281,7 @@ export class KnowledgeService {
     }
 
     // 4. reference — hint only
-    const refCount = await this.query.count({ consumptionModes: ['reference'] });
+    const refCount = await this.deps.query.count({ consumptionModes: ['reference'] });
     if (refCount > 0) {
       const hint = `[知识库: ${refCount} 条参考，遇到问题时用 search()]`;
       const hintTokens = estimateTokens(hint + '\n\n');
@@ -559,7 +328,7 @@ export class KnowledgeService {
     // 6. recordReference — close maturity loop
     if (injectedIds.length > 0) {
       for (const id of injectedIds) {
-        try { this.lifecycle.recordReference(id, 'prompt-inject'); } catch { /* non-blocking */ }
+        try { this.deps.lifecycle.recordReference(id, 'prompt-inject'); } catch { /* non-blocking */ }
       }
     }
 
@@ -574,7 +343,7 @@ export class KnowledgeService {
    * E2（断点 G）：先探测 RAG 可用性（每进程缓存，TTL 5min），不可用或查询失败时
    * 降级为 store 关键词检索（searchKeyword），不再静默返回 []。
    * 探测/映射逻辑为模块级函数 —— KnowledgeService 公共方法数被
-   * knowledge-service.test.ts 锁定（34），不在 prototype 上新增方法。
+   * knowledge-service.test.ts 锁定（33），不在 prototype 上新增方法。
    */
   async semanticSearch(query: string, opts?: { limit?: number }): Promise<SemanticSearchResult[]> {
     const limit = opts?.limit || 5;
@@ -606,7 +375,7 @@ export class KnowledgeService {
       // Record references for matched entries
       for (const r of mapped) {
         if (r.entryId) {
-          try { this.lifecycle.recordReference(r.entryId, 'semantic-search'); } catch { /* non-blocking */ }
+          try { this.deps.lifecycle.recordReference(r.entryId, 'semantic-search'); } catch { /* non-blocking */ }
         }
       }
 
@@ -656,7 +425,7 @@ export class KnowledgeService {
   private searchKeyword(query: string, opts?: SearchOpts): SearchResult[] {
     try {
       const limit = opts?.limit || 5;
-      const all = this.store.list({});
+      const all = this.deps.store.list({});
       if (all.length === 0) return [];
 
       const keywords = extractKeywords(query);
@@ -707,7 +476,7 @@ export class KnowledgeService {
 
       // Record references for returned entries
       for (const r of scored) {
-        try { this.lifecycle.recordReference(r.entry.id, 'search'); } catch { /* non-blocking */ }
+        try { this.deps.lifecycle.recordReference(r.entry.id, 'search'); } catch { /* non-blocking */ }
       }
 
       return scored;
@@ -724,7 +493,7 @@ export class KnowledgeService {
     const results: SearchResult[] = [];
     for (const sr of semanticResults) {
       if (!sr.entryId) continue;
-      const entry = this.store.get(sr.entryId);
+      const entry = this.deps.store.get(sr.entryId);
       if (!entry) continue;
       results.push({
         entry,
@@ -747,7 +516,7 @@ export class KnowledgeService {
     for (const sr of semanticResults) {
       if (!sr.entryId || seenIds.has(sr.entryId)) continue;
       seenIds.add(sr.entryId);
-      const entry = this.store.get(sr.entryId);
+      const entry = this.deps.store.get(sr.entryId);
       if (!entry) continue;
       keywordResults.push({
         entry,
@@ -763,160 +532,68 @@ export class KnowledgeService {
 
   async list(filter?: QueryFilter): Promise<KnowledgeEntry[]> {
     // UnifiedQuery.listEntries 返回 { entries, total }（分页形态）；本方法对外保持数组契约。
-    const result: any = await this.query.listEntries(filter || {});
+    const result: any = await this.deps.query.listEntries(filter || {});
     return Array.isArray(result) ? result : (result?.entries ?? []);
   }
 
   async get(id: string): Promise<KnowledgeEntry | null> {
-    return this.store.get(id) ?? null;
+    return this.deps.store.get(id) ?? null;
   }
 
   async create(entry: KnowledgeEntry): Promise<void> {
-    this.store.save(entry);
+    this.deps.store.save(entry);
   }
 
   async update(id: string, partial: Partial<KnowledgeEntry>): Promise<KnowledgeEntry | undefined> {
-    return this.store.update(id, partial);
+    return this.deps.store.update(id, partial);
   }
 
   async delete(id: string): Promise<boolean> {
-    return this.store.delete(id);
+    return this.deps.store.delete(id);
   }
 
-  // ═══════════ Track (consumption + outcome tracking) ════════════
+  // ═══════════ Track (consumption + outcome tracking) — 实现体 knowledge-track.ts（#669 刀2）════════════
 
   recordConsumption(entryIds: string[], context: string): void {
-    for (const id of entryIds) {
-      try { this.lifecycle.recordReference(id, context); } catch { /* non-blocking */ }
-    }
-
-    // O2-KR1: 发射 consumption 事件供 OKR metric 采集
-    if (entryIds.length > 0) {
-      getStore().appendJsonl(resolveStudioEventsFile(), {
-        type: 'knowledge:consumption',
-        source: context,
-        payload: JSON.stringify({ entryIds, count: entryIds.length }),
-        createdAt: new Date().toISOString(),
-      }).catch(() => {});
-    }
+    return recordConsumptionImpl(this.deps, entryIds, context);
   }
 
   async recordOutcome(outcome: ExecutionOutcome): Promise<void> {
-    // Close the feedback loop: record execution outcome as StudioEvent
-    try {
-      await getStore().appendJsonl(resolveStudioEventsFile(), {
-        type: `knowledge:outcome:${outcome.success ? 'success' : 'failure'}`,
-        source: outcome.agentType,
-        payload: JSON.stringify({
-          executionId: outcome.executionId,
-          agentType: outcome.agentType,
-          success: outcome.success,
-          details: outcome.details?.slice(0, 500),
-          consumedKnowledge: outcome.consumedKnowledge,
-          mode: outcome.mode,
-          errorType: outcome.errorType,
-        }),
-        createdAt: new Date().toISOString(),
-      });
-    } catch { /* non-blocking */ }
-
-    // Update referencedBy for consumed knowledge entries
-    for (const entryId of outcome.consumedKnowledge) {
-      try {
-        const entry = this.store.get(entryId);
-        if (entry) {
-          entry.referencedBy = entry.referencedBy || [];
-          if (!entry.referencedBy.includes(outcome.executionId)) {
-            entry.referencedBy.push(outcome.executionId);
-            this.store.save(entry);
-          }
-        }
-      } catch { /* non-blocking */ }
-    }
-
-    this.eventEmitter.emit('knowledge', { type: 'recordOutcome', data: { executionId: outcome.executionId, success: outcome.success } });
+    return recordOutcomeImpl(this.deps, outcome);
   }
 
   /**
    * AC-8c: Record Skill execution outcome back to source KnowledgeEntry.
-   * Finds the KnowledgeEntry that produced the Skill, records execution result.
-   * If successRate drops below 50%, revokes skillCandidate tag.
+   * 实现体在 knowledge-track.ts recordSkillExecutionImpl（含完整契约注释）。
    */
   async recordSkillExecution(skillId: string, success: boolean, agentType: string): Promise<void> {
-    try {
-      // Find KnowledgeEntry by skillId
-      const entries = this.store.list({});
-      const sourceEntry = entries.find(e => e.skillId === skillId);
-      if (!sourceEntry) return;
-
-      // Record reference with execution result
-      this.lifecycle.recordReference(sourceEntry.id, `skill:${agentType}`, success, 'auto');
-
-      // Check if skillCandidate tag should be revoked
-      if (this.lifecycle.checkSkillCandidateRevocation) {
-        this.lifecycle.checkSkillCandidateRevocation(sourceEntry.id);
-      }
-    } catch { /* non-blocking */ }
+    return recordSkillExecutionImpl(this.deps, skillId, success, agentType);
   }
 
-  // ═══════════ Lifecycle ════════════
+  // ═══════════ Lifecycle — 实现体 knowledge-lifecycle.ts（#669 刀2）════════════
 
   async promote(entryId: string): Promise<void> {
-    const entry = this.store.get(entryId);
-    if (!entry) return;
-    const next: Record<string, MaturityLevel> = { draft: 'verified', verified: 'proven' };
-    const target = next[entry.maturity];
-    if (target) {
-      this.store.update(entryId, { maturity: target });
-      publishKnowledgeEntryChanged('promoted', { entryId, entryType: entry.type, title: entry.title });
-    }
+    return promoteImpl(this.deps, entryId);
   }
 
   /**
    * 审核闭环 reject 语义：draft → archived（保留追溯，decay/lint 不再管它，永不注入）。
-   * 与 promote 对称；仅 draft 可 demote（verified/proven 的降级走 decay）。
+   * 实现体在 knowledge-lifecycle.ts demoteImpl。
    */
   async demote(entryId: string): Promise<void> {
-    const entry = this.store.get(entryId);
-    if (!entry) return;
-    const prev: Record<string, MaturityLevel> = { draft: 'archived' };
-    const target = prev[entry.maturity];
-    if (target) {
-      this.store.update(entryId, { maturity: target });
-      publishKnowledgeEntryChanged('demoted', { entryId, entryType: entry.type, title: entry.title });
-    }
+    return demoteImpl(this.deps, entryId);
   }
 
   async decay(entryId: string): Promise<void> {
-    const entry = this.store.get(entryId);
-    if (!entry) return;
-    const prev: Record<string, MaturityLevel> = { proven: 'verified', verified: 'draft' };
-    const target = prev[entry.maturity];
-    if (!target) return;
-    // Only decay if stale (unreferenced for threshold)
-    const daysSinceRef = entry.lastReferenced
-      ? (Date.now() - new Date(entry.lastReferenced).getTime()) / 86400000
-      : 999;
-    const threshold: Record<string, number> = { proven: 365, verified: 180, draft: 90 };
-    if (daysSinceRef >= (threshold[entry.maturity] || 90)) {
-      this.store.update(entryId, { maturity: target });
-    }
+    return decayImpl(this.deps, entryId);
   }
 
   async merge(sourceId: string, targetId: string): Promise<void> {
-    const source = this.store.get(sourceId);
-    const target = this.store.get(targetId);
-    if (!source || !target) return;
-    this.store.save({
-      ...target,
-      content: `${target.content}\n\n---\nMerged from ${sourceId}: ${source.content}`,
-      contributors: [...(target.contributors || []), ...(source.contributors || [])],
-    });
-    this.store.delete(sourceId);
+    return mergeImpl(this.deps, sourceId, targetId);
   }
 
-  async graduateConstraint(_id: string): Promise<void> {
-    // Phase 7: constraint → knowledge
+  async graduateConstraint(id: string): Promise<void> {
+    return graduateConstraintImpl(this.deps, id);
   }
 
   // ═══════════ Resolve (known solutions) ════════════
@@ -936,76 +613,29 @@ export class KnowledgeService {
     }
   }
 
-  // ═══════════ Measure (metrics + audit) ════════════
+  // ═══════════ Measure (metrics + audit) — 实现体 knowledge-measure.ts（#669 刀2）════════════
 
-  async getFlywheelMetrics(opts?: { eventsFile?: string; windowDays?: number }): Promise<FlywheelMetrics> {
-    const timestamp = new Date().toISOString();
-    try {
-      const entries = this.store.list({});
-      // store 分区（quality/freshness）实算内核在 knowledge-metrics 模块级纯函数
-      const { quality, freshness } = computeFlywheelStoreMetrics(entries);
-
-      // R1: hitRate / improvement 从 outcome 事件实算（断点 A 修复，此前硬编码 0）
-      // 模块级纯函数（不依赖 this），保持 KnowledgeService 公共方法面不变
-      const outcomeMetrics = await computeOutcomeMetrics(opts);
-
-      return { quality, hitRate: outcomeMetrics.hitRate, improvement: outcomeMetrics.improvement, freshness, timestamp, source: outcomeMetrics.source };
-    } catch {
-      return { quality: 0, hitRate: 0, improvement: 0, freshness: 0, timestamp, source: 'insufficient-data' };
-    }
+  async getFlywheelMetrics(opts?: { eventsFile?: string; windowDays?: number }) {
+    return getFlywheelMetricsImpl(this.deps, opts);
   }
 
-  async getHealthReport(): Promise<HealthReport> {
-    try {
-      const entries = this.store.list({});
-      return computeHealthReport(entries);
-    } catch {
-      return emptyHealthReport();
-    }
+  async getHealthReport() {
+    return getHealthReportImpl(this.deps);
   }
 
   /**
    * M1: 实算审计报告（断点 I 修复，此前返回空 stub）。
-   * 数据源：studio-events.jsonl 事件流（consumption/outcome/extraction）+ KnowledgeStore。
-   * 事件流无数据的分区返回显式 0 + source='insufficient-data'（与 getFlywheelMetrics 同一诚实约定）。
+   * 实现体在 knowledge-measure.ts getAuditReportImpl（含完整契约注释）。
    */
-  async getAuditReport(opts?: { eventsFile?: string; windowDays?: number }): Promise<AuditReport> {
-    const windowDays = opts?.windowDays ?? 30;
-    const timestamp = new Date().toISOString();
-
-    // ── store 分区（恒有数据源） ──
-    let entries: AuditReport['entries'] = { total: 0, byMaturity: {}, source: 'store' };
-    let topReferenced: AuditReport['topReferenced'] = [];
-    try {
-      const all = this.store.list({});
-      ({ entries, topReferenced } = computeAuditStorePartition(all));
-    } catch { /* store 读取失败 → 显式 0 */ }
-
-    // ── 事件流分区 ──
-    const stats = await scanKnowledgeEvents(opts);
-
-    // trend / findings 均由 knowledge-metrics 模块级纯函数从实算数据派生，不预造
-    const trend = deriveOutcomeTrend(stats.outcomes, windowDays);
-    const findings = buildAuditFindings({ entries, stats, windowDays });
-
-    return {
-      findings,
-      trend,
-      timestamp,
-      eventCounts: stats.eventCounts,
-      entries,
-      topReferenced,
-      extractionActivity: stats.extractionActivity,
-    };
+  async getAuditReport(opts?: { eventsFile?: string; windowDays?: number }) {
+    return getAuditReportImpl(this.deps, opts);
   }
 
   /**
-   * M1 诚实实现：系统中不存在 analyst 预测 vs 实际结果的结构化数据源。
-   * recordAnalystAccuracy() 把数据写成 data/trends/ 的 markdown 文本，且生产代码无任何调用方
-   * （仅 @deprecated KnowledgeBus 壳与测试引用）——没有可计算的输入，返回不可用标记而非假空 stub。
+   * M1 诚实实现：系统中不存在 analyst 预测 vs 实际结果的结构化数据源，返回不可用标记而非假空 stub。
    */
-  async getAnalystAccuracy(): Promise<AccuracyReport> {
-    return unavailableAnalystAccuracyReport();
+  async getAnalystAccuracy() {
+    return getAnalystAccuracyImpl(this.deps);
   }
 
   // ═══════════ Additional methods (absorbed from KnowledgeBus / ResolutionService) ════════════
@@ -1014,18 +644,7 @@ export class KnowledgeService {
    * 知识统计概览 — absorbed from KnowledgeBus.getStats()
    */
   getStats(): Record<string, number> {
-    try {
-      const entries = this.store.list({});
-      const byType: Record<string, number> = {};
-      for (const e of entries) {
-        const cat = (e as any).tags?.[0] || 'other';
-        byType[cat] = (byType[cat] || 0) + 1;
-      }
-      byType.total = entries.length;
-      return byType;
-    } catch {
-      return { total: 0 };
-    }
+    return getStatsImpl(this.deps);
   }
 }
 
