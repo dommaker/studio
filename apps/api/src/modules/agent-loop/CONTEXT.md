@@ -6,7 +6,13 @@
 
 ### 目录结构
 
-- `agent-loop.ts` — 循环编排（导出面 = AgentLoop + StepResult；#544 拆除 re-export 门面；#363：原 start() 同角色 terminated 启动清理已拆除，回收归 instance-timeout-scan）。start() 健康探针（`buildHealthProbeCommand` + 失败 recordStartupFailure）走 `core/exec-async.execAsync` 异步链（2026-10-03 D 批——原 execSync 在 listen 后 mount 链/profile.created 事件路径按角色串行阻塞事件循环）
+- `agent-loop.ts` — 门面（导出面 = AgentLoop + StepResult；#544 拆除 re-export 门面；#363：原 start() 同角色 terminated 启动清理已拆除，回收归 instance-timeout-scan）：#668 按职责切五段后只留构造接线 + runLoop 主循环编排 + 对外/测试 seam 薄委托；段间共享状态与跨段调用经 `loop-host.ts` 的 AgentLoopHost 接口显式化（模块内部面，不经 index.ts 出模块）
+- `loop-lifecycle.ts` — 生命周期段：start/stop/waitForStop + 实例状态 SSE（publishInstanceStatus/recordStartupFailure）+ #179 心跳连败自裁。start() 健康探针（`buildHealthProbeCommand` + 失败 recordStartupFailure）走 `core/exec-async.execAsync` 异步链（2026-10-03 D 批——原 execSync 在 listen 后 mount 链/profile.created 事件路径按角色串行阻塞事件循环）
+- `loop-observe.ts` — 观察段：observe（§9.5 频道成员过滤 / #221 认领陈旧守卫 / 决策 10 显式认领 / B5 字节水位增量回复检测）+ 事件唤醒三件套（#330/#493/#523：idleSleep / onChannelMessageSent / onWorkUnitClaimable，只放行不裁决）
+- `loop-claim.ts` — 认领段：claimAndAnnounce（#175 认领即发声，#445 委托 workunit/claim-announce）+ 决策 14 适任判断链（ensureClaimFit → recordClaimUnfit → blockIfAllMembersUnfit）
+- `loop-step.ts` — 步执行段：agentStep 编排（step-guards → worktree/PMO 分支基线 → 会话续用 #94/#637/#639 → prompt-composer → Executor 执行 → step-retry-policy 重试 → token 记账/tool:call/transcript/步事件/R3 提取/#542 收割）+ #90 outcome 落账
+- `loop-record-result.ts` — 结果记录段：recordResult（#178 fencing → completion-gates → delegate 分支 → §4.2 新鲜度 → result-bookkeeping 簿记 → F6-c 强制收口补验 → 原子写 → 状态迁移与频道通知）+ postToDiscussionSpace（频道系统消息唯一出口，经 host seam 供 claim/step 段共用）
+- `execution-cwd.ts` — 执行目录解析三规则（#481 workspaceRoot 唯一来源 / B3b-i 父 worktree 继承 / 收口守卫 git cwd），deps 注入纯函数（`__tests__/execution-cwd.test.ts` 直测）
 - `agent-loop.types.ts` — 类型契约（纯类型零运行时）
 - `agent-loop-registry.ts` — profileId→running AgentLoop 注册表（profile 生命周期事件驱动挂载/卸载；#634 provider 变更重挂）
 - `agent-loop-parsers.ts` / `agent-loop-events.ts` / `agent-loop-guards.ts` — 输出解析+prompt 模板纯函数 / tokens/tool:call 落盘 / 测试 WU 守卫+excludeAssignee
@@ -18,7 +24,7 @@
 - `executor.ts`（Executor 接口，LocalExecutor 委托 agentRunner）、`execution-step-events.ts`（步级事件落盘+步内流式 SSE；#665 起 payload 类型与 studio-contract/sse-events.ts 同源——ExecutionStepEventPayload/ExecutionStreamChunk 是契约类型别名，改形状先改契约，wire parity 见 events/__tests__/sse-payload-contract.test.ts）
 - `wu-verification.ts`（自动验证可复用实现）、`completion-gates.ts`（收口守卫链）、`completion-harvest.ts`（#542 per-WU-type COMPLETE 收割注册表）、`result-bookkeeping.ts`（#655 recordResult 簿记段）、`review-contract.ts`（verdict 语义单一来源）
 - `review-dispatcher.ts`（F4 review 派发）、`dispatch-reconciliation.ts`（派工/评审断链 5min 对账，P2-d 刀5 自 agents 根随迁——依赖 review-dispatcher + monitor-alerts，留 agents 会拉成 agents↔agent-loop 环）
-- `__tests__/` — 56 个测试文件（agents root __tests__ loop 系 47 + 原 loop/__tests__ 9）
+- `__tests__/` — 59 个测试文件（agents root __tests__ loop 系 47 + 原 loop/__tests__ 9 + #668 新增 2：execution-cwd 直测 / loop-segments 段接线钉线；段行为由既有测试网兜底）
 
 ### 核心导出
 
