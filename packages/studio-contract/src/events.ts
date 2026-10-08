@@ -14,6 +14,9 @@
  * - 错误统一 `{ error: { code, message } }`（原 `{ error: string }` / `{ error, details }`
  *   退役；手写 guard 文案变 zod 格式；500 文案由固定串变为实际错误消息，显式业务拒绝
  *   （空 payload / 写盘被拒）保留原文案）
+ *
+ * 另含 runtime 事件回调（POST /api/v1/executions/events → `{ data: { received: true } }`，
+ * 自 executions 模块迁入 events 模块 runtime-events.routes.ts，URL/形状不变）。
  */
 
 import { z } from 'zod';
@@ -116,3 +119,30 @@ export type AgentEventBatchBody = z.infer<typeof agentEventBatchBodySchema>;
 export const createStudioEventResponseSchema = dataBodySchema(createStudioEventResultSchema);
 export const eventSearchResponseSchema = dataBodySchema(eventSearchResultSchema);
 export const ingestAgentEventsResponseSchema = dataBodySchema(ingestAgentEventsResultSchema);
+
+// ── runtime 事件回调（POST /api/v1/executions/events）──
+// 自 executions.ts 迁入（2026-10 架构精简刀1：executions 模块整删，端点挪入 events 模块，
+// URL 与 wire 形状不变）。唯一调用方 = 同机 agent-runtime（requireLocalhost），不解析响应体。
+
+/**
+ * runtime 事件体（agent-runtime 同机进程推送），字段全集归 runtime，
+ * passthrough 放行；type/event_type/executionId/timestamp 均可选
+ * （handler 自行容错，缺键按 'runtime.event' 兜底）。
+ */
+export const executionEventBodySchema = z.object({
+  type: z.string().optional(),
+  event_type: z.string().optional(),
+  executionId: z.string().optional(),
+  timestamp: z.string().optional(),
+  workflow: z.unknown().optional(),
+  outputs: z.unknown().optional(),
+  error: z.unknown().optional(),
+}).passthrough();
+export type ExecutionEventBody = z.infer<typeof executionEventBodySchema>;
+
+export const executionEventResultSchema = z.object({
+  received: z.boolean(),
+});
+export type ExecutionEventResult = z.infer<typeof executionEventResultSchema>;
+
+export const executionEventResponseSchema = dataBodySchema(executionEventResultSchema);

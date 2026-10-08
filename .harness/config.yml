@@ -28,7 +28,6 @@ governance:
       - apps/api/src/modules/distill
       - apps/api/src/modules/events
       - apps/api/src/modules/evolution
-      - apps/api/src/modules/executions
       - apps/api/src/modules/harness
       - apps/api/src/modules/knowledge
       - apps/api/src/modules/lark

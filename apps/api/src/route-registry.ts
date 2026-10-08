@@ -123,7 +123,6 @@ export function describeEntryAuth(entry: Pick<RouteEntry, 'middleware'>): AuthPo
 export async function buildRouteTable(): Promise<RouteEntry[]> {
   const [
     agentRouters,
-    executionRoutes,
     auditLogRoutes,
     { notificationRoutes },
     { knowledgeRoutes, knowledgeInternalRoutes },
@@ -137,7 +136,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { deployWebhookRoutes },
   ] = await Promise.all([
     import('./modules/agents/routes.js'),
-    import('./modules/executions/routes.js').then(m => m.default),
     import('./modules/audit-logs/routes.js').then(m => m.default),
     import('./modules/notifications/routes.js') as Promise<{ notificationRoutes: Router }>,
     import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
@@ -178,6 +176,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
   // StudioEvent CRUD routes (G30)
   const { eventOpenRoutes, eventWriteRoutes } = await import('./modules/events/event.routes.js');
+
+  // Runtime 事件回调（自 executions 模块迁入，POST /api/v1/executions/events URL 不变）
+  const { default: runtimeEventRoutes } = await import('./modules/events/runtime-events.routes.js') as { default: Router };
 
   // Action Center routes (#468 统一行动中心)
   const { actionCenterRoutes } = await import('./modules/action-center/routes.js') as { actionCenterRoutes: Router };
@@ -282,8 +283,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/agents', router: agentRouters.agentOpenRoutes },
     { path: '/api/v1/agents', router: agentRouters.agentWriteRoutes, middleware: authNotGuest },
     { path: '/api/v1/agents', router: agentRouters.agentAdminRoutes, middleware: admin },
-    // LEGACY 面：GET 开放 + POST /events 路由内 requireLocalhost（粒度混合，不上移）
-    { path: '/api/v1/executions', router: executionRoutes },
+    // runtime 事件回调（events 模块；POST /events 路由内 requireLocalhost，粒度混合不上移）
+    { path: '/api/v1/executions', router: runtimeEventRoutes, comment: 'agent-runtime 事件回调（自 executions 模块迁入，URL 不变）' },
 
     { path: '/api/v1/channels', router: channelAttachmentRoutes, comment: '附件 GET：?token= 需 tokenQueryToHeader 先于 requireAuth（registry 无 per-route 前置 middleware 能力，单条鉴权保留路由内）' },
     { path: '/api/v1/channels', router: channelReadRoutes, middleware: auth, comment: 'B1-001: Channel chat interface（读：登录即可，Guest 可读）' },

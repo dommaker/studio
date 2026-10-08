@@ -1,7 +1,7 @@
 /**
  * 模块 barrel（modules/X/index.ts）完整性测试——P2-c 立界
  *
- * 1) 36 个模块的 index.ts 全部可加载——ESM 循环 import 导致的初始化崩溃（TDZ）会在此显形
+ * 1) 全部模块的 index.ts 均可加载——ESM 循环 import 导致的初始化崩溃（TDZ）会在此显形
  * 2) barrel 的每个再导出符号运行时均有定义（防幽灵导出/循环初始化拿到 undefined）
  * 3) 抽查关键公共面符号类型
  */
@@ -13,8 +13,8 @@ const MODULES_DIR = path.resolve(__dirname, '../modules');
 const modules = fs.readdirSync(MODULES_DIR).filter(d => fs.statSync(path.join(MODULES_DIR, d)).isDirectory());
 
 describe('模块 barrel 完整性', () => {
-  it('41 个模块均有 index.ts', () => {
-    expect(modules.length).toBe(41);
+  it('40 个模块均有 index.ts', () => {
+    expect(modules.length).toBe(40);
     for (const mod of modules) {
       expect(fs.existsSync(path.join(MODULES_DIR, mod, 'index.ts')), `${mod}/index.ts 缺失`).toBe(true);
     }
@@ -23,7 +23,7 @@ describe('模块 barrel 完整性', () => {
   it('全部 barrel 可加载且导出符号非 undefined（循环初始化显形）', async () => {
     // import.meta.glob：vite 不支持全动态模板 import，用 glob 静态枚举
     const barrels = import.meta.glob('../modules/*/index.ts');
-    expect(Object.keys(barrels).length).toBe(41);
+    expect(Object.keys(barrels).length).toBe(40);
     for (const mod of modules) {
       const load = barrels[`../modules/${mod}/index.ts`];
       const ns = await load();

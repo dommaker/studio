@@ -4,12 +4,12 @@ import { studioDir } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getStore } from '../../core/store.js';
+import { projectService } from './project.service.js';
 
 
 // ─── 路径常量 ───
 const STUDIO_DIR = studioDir();
 const OKR_DIR = path.join(STUDIO_DIR, 'okr');
-const EXECUTIONS_JSONL = path.join(STUDIO_DIR, 'logs', 'executions.jsonl');
 
 export interface OKRObjective {
   id: string;
@@ -52,16 +52,6 @@ export function getCurrentQuarter(): string {
   const month = now.getMonth();
   const quarter = Math.floor(month / 3) + 1;
   return `${year}-Q${quarter}`;
-}
-
-interface ExecutionRow {
-  id: string;
-  okrId?: string | null;
-  status?: string;
-  startTime?: string;
-  endTime?: string;
-  createdAt?: string;
-  progress?: number;
 }
 
 /**
@@ -157,14 +147,8 @@ export class OKRService {
     // orderBy createdAt desc
     docs.sort((a, b) => new Date(b.meta.createdAt as string).getTime() - new Date(a.meta.createdAt as string).getTime());
 
-    // 批量读取 executions jsonl 计算每个 OKR 的项目数
-    const allExecs = await this.fileStore.readJsonl<ExecutionRow>(EXECUTIONS_JSONL);
-    const execCountByOkr = new Map<string, number>();
-    for (const e of allExecs) {
-      if (e.okrId) {
-        execCountByOkr.set(e.okrId, (execCountByOkr.get(e.okrId) || 0) + 1);
-      }
-    }
+    // 项目计数改由 pmo 自身项目存储供应（executions.jsonl 越域深读已随 executions 模块整删退役）
+    const countByOkr = await projectService.countByOkr();
 
     return docs.map(d => {
       const parsed = this.parseOKRMeta(d.meta);
@@ -179,7 +163,7 @@ export class OKRService {
         keyResults: parsed.keyResults,
         createdAt: d.meta.createdAt,
         updatedAt: d.meta.updatedAt,
-        projectCount: execCountByOkr.get(d.meta.id as string) || 0,
+        projectCount: countByOkr.get(d.meta.id as string) || 0,
       };
     });
   }
@@ -196,12 +180,17 @@ export class OKRService {
     if (!doc) throw new Error('OKR not found');
 
     const parsed = this.parseOKRMeta(doc.meta);
-    const allExecs = await this.fileStore.readJsonl<ExecutionRow>(EXECUTIONS_JSONL);
-    const recentExecs = allExecs
-      .filter(e => e.okrId === id)
-      .sort((a, b) => new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime())
+    // Execution/_count.Execution 为 Prisma 时代遗留键名（契约形状不变）；
+    // 内容改由 pmo 自身项目存储供应（最近 10 个关联项目 + 关联项目总数）
+    const linkedProjects = await projectService.listByOkrId(id);
+    const recentExecs = linkedProjects
       .slice(0, 10)
-      .map(e => ({ id: e.id, status: e.status, startTime: e.startTime, endTime: e.endTime }));
+      .map(p => ({
+        id: p.id,
+        status: p.status,
+        startTime: p.startedAt ?? undefined,
+        endTime: p.completedAt ?? undefined,
+      }));
 
     return {
       id: doc.meta.id,
@@ -216,7 +205,7 @@ export class OKRService {
       updatedAt: doc.meta.updatedAt,
       Company: null,
       Execution: recentExecs,
-      _count: { Execution: allExecs.filter(e => e.okrId === id).length },
+      _count: { Execution: linkedProjects.length },
     };
   }
 
@@ -283,20 +272,14 @@ export class OKRService {
       throw new Error('OKR not found');
     }
 
-    // 从 executions jsonl 中解除关联
-    const allExecs = await this.fileStore.readJsonl<ExecutionRow>(EXECUTIONS_JSONL);
-    const linked = allExecs.filter(e => e.okrId === id);
-    if (linked.length > 0) {
-      const updated = allExecs.map(e => e.okrId === id ? { ...e, okrId: null } : e);
-      // P2-e：全量重写走 FileStore writeJsonl（原子写：tmp+rename），替代裸 fs.writeFile
-      await this.fileStore.writeJsonl(EXECUTIONS_JSONL, updated);
-    }
+    // 解除项目关联（改由 pmo 自身项目存储：executions.jsonl 解关联已随 executions 模块整删退役）
+    const unlinked = await projectService.unlinkOkr(id);
 
     // 删除 OKR 文件
     await fs.promises.unlink(path.join(OKR_DIR, `${key}.md`));
 
-    logger.info('OKR deleted', { okrId: id, executionCount: linked.length });
-    return { success: true, unlinkedProjects: linked.length };
+    logger.info('OKR deleted', { okrId: id, executionCount: unlinked });
+    return { success: true, unlinkedProjects: unlinked };
   }
 
   /**

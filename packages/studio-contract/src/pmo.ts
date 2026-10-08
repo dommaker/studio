@@ -192,7 +192,7 @@ export interface Okr {
   keyResults: OkrKeyResult[];
   createdAt: string;
   updatedAt: string;
-  /** 关联执行数（executions.jsonl 计数） */
+  /** 关联 PMO 项目数（pmo 项目存储计数；原 executions.jsonl 计数已退役） */
   projectCount: number;
 }
 
@@ -210,7 +210,7 @@ export const okrSchema = z.object({
   projectCount: z.number(),
 });
 
-/** OKR 详情（GET /okr/:id）：列表行去 projectCount + 关联占位/最近执行/计数 */
+/** OKR 详情（GET /okr/:id）：列表行去 projectCount + 关联占位/最近关联/计数 */
 export const okrDetailSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -224,7 +224,7 @@ export const okrDetailSchema = z.object({
   updatedAt: z.string(),
   /** Prisma 时代遗留占位，恒 null */
   Company: z.null(),
-  /** 最近 10 条关联执行（jsonl 投影） */
+  /** 最近 10 个关联项目投影（Prisma 时代遗留键名；原 executions jsonl 投影已退役） */
   Execution: z.array(z.object({
     id: z.string().optional(),
     status: z.string().optional(),

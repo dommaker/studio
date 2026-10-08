@@ -424,6 +424,36 @@ export const projectService = {
     return projects.slice(offset, offset + limit);
   },
 
+  /** 全量 OKR 项目计数（executions.jsonl 越域深读退役后，OKR 列表 projectCount 改由本方法供应） */
+  async countByOkr(): Promise<Map<string, number>> {
+    const projects = await readAllProjects();
+    const counts = new Map<string, number>();
+    for (const p of projects) {
+      if (p.okrId) counts.set(p.okrId, (counts.get(p.okrId) ?? 0) + 1);
+    }
+    return counts;
+  },
+
+  /** 指定 OKR 的关联项目（createdAt 倒序，OKR 详情「最近关联」投影用） */
+  async listByOkrId(okrId: string): Promise<ProjectData[]> {
+    const projects = await readAllProjects();
+    return projects
+      .filter(p => p.okrId === okrId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  },
+
+  /** 解除指定 OKR 的全部项目关联（OKR 删除时调用），返回解关联项目数 */
+  async unlinkOkr(okrId: string): Promise<number> {
+    const linked = (await readAllProjects()).filter(p => p.okrId === okrId);
+    for (const p of linked) {
+      // 写回读原始行（不读 withReadDefaults 视图），避免把合成的 deliveries 单腿落盘
+      const raw = await getStore().readJson<ProjectData>(projectPath(p.id));
+      if (!raw) continue;
+      await getStore().writeJson(projectPath(p.id), { ...raw, okrId: null, updatedAt: new Date().toISOString() });
+    }
+    return linked.length;
+  },
+
   async update(projectId: string, input: UpdateProjectInput): Promise<ProjectData> {
     const current = await getStore().readJson<ProjectData>(projectPath(projectId));
     if (!current) {

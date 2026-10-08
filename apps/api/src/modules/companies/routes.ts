@@ -20,13 +20,11 @@ import {
 import { generateId } from '@dommaker/studio-shared';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
 
 
 const COMPANIES_DIR = studioPath('data', 'companies');
-const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
 
 function companyPath(id: string): string {
   return path.join(COMPANIES_DIR, `${id}.json`);
@@ -100,36 +98,21 @@ router.get('/sizes/config', defineRoute({}, async () => {
 router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema }, async (_req, _res, { params }) => {
   const { companyId } = params;
 
-  // 并行查询多个数据源
-  const [company, executions] = await Promise.all([
-    // 公司信息（FileStore）
-    getStore().readJson<Company>(companyPath(companyId)),
-    // 执行中的任务数
-    (async () => {
-      const execs = await getStore().readJsonl<{ status?: string }>(EXECUTIONS_JSONL);
-      return execs.filter((e) => e.status === 'running').length;
-    })(),
-  ]);
-
+  const company = await getStore().readJson<Company>(companyPath(companyId));
   if (!company) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Company ${companyId} not found`);
   }
 
-  // 今日完成任务数
-  const allExecs = await getStore().readJsonl<{ status?: string; endTime?: string }>(EXECUTIONS_JSONL);
-  const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
-  const todayCompletedTasks = allExecs.filter((e) =>
-    e.status === 'completed' && e.endTime && new Date(e.endTime) >= todayStart
-  ).length;
-
+  // executions.jsonl 数据源已随 executions 模块整删退役（全仓无写入方，越域深读已斩）；
+  // 任务计数占位 0，响应形状不变（web 无消费方；活口径应改由 workunit 域派生，留待后续票）
   return {
     company: {
       id: company.id,
       name: company.name,
       size: company.size,
     },
-    runningTasks: executions,
-    todayCompletedTasks,
+    runningTasks: 0,
+    todayCompletedTasks: 0,
   };
 }));
 

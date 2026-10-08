@@ -159,7 +159,7 @@ await expectPosture(entriesOf('/api/v1/workspaces')[0], 'admin', 'workspaces');
 // ── 混合粒度模块不上移：无 entry 级 middleware ──
 await expectPosture(entriesOf('/api/v1/auth')[0], 'open', 'auth（混合粒度，鉴权留路由内）');
 await expectPosture(entriesOf('/api/v1/mcp')[0], 'open', 'mcp（三态混合，鉴权留路由内）');
-await expectPosture(entriesOf('/api/v1/executions')[0], 'open', 'executions（LEGACY 混合，鉴权留路由内）');
+await expectPosture(entriesOf('/api/v1/executions')[0], 'open', 'executions（runtime 事件回调，requireLocalhost 留路由内）');
 
 console.log('[route-registry-auth] OK: 全部 entry 鉴权姿态符合 P2-e 声明式契约');
 process.exit(0);
