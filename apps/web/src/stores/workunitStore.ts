@@ -6,18 +6,16 @@ import { createFreshIdTracker } from '../utils/freshIds';
 import { errorMessage } from '../utils/errorMessage';
 
 /**
- * #405：未归属判定 —— 无 reqId 且归因戳（canonical pmoId ‖ legacy ownershipProjectId）
- * 解析为 null。与 #428 服务端 parseWuPmoId 同口径（applyWorkunitEvent 的 SSE 增量
+ * #405：未归属判定 —— 无 reqId 且归因戳（pmoId）解析为 null。
+ * 与 #428 服务端 parseWuPmoId 同口径（applyWorkunitEvent 的 SSE 增量
  * 匹配用；服务端过滤才是权威，本地判定只防增量事件混入）。
  */
 function isUnattributedWu(wu: WorkUnit): boolean {
   if (wu.reqId) return false;
   if (!wu.metadata) return true;
   try {
-    const meta = JSON.parse(wu.metadata) as { pmoId?: unknown; ownershipProjectId?: unknown };
-    const stamp = (typeof meta.pmoId === 'string' && meta.pmoId) ||
-      (typeof meta.ownershipProjectId === 'string' && meta.ownershipProjectId);
-    return !stamp;
+    const meta = JSON.parse(wu.metadata) as { pmoId?: unknown };
+    return !(typeof meta.pmoId === 'string' && meta.pmoId);
   } catch {
     return true; // 坏 JSON 按无戳处理（同服务端 parseWuPmoId 容错语义）
   }

@@ -1,6 +1,6 @@
 // 2026-07 PMO-flow UX（设计文档 §6-1）：GET /monitoring/agents 聚合扩展
 // 覆盖：currentWorkUnit / pmo / channelId 三字段、PMO 归属两级链（①创建期直读戳
-// metadata.pmoId（‖ deprecated legacy ownershipProjectId 同级）②reqId→Requirement.projectId
+// metadata.pmoId ②reqId→Requirement.projectId
 // （legacy 与 REQ 别名两种）；metadata.pmoProjectId 已移出解析链）、
 // 归属不到/悬空 WU → null、向后兼容（既有字段不动）。
 // 模式同 monitoring.service.test.ts：真实 FileStore（tmpdir）；projects 走 deps.listProjects stub
@@ -99,10 +99,10 @@ describe('MonitoringService.getAgentSummary — 2026-07 聚合扩展', () => {
     expect(result.summary.idle).toBe(1);
   });
 
-  it('① metadata.ownershipProjectId 链 → currentWorkUnit + pmo + channelId', async () => {
+  it('① metadata.pmoId 链 → currentWorkUnit + pmo + channelId', async () => {
     await fileStore.upsertSnapshot(wuSnapshot({
       id: 'wu-1',
-      metadata: JSON.stringify({ title: '实现登录页', ownershipProjectId: 'proj-1' }),
+      metadata: JSON.stringify({ title: '实现登录页', pmoId: 'proj-1' }),
     }));
     await addInstance('inst-1', 'wu-1');
 
@@ -166,12 +166,12 @@ describe('MonitoringService.getAgentSummary — 2026-07 聚合扩展', () => {
   });
 
   it('归属链全落空 / 项目不存在 → pmo 为 null；WU 悬空 → currentWorkUnit 为 null', async () => {
-    // ownershipProjectId 指向不存在的项目，reqId 无记录；pmoProjectId 即使指向存在的项目
+    // pmoId 指向不存在的项目，reqId 无记录；pmoProjectId 即使指向存在的项目
     // 也不再命中（2026-08 归因统一：已移出解析链）→ null
     await fileStore.upsertSnapshot(wuSnapshot({
       id: 'wu-4',
       reqId: 'REQ-9999',
-      metadata: JSON.stringify({ ownershipProjectId: 'ghost', pmoProjectId: 'proj-3' }),
+      metadata: JSON.stringify({ pmoId: 'ghost', pmoProjectId: 'proj-3' }),
     }));
     await addInstance('inst-4', 'wu-4');
     // currentWorkUnitId 悬空（index 中无此 WU）
@@ -194,7 +194,7 @@ describe('MonitoringService.getAgentSummary — 2026-07 聚合扩展', () => {
   it('多 agent 共享数据源：WU/requirement/project 各读一次后内存匹配', async () => {
     await fileStore.upsertSnapshot(wuSnapshot({
       id: 'wu-shared',
-      metadata: JSON.stringify({ title: '共享任务', ownershipProjectId: 'proj-1' }),
+      metadata: JSON.stringify({ title: '共享任务', pmoId: 'proj-1' }),
     }));
     await addInstance('inst-a', 'wu-shared');
     await addInstance('inst-b', 'wu-shared');

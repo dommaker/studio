@@ -7,7 +7,7 @@
  * 2026-08 归因统一：canonical metadata key = `pmoId`（创建期一次性落档，
  * 见 wu-pmo-attribution.ts）。解析链（两个逻辑级，逐级容错、逐级校验项目存在，
  * 全失败返回 null = 无 PMO 关联，调用方回落现状）：
- *   1. 创建期直读戳：metadata.pmoId ‖ metadata.ownershipProjectId（deprecated legacy 同位兼容读，同级）
+ *   1. 创建期直读戳：metadata.pmoId
  *   2. wu.reqId → Requirement（决策 4 别名感知）→ projectId → PMO
  * （2026-08 前的 ③ metadata.pmoProjectId 级已移除——那是 agent-loop 首 step 落档的
  *  冗余缓存，生产存量为零；本次修复 analysis 派生链 task WU（仅 pmoId、reqId=null）
@@ -38,7 +38,7 @@ export interface PmoBranchResolverDeps {
 
 /**
  * 共享归因链（两个 resolve 投影的共同实现）：
- *   ① 创建期直读戳（metadata.pmoId ‖ legacy ownershipProjectId）→ 项目存在
+ *   ① 创建期直读戳（metadata.pmoId）→ 项目存在
  *   ② wu.reqId → Requirement.projectId（决策 4 别名感知由 getRequirement 实现侧保证）→ 项目存在
  * 逐级容错（单级读取失败/项目不存在 → 继续下一级），全失败返回 null = 无 PMO 归属。
  */
@@ -53,7 +53,7 @@ async function resolveAttribution(
   const getRequirement = deps?.getRequirement
     ?? (async (id: string) => new RequirementService(fileStore).get(id));
 
-  // 1. 创建期直读戳：metadata.pmoId ‖ legacy ownershipProjectId（同级，pmoId 优先）
+  // 1. 创建期直读戳：metadata.pmoId
   const stampedProjectId = parseWuPmoId(wu.metadata);
   if (stampedProjectId) {
     const project = await getProject(stampedProjectId).catch(() => null);

@@ -307,12 +307,11 @@ describe('workunitStore 未归属过滤（#405）', () => {
     expect(useWorkUnitStore.getState().unattributedTotal).toBe(42);
   });
 
-  it('unattributedOnly 时 SSE created：有 reqId / 有戳（含 legacy）的行不插入，未归属行插入', () => {
+  it('unattributedOnly 时 SSE created：有 reqId / 有戳的行不插入，未归属行插入', () => {
     useWorkUnitStore.setState({ unattributedOnly: true, workunits: [], total: 0 });
 
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-a', { reqId: 'REQ-1' }), { insertIfMissing: true });
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-b', { metadata: JSON.stringify({ pmoId: 'PMO-1' }) }), { insertIfMissing: true });
-    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-c', { metadata: JSON.stringify({ ownershipProjectId: 'PMO-2' }) }), { insertIfMissing: true });
     expect(useWorkUnitStore.getState().workunits).toHaveLength(0);
 
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-d'), { insertIfMissing: true });

@@ -320,15 +320,6 @@ describe('#402 创建期父戳继承', () => {
     expect(JSON.parse(snap!.metadata!)).toMatchObject({ title: 'x', pmoId: 'proj-1' });
   });
 
-  it('父为 legacy ownershipProjectId → 归一为 pmoId 继承', async () => {
-    const parent = await service.create({ scope: '父单', metadata: { ownershipProjectId: 'proj-1' } });
-    const child = await service.create({ scope: '子单', parentId: parent.id });
-    const snap = await findSnapshot(child.id);
-    const meta = JSON.parse(snap!.metadata!);
-    expect(meta).toMatchObject({ pmoId: 'proj-1' });
-    expect(meta.ownershipProjectId).toBeUndefined();
-  });
-
   it('显式 pmoId 优先，不被父戳覆盖', async () => {
     const parent = await service.create({ scope: '父单', metadata: { pmoId: 'proj-1' } });
     const child = await service.create({ scope: '子单', parentId: parent.id, metadata: { pmoId: 'proj-2' } });

@@ -1,6 +1,6 @@
 // #428（#402 决策 4 补交）：WU 列表「未归属」服务端过滤/计数。
 // 未归属口径（#402 决策 1 逐 WU 解析 + #405 AC）：无 reqId 且 pmoId 归因戳
-// （canonical metadata.pmoId ‖ legacy ownershipProjectId，parseWuPmoId 解析）为 null。
+// （metadata.pmoId，parseWuPmoId 解析）为 null。
 // 计数能力复用分页响应 total（过滤后计数），不单开 count 端点。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
@@ -13,12 +13,11 @@ describe('WorkUnitService.list attributed 过滤（#428）', () => {
   let tmpDir: string;
   let service: WorkUnitService;
 
-  // 夹具：A/B 未归属；C 有 reqId；D 有 canonical 戳；E 有 legacy 戳
+  // 夹具：A/B 未归属；C 有 reqId；D 有 pmoId 戳
   let orphanPendingId: string;
   let orphanDoneId: string;
   let withReqId: string;
   let withPmoStampId: string;
-  let withLegacyStampId: string;
 
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-unattr-test-'));
@@ -28,10 +27,6 @@ describe('WorkUnitService.list attributed 过滤（#428）', () => {
     orphanDoneId = (await service.create({ scope: 'orphan done', status: 'done' })).id;
     withReqId = (await service.create({ scope: 'with req', reqId: 'REQ-428-A' })).id;
     withPmoStampId = (await service.create({ scope: 'with pmo stamp', metadata: { pmoId: 'PMO-1' } })).id;
-    withLegacyStampId = (await service.create({
-      scope: 'with legacy stamp',
-      metadata: { ownershipProjectId: 'PMO-9' },
-    })).id;
   });
 
   afterAll(() => {
@@ -46,7 +41,6 @@ describe('WorkUnitService.list attributed 过滤（#428）', () => {
     expect(ids).toContain(orphanDoneId);
     expect(ids).not.toContain(withReqId);
     expect(ids).not.toContain(withPmoStampId);
-    expect(ids).not.toContain(withLegacyStampId); // legacy 同位名戳视为已归属
   });
 
   it('total 是过滤后全量计数，非当前页数量', async () => {
@@ -62,7 +56,6 @@ describe('WorkUnitService.list attributed 过滤（#428）', () => {
 
     expect(ids).toContain(withReqId);
     expect(ids).toContain(withPmoStampId);
-    expect(ids).toContain(withLegacyStampId);
     expect(ids).not.toContain(orphanPendingId);
     expect(ids).not.toContain(orphanDoneId);
   });
@@ -71,7 +64,7 @@ describe('WorkUnitService.list attributed 过滤（#428）', () => {
     const result = await service.list({});
     const ids = result.data.map(w => w.id);
 
-    for (const id of [orphanPendingId, orphanDoneId, withReqId, withPmoStampId, withLegacyStampId]) {
+    for (const id of [orphanPendingId, orphanDoneId, withReqId, withPmoStampId]) {
       expect(ids).toContain(id);
     }
   });

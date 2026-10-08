@@ -4,7 +4,7 @@
  *
  * 归属口径（#402 逐 WU 并集，2026-08-31 起）：每个 WU 独立解析归属——
  * reqId 解析到已绑定项目的 REQ 则归该项目（显式业务关联权威），否则按创建期
- * 归因戳归属（metadata.pmoId ‖ deprecated legacy ownershipProjectId 同级，pmoId 优先——
+ * 归因戳归属（metadata.pmoId——
  * analysis 派生链的 task WU 无 reqId，仅戳溯源；parser 见 requirements/wu-pmo-attribution.ts）；
  * 两者皆无 = 未归属，不进任何项目台账。单 WU 只归一个项目（reqId 优先，不双计），
  * REQ 链命中不再丢弃同项目的戳归属 WU。
@@ -28,7 +28,7 @@ import type { DeliveryLeg } from './project.service.js';
  * @deprecated 兼容别名（progress-rollup 及其测试沿用旧名）：parser 已迁至
  * requirements/wu-pmo-attribution.ts（零依赖叶子——本模块不能传递依赖
  * pmo-branch-resolver → project.service → workunit.service，会成循环）。
- * 2026-08 归因统一后口径放宽为 pmoId ‖ legacy ownershipProjectId 同级（pmoId 优先）。
+ * 2026-08 归因统一后口径 = pmoId 创建期戳。
  * P2-c：从直接赋值改为调用期转发——直接赋值在模块初始化期解引用跨模块绑定，
  * barrel 收口后 requirements↔pmo 环的初始化序下会拿到 undefined（TDZ 崩溃）。
  */

@@ -26,9 +26,9 @@ afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 describe('resolveEvolutionPaths', () => {
   it('honours explicit overrides', () => {
-    const p = resolveEvolutionPaths({ repoRoot: '/x', eventsDir: '/x/events' });
+    const p = resolveEvolutionPaths({ repoRoot: '/x', rolesDir: '/x/roles' });
     expect(p.repoRoot).toBe('/x');
-    expect(p.eventsDir).toBe('/x/events');
+    expect(p.rolesDir).toBe('/x/roles');
   });
 
   it('derives harness paths from repoRoot by default', () => {
@@ -40,8 +40,7 @@ describe('resolveEvolutionPaths', () => {
 describe('loadWindowSignals', () => {
   it('loads only events inside the window and tolerates missing files', async () => {
     const now = Date.now();
-    const paths = resolveEvolutionPaths({ repoRoot: tmp, eventsDir: path.join(tmp, 'events') });
-    fs.mkdirSync(paths.eventsDir, { recursive: true });
+    const paths = resolveEvolutionPaths({ repoRoot: tmp });
     // #646：constraint traces 读取走 harness readProjectTraces(repoRoot)（固定 .harness/logs/traces.log）
     const traceFile = path.join(tmp, '.harness', 'logs', 'traces.log');
     fs.mkdirSync(path.dirname(traceFile), { recursive: true });
@@ -74,7 +73,6 @@ describe('loadWindowSignals', () => {
   it('returns empty signals when files are absent', async () => {
     const paths = resolveEvolutionPaths({
       repoRoot: tmp,
-      eventsDir: path.join(tmp, 'none'),
       studioEventsFile: path.join(tmp, 'none', 'studio-events.jsonl'),
     });
     const sig = await loadWindowSignals(paths, 24);
@@ -87,7 +85,7 @@ describe('loadWindowSignals', () => {
     // #329 原断言 = spy fileStore.readJsonl 只读一次；#335 起改走窗口读口，
     // 同一断言迁移到 readStudioEventsSince 调用计数（见顶部 vi.mock 包装）。
     const now = Date.now();
-    const paths = resolveEvolutionPaths({ repoRoot: tmp, eventsDir: path.join(tmp, 'events') });
+    const paths = resolveEvolutionPaths({ repoRoot: tmp });
     fs.mkdirSync(path.dirname(paths.studioEventsFile), { recursive: true });
     fs.writeFileSync(paths.studioEventsFile, [
       JSON.stringify({ type: 'tool:call', timestamp: now - 1000, tool: 'Read', success: true }),

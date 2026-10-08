@@ -65,8 +65,7 @@ beforeAll(async () => {
     fileStore,
     paths: resolveEvolutionPaths({
       repoRoot: tmpDir,
-      eventsDir: path.join(tmpDir, 'events'),
-      studioEventsFile: path.join(tmpDir, 'studio-events.jsonl'),
+        studioEventsFile: path.join(tmpDir, 'studio-events.jsonl'),
     }),
     postCard: false,
   });

@@ -64,11 +64,10 @@ describe('selectProjectSnapshots', () => {
     expect(selectProjectSnapshots('proj-2', [...reqs], [conflicting]).map(x => x.id)).toEqual([conflicting.id]);
   });
 
-  it('#402 reqId 指向未绑定 REQ（projectId null）→ 回落 pmoId 戳（legacy 同位名同容错）', () => {
+  it('#402 reqId 指向未绑定 REQ（projectId null）→ 回落 pmoId 戳', () => {
     const orphan = wu({ reqId: 'REQ-3', metadataObj: { pmoId: 'proj-1' } });
-    const legacy = wu({ reqId: 'REQ-3', metadataObj: { ownershipProjectId: 'proj-1' } });
     const reqs = [{ id: 'REQ-3', projectId: null }];
-    expect(selectProjectSnapshots('proj-1', reqs, [orphan, legacy]).map(x => x.id)).toEqual([orphan.id, legacy.id]);
+    expect(selectProjectSnapshots('proj-1', reqs, [orphan]).map(x => x.id)).toEqual([orphan.id]);
   });
 
   it('两种口径都无命中 → 空', () => {

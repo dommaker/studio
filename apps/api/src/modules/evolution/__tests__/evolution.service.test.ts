@@ -35,7 +35,7 @@ beforeEach(async () => {
   fileStore = new FileStore(path.join(hoistedHome.dir, '.studio', 'data'));
   service = new EvolutionService({
     fileStore,
-    paths: resolveEvolutionPaths({ repoRoot: hoistedHome.dir, eventsDir: path.join(hoistedHome.dir, 'events') }),
+    paths: resolveEvolutionPaths({ repoRoot: hoistedHome.dir }),
     postCard: false,
   });
   // 造一个待审提案

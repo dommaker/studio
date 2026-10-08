@@ -62,7 +62,7 @@ export class WorkUnitQueryService extends WorkUnitCrudService {
       snapshots = snapshots.filter(s => s.timeoutAt && new Date(s.timeoutAt).getTime() <= cutoff);
     }
     if (attributed !== undefined) {
-      // #428：已归属 = 有 reqId 或归因戳（canonical pmoId ‖ legacy ownershipProjectId）非 null
+      // #428：已归属 = 有 reqId 或归因戳（pmoId）非 null
       snapshots = snapshots.filter(s => (!!s.reqId || parseWuPmoId(s.metadata) !== null) === attributed);
     }
     if (projectId) {

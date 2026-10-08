@@ -5,8 +5,8 @@
  *   - channels/message-routing.ts（@mention 派发，ownership 解析出 PMO 项目时）
  *   - pmo/project.service.ts / pmo/analysis-handoff.ts（PMO 派生链 task WU，连同 pmoNumber）
  *
- * `ownershipProjectId` 是 2026-08 前 message-routing 写入的 deprecated legacy 同位名，
- * 读取侧与 pmoId 同级兼容（pmoId 优先）；生产存量为零，仅为滚动升级读兼容保留。
+ * 2026-08 前的 legacy 同位名 `ownershipProjectId` 读兼容已随架构精简刀6 删除
+ * （生产存量实测为零）。
  *
  * 本模块是零 app 依赖的叶子：pmo/evidence-summary.ts 需要同步内存解析同一口径，
  * 但它不能传递依赖 pmo-branch-resolver（→ pmo/project.service → workunit.service
@@ -14,17 +14,13 @@
  */
 
 /**
- * metadata.pmoId（canonical）→ metadata.ownershipProjectId（legacy 同位）容错解析。
- * 纯同步、纯内存；坏 JSON / 非字符串 / 空串 → null。
+ * metadata.pmoId 解析。纯同步、纯内存；坏 JSON / 非字符串 / 空串 → null。
  */
 export function parseWuPmoId(metadata: string | null | undefined): string | null {
   if (!metadata) return null;
   try {
-    const meta = JSON.parse(metadata) as { pmoId?: unknown; ownershipProjectId?: unknown };
-    if (typeof meta.pmoId === 'string' && meta.pmoId) return meta.pmoId;
-    return typeof meta.ownershipProjectId === 'string' && meta.ownershipProjectId
-      ? meta.ownershipProjectId
-      : null;
+    const meta = JSON.parse(metadata) as { pmoId?: unknown };
+    return typeof meta.pmoId === 'string' && meta.pmoId ? meta.pmoId : null;
   } catch {
     return null;
   }

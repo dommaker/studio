@@ -24,10 +24,9 @@ import {
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
-/** 事件字段拉平：StudioEvent（payload 嵌套）与历史扁平事件（字段在顶层）统一为平面对象 */
+/** 事件 payload 解包（唯一写入方 = session-summary-generator 的 payload 嵌套形态） */
 function flattenEvent(e: Record<string, unknown>): Record<string, any> {
-  const { payload: _p, ...top } = e;
-  return { ...(parseStudioEventPayload(e) ?? {}), ...top };
+  return parseStudioEventPayload(e) ?? {};
 }
 
 /**
@@ -137,7 +136,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       '',
     ];
 
-    // 1. Session summary（D18：读统一事件文件；兼容 payload 嵌套与历史扁平形态；#335 窗口读）
+    // 1. Session summary（D18：读统一事件文件；#335 窗口读）
     try {
       const sinceMs = since.getTime();
       const allEvents = await readStudioEventsSince({ sinceMs });
@@ -145,17 +144,16 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
         .filter(e => e.type === 'session:summary' && getStudioEventTime(e) >= sinceMs)
         .map(flattenEvent);
       if (sessions.length > 0) {
-        // 字段兼容：外部扁平写入方（turnCount/durationMin/tool）vs
-        // session-summary-generator（eventCount/durationMs/toolsUsed/patternType）
-        const turnOf = (s: any) => s.turnCount ?? s.eventCount ?? 0;
+        // 字段口径 = session-summary-generator（eventCount/durationMs/toolsUsed/patternType）
+        const turnOf = (s: any) => s.eventCount ?? 0;
         const totalTurns = sessions.reduce((sum: number, s: any) => sum + turnOf(s), 0);
         const deepCount = sessions.filter((s: any) => s.deepAnalysis).length;
         const captureRate = deepCount > 0
           ? Math.round((sessions.filter((s: any) => s.knowledgeCaptured).length / deepCount) * 100)
           : 0;
-        const tools = [...new Set(sessions.map((s: any) => s.tool || s.patternType || 'unknown'))];
+        const tools = [...new Set(sessions.map((s: any) => s.patternType || 'unknown'))];
         const totalMin = sessions.reduce((sum: number, s: any) =>
-          sum + (s.durationMin ?? (typeof s.durationMs === 'number' ? Math.round(s.durationMs / 60000) : 0)), 0);
+          sum + (typeof s.durationMs === 'number' ? Math.round(s.durationMs / 60000) : 0), 0);
 
         lines.push('### 会话活动');
         lines.push(`- 会话: ${sessions.length} 次 | 总 turn: ${totalTurns} | 总时长: ${totalMin}min`);

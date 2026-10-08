@@ -103,7 +103,6 @@ export interface WorkUnitMetadata {
   // #110（T4，#106 子票）：decision 单与探路地图 fog 条目的关联戳（T6 开图机制建单时落档；
   // pmo/decision-resolution 订阅器按 metadata.pmoId 找 PMO、按 fogId 定位 map.fog[] 条目）
   fogId?: string;
-  ownershipProjectId?: string; // @deprecated legacy 同位名（原 B3a 审计字段），仅读兼容——wu-pmo-attribution 同级回退读；新写入一律用 pmoId
   // #109（T3，#106 子票）：接单规则机制化——依赖与验收标准
   blockedBy?: string[];       // 阻塞本 WU 的 WU id 列表（可跨 PMO）；任一未了结（非 done/closed）→ unassigned 对所有 loop 不可见（wu-dependencies.ts 判定；agent-loop observe 过滤 + 列表 claimable 标记消费）
   ac?: string[];              // 验收标准（验收闸对照用；机制只存不解释）

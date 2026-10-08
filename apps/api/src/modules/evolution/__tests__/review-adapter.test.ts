@@ -67,7 +67,6 @@ beforeEach(async () => {
   process.env.STUDIO_PROMPT_OVERRIDES_DIR = path.join(tmpDir, 'prompt-overrides');
   paths = resolveEvolutionPaths({
     repoRoot: tmpDir,
-    eventsDir: path.join(tmpDir, 'events'),
     studioEventsFile: path.join(tmpDir, 'studio-events.jsonl'),
   });
   // 构造即注册 kind='evolution' adapter（绑定本实例的 fileStore/decide）

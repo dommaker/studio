@@ -200,8 +200,8 @@ export class WorkUnitCrudService {
   }
 
   /**
-   * #402 归因传播：带 parentId 的建单，显式 metadata 未带归因戳（pmoId ‖ legacy
-   * ownershipProjectId 同级）时从父 WU 继承，legacy 归一为 canonical pmoId。
+   * #402 归因传播：带 parentId 的建单，显式 metadata 未带归因戳（pmoId）时
+   * 从父 WU 继承。
    * 创建期一次性落档语义不变——只在建单瞬间补齐可推导归属，此后不再改写；
    * 显式传入优先，父缺失/无戳则不动（无归属 WU 合法存在，不伪造）。
    */

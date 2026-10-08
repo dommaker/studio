@@ -25,7 +25,8 @@ const SYSTEM_CHANNEL_NAME = '#系统';
  *
  * D18：读取统一事件文件（~/.studio/logs/studio-events.jsonl，测试期隔离）中的
  * session:summary 事件，聚合最近 24h 的行为信号，产出入门级洞察。
- * 兼容 payload 嵌套（session-summary-generator）与历史扁平形态。
+ * 唯一写入方 = session-summary-generator（payload 嵌套形态）；历史扁平形态读兼容
+ * 已随架构精简刀6 删除（窗口仅 24h，旧形态事件不可能在窗内）。
  * 不自动进化约束 — 行为约束的执行机制（Claude Code hooks）与代码约束（harness check）不同。
  */
 export async function analyzeSessionTrends(since: Date): Promise<string[]> {
@@ -35,8 +36,7 @@ export async function analyzeSessionTrends(since: Date): Promise<string[]> {
     const rows = await readStudioEventsSince({ sinceMs });
     for (const row of rows) {
       if (row.type !== 'session:summary' || getStudioEventTime(row) < sinceMs) continue;
-      const { payload: _p, ...top } = row;
-      events.push({ ...(parseStudioEventPayload(row) ?? {}), ...top });
+      events.push(parseStudioEventPayload(row) ?? {});
     }
   } catch { return []; }
 
@@ -53,8 +53,7 @@ export async function analyzeSessionTrends(since: Date): Promise<string[]> {
 
   for (const evt of events) {
     totalSessions++;
-    // 字段兼容：扁平形态 turnCount vs generator 形态 eventCount
-    const turns = evt.turnCount ?? evt.eventCount ?? 0;
+    const turns = evt.eventCount ?? 0;
     if (evt.deepAnalysis) deepAnalysisCount++;
     if (evt.deepAnalysis && !evt.knowledgeCaptured) missingCaptureCount++;
     if (evt.sensitiveOpsCount > 0) sensitiveOpsSessions++;
