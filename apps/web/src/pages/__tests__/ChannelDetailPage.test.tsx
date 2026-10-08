@@ -32,8 +32,8 @@ vi.mock('../../api/requirements', () => ({
 
 // #242：live 状态条的 SSE 事件源（onEvent 注册回调，用例手工驱动）；
 // 决策 9：onReconnect 注册口（重连一次性 refetch，用例手工驱动）
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect }),
 }));
 
 // 左栏/右抽屉/顶栏控件：保留接口，隔离其内部 API 依赖

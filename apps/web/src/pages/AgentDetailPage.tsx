@@ -19,7 +19,7 @@ import { RoleSkillsModal } from '../components/monitoring/RoleSkillsModal';
 import { RoleFormModal } from '../components/monitoring/RoleFormModal';
 import { ConfirmDialog, BackButton, SkeletonCard } from '../components/ui';
 import { IconCheck } from '../components/ui/icons';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
 import { useRosterStore } from '../stores/rosterStore';
 import { useRosterStoreSync } from '../hooks/useRosterStoreSync';
 import { useAsyncData } from '../hooks/useAsyncData';
@@ -108,7 +108,7 @@ export function AgentDetailPage() {
 
   // #318：workunit.status_changed 就地更新历史行 + 命中本实例防抖重拉历史区；
   // agent.instance.status_changed 与当前卡状态面已由 store 统一处理，本页不再重复订阅
-  const { onEvent, onReconnect } = useWebSocketContext();
+  const { onEvent, onReconnect } = useSseContext();
 
   // SSE 重连：store 数据面对齐由 useRosterStoreSync 负责（强制 ensureFresh）；
   // 历史任务窗口是页面私有面，断线期间的 status_changed 无事件语义，重连时重拉对齐（ADR D3）

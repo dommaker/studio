@@ -32,7 +32,7 @@ vi.mock('../../hooks/useChannelEvents', () => ({
 
 vi.mock('../../api/workunit', () => ({ workunitApi: { list: mockListWorkunits } }));
 vi.mock('../../api/requirements', () => ({ requirementApi: { list: mockListReqs } }));
-vi.mock('../../api/websocketHooks', () => ({ useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }) }));
+vi.mock('../../api/sseHooks', () => ({ useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }) }));
 
 // 渲染探针：agent 正文走 MarkdownBody——消息项重渲则计数必增
 vi.mock('../../components/knowledge/MarkdownBody', () => ({

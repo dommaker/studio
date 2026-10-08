@@ -1,5 +1,5 @@
 /**
- * WebSocketProvider — 单一 SSE 连接不变量（2026-08 旧 realtime 链路清理）
+ * SseProvider — 单一 SSE 连接不变量（2026-08 旧 realtime 链路清理）
  * 应用根部有且仅有一个 EventSource（/events/stream），事件统一经 context.onEvent 分发
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -33,14 +33,14 @@ class FakeEventSource {
 
 vi.stubGlobal('EventSource', FakeEventSource);
 
-import { WebSocketProvider } from '../websocket';
-import { useWebSocketContext } from '../websocketHooks';
+import { SseProvider } from '../sse';
+import { useSseContext } from '../sseHooks';
 import { useAuthStore } from '../../stores/authStore';
 
-let ctx: ReturnType<typeof useWebSocketContext> | null = null;
+let ctx: ReturnType<typeof useSseContext> | null = null;
 
 function Probe() {
-  const c = useWebSocketContext();
+  const c = useSseContext();
   useEffect(() => {
     ctx = c;
   });
@@ -49,9 +49,9 @@ function Probe() {
 
 function renderProvider() {
   return render(
-    <WebSocketProvider>
+    <SseProvider>
       <Probe />
-    </WebSocketProvider>
+    </SseProvider>
   );
 }
 
@@ -60,7 +60,7 @@ beforeEach(() => {
   ctx = null;
 });
 
-describe('WebSocketProvider — 单连接不变量', () => {
+describe('SseProvider — 单连接不变量', () => {
   it('挂载时只建立一个 EventSource，指向 /events/stream', () => {
     renderProvider();
     expect(FakeEventSource.instances).toHaveLength(1);

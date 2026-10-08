@@ -74,9 +74,9 @@ vi.mock('../../api/monitoring', () => ({
   monitoringApi: { getAgentSummary: mockAgentSummary, getAgentInstance: mockGetAgentInstance },
 }));
 
-// SSE context — 测试无 WebSocketProvider，置空（ExecutionFlow 经此订阅步事件/重连）
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
+// SSE context — 测试无 SseProvider，置空（ExecutionFlow 经此订阅步事件/重连）
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
 
 // #545：gateWriter 的 store 双写落点在模块级测试单点覆盖；本文件 stub 掉两个 store，

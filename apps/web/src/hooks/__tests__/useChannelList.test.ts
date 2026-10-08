@@ -12,8 +12,8 @@ vi.mock('../../api', () => ({
   api: { get: mockGet, post: mockPost },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent }),
 }));
 
 import { useChannelList } from '../useChannelList';

@@ -9,8 +9,8 @@ const { mockOnEvent, mockList } = vi.hoisted(() => ({
   mockList: vi.fn(),
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent }),
 }));
 
 vi.mock('../../api/workunit', () => ({

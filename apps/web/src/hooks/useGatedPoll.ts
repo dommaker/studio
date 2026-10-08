@@ -5,10 +5,10 @@
 // intervalMs <= 0 = 完全停用（#549：只接 SSE + 重连对齐的 store 不加轮询兜底，
 // 挂载首拉/回 visible 补拉一并跳过——取数时机全由 SSE 路由与重连强刷承担）。
 import { useEffect, useRef, useState } from 'react';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
 
 export function useGatedPoll(fetch: () => void | Promise<void>, intervalMs: number) {
-  const { status } = useWebSocketContext();
+  const { status } = useSseContext();
   const fetchRef = useRef(fetch);
   useEffect(() => {
     fetchRef.current = fetch;

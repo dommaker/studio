@@ -16,7 +16,7 @@ import {
 import { deriveDisplayState, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { SkeletonText } from '../ui';
 import { IconX } from '../ui/icons';
-import { useWebSocketContext } from '../../api/websocketHooks';
+import { useSseContext } from '../../api/sseHooks';
 import { useWorkUnitStreamEvents } from '../../hooks/useWorkUnitStreamEvents';
 import { formatShortTime } from '../../utils/datetime';
 import { parseWuMeta } from '../../utils/wuMeta';
@@ -77,7 +77,7 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
   const [steps, setSteps] = useState<ExecutionStepEvent[] | null>(null);
   // #318：workunit.execution.step SSE 负载直更（对齐批 3 模式）——步结束事件负载就地 append，
   // 替代 eventTick 防抖整组重拉；SSE 重连经 onReconnect 一次性 refetch 对齐（ADR D3：refetch 不回放）
-  const { onEvent, onReconnect } = useWebSocketContext();
+  const { onEvent, onReconnect } = useSseContext();
   const [refreshTick, setRefreshTick] = useState(0);
   // 首拉（steps===null）期间到达的步事件暂存，首拉落位时并入——落盘先于 SSE，但首拉可能在途漏收
   const pendingRef = useRef<ExecutionStepEvent[]>([]);

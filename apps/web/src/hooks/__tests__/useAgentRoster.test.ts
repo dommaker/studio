@@ -14,8 +14,8 @@ const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, m
   mockCtx: { status: 'disconnected' as string },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
 }));
 
 vi.mock('../../api/monitoring', () => ({

@@ -87,8 +87,8 @@ vi.mock('../../../api/transcript', () => ({
 
 // SSE context — 抽屉直接订阅 workunit.status_changed / workunit.tokens（决策 8），用例手工驱动事件；
 // onReconnect 置空（#318 后内嵌 ExecutionSteps 经此注册重连对齐）
-vi.mock('../../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }),
+vi.mock('../../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }),
 }));
 
 // Layer B 步内流式 hook — 由用例控制返回的实时 chunk

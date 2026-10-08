@@ -10,8 +10,8 @@ const { mockOnEvent, mockOnReconnect, mockCtx } = vi.hoisted(() => ({
   mockCtx: { status: 'disconnected' as string },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect, status: mockCtx.status }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect, status: mockCtx.status }),
 }));
 
 import { useDataPlaneSync, type DataPlaneSyncOptions } from '../useDataPlaneSync';

@@ -34,8 +34,8 @@ vi.mock('../stores/rosterStore', () => {
 });
 
 // 壳组件与 provider 与本测试无关，全部透传/置空
-vi.mock('../api/websocket', () => ({
-  WebSocketProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+vi.mock('../api/sse', () => ({
+  SseProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 // #412：chain 数据面接线依赖真实 SSE context（passthrough provider 不提供），本测试只测路由，替身掉
 vi.mock('../hooks/useRequirementChainStoreSync', () => ({

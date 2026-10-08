@@ -55,9 +55,9 @@ vi.mock('../../api', async () => {
   return { ...actual, api: { ...actual.api, get: mockApiGet } };
 });
 
-// SSE：测试无 WebSocketProvider，onEvent 由用例接管
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
+// SSE：测试无 SseProvider，onEvent 由用例接管
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent }),
 }));
 
 // D-2 项7：页面懒加载的 WorkUnitDrawer 打桩——本组用例只验「开抽屉」接线，不验抽屉内部（其自有测试）

@@ -14,7 +14,7 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
 import { useNotificationStore, type Notification, type StateItem } from '../stores/notificationStore';
 import { showBrowserNotification, requestBrowserNotificationPermission } from '../utils/browserNotification';
 import { toast } from '../utils/toast';
@@ -48,7 +48,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   // D-2 项2：review/confirm 就地抽屉状态（本组件自挂 drawer 实例，全站任意页可开）
   const [drawer, setDrawer] = useState<DrawerState>(null);
-  const { onEvent, onReconnect } = useWebSocketContext();
+  const { onEvent, onReconnect } = useSseContext();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 

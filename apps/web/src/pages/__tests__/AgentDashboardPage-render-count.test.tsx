@@ -42,9 +42,9 @@ vi.mock('../../api/workunit', async () => {
   return { ...actual, workunitApi: { list: mockWuList, get: mockWuGet } };
 });
 
-// SSE：测试无 WebSocketProvider，onEvent 由用例接管
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
+// SSE：测试无 SseProvider，onEvent 由用例接管
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent }),
 }));
 
 import { AgentDashboardPage } from '../../pages/AgentDashboardPage';

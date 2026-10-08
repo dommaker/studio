@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ChannelMessage } from '../../api/channel';
-import type { WebSocketMessage } from '../../api/websocketHooks';
+import type { SseMessage } from '../../api/sseHooks';
 
 const { mockListMessages, mockSendMessage, mockOnEvent } = vi.hoisted(() => ({
   mockListMessages: vi.fn(),
@@ -16,8 +16,8 @@ vi.mock('../../api/channel', () => ({
   channelApi: { listMessages: mockListMessages, sendMessage: mockSendMessage },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: 'connected' }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, status: 'connected' }),
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
@@ -132,8 +132,8 @@ describe('useChannelMessages 降级/水合', () => {
   });
 
   it('legacy message_updated patch 命中骨架 → 带 content 才复活并清 degraded 标记', async () => {
-    let handler: (m: WebSocketMessage) => void = () => {};
-    mockOnEvent.mockImplementation((h: (m: WebSocketMessage) => void) => { handler = h; return () => {}; });
+    let handler: (m: SseMessage) => void = () => {};
+    mockOnEvent.mockImplementation((h: (m: SseMessage) => void) => { handler = h; return () => {}; });
     const list = batch(10);
     const result = await renderLoaded(list);
     act(() => result.current.syncPruning('m8'));
@@ -150,8 +150,8 @@ describe('useChannelMessages 降级/水合', () => {
   });
 
   it('legacy patch 只带 meta 不带 content → 骨架不假复活（空正文不应渲染为全量行）', async () => {
-    let handler: (m: WebSocketMessage) => void = () => {};
-    mockOnEvent.mockImplementation((h: (m: WebSocketMessage) => void) => { handler = h; return () => {}; });
+    let handler: (m: SseMessage) => void = () => {};
+    mockOnEvent.mockImplementation((h: (m: SseMessage) => void) => { handler = h; return () => {}; });
     const result = await renderLoaded(batch(10));
     act(() => result.current.syncPruning('m8'));
     act(() => handler({

@@ -4,7 +4,7 @@
 // StudioEventItem/EventSearchResult）删除改 contract import；响应统一 `{ data }`
 // 壳（原平铺），消费方解包 res.data → res.data.data。EventSearchParams 为请求侧
 // 参数类型（非 wire 响应），保留本地。SSE /events/stream 不在契约范围，事件流
-// payload 仍走本地解析器（见 websocketHooks）。
+// payload 仍走本地解析器（见 sseHooks）。
 import type {
   StudioEventLevel,
   StudioEventItem,

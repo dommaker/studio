@@ -21,7 +21,7 @@ import { maintenanceApi } from '../api/maintenance';
 import { toast } from '../utils/toast';
 import { serverErrorMessage } from '../utils/errorMessage';
 import { useAsyncData } from '../hooks/useAsyncData';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
 import { Select, ManualTaskButton, Button, SkeletonCard } from '../components/ui';
 import { IconBook } from '../components/ui/icons';
 import {
@@ -111,7 +111,7 @@ export function KnowledgePage() {
   // 载荷只带轻量元信息（action/entryId/title），不足以就地拼七种 tab 形状 → reload（保留旧数据重拉）。
   // 400ms trailing 防抖合并批量事件（review-adapter 逐条目审批会发一串）；
   // 页面不可见时不拉（零额外开销，useGatedPoll 精神），记脏待回 visible 补拉一次。无轮询。
-  const { onEvent } = useWebSocketContext();
+  const { onEvent } = useSseContext();
   const sseDirtyRef = useRef(false);
   const sseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reloadTab = tabQ.reload; // 引用稳定（useAsyncData 内 useCallback）

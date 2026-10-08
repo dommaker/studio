@@ -4,7 +4,7 @@
 // 挂载即打底三 slice（wus/reqs TTL 门禁 + suggestions 即时），重连全 slice 强刷（useDataPlaneSync 承担）。
 // 更新逻辑唯一一份在 store action；本 hook 只做事件路由与活跃频道登记。
 import { useEffect } from 'react';
-import { type WebSocketMessage } from '../api/websocketHooks';
+import { type SseMessage } from '../api/sseHooks';
 import { parseRequirementPayload } from '../stores/channelWorkStore';
 import {
   useChannelWorkStore,
@@ -17,7 +17,7 @@ import type { WorkunitEventPayload, WorkunitRemovedPayload, ChannelMessageSentPa
 // 活跃频道登记（模块级）：页面级单消费方（ref-count=1），handleEvent/ensureFresh 引用稳定靠它取当前频道
 let activeChannelId: string | null = null;
 
-function handleChannelWorkEvent(msg: WebSocketMessage) {
+function handleChannelWorkEvent(msg: SseMessage) {
   const id = activeChannelId;
   if (!id) return;
   const store = useChannelWorkStore.getState();

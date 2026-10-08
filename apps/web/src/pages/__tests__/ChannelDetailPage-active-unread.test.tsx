@@ -38,8 +38,8 @@ vi.mock('../../api/requirements', () => ({
   requirementApi: { list: mockListReqs, get: vi.fn() },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect }),
 }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({

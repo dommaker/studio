@@ -5,7 +5,7 @@
 // 取数时机（useGatedPoll/频道切换重拉）与 SSE 订阅路由；对外契约形状不变。
 import { useEffect, useCallback, useRef } from 'react';
 import { type ChannelMessage, type FileRef, type SendIntent } from '../api/channel';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
 import { useGatedPoll } from './useGatedPoll';
 import { useChannelMessageStore } from '../stores/channelMessageStore';
 // #665：channel.message_sent/updated 负载类型 = studio-contract 同源
@@ -21,7 +21,7 @@ export interface UseChannelMessagesOptions {
 }
 
 export function useChannelMessages(channelId: string | undefined, options?: UseChannelMessagesOptions) {
-  const { onEvent } = useWebSocketContext();
+  const { onEvent } = useSseContext();
   const slice = useChannelMessageStore(s => (channelId ? s.channels[channelId] : undefined));
   // 缺键 = 首拉进行中：loading 初值 !!channelId（对齐收编前 useState 初值语义）；
   // 切换频道旧切片数据保留到新数据到达，不做清空（per-channelId 切片天然承载）

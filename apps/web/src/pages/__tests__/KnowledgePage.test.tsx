@@ -14,8 +14,8 @@ const { mockListUnified, mockCreateUnifiedEntry, mockPromote, mockDemote, mockSe
   mockOnEvent: vi.fn((_h: unknown) => () => {}),
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {}, status: 'connected' }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {}, status: 'connected' }),
 }));
 
 vi.mock('../../api/knowledge', () => ({

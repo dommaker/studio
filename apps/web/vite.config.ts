@@ -11,11 +11,6 @@ const apiProxy = {
     target: `http://localhost:${DEV_API_PORT}`,
     changeOrigin: true,
   },
-  '/ws': {
-    target: `http://localhost:${DEV_API_PORT}`,
-    changeOrigin: true,
-    ws: true,  // WebSocket 代理
-  },
   '/health': {
     target: `http://localhost:${DEV_API_PORT}`,
     changeOrigin: true,

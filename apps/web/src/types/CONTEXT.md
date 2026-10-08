@@ -14,7 +14,7 @@ api 层需要时经 `export type { X } from '../types/...'` re-export，消费�
 | 导出 | 文件 | 说明 |
 |------|------|------|
 | `ChannelMessage` | `channel.ts` | 频道消息 = 契约 wire 形状 + 客户端本地标记（#326 degraded 骨架降级 / #486 pending 乐观回显，服务端不下发） |
-| `WebSocketMessage` / `WebSocketStatus` | `websocket.ts` | SSE `/events/stream` 事件信封 = 契约 `SseEventEnvelope` 别名 re-export（#665 契约同源，本地声明清零）/ 连接状态词表（纯 UI 词表，非契约） |
+| `SseMessage` / `SseStatus` | `sse.ts` | SSE `/events/stream` 事件信封 = 契约 `SseEventEnvelope` 别名 re-export（#665 契约同源，本地声明清零）/ 连接状态词表（纯 UI 词表，非契约） |
 
 ### 注意事项
 

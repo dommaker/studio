@@ -8,7 +8,7 @@ import { useMessageLocate } from '../hooks/useMessageLocate';
 import { useMessageNav } from '../hooks/useMessageNav';
 import { useActivityMessageItems } from '../hooks/useActivityMessageItems';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelMessageEnvProvider, type ChannelMessageEnv } from '../components/channel/ChannelMessageEnv';
 import { ConvertToTaskDialog } from '../components/channel/ConvertToTaskDialog';
@@ -122,7 +122,7 @@ export function ChannelDetailPage() {
   // 单源选择器（notificationStore 旁纯函数），本页退回订阅并渲染，口径变更只落选择器一处
   // F2（2026-09-16 性能体检）：订阅经 useNeedInputView——投影内容等值复用旧引用，
   // 他频道 status_changed 触发的 stateItems 整体替换不掀动本频道下游派生
-  const { onEvent, onReconnect } = useWebSocketContext();
+  const { onEvent, onReconnect } = useSseContext();
   const needInput = useNeedInputView(id);
   const { waitingWus, promotedQuestionIds, isWaitingForInput } = needInput;
 

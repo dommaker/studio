@@ -11,8 +11,8 @@ const { mockOnEvent, mockOnReconnect, mockGetChain } = vi.hoisted(() => ({
   mockGetChain: vi.fn(),
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect, status: 'disconnected' }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect, status: 'disconnected' }),
 }));
 vi.mock('../useGatedPoll', () => ({ useGatedPoll: () => {} }));
 vi.mock('../../api/requirements', () => ({

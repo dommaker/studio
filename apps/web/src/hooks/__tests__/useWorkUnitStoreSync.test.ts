@@ -15,8 +15,8 @@ const { mockOnEvent, mockOnReconnect, mockWuList } = vi.hoisted(() => ({
   mockWuList: vi.fn(),
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect, status: 'connected' }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect, status: 'connected' }),
 }));
 vi.mock('../../api/workunit', () => ({
   workunitApi: { list: mockWuList },

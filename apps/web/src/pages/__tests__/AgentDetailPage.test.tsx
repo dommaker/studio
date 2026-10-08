@@ -20,7 +20,7 @@ const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mo
   mockListManifest: vi.fn(),
   // #630：资料卡编辑弹框（RoleFormModal）的 provider 候选走 useDetectedProviders → api.get
   mockApiGet: vi.fn(),
-  // SSE 注册口捕获（#318：页面与内嵌 ExecutionSteps 都经 useWebSocketContext 订阅，广播全体）
+  // SSE 注册口捕获（#318：页面与内嵌 ExecutionSteps 都经 useSseContext 订阅，广播全体）
   sse: {
     handlers: [] as Array<(msg: { event_type: string; data: unknown }) => void>,
     reconnects: [] as Array<() => void>,
@@ -55,12 +55,12 @@ vi.mock('../../api/workunit', async () => {
   };
 });
 
-// SSE：测试无 WebSocketProvider，Layer B 步内流式置空；useWebSocketContext 捕获订阅回调供用例广播
+// SSE：测试无 SseProvider，Layer B 步内流式置空；useSseContext 捕获订阅回调供用例广播
 vi.mock('../../hooks/useWorkUnitStreamEvents', () => ({
   useWorkUnitStreamEvents: () => [],
 }));
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({
     onEvent: (fn: (msg: { event_type: string; data: unknown }) => void) => {
       sse.handlers.push(fn);
       return () => { sse.handlers = sse.handlers.filter(h => h !== fn); };

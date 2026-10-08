@@ -10,8 +10,8 @@ vi.mock('../../../api/workunit', async (importOriginal) => {
   return { ...actual, workunitApi: { ...actual.workunitApi, listExecutionStepEvents: mockListSteps } };
 });
 
-vi.mock('../../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
+vi.mock('../../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
 
 import { ExecutionFlow } from '../ExecutionFlow';

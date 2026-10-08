@@ -1,5 +1,5 @@
-// SSE 客户端 hooks — 从 websocket.tsx 拆出（类型 / useWebSocket / context / useWebSocketContext），
-// 使 websocket.tsx 只保留 WebSocketProvider 组件导出
+// SSE 客户端 hooks — 从 sse.tsx 拆出（类型 / useSse / context / useSseContext），
+// 使 sse.tsx 只保留 SseProvider 组件导出
 import { useState, useRef, useEffect, createContext, useContext, useCallback } from 'react';
 import { useAuthStore } from '../stores/authStore';
 
@@ -15,14 +15,14 @@ function buildSseUrl(): string {
   return token ? `${base}/events/stream?token=${encodeURIComponent(token)}` : `${base}/events/stream`;
 }
 
-// WebSocketMessage/WebSocketStatus：P3-a 迁至 src/types/websocket.ts（api 层不声明导出类型），
+// SseMessage/SseStatus：P3-a 迁至 src/types/sse.ts（api 层不声明导出类型），
 // 此处仅 re-export，消费方 import 路径不变。
-import type { WebSocketMessage, WebSocketStatus } from '../types/websocket';
-export type { WebSocketMessage, WebSocketStatus };
+import type { SseMessage, SseStatus } from '../types/sse';
+export type { SseMessage, SseStatus };
 
 interface UseSSEOptions {
   url?: string;
-  onMessage?: (message: WebSocketMessage) => void;
+  onMessage?: (message: SseMessage) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
   onError?: (error: Event) => void;
@@ -33,7 +33,7 @@ interface UseSSEOptions {
   maxReconnectAttempts?: number;
 }
 
-export function useWebSocket(options: UseSSEOptions = {}) {
+export function useSse(options: UseSSEOptions = {}) {
   const {
     onMessage,
     onConnect,
@@ -45,7 +45,7 @@ export function useWebSocket(options: UseSSEOptions = {}) {
     maxReconnectAttempts = 5,
   } = options;
 
-  const [status, setStatus] = useState<WebSocketStatus>('disconnected');
+  const [status, setStatus] = useState<SseStatus>('disconnected');
   const esRef = useRef<EventSource | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -83,7 +83,7 @@ export function useWebSocket(options: UseSSEOptions = {}) {
 
     es.onmessage = (event) => {
       try {
-        const message: WebSocketMessage = JSON.parse(event.data);
+        const message: SseMessage = JSON.parse(event.data);
         callbacksRef.current.onMessage?.(message);
       } catch {
         // SSE heartbeat comments are not JSON, skip silently
@@ -115,20 +115,20 @@ export function useWebSocket(options: UseSSEOptions = {}) {
 
 // ── React Context ──
 
-interface WebSocketContextValue {
-  status: WebSocketStatus;
+interface SseContextValue {
+  status: SseStatus;
   disconnect: () => void;
   connect: () => void;
   /** B2: 注册 SSE 事件监听器，返回取消注册函数 */
-  onEvent: (handler: (msg: WebSocketMessage) => void) => () => void;
+  onEvent: (handler: (msg: SseMessage) => void) => () => void;
   /** 决策 9：注册 SSE 断线重连监听器（首次连接不触发），返回取消注册函数 */
   onReconnect: (handler: () => void) => () => void;
 }
 
-export const WebSocketContext = createContext<WebSocketContextValue | null>(null);
+export const SseContext = createContext<SseContextValue | null>(null);
 
-export function useWebSocketContext() {
-  const ctx = useContext(WebSocketContext);
-  if (!ctx) throw new Error('useWebSocketContext must be used within WebSocketProvider');
+export function useSseContext() {
+  const ctx = useContext(SseContext);
+  if (!ctx) throw new Error('useSseContext must be used within SseProvider');
   return ctx;
 }

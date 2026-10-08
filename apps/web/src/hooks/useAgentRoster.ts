@@ -14,7 +14,7 @@ import {
   formatExecutionStreamChunkText,
   type WorkUnit,
 } from '../api/workunit';
-import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';
+import { useSseContext, type SseMessage } from '../api/sseHooks';
 import {
   useRosterStore,
   ROSTER_POLL_INTERVAL_MS,
@@ -72,7 +72,7 @@ export function useAgentRoster(): UseAgentRosterResult {
   const loadedAt = useRosterStore((s) => s.loadedAt);
   const forbidden = useRosterStore((s) => s.forbidden);
   const storeError = useRosterStore((s) => s.error);
-  const { onEvent } = useWebSocketContext();
+  const { onEvent } = useSseContext();
 
   const [lastDone, setLastDone] = useState<Record<string, WorkUnit | null>>({});
   // terminate 等动作失败单独记（数据面错误在 store.error）；store 错误优先展示
@@ -149,7 +149,7 @@ export function useAgentRoster(): UseAgentRosterResult {
     const appendActivity = (roleId: string, item: RosterActivityItem) =>
       useRosterActivityStore.getState().appendActivity(roleId, item);
 
-    const unsub = onEvent((msg: WebSocketMessage) => {
+    const unsub = onEvent((msg: SseMessage) => {
       if (msg.event_type === 'workunit.execution.step') {
         const d = (msg.data ?? {}) as Record<string, unknown>;
         if (typeof d.workUnitId !== 'string') return;

@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ChannelMessage } from '../../api/channel';
-import type { WebSocketMessage } from '../../api/websocketHooks';
+import type { SseMessage } from '../../api/sseHooks';
 
 const { mockListMessages, mockSendMessage, mockOnEvent, mockCtx } = vi.hoisted(() => ({
   mockListMessages: vi.fn(),
@@ -18,8 +18,8 @@ vi.mock('../../api/channel', () => ({
   channelApi: { listMessages: mockListMessages, sendMessage: mockSendMessage },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
@@ -43,7 +43,7 @@ function msg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessage {
   };
 }
 
-function sseMessage(message: ChannelMessage): WebSocketMessage {
+function sseMessage(message: ChannelMessage): SseMessage {
   return {
     event_id: `ev-${message.id}`,
     event_type: 'channel.message_sent',
@@ -53,14 +53,14 @@ function sseMessage(message: ChannelMessage): WebSocketMessage {
 }
 
 describe('useChannelMessages', () => {
-  let handler: (msg: WebSocketMessage) => void;
+  let handler: (msg: SseMessage) => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
     seq = 0;
     useChannelMessageStore.getState().__resetForTests();
     mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
-    mockOnEvent.mockImplementation((h: (msg: WebSocketMessage) => void) => {
+    mockOnEvent.mockImplementation((h: (msg: SseMessage) => void) => {
       handler = h;
       return () => {};
     });
@@ -135,7 +135,7 @@ describe('useChannelMessages', () => {
 
   // #315（ADR 2026-08-24 D1/D2）：消费端迁移读全量 message 本体，旧形状回退增量 patch
   describe('channel.message_updated', () => {
-    function sseUpdate(data: Record<string, unknown>): WebSocketMessage {
+    function sseUpdate(data: Record<string, unknown>): SseMessage {
       return { event_id: 'ev-upd', event_type: 'channel.message_updated', timestamp: iso(99), data };
     }
 

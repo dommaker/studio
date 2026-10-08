@@ -33,7 +33,7 @@ import { TopNav } from './components/TopNav';
 import { Sidebar } from './components/SidebarNew';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
-import { WebSocketProvider } from './api/websocket';
+import { SseProvider } from './api/sse';
 import { useRosterStore } from './stores/rosterStore';
 import { useRequirementChainStoreSync } from './hooks/useRequirementChainStoreSync';
 import { useWorkUnitStoreSync } from './hooks/useWorkUnitStoreSync';
@@ -46,7 +46,7 @@ import { isStudioRoleSetupDismissed, isFirstRoleSetupDismissed } from './compone
 import { isSystemRole } from './utils/systemRole';
 import './styles/theme.css';
 
-// #412：REQ chain 数据面 SSE 接线（App 级单点、零渲染；useWebSocketContext 依赖 Provider，故置于 Provider 内）
+// #412：REQ chain 数据面 SSE 接线（App 级单点、零渲染；useSseContext 依赖 Provider，故置于 Provider 内）
 function RequirementChainSync() {
   useRequirementChainStoreSync();
   return null;
@@ -128,18 +128,18 @@ export default function App() {
   if (isGuest) {
     return (
       <ThemeProvider>
-        <WebSocketProvider>
+        <SseProvider>
           <LandingPage />
-        </WebSocketProvider>
+        </SseProvider>
       </ThemeProvider>
     );
   }
 
   return (
     <ThemeProvider>
-    <WebSocketProvider>
+    <SseProvider>
     <div className="h-screen flex flex-col u-page-bg">
-      {/* #412：REQ chain 数据面 SSE 接线（App 级单点，hook 需 WebSocketProvider 上下文） */}
+      {/* #412：REQ chain 数据面 SSE 接线（App 级单点，hook 需 SseProvider 上下文） */}
       <RequirementChainSync />
       {/* #456：PMO 数据面接线（App 级单点） */}
       <PmoDataSync />
@@ -221,7 +221,7 @@ export default function App() {
       </div>
 
     </div>
-    </WebSocketProvider>
+    </SseProvider>
     </ThemeProvider>
   );
 }

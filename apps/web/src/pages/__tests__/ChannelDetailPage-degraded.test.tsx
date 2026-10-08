@@ -23,8 +23,8 @@ vi.mock('../../hooks/useChannelEvents', () => ({
 
 vi.mock('../../api/workunit', () => ({ workunitApi: { list: vi.fn().mockResolvedValue({ data: { data: [] } }) } }));
 vi.mock('../../api/requirements', () => ({ requirementApi: { list: vi.fn().mockResolvedValue({ data: { data: [] } }), get: vi.fn() } }));
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: vi.fn(() => () => {}), onReconnect: vi.fn(() => () => {}) }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: vi.fn(() => () => {}), onReconnect: vi.fn(() => () => {}) }),
 }));
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => <div /> }));
 vi.mock('../../components/channel/WorkUnitDrawer', () => ({ WorkUnitDrawer: () => null }));

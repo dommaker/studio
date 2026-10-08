@@ -10,7 +10,7 @@
 //   - workunit.status_changed：仅作终态 step 条目清理（防内存残留，不限频道）
 // 展示模型推导 = execution-rows.deriveLiveExecutions（#240 推导层复用）。
 import { useEffect, useMemo, useState } from 'react';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
 import { useChannelWorkStore } from '../stores/channelWorkStore';
 import {
   deriveLiveExecutions,
@@ -20,7 +20,7 @@ import {
 } from '../components/workunit/execution-rows';
 
 export function useChannelLiveExecutions(channelId: string | null): LiveExecution[] {
-  const { onEvent } = useWebSocketContext();
+  const { onEvent } = useSseContext();
   const wus = useChannelWorkStore(s => (channelId ? s.wus[channelId] : undefined));
   const [steps, setSteps] = useState<Record<string, { step: number; action?: string }>>({});
 

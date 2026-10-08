@@ -14,7 +14,7 @@ import { useWorkUnitStore } from '../../stores/workunitStore';
 import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { channelApi, type AgentProfile } from '../../api/channel';
-import { useWebSocketContext } from '../../api/websocketHooks';
+import { useSseContext } from '../../api/sseHooks';
 import { ExecutionSteps } from '../workunit/ExecutionSteps';
 import { SkeletonText } from '../ui';
 import { BlockedActions } from '../workunit/BlockedActions';
@@ -154,7 +154,7 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, autoDirection =
   // E2-1：ReviewHint 自列表展开区挪入——频道成员（in_review 时判断是否有人可认领评审）；
   // null = 未拉到（含 best-effort 失败）→ 不渲染提醒（空数组会误报「无人可认领」）
   const [channelMembers, setChannelMembers] = useState<AgentProfile[] | null>(null);
-  const { onEvent } = useWebSocketContext();
+  const { onEvent } = useSseContext();
 
   // 渲染期按 id 重置本地切片（替代原 effect 内同步重置）：SSE 事件触发的更新不重置，
   // 消除每次事件都闪"加载中…"的骨架闪烁——事件刷新静默进行，旧数据留到新数据到达；
