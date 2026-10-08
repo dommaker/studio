@@ -1,0 +1,8 @@
+{
+  "comment": "perf 回归门阈值正本（#678，原 #673 硬编码默认值原位落盘）：gate.ts 默认读本文件，CLI 参数优先于本文件。口径见 lib/report.ts compareReports——相对恶化 > thresholdPct% 且绝对增量 > minDeltaMs 记回归；coldStart 秒级量级单独地板（按中位数对比）。调阈值 = 改本文件，commit message 说明理由。",
+  "thresholds": {
+    "thresholdPct": 20,
+    "minDeltaMs": 5,
+    "coldStartMinDeltaMs": 1000
+  }
+}

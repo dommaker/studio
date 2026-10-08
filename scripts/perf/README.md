@@ -16,12 +16,17 @@ node node_modules/tsx/dist/cli.mjs scripts/perf/compare.ts a.json b.json  # 任�
 pnpm perf:bundle                             # 前端 bundle 预算门（#674，前置：已 pnpm build）
 pnpm perf:lcp                                # 已认证主应用 LCP 测量（#674，前置：已 pnpm build:web + 本机 playwright chromium）
 pnpm perf:lcp -- --runs 5 --out lcp.json     # 轮数/输出可调
+# 事件循环阻塞监控 preload（#678，NODE_OPTIONS --import 须绝对路径；采样窗口/阈值用 EL_MONITOR_INTERVAL_MS / EL_MONITOR_THRESHOLD_MS 调）：
+NODE_OPTIONS="--import $PWD/scripts/perf/el-monitor.mjs" node node_modules/tsx/dist/cli.mjs apps/api/src/index.ts
 ```
 
 ## 回归门
 
 - 判定：相对恶化 **严格大于 20%** 且绝对增量 > 5ms（异机/毫秒级噪声地板）记回归；
   baseline 有而本次未测的端点、出现非 2xx 状态码同样判红。
+- 阈值正本 `gate-thresholds.json`（#678，bundle-budget.json 同风格）——调阈值 = 改配置
+  文件（commit message 说明理由），不改代码；`--threshold` 等 CLI 参数优先于配置文件，
+  配置缺失/文件不存在回落 compareReports 内置默认值（20% / 5ms / 1000ms）。
 - 接线：`.github/workflows/perf-gate.yml`（每周 schedule + workflow_dispatch，
   不进日常 CI）；ship 前本地跑 `pnpm perf:gate` 同口径。
 - 基线重锚：`baseline.json` 数字锚定参考机（见文件 meta.note）。换参考机或架构
@@ -46,6 +51,8 @@ pnpm perf:lcp -- --runs 5 --out lcp.json     # 轮数/输出可调
 | `bench.ts` | 测量主程序（CLI + `runBench()` 供 gate 复用） |
 | `compare.ts` | 两份报告对比 CLI |
 | `gate.ts` | bench + compare baseline.json 一把梭 |
+| `gate-thresholds.json` | 回归门阈值正本（#678：thresholdPct / minDeltaMs / coldStartMinDeltaMs） |
+| `el-monitor.mjs` | 事件循环阻塞监控 preload（#678，原 #675 诊断工具固化；NODE_OPTIONS --import 用） |
 | `bundle-budget.ts` | bundle 预算门 CLI（#674） |
 | `bundle-budget.json` | bundle 预算正本（阈值 + 基线测量 commit，#674） |
 | `lcp.ts` | 已认证主应用 LCP 测量 CLI（#674：隔离 API + 注册用户 + vite preview + chromium + web-vitals） |

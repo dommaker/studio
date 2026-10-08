@@ -149,7 +149,7 @@ listen 前移复盘发现四处同源/伴生根因并修复（计划 docs/plans/
 §2 的手工方法论已固化为 `scripts/perf/`（计划 docs/plans/2026-10-perf-bench-automation.md）：
 
 - **`pnpm perf:bench`**：一条命令复现本文同口径测量——隔离 `STUDIO_HOME=$(mktemp -d)`、随机空闲端口、`STUDIO_AUTH=none`、tsx 直跑（与 §2 启动命令同形态）；冷启动 3 轮（/health 首次 200）+ 读 8 端点 + 写 2 端点（各 3 warmup + 50 串行，p50/p95/max）+ SSE 20 轮（真实业务事件链）。markdown 报告上 stdout，JSON 落盘供对比。`--seed N` 先经 API 预置 N 条 workunit 再测（数据量画像）。
-- **回归门 `pnpm perf:gate`**：bench + 对比 `scripts/perf/baseline.json`（冻结参考值 = §6.2/§7/§7.1，commit ff546ba9）。判定：相对恶化 >20% 且超绝对噪声地板（端点/SSE 5ms；冷启动按**中位数**对比、地板 1s——run1 含首启 seed/迁移，单轮噪声大，逐轮对比会被击穿）记回归；baseline 有而本次未测的端点、出现非 2xx 同样判红。
+- **回归门 `pnpm perf:gate`**：bench + 对比 `scripts/perf/baseline.json`（冻结参考值 = §6.2/§7/§7.1，commit ff546ba9）。判定：相对恶化 >20% 且超绝对噪声地板（端点/SSE 5ms；冷启动按**中位数**对比、地板 1s——run1 含首启 seed/迁移，单轮噪声大，逐轮对比会被击穿）记回归；baseline 有而本次未测的端点、出现非 2xx 同样判红。阈值正本 `scripts/perf/gate-thresholds.json`（#678，调阈值改配置不改代码，CLI 参数优先）。
 - **接线**：`.github/workflows/perf-gate.yml`（每周 schedule + workflow_dispatch，**不进日常 CI**——票规「以不拖慢日常 CI 为准」二选一决策；ship 前置在 studio-config 仓，不在本仓接线，ship 前本地跑同一 `pnpm perf:gate` 即可）。换参考机/架构大版本后按 `scripts/perf/README.md`「基线重锚」流程重测 baseline.json。
 - **本机坑（后续测量者须知）**：本机 earlyoom `--avoid` 名单只含 `node` comm，`npm exec`/`npx` 壳不在名单内，内存紧张时 bench 的 npm 壳会被优先 SIGTERM（本次实测连击两次）。scripts/perf 一律 `node node_modules/tsx/dist/cli.mjs` 直跑，无 npm 壳。
 
