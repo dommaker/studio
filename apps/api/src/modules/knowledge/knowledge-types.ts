@@ -13,7 +13,6 @@ import type {
   KnowledgeStore,
   KnowledgeIngest,
   KnowledgeLifecycle,
-  KnowledgeLinter,
   MaturityLevel,
   KnowledgeSubsystem,
   KnowledgeOrigin,
@@ -150,7 +149,6 @@ export interface KnowledgeServiceDeps {
   store: KnowledgeStore;
   lifecycle: KnowledgeLifecycle;
   ingest: KnowledgeIngest;
-  linter: KnowledgeLinter;
   query: any;  // UnifiedQuery
   eventEmitter: any; // EventEmitter
 }

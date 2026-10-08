@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@dommaker/harness':
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^3.0.0
+        version: 3.0.0
       ajv:
         specifier: ^8.12.0
         version: 8.20.0
@@ -115,8 +115,8 @@ importers:
   apps/api:
     dependencies:
       '@dommaker/harness':
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^3.0.0
+        version: 3.0.0
       '@dommaker/studio-agent':
         specifier: workspace:*
         version: link:../../packages/studio-agent
@@ -339,8 +339,8 @@ importers:
   packages/studio-agent:
     dependencies:
       '@dommaker/harness':
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^3.0.0
+        version: 3.0.0
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -412,8 +412,8 @@ importers:
   packages/studio-shared:
     dependencies:
       '@dommaker/harness':
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^3.0.0
+        version: 3.0.0
     devDependencies:
       '@types/node':
         specifier: 20.0.0
@@ -441,8 +441,8 @@ importers:
   packages/studio-spec:
     dependencies:
       '@dommaker/harness':
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^3.0.0
+        version: 3.0.0
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -595,8 +595,8 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dommaker/harness@2.0.0':
-    resolution: {integrity: sha512-gelwT/pzclNswEulmfc2mHV7dTnPTQ5NR7jywJTmi7ZY+Ot6EpHoGN0SCCbUG5OQ8fbr5pxgZYLHa+Z1Ua7lfw==}
+  '@dommaker/harness@3.0.0':
+    resolution: {integrity: sha512-HA7gVSPzRiMf23JM0T2O6pS42HWBcpQMJQdFjwGumkHiKn7HPtnnq0B1SUl/1daFeDON/bnvl9e2O+RgdvSqzQ==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -3552,7 +3552,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dommaker/harness@2.0.0':
+  '@dommaker/harness@3.0.0':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0

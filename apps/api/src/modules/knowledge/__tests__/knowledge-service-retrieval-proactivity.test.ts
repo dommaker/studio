@@ -42,7 +42,6 @@ function createMockStore(initialEntries: any[] = []) {
 function createMockLifecycle() {
   return {
     recordReference: vi.fn(),
-    shouldAutoPromote: vi.fn(() => false),
   };
 }
 
@@ -57,10 +56,6 @@ function createMockIngest() {
       },
     })),
   };
-}
-
-function createMockLinter() {
-  return { validateEntry: vi.fn(() => []) };
 }
 
 function createMockQuery() {
@@ -80,7 +75,6 @@ function createKS(opts?: { entries?: any[] }) {
   const store = createMockStore(opts?.entries);
   const lifecycle = createMockLifecycle();
   const ingest = createMockIngest();
-  const linter = createMockLinter();
   const query = createMockQuery();
   const eventEmitter = createMockEventEmitter();
 
@@ -88,7 +82,6 @@ function createKS(opts?: { entries?: any[] }) {
     store: store as any,
     lifecycle: lifecycle as any,
     ingest: ingest as any,
-    linter: linter as any,
     query: query as any,
     eventEmitter: eventEmitter as any,
   });

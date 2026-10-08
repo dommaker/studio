@@ -8,7 +8,7 @@ import * as path from 'path';
 const {
   tmpWorktrees, tmpRepo, mockLoadavg, mockCpus, mockExecSync, mockExec,
   mockReadDiskUsage, mockReadMemoryUsage, mockCountZombies,
-  mockLogger, mockHandleAlert, mockEmitEvent, mockHealthScore,
+  mockLogger, mockHandleAlert, mockEmitEvent, mockAuditRun,
   mockRunDecayCycle, mockTryPromote, mockStoreList, mockRunSyncCycle, mockRunDailyMaintenance,
   mockReadStudioEventsSince,
 } = vi.hoisted(() => {
@@ -33,7 +33,7 @@ const {
     mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     mockHandleAlert: vi.fn(() => Promise.resolve()),
     mockEmitEvent: vi.fn(),
-    mockHealthScore: vi.fn(() => ({ score: 100, details: [] as any[] })),
+    mockAuditRun: vi.fn(() => ({ healthScore: { before: 100, after: 100 }, issues: [] as any[], autoFixed: 0 })),
     mockRunDecayCycle: vi.fn(() => [] as any[]),
     mockTryPromote: vi.fn((): any => null),
     mockStoreList: vi.fn(() => [] as any[]),
@@ -65,12 +65,13 @@ afterAll(() => {
 vi.mock('@dommaker/studio-shared', () => ({ stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), FileStore: class {}, logger: mockLogger }));
 
 vi.mock('@dommaker/harness', () => ({
-  KnowledgeLinter: class { run() { return { fixed: 0 }; } validateEntry() { return []; } },
-  KnowledgeHealthScorer: class { healthScore() { return mockHealthScore(); } },
-  ReferenceTracker: class {},
+  // harness 3.0.0（ADR-0041）：健康分/修复改判 KnowledgeAudit 唯一正本
+  KnowledgeAudit: class {
+    run() { return mockAuditRun(); }
+  },
 }));
 
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(),
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedIngest: vi.fn(),
   sharedStore: { list: mockStoreList },
   sharedLifecycle: { tryPromote: mockTryPromote, runDecayCycle: mockRunDecayCycle },
 }));
@@ -222,7 +223,7 @@ describe('systemTriageCheck confirm window', () => {
 
 describe('checkKnowledgeHealth', () => {
   it('score < 60 escalates to Triage + emits monitor:alert, and runs daily decay cycle', async () => {
-    mockHealthScore.mockReturnValue({ score: 50, details: ['d1'] });
+    mockAuditRun.mockReturnValue({ healthScore: { before: 50, after: 50 }, issues: ['d1'], autoFixed: 0 });
     const state = { lastDecayRun: 0, lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
@@ -263,7 +264,7 @@ describe('checkKnowledgeHealth', () => {
   });
 
   it('score ≥ 60 does not escalate; decay cycle skipped when ran < 24h ago', async () => {
-    mockHealthScore.mockReturnValue({ score: 90, details: [] });
+    mockAuditRun.mockReturnValue({ healthScore: { before: 90, after: 90 }, issues: [], autoFixed: 0 });
     const state = { lastDecayRun: Date.now(), lastPromotionRun: Date.now() };
 
     await checkKnowledgeHealth(state);

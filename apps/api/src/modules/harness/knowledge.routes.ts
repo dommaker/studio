@@ -141,7 +141,8 @@ knowledgeRoutes.delete('/knowledge/:id', defineRoute(
 
 /**
  * POST /api/v1/harness/knowledge/lint
- * Run knowledge linter
+ * 知识库全量健康扫描（harness 3.0.0：KnowledgeLinter 随 ADR-0041 出清，
+ * 检查面收口为 KnowledgeAudit 唯一正本——audit 规则命中清单）
  */
 knowledgeRoutes.post('/knowledge/lint', defineRoute({}, async () => {
   const loaded = await loadHarness();
@@ -150,9 +151,7 @@ knowledgeRoutes.post('/knowledge/lint', defineRoute({}, async () => {
   const store = await getKnowledgeStore();
   if (!store) throw HARNESS_UNAVAILABLE();
 
-  const tracker = new harnessModule!.ReferenceTracker(store);
-  const linter = new harnessModule!.KnowledgeLinter(store, tracker);
-  const report = linter.run();
+  const report = new harnessModule!.KnowledgeAudit(store).run();
   const issues = report.issues;
 
   return { issues, total: issues.length };

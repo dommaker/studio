@@ -72,9 +72,9 @@ describe('宽声明实体', () => {
   it('ConstraintResult 项 / 生效约束 passthrough 放行 harness 侧扩展字段', () => {
     const item = constraintResultItemSchema.parse({ id: 'c1', satisfied: true, message: 'm', skipped: true, skipReason: 'r' });
     expect((item as Record<string, unknown>).skipped).toBe(true);
-    const c = harnessConstraintSchema.parse({ id: 'c1', kind: 'check', severity: 'error', extra: 1 });
+    const c = harnessConstraintSchema.parse({ id: 'c1', severity: 'error', extra: 1 });
     expect((c as Record<string, unknown>).extra).toBe(1);
-    expect(() => harnessConstraintSchema.parse({ kind: 'check', severity: 'error' })).toThrow();
+    expect(() => harnessConstraintSchema.parse({ severity: 'error' })).toThrow();
   });
 });
 
@@ -137,7 +137,7 @@ describe('响应壳', () => {
   });
 
   it('stats/retired/rollback/propose-upgrade 形状', () => {
-    expect(constraintStatsResultSchema.parse({ total: 1, byKind: { check: 1 }, bySeverity: { error: 1 } }).total).toBe(1);
+    expect(constraintStatsResultSchema.parse({ total: 1, bySeverity: { error: 1 } }).total).toBe(1);
     expect(retiredConstraintListResultSchema.parse({
       retired: [{ id: 'c1', enabled: false, source: 'config', retired: { at: 't' } }], total: 1,
     }).total).toBe(1);

@@ -63,7 +63,6 @@ vi.mock('../knowledge-singletons.js', () => ({
   sharedLifecycle: {},
   sharedIngest: {},
   sharedQuery: {},
-  sharedLinter: {},
   scheduleVectorDbSync: mockScheduleVectorDbSync,
   ingestWithQualityGate: vi.fn(),
   UNIFIED_KNOWLEDGE_DIR: '/tmp/unused',
@@ -86,7 +85,7 @@ function createMockStore(initialEntries: any[] = []) {
 }
 
 function createMockLifecycle() {
-  return { recordReference: vi.fn(), shouldAutoPromote: vi.fn(() => false) };
+  return { recordReference: vi.fn() };
 }
 
 function createMockIngest() {
@@ -102,11 +101,9 @@ function createMockIngest() {
         contributors: ['test'],
       },
     })),
+    // harness 3.0.0：摄入前校验保种落点 = KnowledgeIngest.validateEntry（原 linter 通道出清）
+    validateEntry: vi.fn(() => [] as Array<{ severity: string; description: string; suggestion: string }>),
   };
-}
-
-function createMockLinter() {
-  return { validateEntry: vi.fn(() => []) };
 }
 
 function createMockQuery() {
@@ -122,7 +119,6 @@ function createKS(opts?: { entries?: any[] }) {
   const store = createMockStore(opts?.entries);
   const lifecycle = createMockLifecycle();
   const ingest = createMockIngest();
-  const linter = createMockLinter();
   const query = createMockQuery();
   const eventEmitter = { emit: vi.fn() };
 
@@ -130,12 +126,11 @@ function createKS(opts?: { entries?: any[] }) {
     store: store as any,
     lifecycle: lifecycle as any,
     ingest: ingest as any,
-    linter: linter as any,
     query: query as any,
     eventEmitter: eventEmitter as any,
   });
 
-  return { ks, store, lifecycle, ingest, linter, query, eventEmitter };
+  return { ks, store, lifecycle, ingest, query, eventEmitter };
 }
 
 const MESSAGES = [
@@ -271,16 +266,17 @@ describe('R3: extractFromConversation', () => {
     expect(ingest.ingestEntry.mock.calls[0][0].title).toBe('session 过期未刷新导致 401');
   });
 
-  it('linter 高严重度阻断 → 跳过该条', async () => {
+  it('ingest 摄入前校验高严重度阻断 → 跳过该条（harness 3.0.0：原 linter 通道改走 ingest.validateEntry）', async () => {
     mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: [] },
       ],
     }));
-    const { ks, ingest, linter } = createKS();
-    linter.validateEntry.mockReturnValue([{ severity: 'high', description: 'too vague', type: 'quality' }]);
+    const { ks, ingest } = createKS();
+    ingest.validateEntry.mockReturnValue([{ severity: 'high', description: 'too vague', suggestion: '收窄标题' }]);
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' });
+    expect(ingest.validateEntry).toHaveBeenCalledTimes(1);
     expect(ingest.ingestEntry).not.toHaveBeenCalled();
   });
 

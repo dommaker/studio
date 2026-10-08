@@ -39,8 +39,8 @@ vi.mock('../../evolution/applier.js', async (importOriginal) => {
 vi.mock('@dommaker/harness', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/harness')>();
   const store = [
-    { id: 'c-safe', kind: 'check', severity: 'error', rule: 'R1', message: 'm1', trigger: 'code_implementation', enforcement: 'test' },
-    { id: 'c-quality', kind: 'check', severity: 'warning', rule: 'R2', message: 'm2', trigger: 'code_implementation', enforcement: 'custom' },
+    { id: 'c-safe', severity: 'error', rule: 'R1', message: 'm1', trigger: 'code_implementation', enforcement: 'test' },
+    { id: 'c-quality', severity: 'warning', rule: 'R2', message: 'm2', trigger: 'code_implementation', enforcement: 'custom' },
   ];
   return {
     ...actual,
@@ -126,21 +126,21 @@ afterAll(async () => {
 });
 
 describe('constraints.routes', () => {
-  it('GET /constraints lists effective set with kind', async () => {
+  it('GET /constraints lists effective set (harness 3.0.0: kind 出清，投影不再带该字段)', async () => {
     const res = await api('GET', '/constraints');
     expect(res.status).toBe(200);
     // 列表壳内层 data 键改名词键 constraints（批次 6/7）
     expect(res.json.data.total).toBe(2);
     expect(res.json.data.constraints.map((c: any) => c.id).sort()).toEqual(['c-quality', 'c-safe']);
-    expect(res.json.data.constraints[0]).toHaveProperty('kind');
+    expect(res.json.data.constraints[0]).not.toHaveProperty('kind');
+    expect(res.json.data.constraints[0]).toHaveProperty('severity');
   });
 
-  it('GET /constraints/stats aggregates by kind/severity (not shadowed by /:id)', async () => {
+  it('GET /constraints/stats aggregates by severity (not shadowed by /:id)', async () => {
     const res = await api('GET', '/constraints/stats');
     expect(res.status).toBe(200);
     expect(res.json.data).toEqual({
       total: 2,
-      byKind: { check: 2 },
       bySeverity: { error: 1, warning: 1 },
     });
   });

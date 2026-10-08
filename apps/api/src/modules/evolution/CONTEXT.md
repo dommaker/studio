@@ -101,7 +101,7 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - **约束类提案落点加闸（2026-09-21 上午加闸，同日 #602 D1 裁定新落点后收窄）**：落笔前抛错闸仍对存量历史词表（message/new-entry/exception）生效（无消费端）；M3.2 后词表收敛为 retire/disable，retire 走 harness CLI（M3.3）+ 生效自动 commit 留痕（M3.5，trailer `Governance-Approved: EP-XXXX`）。
 - **disable 直写豁免（#646 评审补记，2026-09-28）**：`applyConstraintDisable` 直写 config.yml `enabled:false`（及 applyRetire 内 disable→retire 升级的摘除标记）属 harness 公共面能力缺失的豁免——harness 无 disable 子命令/库导出，已立 dommaker/harness#190，落地后切换。spawn harness CLI 一律钉 `KNOWLEDGE_BASE_DIR=UNIFIED_KNOWLEDGE_DIR`（ADR-0034，retire 路径原有纪律，#646 rollback 同此）。
 - `loadWindowSignals` 对统一事件文件（studioEventsFile）整个窗口扫描只读一次，toolCalls/outcomes 在内存内分两次 filter（#329，2026-08-25）；加信号类型时复用同一 `eventRows`，不要再开新 readJsonl
-- traces 信号读取（#646，2026-09-28）：constraint traces 走 harness 公共 API `readProjectTraces(repoRoot)`（缺失/坏行容错在 harness 侧），`EvolutionPaths.traceFile` 字段随之退役——traces 落点路径不再由 studio 拼，测试注入 tmp dir 用 `repoRoot` 即可（写 `<tmp>/.harness/logs/traces.log`）；`loadWindowSignals` 签名同步去掉不再使用的 fileStore 参数
+- traces 信号读取（#646，2026-09-28；harness 3.0.0/ADR-0041 起改 `readProjectTracesReport(repoRoot).traces`，兼容包装 readProjectTraces 出清）：constraint traces 走 harness 公共 API（缺失/坏行容错在 harness 侧），`EvolutionPaths.traceFile` 字段随之退役——traces 落点路径不再由 studio 拼，测试注入 tmp dir 用 `repoRoot` 即可（写 `<tmp>/.harness/logs/traces.log`）；`loadWindowSignals` 签名同步去掉不再使用的 fileStore 参数
 - 信号面无外部输入口：`loadWindowSignals` 只读三个固定文件源（traces.log + studio-events.jsonl 的 tool:call / knowledge:outcome:*），外部语义信号（如 distill 判出的「疑似过时约束」）要进飞轮须新建摄入机制，不是接线（#622 查实，2026-09-22）
 - 提案必须经人确认后才由 applier 生效，不做自动落地
 - **鉴权（2026-07-24 收紧）**：`/api/v1/evolution` 挂载级 `requireAuth()+requireAdmin()` —— approve/reject/run 直接让约束变更生效，此前仅 requireAuth。

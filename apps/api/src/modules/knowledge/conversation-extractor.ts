@@ -10,7 +10,7 @@
  * （审核闭环提案卡 #355 起归 review-adapter.ts → review-proposal 正本，本文件不再发卡。）
  */
 
-import type { KnowledgeLinter, KnowledgeIngest, KnowledgeSubsystem } from '@dommaker/harness';
+import type { KnowledgeIngest, KnowledgeSubsystem } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared';
 import { validateKnowledgeForm } from './knowledge-form-gate.js';
 import { writeTrendData } from './trend-data.js';
@@ -39,7 +39,8 @@ export function buildConversationTranscript(messages: { role: string; content: s
 
 /**
  * R3: 单条 LLM 提取结果入库（proposal）。质量门：形态门禁（数据形态重定向 trends）→
- * linter 阻断跳过。maturity 恒为 draft（proposal），
+ * ingest 摄入前校验阻断跳过（validateEntry 保种落点，harness 3.0.0 起随
+ * KnowledgeLinter 出清迁入 KnowledgeIngest）。maturity 恒为 draft（proposal），
  * 审核 promote 前不参与注入。返回入库条目 id；被门禁跳过/拒绝时返回 null。
  *
  * R1（type-repair）：type='decision' 条目补 tags ['decision', <category>] ——
@@ -49,7 +50,7 @@ export function buildConversationTranscript(messages: { role: string; content: s
  * 返回入库条目 {id,title,type}（提案卡聚合用）；被门禁跳过/拒绝时返回 null。
  */
 export function ingestConversationEntry(
-  deps: { linter: KnowledgeLinter; ingest: KnowledgeIngest },
+  deps: { ingest: KnowledgeIngest },
   raw: { type?: string; title?: string; content?: string; tags?: string[] },
   source: string,
 ): { id: string; title: string; type: string } | null {
@@ -80,11 +81,11 @@ export function ingestConversationEntry(
       return null;
     }
 
-    const issues = deps.linter.validateEntry({ title, content, tags, type });
-    const blockers = issues.filter((i: any) => i.severity === 'high');
+    const issues = deps.ingest.validateEntry({ title, content, tags, type });
+    const blockers = issues.filter((i) => i.severity === 'high');
     if (blockers.length > 0) {
       logger.warn('[KnowledgeService] Conversation entry rejected by quality gate', {
-        title: title.slice(0, 50), issues: blockers.map((i: any) => i.description),
+        title: title.slice(0, 50), issues: blockers.map((i) => i.description),
       });
       return null;
     }

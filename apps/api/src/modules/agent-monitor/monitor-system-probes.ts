@@ -18,7 +18,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger } from '@dommaker/studio-shared';
 import type { TriageIncidentInput } from '../triage/index.js';
 import { triageService } from '../triage/index.js';
-import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
+import { KnowledgeAudit } from '@dommaker/harness';
 import { sharedStore, sharedLifecycle } from '../knowledge/index.js';
 import { knowledgeSync } from '../knowledge/index.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
@@ -101,7 +101,7 @@ export async function gcStaleWorktrees(): Promise<void> {
  * P2a: Knowledge base health check + decay cycle
  * - Health score: every 5 min (Monitor cycle), escalates to Triage if < 60
  * - Promotion scan: once per 24h (#408 晋升是日/周级语义，移出 5min 循环)
- * - Decay cycle: once per 24h, runs maturity decay + linter auto-fix
+ * - Decay cycle: once per 24h, runs maturity decay + audit auto-fix
  */
 
 /**
@@ -126,11 +126,13 @@ export async function runCircuitCheckAndRepair(): Promise<void> {
 
 export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<void> {
   try {
-    const tracker = new ReferenceTracker(sharedStore);
-    const linter = new KnowledgeLinter(sharedStore, tracker);
-    const doctor = new KnowledgeHealthScorer(sharedStore, linter);
-
-    const { score, details } = doctor.healthScore();
+    // harness 3.0.0（ADR-0041）：KnowledgeHealthScorer/KnowledgeLinter/ReferenceTracker
+    // 出清，健康分改判 KnowledgeAudit 唯一正本。口径变化：原「100 − error×3 − warn×1」
+    // 内联算法 → audit 打分，数值通常下降——阈值 60 不动（门禁不降判据）。
+    const audit = new KnowledgeAudit(sharedStore);
+    const report = audit.run();
+    const score = report.healthScore.before;
+    const details = report.issues;
 
     logger.info('[MonitorService] Knowledge health score', { score, issueCount: details.length });
 
@@ -176,10 +178,11 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
       }
     }
 
-    // Daily cycle: decay + lint + LLM maintenance
+    // Daily cycle: decay + audit autoFix + LLM maintenance
     if (Date.now() - state.lastDecayRun > 24 * 60 * 60_000) {
       const decayChanges = sharedLifecycle.runDecayCycle();
-      const lintReport = linter.run(true);
+      // 原 linter.run(true) 自动修复面 → audit run(autoFix) 正本（索引重写走 store.applyAll 单次落盘）
+      const auditReport = audit.run({ autoFix: true });
       state.lastDecayRun = Date.now();
 
       // F1: KnowledgeCurator LLM-powered maintenance — B7 默认停用（见 knowledgeMaintenanceEnabled），
@@ -196,14 +199,14 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
 
       logger.info('[MonitorService] Knowledge decay cycle completed', {
         decayChanges: decayChanges.length,
-        autoFixed: lintReport.fixed,
+        autoFixed: auditReport.autoFixed,
       });
 
       if (decayChanges.length > 0) {
         emitMonitorEvent({
           type: 'monitor:info',
           source: 'knowledge_decay',
-          message: `Decay: ${decayChanges.length} entries, Auto-fixed: ${lintReport.fixed} issues`,
+          message: `Decay: ${decayChanges.length} entries, Auto-fixed: ${auditReport.autoFixed} issues`,
           timestamp: Date.now(),
         });
       }

@@ -35,7 +35,7 @@ vi.mock('../../agents/system-executor.js', () => ({
   getSystemExecutor: () => ({ runJson: mockRunJson }),
 }));
 
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(), sharedLifecycle: vi.fn(),
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedIngest: vi.fn(), sharedLifecycle: vi.fn(),
   sharedStore: { list: mockStoreList, get: mockStoreGet, update: mockStoreUpdate },
 }));
 

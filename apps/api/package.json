@@ -10,11 +10,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@dommaker/harness": "^2.0.0",
+    "@dommaker/harness": "^3.0.0",
     "@dommaker/studio-agent": "workspace:*",
     "@dommaker/studio-audit": "workspace:*",
     "@dommaker/studio-contract": "workspace:*",
-    "zod": "^3.22.0",
     "@dommaker/studio-notification": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "@dommaker/studio-skill": "workspace:*",
@@ -36,7 +35,8 @@
     "prom-client": "^15.1.3",
     "uuid": "^9.0.0",
     "ws": "^8.16.0",
-    "yaml": "^2.4.0"
+    "yaml": "^2.4.0",
+    "zod": "^3.22.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

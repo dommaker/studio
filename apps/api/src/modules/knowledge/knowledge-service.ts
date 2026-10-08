@@ -340,7 +340,6 @@ import {
   sharedStore,
   sharedLifecycle,
   sharedIngest,
-  sharedLinter,
 } from './knowledge-singletons.js';
 import { UnifiedQuery } from './engine/unified-query.js';
 
@@ -355,7 +354,6 @@ export const knowledgeService = new KnowledgeService({
   store: sharedStore,
   lifecycle: sharedLifecycle,
   ingest: sharedIngest,
-  linter: sharedLinter,
   query: new UnifiedQuery(sharedStore),
   eventEmitter: new EventEmitter(),
 });

@@ -52,7 +52,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@dommaker/harness": "^2.0.0"
+    "@dommaker/harness": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "20.0.0",

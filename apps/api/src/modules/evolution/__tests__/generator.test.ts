@@ -72,7 +72,7 @@ beforeEach(() => {
   });
 });
 
-// #646：traces 落点固定为 harness 正本（readProjectTraces 读 <repoRoot>/.harness/logs/traces.log）
+// #646：traces 落点固定为 harness 正本（readProjectTracesReport 读 <repoRoot>/.harness/logs/traces.log，3.0.0 起）
 const traceFile = (): string => path.join(tmpDir, '.harness', 'logs', 'traces.log');
 
 afterEach(() => {

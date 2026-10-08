@@ -41,7 +41,8 @@ describe('loadWindowSignals', () => {
   it('loads only events inside the window and tolerates missing files', async () => {
     const now = Date.now();
     const paths = resolveEvolutionPaths({ repoRoot: tmp });
-    // #646：constraint traces 读取走 harness readProjectTraces(repoRoot)（固定 .harness/logs/traces.log）
+    // #646：constraint traces 读取走 harness readProjectTracesReport(repoRoot).traces（固定 .harness/logs/traces.log；
+    // harness 3.0.0 兼容包装 readProjectTraces 出清）
     const traceFile = path.join(tmp, '.harness', 'logs', 'traces.log');
     fs.mkdirSync(path.dirname(traceFile), { recursive: true });
     fs.mkdirSync(path.dirname(paths.studioEventsFile), { recursive: true });

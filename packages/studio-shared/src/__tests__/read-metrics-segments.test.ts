@@ -75,7 +75,7 @@ describe('runSegmentSpan', () => {
   });
 
   it('同步 throw：事件仍发出，异常原样透传', () => {
-    expect(() => runSegmentSpan('harness', 'KnowledgeLinter.run', () => { throw new Error('sync'); })).toThrow('sync');
+    expect(() => runSegmentSpan('harness', 'KnowledgeIngest.ingestEntry', () => { throw new Error('sync'); })).toThrow('sync');
     expect(events).toHaveLength(1);
   });
 
@@ -96,14 +96,14 @@ describe('runSegmentSpan', () => {
   });
 
   it('嵌套去重：harness facade 内的 store 调用只记顶层一个事件', () => {
-    const out = runSegmentSpan('harness', 'KnowledgeLinter.run', () =>
+    const out = runSegmentSpan('harness', 'KnowledgeIngest.ingestEntry', () =>
       runSegmentSpan('harness', 'FileKnowledgeStore.list', () =>
         runSegmentSpan('harness', 'FileKnowledgeStore.readIndex', () => 'deep'),
       ),
     );
     expect(out).toBe('deep');
     expect(events).toHaveLength(1);
-    expect(events[0].name).toBe('KnowledgeLinter.run');
+    expect(events[0].name).toBe('KnowledgeIngest.ingestEntry');
   });
 
   it('顶层 span 串行复用：前一个关闭后，下一个仍记顶层', () => {

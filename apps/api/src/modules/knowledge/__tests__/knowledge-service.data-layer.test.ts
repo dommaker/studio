@@ -34,7 +34,6 @@ vi.mock('../knowledge-singletons.js', () => ({
   sharedIngest: { ingestEntry: mockIngestEntry },
   sharedLifecycle: { recordReference: vi.fn() },
   sharedQuery: { search: vi.fn() },
-  sharedLinter: { validateEntry: vi.fn().mockReturnValue([]) },
   scheduleVectorDbSync: mockScheduleSync,
   ingestWithQualityGate: vi.fn(),
   UNIFIED_KNOWLEDGE_DIR: '/tmp/unused',

@@ -635,9 +635,8 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     const actualKs = await vi.importActual<any>('../../knowledge/knowledge-service.js');
     const ks = new actualKs.KnowledgeService({
       store: { list: vi.fn(() => []), get: vi.fn(), save: vi.fn(), update: vi.fn(), delete: vi.fn() } as any,
-      lifecycle: { recordReference: vi.fn(), shouldAutoPromote: vi.fn(() => false) } as any,
+      lifecycle: { recordReference: vi.fn() } as any,
       ingest: { ingestEntry: vi.fn() } as any,
-      linter: { validateEntry: vi.fn(() => []) } as any,
       query: {
         queryEntries: vi.fn()
           .mockResolvedValueOnce(KNOWLEDGE_RULES)

@@ -28,18 +28,16 @@ vi.mock('../knowledge-singletons.js', async () => {
   const tmpDir = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'ks-wiring-'));
 
   const harness = await vi.importActual<any>('@dommaker/harness');
-  const { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeLinter, ReferenceTracker } = harness;
+  const { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery } = harness;
   // KnowledgeInjector 已收口为 studio 本地模块（harness 侧移除中），mock 与生产同款构造
   const { KnowledgeInjector } = await vi.importActual<any>('../knowledge-injector.js');
 
   const sharedStore = new FileKnowledgeStore({ baseDir: tmpDir });
-  const sharedLifecycle = new KnowledgeLifecycle(sharedStore, {
-    autoPromoteSources: ['triage', 'auditor', 'evolution', 'analyst'],
-  });
+  // harness 3.0.0：autoPromoteSources 死面出清，构造缺省配置（与生产 knowledge-singletons.ts 同款）
+  const sharedLifecycle = new KnowledgeLifecycle(sharedStore);
   const sharedIngest = new KnowledgeIngest(sharedStore);
   const sharedQuery = new KnowledgeQuery(sharedStore, sharedLifecycle);
   const sharedInjector = new KnowledgeInjector(sharedQuery);
-  const sharedLinter = new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore));
 
   return {
     UNIFIED_KNOWLEDGE_DIR: tmpDir,
@@ -48,7 +46,6 @@ vi.mock('../knowledge-singletons.js', async () => {
     sharedIngest,
     sharedQuery,
     sharedInjector,
-    sharedLinter,
     scheduleVectorDbSync: vi.fn(),
     ingestWithQualityGate: vi.fn(),
     appendKnowledgeEvent: vi.fn(),

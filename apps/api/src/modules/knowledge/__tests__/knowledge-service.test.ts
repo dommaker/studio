@@ -57,7 +57,6 @@ function createMockStore(initialEntries: any[] = []) {
 function createMockLifecycle() {
   return {
     recordReference: vi.fn(),
-    shouldAutoPromote: vi.fn(() => false),
   };
 }
 
@@ -73,12 +72,6 @@ function createMockIngest() {
         contributors: ['test'],
       },
     })),
-  };
-}
-
-function createMockLinter() {
-  return {
-    validateEntry: vi.fn(() => []), // no issues
   };
 }
 
@@ -117,7 +110,6 @@ function createKS(opts?: { entries?: any[] }) {
   const store = createMockStore(opts?.entries);
   const lifecycle = createMockLifecycle();
   const ingest = createMockIngest();
-  const linter = createMockLinter();
   const prisma = createMockPrisma();
   const query = createMockQuery();
   const eventEmitter = createMockEventEmitter();
@@ -126,13 +118,12 @@ function createKS(opts?: { entries?: any[] }) {
     store: store as any,
     lifecycle: lifecycle as any,
     ingest: ingest as any,
-    linter: linter as any,
     prisma: prisma as any,
     query: query as any,
     eventEmitter: eventEmitter as any,
   });
 
-  return { ks, store, lifecycle, ingest, linter, prisma, query, eventEmitter };
+  return { ks, store, lifecycle, ingest, prisma, query, eventEmitter };
 }
 
 // ── Produce ──
@@ -212,9 +203,8 @@ describe('KnowledgeService Phase 1A: Produce', () => {
       expect(ingest.ingestEntry).toHaveBeenCalledTimes(1);
     });
 
-    it('does not apply a separate studio linter pre-gate (single gate path, R4)', async () => {
-      const { ks, ingest, linter } = createKS();
-      linter.validateEntry.mockReturnValue([{ severity: 'high', description: 'too short', type: 'quality' }]);
+    it('applies no studio-side pre-gate — single gate path (R4; harness 3.0.0 linter 面随 ADR-0041 出清)', async () => {
+      const { ks, ingest } = createKS();
       const entry: PatternEntry = {
         type: 'review',
         title: 'Bad',
@@ -222,8 +212,8 @@ describe('KnowledgeService Phase 1A: Produce', () => {
         tags: ['test'],
       };
       await ks.recordPattern(entry);
-      // 不再有 studio 侧 linter 预检；low_quality 标记由 harness ingest 门的 flag action 负责
-      expect(linter.validateEntry).not.toHaveBeenCalled();
+      // studio 侧预检通道已不存在（KnowledgeServiceDeps 无 linter 位）；
+      // 裁决唯一归 harness ingest 门（KnowledgeAudit），low_quality 标记由 flag action 负责
       expect(ingest.ingestEntry).toHaveBeenCalledTimes(1);
     });
 

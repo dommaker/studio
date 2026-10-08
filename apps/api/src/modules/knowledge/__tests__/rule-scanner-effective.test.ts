@@ -38,9 +38,9 @@ describe('RuleScanner.scanHarnessConstraints — 生效集公共 API', () => {
 
   it('生效约束映射为 ScannedRule：name=severity:id、source 为公共包名、sourceType 不变', () => {
     mockGetEffective.mockReturnValue([
-      { id: 'no_redis_import', severity: 'error', kind: 'check', rule: 'NO REDIS', message: '禁 Redis', description: 'Redis 已迁移' },
-      { id: 'prefer_worktree', severity: 'warning', kind: 'check', rule: 'USE WORKTREE', message: '用 worktree', description: '高风险改动隔离' },
-      { id: 'be_terse', severity: 'info', kind: 'check', rule: 'BE TERSE', message: '简洁', description: '电报式输出' },
+      { id: 'no_redis_import', severity: 'error', rule: 'NO REDIS', message: '禁 Redis', description: 'Redis 已迁移' },
+      { id: 'prefer_worktree', severity: 'warning', rule: 'USE WORKTREE', message: '用 worktree', description: '高风险改动隔离' },
+      { id: 'be_terse', severity: 'info', rule: 'BE TERSE', message: '简洁', description: '电报式输出' },
     ]);
 
     const rules = (ruleScanner as any).scanHarnessConstraints() as Array<{
@@ -60,7 +60,7 @@ describe('RuleScanner.scanHarnessConstraints — 生效集公共 API', () => {
 
   it('description 缺失时按 message → rule 兜底（不产空描述）', () => {
     mockGetEffective.mockReturnValue([
-      { id: 'no_desc', severity: 'warning', kind: 'check', rule: 'RULE TEXT', message: '中文消息' },
+      { id: 'no_desc', severity: 'warning', rule: 'RULE TEXT', message: '中文消息' },
     ]);
 
     const rules = (ruleScanner as any).scanHarnessConstraints();
@@ -69,7 +69,7 @@ describe('RuleScanner.scanHarnessConstraints — 生效集公共 API', () => {
 
   it('description 与 message 均缺失时按 rule 文本兜底（不产空描述）', () => {
     mockGetEffective.mockReturnValue([
-      { id: 'only_rule', severity: 'info', kind: 'check', rule: 'RULE ONLY TEXT' },
+      { id: 'only_rule', severity: 'info', rule: 'RULE ONLY TEXT' },
     ]);
 
     const rules = (ruleScanner as any).scanHarnessConstraints();
@@ -111,7 +111,7 @@ describe('RuleScanner.scanHarnessConstraints — 生效集公共 API', () => {
 
   it('#612: 存量条目 affects 为旧角色词表 → fullScan 判 changed 自愈重写（否则旧条目永远零交集）', async () => {
     mockGetEffective.mockReturnValue([
-      { id: 'no_redis_import', severity: 'error', kind: 'check', rule: 'NO REDIS', message: '禁 Redis', description: 'Redis 已迁移' },
+      { id: 'no_redis_import', severity: 'error', rule: 'NO REDIS', message: '禁 Redis', description: 'Redis 已迁移' },
     ]);
     const now = new Date().toISOString();
     const staleEntry = {

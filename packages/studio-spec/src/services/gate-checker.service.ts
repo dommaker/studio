@@ -36,7 +36,10 @@ async function getHarnessValidator() {
     try {
       // 动态导入避免循环依赖
       const harness = await import('@dommaker/harness');
-      harnessValidator = harness.CheckpointValidator?.getInstance?.() || null;
+      // harness 3.0.0（ADR-0041）：getInstance() 单例壳出清 → 构造器直建。
+      // 原写法 CheckpointValidator?.getInstance?.() 可选链——getInstance 消失后
+      // 静默得 null、落「跳过通用检查」假绿分支且 TS 不报错；必须直建。
+      harnessValidator = harness.CheckpointValidator ? new harness.CheckpointValidator() : null;
     } catch {
       logger.warn('[GateChecker] Harness 导入失败，跳过通用检查');
       harnessValidator = null;

@@ -42,12 +42,10 @@ vi.mock('@dommaker/studio-shared', () => ({ stripTrailingSlashes: (s) => s, crea
 }));
 
 vi.mock('@dommaker/harness', () => ({
-  KnowledgeLinter: class {},
-  KnowledgeHealthScorer: class {},
-  ReferenceTracker: class {},
+  KnowledgeAudit: class { run() { return { issues: [], healthScore: { before: 100, after: 100 }, autoFixed: 0 }; } },
 }));
 
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(),
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedIngest: vi.fn(),
   sharedStore: {},
   sharedLifecycle: {},
 }));

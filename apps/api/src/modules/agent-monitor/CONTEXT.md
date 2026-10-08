@@ -8,7 +8,7 @@ Monitor Agent（P2-d 刀6 自 modules/agents/monitor 提升为顶层模块）：
 
 - `monitor.service.ts` — 门面（5min 轮询健康监控 + 渐进告警）
 - `monitor-probes.ts` — WU 级探测（失败趋势/停滞/超时/池停滞/评审停滞/僵尸认领守卫——#464 起 stale_claim_guard 命中除告警外同步向 WU 所在频道发「已沉睡」milestone 提醒；#610 起 expireTriggerPendingWorkUnits——trigger 建单 pending 超期未确认自动关闭，阈值 TRIGGER_PENDING_EXPIRY_DAYS 默认 7 天，人工建的 pending 单不受影响，decision/spec/plan 豁免）
-- `monitor-system-probes.ts` — 系统/知识级探测与自修复（#409 起 worktree GC 唯一入口 gcStaleWorktrees——7d 阈值、prune 走 execAsync、不调 git worktree remove；#611 起 checkKnowledgeHealth 日级门控含 consumption 归零告警）
+- `monitor-system-probes.ts` — 系统/知识级探测与自修复（#409 起 worktree GC 唯一入口 gcStaleWorktrees——7d 阈值、prune 走 execAsync、不调 git worktree remove；#611 起 checkKnowledgeHealth 日级门控含 consumption 归零告警；harness 3.0.0/ADR-0041 起知识健康分与自动修复改判 KnowledgeAudit 唯一正本——healthScore.before，口径由「100 − error×3 − warn×1」换 audit 打分，阈值 60 不变）
 - `monitor-alerts.ts` — 告警分发/Triage 升级（指纹冷却去重 w4h/c1h）
 - `monitor-reports.ts` — 轨迹评估/每日洞察/交互观察
 - `monitor-lifecycle.ts` — 知识沉淀闸门+每日 TTL 清理（#653 起 studio-events.jsonl 清理已删——事件保留执法归 studio-events-rotation 单口）

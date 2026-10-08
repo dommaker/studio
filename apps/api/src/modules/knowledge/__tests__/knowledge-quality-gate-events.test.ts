@@ -32,9 +32,6 @@ vi.mock('@dommaker/studio-shared', () => ({
 }));
 
 vi.mock('@dommaker/harness', () => {
-  class KnowledgeLinter {
-    validateEntry = vi.fn().mockReturnValue([]);
-  }
   class KnowledgeIngest {
     ingestEntry = mockIngestEntry;
   }
@@ -43,11 +40,10 @@ vi.mock('@dommaker/harness', () => {
   }
   class KnowledgeLifecycle {}
   class KnowledgeQuery {}
-  class ReferenceTracker {}
   // 本地 knowledge-injector.ts 从包根 import estimateTokens / EXTERNAL_SOURCE_MARKER，整体 mock 必须提供
   const estimateTokens = (text: string) => Math.ceil(text.length / 4);
   const EXTERNAL_SOURCE_MARKER = '[External Source — verify before acting]';
-  return { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeLinter, ReferenceTracker, estimateTokens, EXTERNAL_SOURCE_MARKER };
+  return { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, estimateTokens, EXTERNAL_SOURCE_MARKER };
 });
 
 // scheduleVectorDbSync / startup pkill 不真正起进程

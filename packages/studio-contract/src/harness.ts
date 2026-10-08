@@ -56,10 +56,9 @@ export const constraintCheckResultSchema = z.object({
   warningCount: z.number(),
 }).passthrough();
 
-/** 生效约束条目（getEffectiveConstraints 投影） */
+/** 生效约束条目（getEffectiveConstraints 投影；harness 3.0.0 起 Constraint.kind 出清，投影无该字段） */
 export const harnessConstraintSchema = z.object({
   id: z.string(),
-  kind: z.string(),
   severity: z.string(),
   trigger: z.unknown().optional(),
   rule: z.unknown().optional(),
@@ -155,10 +154,9 @@ export const constraintListResultSchema = z.object({
 });
 export type ConstraintListResult = z.infer<typeof constraintListResultSchema>;
 
-/** GET /constraints/stats 响应 data（0.17.0 起按 kind/severity 聚合） */
+/** GET /constraints/stats 响应 data（0.17.0 起按 kind/severity 聚合；harness 3.0.0 kind 出清后仅 severity） */
 export const constraintStatsResultSchema = z.object({
   total: z.number(),
-  byKind: z.record(z.number()),
   bySeverity: z.record(z.number()),
 });
 export type ConstraintStatsResult = z.infer<typeof constraintStatsResultSchema>;
@@ -198,7 +196,8 @@ export const rollbackConstraintResultSchema = z.object({
 export type RollbackConstraintResult = z.infer<typeof rollbackConstraintResultSchema>;
 
 /** POST /check-constraints（M2 质量门；operation 必填收进 zod。
- * hasRequirement 保留声明——#641 sanitize 剥离依赖它存在（zod 剥未知键会抢先剥掉） */
+ * hasRequirement 保留声明兼容旧客户端请求体（harness 3.0.0 证据标志管道出清，
+ * 路由不再把它送进 harness context；sanitize 入口剥离保留为无害防御） */
 export const checkConstraintsBodySchema = z.object({
   operation: z.string().min(1),
   taskDescription: z.string().optional(),

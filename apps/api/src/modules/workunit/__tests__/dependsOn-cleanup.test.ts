@@ -3,7 +3,7 @@
  *
  * Source-code verification:
  * - schema.prisma WorkUnit model has no dependsOn field
- * - workunit.service.ts has no dependsOn handling
+ * - workunit-crud.ts（CreateWorkUnitInput 所在层）has no dependsOn handling
  * - workunit.routes.ts has no dependsOn parameter
  */
 
@@ -20,8 +20,8 @@ describe('dependsOn cleanup verification', () => {
     expect(fs.existsSync(PRISMA_DIR)).toBe(false);
   });
 
-  it('workunit.service.ts CreateWorkUnitInput has no dependsOn', () => {
-    const content = fs.readFileSync(path.join(WORKUNIT_DIR, 'workunit.service.ts'), 'utf-8');
+  it('workunit-crud.ts CreateWorkUnitInput has no dependsOn', () => {
+    const content = fs.readFileSync(path.join(WORKUNIT_DIR, 'workunit-crud.ts'), 'utf-8');
     expect(content).not.toMatch(/dependsOn/);
   });
 

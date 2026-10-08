@@ -82,7 +82,8 @@ function readConfigConstraints(root: string): Record<string, Record<string, unkn
 
 /**
  * GET /api/v1/harness/constraints
- * 列出当前生效约束集（内置 → preset → config.yml 禁用，带 kind/severity）
+ * 列出当前生效约束集（内置 → preset → config.yml 禁用，带 severity）。
+ * harness 3.0.0（ADR-0041）：Constraint.kind 出清（ADR-0029 起恒 'check' 的仪式字段），投影随之删除。
  */
 constraintsRoutes.get('/constraints', defineRoute({}, async () => {
   const loaded = await loadHarness();
@@ -90,7 +91,6 @@ constraintsRoutes.get('/constraints', defineRoute({}, async () => {
 
   const constraints = harnessModule.getEffectiveConstraints(projectRoot()).map(c => ({
     id: c.id,
-    kind: c.kind,
     severity: c.severity,
     trigger: c.trigger,
     rule: c.rule,
@@ -102,20 +102,19 @@ constraintsRoutes.get('/constraints', defineRoute({}, async () => {
 
 /**
  * GET /api/v1/harness/constraints/stats
- * 生效集统计。0.17.0 语义变化：原按 layer（safety/quality）聚合 → 现按 kind/severity 聚合
+ * 生效集统计。0.17.0 语义变化：原按 layer（safety/quality）聚合 → 现按 kind/severity 聚合；
+ * harness 3.0.0（ADR-0041）kind 出清 → 仅按 severity 聚合。
  */
 constraintsRoutes.get('/constraints/stats', defineRoute({}, async () => {
   const loaded = await loadHarness();
   if (!loaded || !harnessModule) throw HARNESS_UNAVAILABLE();
 
   const constraints = harnessModule.getEffectiveConstraints(projectRoot());
-  const byKind: Record<string, number> = {};
   const bySeverity: Record<string, number> = {};
   for (const c of constraints) {
-    byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
     bySeverity[c.severity] = (bySeverity[c.severity] ?? 0) + 1;
   }
-  return { total: constraints.length, byKind, bySeverity };
+  return { total: constraints.length, bySeverity };
 }));
 
 /**
@@ -272,7 +271,9 @@ constraintsRoutes.post('/check-constraints', defineRoute(
     if (!loaded) throw HARNESS_UNAVAILABLE();
 
     // Use checkConstraints (checkConstraintsSafe removed in harness 0.13.0)
-    // #641：证据标志不可由调用方自报——hasRequirement 剥离，依赖项降级 skip
+    // #641：证据标志不可由调用方自报——hasRequirement 在入口剥离，绝不进 harness context。
+    // harness 3.0.0（ADR-0041）已把这些死标志出清类型面，剥离管道保留为 studio 侧 wire 卫生
+    // （入参类型见 sanitize-context.ts 注释）。
     const sanitized = sanitizeConstraintContext({
       operation: body.operation!,
       taskDescription: body.taskDescription,

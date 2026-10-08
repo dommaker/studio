@@ -36,10 +36,10 @@ vi.mock('@dommaker/studio-agent', () => ({
 }));
 
 vi.mock('@dommaker/harness', () => ({
-  KnowledgeLinter: class { validateEntry() { return []; } },
-  KnowledgeHealthScorer: class {},
-  ReferenceTracker: class {},
-  CheckpointValidator: { getInstance: () => ({ validate: () => [] }) },
+  // harness 3.0.0：linter/scorer/tracker 面出清 → monitor 走 KnowledgeAudit；
+  // validators 单例壳删除 → mock 形态改类（new 可构造）
+  KnowledgeAudit: class { run() { return { issues: [], healthScore: { before: 100, after: 100 }, autoFixed: 0 }; } },
+  CheckpointValidator: class { validate() { return Promise.resolve({ passed: true, results: [] }); } },
   // #578：goal.hooks.ts 模块级 new CheckCache()，mock 需对齐 harness 1.8.0 导出形态
   CheckCache: class {
     get(_ns: string, _key: string, fn: () => Promise<unknown>) { return fn(); }
@@ -52,7 +52,6 @@ vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { list: vi.fn(() => []), save: vi.fn(), update: vi.fn(), delete: vi.fn() },
   sharedLifecycle: { recordReference: vi.fn() },
   sharedIngest: { ingestEntry: vi.fn() },
-  sharedLinter: { validateEntry: vi.fn(() => []) },
   UNIFIED_KNOWLEDGE_DIR: '/tmp/test-knowledge',
 
 }));

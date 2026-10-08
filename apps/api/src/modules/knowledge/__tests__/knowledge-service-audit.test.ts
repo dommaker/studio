@@ -23,7 +23,6 @@ function createKS(entries: any[] = []) {
     store: store as any,
     lifecycle: { recordReference: vi.fn() } as any,
     ingest: { ingestEntry: vi.fn() } as any,
-    linter: { validateEntry: vi.fn(() => []) } as any,
     query: {} as any,
     eventEmitter: { emit: vi.fn() } as any,
   };

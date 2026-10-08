@@ -6,7 +6,7 @@
  * （knowledge-bus.service.ts）已删除，消费者直连本模块。
  * 本模块接管所有权：
  *   - 统一存储路径 UNIFIED_KNOWLEDGE_DIR（运行时知识库唯一 = ~/.studio/knowledge）
- *   - sharedStore / sharedLifecycle / sharedIngest / sharedQuery / sharedInjector / sharedLinter
+ *   - sharedStore / sharedLifecycle / sharedIngest / sharedQuery / sharedInjector
  *   - 消费事件链（recordReference → knowledge:consumption 事件）
  *   - scheduleVectorDbSync（向量库同步：flock 单写者 + 700M 内存帽 + 指数退避）
  *   - ingestWithQualityGate — 全系统唯一的 recordPattern 质量门（R4 收敛：
@@ -17,7 +17,7 @@
  * 不得 import 任何 studio 业务模块（防止循环依赖）。
  */
 
-import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
+import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery } from '@dommaker/harness';
 import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
 import { KnowledgeInjector } from './knowledge-injector.js';
 import { logger, eventBus } from '@dommaker/studio-shared';
@@ -79,7 +79,6 @@ const HARNESS_SPAN_LIFECYCLE_METHODS = [
 const HARNESS_SPAN_INGEST_METHODS = ['ingestEntry', 'ingestBatch', 'ingestExternal'] as const;
 const HARNESS_SPAN_QUERY_METHODS = ['query', 'search', 'queryByMode', 'consume'] as const;
 const HARNESS_SPAN_INJECTOR_METHODS = ['inject'] as const;
-const HARNESS_SPAN_LINTER_METHODS = ['run'] as const;
 
 const rawKnowledgeStore = wrapWithSegmentSpan(
   new FileKnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR }),
@@ -88,9 +87,9 @@ const rawKnowledgeStore = wrapWithSegmentSpan(
 );
 export const sharedStore = new MtimeMemoKnowledgeStore(rawKnowledgeStore);
 export const sharedLifecycle = wrapWithSegmentSpan(
-  new KnowledgeLifecycle(sharedStore, {
-    autoPromoteSources: ['triage', 'auditor', 'evolution', 'analyst'],
-  }),
+  // harness 3.0.0（ADR-0041）：shouldAutoPromote/autoPromoteSources 死面出清（AS-021 起生产调用已拆），
+  // DecayConfig 仅余衰减字段，无 studio 侧覆写需求 → 构造缺省配置。
+  new KnowledgeLifecycle(sharedStore),
   'KnowledgeLifecycle',
   HARNESS_SPAN_LIFECYCLE_METHODS,
 );
@@ -111,12 +110,9 @@ export const sharedInjector = wrapWithSegmentSpan(
   'KnowledgeInjector',
   HARNESS_SPAN_INJECTOR_METHODS,
 );
-// GAP-01: shared linter for ingest validation
-export const sharedLinter = wrapWithSegmentSpan(
-  new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore)),
-  'KnowledgeLinter',
-  HARNESS_SPAN_LINTER_METHODS,
-);
+// GAP-01: 摄入前校验保种落点 = KnowledgeIngest.validateEntry（harness 3.0.0 随
+// KnowledgeLinter/ReferenceTracker 出清删除，原 sharedLinter 装配整体移除；
+// 消费方见 conversation-extractor.ts）。
 
 // D6 flywheel: emit consumption events on every recordReference() call
 // (same-day dedup already handled by lifecycle, so max 1 event per contributor per entry per day)

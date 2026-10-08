@@ -2,7 +2,7 @@
  * E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：路径解析 + 信号加载。
  *
  * 三个信号源（全部文件型，tmp dir 可注入 repoRoot/studioEventsFile）：
- *   1. harness 约束 traces：经 harness 公共 API `readProjectTraces(repoRoot)` 读取
+ *   1. harness 约束 traces：经 harness 公共 API `readProjectTracesReport(repoRoot).traces` 读取
  *      （#646：.harness/ 文件所有权归 harness，不再 FileStore 直读 traces.log；
  *      ExecutionTrace JSONL 由 @dommaker/harness TraceCollector 写入；
  *      原供 autoEvolve 使用，0.17.0 起为 constraints report 数据源，
@@ -13,7 +13,7 @@
  *      反馈数据 —— R1 断点 A 修复后有值）
  */
 import path from 'node:path';
-import { readProjectTraces, type ExecutionTrace } from '@dommaker/harness';
+import { readProjectTracesReport, type ExecutionTrace } from '@dommaker/harness';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { parseStudioEventPayload, getStudioEventTime } from '@dommaker/studio-shared';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readJsonl 全量读
@@ -68,11 +68,12 @@ export async function loadWindowSignals(
 ): Promise<WindowSignals> {
   const sinceMs = Date.now() - windowHours * 3600_000;
 
-  // #646：traces 读取走 harness 公共 API（readProjectTraces 自带缺失文件/坏行容错 → 空数组），
+  // #646：traces 读取走 harness 公共 API（readProjectTracesReport 自带缺失文件/坏行容错 → 空数组，
+  // 兼容包装 readProjectTraces 已随 harness 3.0.0/ADR-0041 删除，改取 .traces），
   // 窗口过滤在调用方按 timestamp 进行，行为口径与旧 FileStore 直读一致
   let traces: ExecutionTrace[] = [];
   try {
-    traces = readProjectTraces(paths.repoRoot);
+    traces = readProjectTracesReport(paths.repoRoot).traces;
   } catch { /* 容错口径：读取失败 = 零记录 */ }
   const constraintTraces = traces
     .filter(t => t && typeof t.timestamp === 'number' && t.timestamp >= sinceMs && typeof t.constraintId === 'string');

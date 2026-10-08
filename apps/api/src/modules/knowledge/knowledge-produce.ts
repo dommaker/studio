@@ -144,7 +144,7 @@ export async function extractFromConversationImpl(
     const entries = Array.isArray(result?.entries) ? result.entries.slice(0, 5) : [];
     const ingested: Array<{ id: string; title: string; type: string }> = [];
     for (const raw of entries) {
-      const saved = ingestConversationEntry({ linter: deps.linter, ingest: deps.ingest }, raw, source);
+      const saved = ingestConversationEntry({ ingest: deps.ingest }, raw, source);
       if (saved) ingested.push(saved);
     }
     const entryIds = ingested.map(e => e.id);
