@@ -77,13 +77,12 @@ export function parseWorkunitTokenEvents(
 }
 
 /**
- * 从 GET /events?type=workunit:execution_step 的响应行解析执行步事件。
- * 兼容历史无 workUnitId 过滤的调用方：传 workUnitId 时顺带按它过滤；
+ * 从 GET /events?type=workunit:execution_step 的响应行解析执行步事件（顺带按 workUnitId 过滤）。
  * 损坏行/缺 step 的行跳过；按 step → at 升序（回放顺序）。
  */
 export function parseExecutionStepEvents(
   rows: Array<{ payload: unknown; createdAt?: string }>,
-  workUnitId?: string,
+  workUnitId: string,
 ): ExecutionStepEvent[] {
   const out: ExecutionStepEvent[] = [];
   for (const row of rows) {

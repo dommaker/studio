@@ -44,7 +44,7 @@ export function useChannelLiveExecutions(channelId: string | null): LiveExecutio
         const ref = parseLiveStepRef(msg.data);
         if (!ref) return;
         // 决策 4：负载带 channelId → 他频道步事件直接丢弃（不再产生他频道条目）；
-        // channelId 缺省（旧后端）不过滤，向后兼容
+        // channelId 缺省 = 无频道 WU（后端 wu.channelId 透传，null 则缺省该键），不过滤
         if (ref.channelId && ref.channelId !== channelId) return;
         setSteps(prev => {
           const cur = prev[ref.workUnitId];
