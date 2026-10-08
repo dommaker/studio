@@ -1,7 +1,7 @@
 /**
- * 通用入口 — 不包含 CLI/Config（避免前端引入 fs/path/yaml）
+ * 通用入口 — 不包含 Node-only Config（避免前端引入 fs/path 等 Node 依赖）
  * 前端和通用包使用此入口
- * 后端需要 CLI 功能请使用 '@dommaker/studio-shared/node'
+ * 后端需要 Node-only 能力请使用 '@dommaker/studio-shared/node'
  */
 
 // 导出 Utils 模块

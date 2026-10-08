@@ -2,17 +2,12 @@
 
 ### 职责
 
-本目录是 Agent-Studio 的前后端共享库，提供 CLI 框架、配置管理、常量定义、事件总线与文件存储等通用基础设施，为 apps/api 等多个上层模块提供复用的工具与类型。
+本目录是 Agent-Studio 的前后端共享库，提供配置管理、常量定义、事件总线与文件存储等通用基础设施，为 apps/api 等多个上层模块提供复用的工具与类型。
 
 ### 核心导出
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| `Parser`, `ParsedArgs` | cli/parser | 命令行参数解析，支持短参数、长参数、JSON 等 |
-| `formatOutput`, `Format` | cli/formatter | 输出格式化 (table/json/csv) |
-| `loadConfig`, `getConfig`, `StudioConfig` | cli/config | CLI 配置文件 (.studio/config.yaml) 加载与访问 |
-| `registerCommand`, `getCommand`, `runCommand`, `Command` | cli/command | 命令注册与执行框架 |
-| `formatError`, `createCliError`, `CliError`, `ERROR_CODES` | cli/error | 统一错误处理与格式化为字符串 |
 | `loadConfigEnv`, `LlmProvider` | config | 系统级配置加载 (~/.studio/config.env) 及 LLM provider 类型 |
 | `LEVEL_CONFIG`, `getLevelConfig`, `getLevelSalary` 等 | constants/levels | 全局统一的职级配置与辅助函数 |
 | `eventBus`, `StudioEventBus` | event-bus | 内存事件总线，支持通配符订阅；监听器上限显式抬到 64（`workunit.status_changed` 模块级订阅方常态 11+ 每个 AgentLoop 实例再 +1，属业务扇出非泄漏，P9）。publish 精确匹配路径 per-handler try/catch（B6，2026-09-27：单个同步抛错的订阅者不炸进发布方调用栈、不阻断其余 handler，对齐通配符路径既有口径）。**当前无生产监听、仅发射保留的事件**（供 EVENT trigger / 未来消费，发射点不删——SSE 转发链路的 events 拷贝可能受影响）：`channel.message_updated` / `agent.health.failed` / `evolution.proposed` / `evolution.applied` / `notifications` / `tool:repeated_failure` |
@@ -43,10 +38,9 @@
 
 **上游（本目录依赖）**
 - Node.js 内置模块: `fs`, `path`, `os`, `events`, `crypto`
-- 第三方库: `yaml`
 
 **下游（依赖本目录的模块）**
-- `apps/api` 全套模块（daemon、middleware、modules、index、cli 等）广泛引用本目录的 CLI 框架、配置管理、事件总线及 file-store 类型
+- `apps/api` 全套模块（daemon、middleware、modules、index、cli 等）广泛引用本目录的配置管理、事件总线及 file-store 类型
 
 ### 注意事项
 
@@ -54,7 +48,6 @@
 - `llm/stream-json-parser.ts`（#564，2026-09-16）：`StreamEvent.parent_tool_use_id` 是子 agent（Task/subagent）子树事件标记——CLI 对子树事件回填 Task tool_use 的 id，父 run 顶层事件为 null/缺省；`extractResult`/`extractUsage` 据此过滤子树（子 error result 不误杀父 run、usage 不父子双计），assistant 文本与 tool_use 提取不做过滤。#602 D4：`extractToolCalls` 配对 tool_use/tool_result（tool_use_id）得出 `ToolCall.success` 真实成败，无配对 → undefined（未知不编造）
 - 本包 `@types/node` 钉在 20.0.0（泛型前的 Buffer 类型），与 TS 5.7+ lib 的 `ArrayBufferView` 泛型不兼容——`handle.read(buffer)` / `Buffer.concat` 传 Buffer 会报类型错，解法 = 传参处 `as Uint8Array`（Buffer 运行时即 Uint8Array 子类，纯类型层适配，参照 jsonl-tail.ts）；根治 = 对齐 apps/api 的 ^20.12.7（未做，另议）
 
-- CLI 命令注册表为全局单例，测试后需调用 `clearCommands()` 清理
 - 配置优先级：环境变量 > `~/.studio/config.env` > 默认值，且仅当环境变量未设置时才加载 config.env
 - 数据根：`studioDir()`（config/studio-dir）= `STUDIO_HOME` 或 `~/.studio`；config.env 与 `STUDIO_DATA_DIR ??=` 钉值均走它。dev 启动（scripts/dev/start.sh、apps/api dev script）默认 `STUDIO_HOME=~/.studio-dev`，prod systemd 显式指向生产数据根；非 production 指向缺省根时 `warnIfNonProdUsesProdRoot()` 落 warning（config/index.ts 初始化 + apps/api 入口显式调用，幂等）。**数据区布局唯一正本 = `docs/architecture/data-directory-contract.md`（#570，2026-09-16 冻结）；file-store.ts 头注释布局段已收敛为指针，布局变更须先修订契约**
 - `studioDir()` 内含 vitest 内建模块双视图兼容层（resolveHomedir）：仓库测试对 `os.homedir` 有四种互不兼容的 mock 风格，该层保证迁移后的 SUT 在旧 mock 下仍被隔离；生产两视图恒等。测试收敛到 env 隔离后可删除（见 code-review follow-up）
