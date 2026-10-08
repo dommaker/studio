@@ -227,9 +227,6 @@ import {
   rolePresetListResponseSchema,
   agentInstanceListResponseSchema,
   agentInstanceResponseSchema,
-  // lark / dingtalk health
-  larkHealthResponseSchema,
-  dingtalkHealthResponseSchema,
 } from '@dommaker/studio-contract';
 
 export interface ResponseDoc {
@@ -526,8 +523,4 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/agent-instances/:id': { response: agentInstanceResponseSchema, summary: '运行实例详情' },
   'PATCH /api/v1/agent-instances/:id': { response: agentInstanceResponseSchema, summary: '更新运行实例' },
   'POST /api/v1/agent-instances/:id/terminate': { response: agentInstanceResponseSchema, summary: '终止实例（Admin）' },
-
-  // ── lark / dingtalk health（回调为协议面不进文档）──
-  'GET /api/v1/lark/health': { response: larkHealthResponseSchema, summary: '飞书回调健康检查' },
-  'GET /api/v1/dingtalk/health': { response: dingtalkHealthResponseSchema, summary: '钉钉回调健康检查' },
 };

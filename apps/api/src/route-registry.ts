@@ -96,8 +96,6 @@ export const PROTOCOL_SURFACE_EXCEPTIONS: readonly ProtocolSurfaceException[] = 
   // 第三方回调：验签需 raw body / 响应形状由对方平台规定，非自有 envelope
   { method: 'POST', path: '/api/v1/discord/interactions', reason: 'Ed25519 验签需 express.raw 原始 body（app.ts 挂载）；响应形状由 Discord Interactions 协议规定' },
   { method: 'POST', path: '/api/v1/deploy/webhook', reason: 'HMAC-SHA256 验签（X-Hub-Signature-256）需 raw body；GitHub webhook 协议面' },
-  { method: 'POST', path: '/api/v1/lark/callback', reason: '飞书回调：url_verification 握手须原样回 { challenge }（平台规定形状），verification token 校验先于一切' },
-  { method: 'GET', path: '/api/v1/dingtalk/action', reason: '钉钉 ActionCard URL 跳转回调：响应是给人看的 HTML 页（res.send），非 JSON API' },
   // 运维探针：响应形状对外固定（监控消费），且带 5s timeout race 分支
   { method: 'GET', path: '/api/v1/health', reason: '健康探针：{ status, ... } 平铺壳对外固定（Uptime 消费方），503 降级分支不走统一错误壳' },
 ];
@@ -130,8 +128,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     notifyRoutes,
     authRoutes,
     discordRoutes,
-    larkRoutes,
-    dingtalkRoutes,
     { deployWebhookRoutes },
   ] = await Promise.all([
     import('./modules/audit-logs/routes.js').then(m => m.default),
@@ -142,8 +138,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/outbound-notify/routes.js').then(m => m.default),
     import('./modules/auth/routes.js').then(m => m.default),
     import('./modules/discord/routes.js').then(m => m.default),
-    import('./modules/lark/routes.js').then(m => m.default),
-    import('./modules/dingtalk/routes.js').then(m => m.default),
     import('./modules/deploy/webhook.routes.js') as Promise<{ deployWebhookRoutes: Router }>,
   ]);
 
@@ -353,12 +347,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
     // Workspace（AS-020 P2：只读查询 + 删除；token 管理已随 #481 退役——远程节点方向的纯残骸）
     { path: '/api/v1/workspaces', router: workspaceRoutes, middleware: admin, comment: 'AS-020: Workspace read-only + delete（P2-e：原路由内 requireAuth+requireAdmin 等价上移）' },
-
-    // Lark (飞书)（协议面例外：url_verification 握手 + token 验签，固化于 PROTOCOL_SURFACE_EXCEPTIONS）
-    { path: '/api/v1/lark', router: larkRoutes, comment: '飞书机器人回调（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
-
-    // DingTalk (钉钉)（协议面例外：HTML 响应，固化于 PROTOCOL_SURFACE_EXCEPTIONS）
-    { path: '/api/v1/dingtalk', router: dingtalkRoutes, comment: '钉钉机器人回调（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
   ];
 
   // 启动断言（fail-fast）：顺序敏感注册约束，顺序被改动破坏时启动即报错，

@@ -42,8 +42,6 @@ export * from './iron-laws.js';
 export * from './mcp.js';
 export * from './builtin-tools.js';
 export * from './discord.js';
-export * from './lark.js';
-export * from './dingtalk.js';
 export * from './deploy.js';
 export * from './agents.js';
 export * from './agent-profiles.js';
