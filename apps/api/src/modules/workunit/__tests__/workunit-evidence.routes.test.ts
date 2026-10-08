@@ -12,7 +12,7 @@ const { mockVerifyManually } = vi.hoisted(() => ({
   mockVerifyManually: vi.fn(),
 }));
 
-vi.mock('../workunit.service.js', () => ({
+vi.mock('../workunit-review.js', () => ({
   WorkUnitService: class {
     verifyManually = mockVerifyManually;
   },

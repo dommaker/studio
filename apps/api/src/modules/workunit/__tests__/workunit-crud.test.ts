@@ -26,7 +26,7 @@ import {
   type WorkUnitData,
 } from '../workunit-crud.js';
 import { WU_LEASE_TTL_MS } from '../workunit.types.js';
-import type { WorkUnitMetadata } from '../workunit.service.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
 
 let tmpDir: string;
 let fileStore: FileStore;

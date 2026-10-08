@@ -16,7 +16,8 @@ import {
   type StepRetryCtx,
   type StepRetryDeps,
 } from '../step-retry-policy';
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 const RESUME_LOST_DETAIL = 'No conversation found with session ID sess-lost';
 const OVERFLOW_DETAIL = 'Prompt is too long';

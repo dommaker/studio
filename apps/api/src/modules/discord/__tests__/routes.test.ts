@@ -40,7 +40,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-vi.mock('../../workunit/workunit.service.js', () => ({
+vi.mock('../../workunit/workunit-review.js', () => ({
   WorkUnitService: vi.fn(function () { return { unclaim: mockUnclaim, close: mockClose, updateMetadata: mockUpdateMetadata }; }),
 }));
 

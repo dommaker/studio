@@ -10,7 +10,7 @@ import {
   resolveExecutionCwd,
   type ExecutionCwdDeps,
 } from '../execution-cwd';
-import type { WorkUnitData } from '../../workunit/workunit.service.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 function makeWu(overrides: Partial<WorkUnitData> = {}): WorkUnitData {
   return {

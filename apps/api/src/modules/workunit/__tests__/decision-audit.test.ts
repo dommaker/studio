@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
 
 const { decisionSpy } = vi.hoisted(() => ({ decisionSpy: vi.fn() }));
 vi.mock('../../audit-logs/agent-decision.js', () => ({ recordAgentDecision: decisionSpy }));

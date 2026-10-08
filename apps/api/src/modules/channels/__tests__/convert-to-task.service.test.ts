@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
 import { eventBus, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';

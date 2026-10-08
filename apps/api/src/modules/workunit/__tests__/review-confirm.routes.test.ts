@@ -9,7 +9,7 @@ const { mockReviewPassed } = vi.hoisted(() => ({
   mockReviewPassed: vi.fn(),
 }));
 
-vi.mock('../workunit.service.js', () => ({
+vi.mock('../workunit-review.js', () => ({
   WorkUnitService: class {
     reviewPassed = mockReviewPassed;
   },

@@ -1,6 +1,6 @@
 /**
- * WorkUnit 快照 ↔ DTO 转换层（工单 30 自 workunit.service.ts 抽出，纯搬运零逻辑变更）。
- * snapshotToData 经 workunit.service re-export 保持既有导出路径兼容（agent-loop 等消费方不变）。
+ * WorkUnit 快照 ↔ DTO 转换层（工单 30 自原 workunit.service.ts 抽出，纯搬运零逻辑变更）。
+ * 注：snapshotToData 在 workunit-crud.ts 有一份同形正本（barrel 自 crud 出口），本文件为历史拷贝。
  */
 
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';

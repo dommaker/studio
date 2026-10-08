@@ -45,7 +45,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-const { WorkUnitService } = await import('../../workunit/workunit.service.js');
+const { WorkUnitService } = await import('../../workunit/workunit-review.js');
 
 describe('§10 P0 → 决策 7: claim 不再落盘 metadata.matchedSkills', () => {
   let service: WorkUnitService;

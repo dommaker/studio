@@ -54,7 +54,7 @@ vi.mock('../../mcp/tool-registry.js', () => ({
 }));
 
 // #550：关闭状态机单口（WorkUnitService.close）打桩 —— 其自身行为由 workunit-close.test.ts 覆盖
-vi.mock('../../workunit/workunit.service.js', () => ({
+vi.mock('../../workunit/workunit-review.js', () => ({
   WorkUnitService: vi.fn(function () { return { close: mockCloseWithNotice, updateMetadata: mockUpdateMetadata }; }),
 }));
 

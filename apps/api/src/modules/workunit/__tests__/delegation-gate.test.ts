@@ -25,7 +25,9 @@ function ledgerWithRow(wuId: string, executionTokens: number) {
   };
   return { ...emptyTokenLedger(), byWorkUnit: { [wuId]: row } };
 }
-import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
+import type { WorkUnitData } from '../workunit-crud.js';
 import {
   checkDelegation,
   checkTreeBudget,

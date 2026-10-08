@@ -22,7 +22,7 @@ import { eventBus, FileStore } from '@dommaker/studio-shared';
 import { initPmoProgressRollup, waitForPmoProgressRollupSettled, rollupTiming } from '../progress-rollup.js';
 import { projectService, PROJECT_STATUS, type ProjectData } from '../project.service.js';
 import { RequirementService } from '../../requirements/requirement.service.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 const att = (kind: string) => ({ verdict: 'approved', by: 'x', at: '2026-07-29T00:30:00Z', kind });
 const fullEvidence = { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } };

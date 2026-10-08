@@ -9,7 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, type RuntimeStateData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 import { parseWuMetadata } from '../../workunit/wu-metadata.js';
 import { MAX_TIMEOUT_RELEASES } from '../../workunit/timeout-release.js';
 

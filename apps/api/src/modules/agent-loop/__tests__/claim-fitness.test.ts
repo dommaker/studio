@@ -17,7 +17,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 import { parseWuMetadata } from '../../workunit/wu-metadata.js';
 
 const { mockRun } = vi.hoisted(() => ({ mockRun: vi.fn() }));

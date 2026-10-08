@@ -7,7 +7,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, stringifyChannels, type ChannelMessageData, type AgentProfileData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 const { mockExecSync } = vi.hoisted(() => ({ mockExecSync: vi.fn() }));
 vi.mock('child_process', () => ({

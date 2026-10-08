@@ -70,7 +70,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 }));
 
 import { AgentLoop } from '../agent-loop';
-import { WorkUnitService } from '../../workunit/workunit.service';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 // #219：workspace-store 在 import 期冻结 WORKSPACES_DIR = studioPath('workspaces')，
 // STUDIO_HOME 已被 setup 钉到每文件隔离根 —— 测试写记录必须落在同一根下，

@@ -16,7 +16,8 @@ import * as os from 'node:os';
 import express from 'express';
 import type { Server } from 'node:http';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 let tmpDir: string;
 let fileStore: FileStore;

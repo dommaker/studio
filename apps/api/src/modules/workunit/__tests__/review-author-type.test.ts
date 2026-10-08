@@ -11,7 +11,7 @@ const { mockReviewPassed, mockReviewRejected, mockTransitionStatus } = vi.hoiste
   mockTransitionStatus: vi.fn(),
 }));
 
-vi.mock('../workunit.service.js', () => ({
+vi.mock('../workunit-review.js', () => ({
   WorkUnitService: class {
     reviewPassed = mockReviewPassed;
     reviewRejected = mockReviewRejected;

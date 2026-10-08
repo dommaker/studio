@@ -8,7 +8,7 @@ import {
   COMPLETION_HARVEST_REGISTRY,
   type CompletionHarvestContext,
 } from '../completion-harvest';
-import type { WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 function ctx(overrides: Partial<CompletionHarvestContext> = {}): CompletionHarvestContext {
   return { wuId: 'wu-1', wuType: 'task', metadata: {} as WorkUnitMetadata, ...overrides };

@@ -20,7 +20,7 @@ import * as os from 'os';
 import { FileStore } from '@dommaker/studio-shared';
 import { TriggerStore } from '../../triggers/trigger-store.js';
 import { executeCreateAction, setTriggerActionFileStore } from '../../triggers/trigger-action.js';
-import { WorkUnitService } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
 import { channelMessageService } from '../../channels/channel-message.service.js';
 import { selectSkills } from '../../skills/skill-selector.js';
 import type { TriggerConfig } from '../../triggers/trigger.types.js';

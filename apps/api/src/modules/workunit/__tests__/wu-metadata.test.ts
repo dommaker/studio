@@ -5,7 +5,7 @@
 // 纯函数无 FileStore 依赖，直接单测。
 import { describe, it, expect } from 'vitest';
 import { parseWuMetadata, clearSessionBookkeeping, mergedWuView } from '../wu-metadata.js';
-import type { WorkUnitMetadata } from '../workunit.service.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
 
 describe('parseWuMetadata 容错解析矩阵', () => {
   it('null / undefined / 空串 → {}', () => {

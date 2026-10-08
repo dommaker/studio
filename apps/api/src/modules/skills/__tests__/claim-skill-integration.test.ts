@@ -63,7 +63,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-const { WorkUnitService } = await import('../../workunit/workunit.service.js');
+const { WorkUnitService } = await import('../../workunit/workunit-review.js');
 const { invalidateManifestCache } = await import('../manifest-loader.js');
 
 describe('AC4 → 决策 7: claim 基础行为（skill 匹配已挪到 step 时）', () => {

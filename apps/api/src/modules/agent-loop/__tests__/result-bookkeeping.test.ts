@@ -8,7 +8,8 @@ import {
   prepareRecordBookkeeping,
   type RecordBookkeepingInput,
 } from '../result-bookkeeping';
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 import type { StepResult } from '../agent-loop.js';
 
 function makeWu(overrides: Partial<WorkUnitData> = {}): WorkUnitData {

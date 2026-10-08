@@ -402,3 +402,9 @@ export class WorkUnitReviewService extends WorkUnitLifecycleService {
     };
   }
 }
+
+/**
+ * WorkUnitService —— 继承链末层（#672 拆分层：Crud → Query → Lifecycle → Review → Service）。
+ * 原 workunit.service.ts 兼容门面已随架构精简刀6 删除，类本体落位本文件。
+ */
+export class WorkUnitService extends WorkUnitReviewService {}

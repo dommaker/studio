@@ -9,7 +9,7 @@ import type { Server } from 'node:http';
 const { mockGetById } = vi.hoisted(() => ({ mockGetById: vi.fn() }));
 const { mockListByWu } = vi.hoisted(() => ({ mockListByWu: vi.fn() }));
 
-vi.mock('../workunit.service.js', () => ({
+vi.mock('../workunit-review.js', () => ({
   WorkUnitService: class {
     getById = mockGetById;
   },

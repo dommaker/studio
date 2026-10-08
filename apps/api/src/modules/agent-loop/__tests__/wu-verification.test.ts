@@ -20,7 +20,7 @@ import {
   runWuVerification,
   VERIFY_FAIL_TAIL_CHARS,
 } from '../wu-verification.js';
-import type { WorkUnitData } from '../../workunit/workunit.service.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 const wu = (workspaceId: string | null = null) => ({ workspaceId }) as unknown as WorkUnitData;
 

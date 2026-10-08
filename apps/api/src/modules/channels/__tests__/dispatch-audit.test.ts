@@ -11,7 +11,7 @@ import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
 import { channelMessageService } from '../channel-message.service.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 const { decisionSpy } = vi.hoisted(() => ({ decisionSpy: vi.fn() }));
 vi.mock('../../audit-logs/agent-decision.js', () => ({ recordAgentDecision: decisionSpy }));

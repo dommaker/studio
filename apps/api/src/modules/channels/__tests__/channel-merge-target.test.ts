@@ -18,7 +18,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 vi.mock('../../middleware/auth.js', () => ({
   requireAuth: () => (_q: unknown, _s: unknown, n: () => void) => n(),

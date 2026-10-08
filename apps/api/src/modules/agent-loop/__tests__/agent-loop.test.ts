@@ -58,7 +58,7 @@ vi.mock('@dommaker/studio-agent', () => ({
   },
 }));
 
-vi.mock('../../workunit/workunit.service', () => ({
+vi.mock('../../workunit/workunit-review', () => ({
   WorkUnitService: vi.fn().mockImplementation(function () { return {
     claim: mockWuClaim,
     unclaim: mockWuUnclaim,

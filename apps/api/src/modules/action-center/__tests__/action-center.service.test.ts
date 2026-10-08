@@ -3,7 +3,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 import { ActionCenterService } from '../action-center.service.js';
 
 describe('ActionCenterService（#468）', () => {

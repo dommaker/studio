@@ -8,7 +8,8 @@
  * 发声 best-effort——失败只记日志，绝不阻断认领后的执行/响应。
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
-import type { WorkUnitService, WorkUnitData } from './workunit.service.js';
+import type { WorkUnitService } from './workunit-review.js';
+import type { WorkUnitData } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { recordAgentDecision } from '../audit-logs/index.js';

@@ -20,7 +20,7 @@ import { NotificationService } from '@dommaker/studio-notification';
 import { initPmoProgressRollup, syncProjectProgress, syncProjectProgressByReqId, parseWuMetaPmoId, waitForPmoProgressRollupSettled } from '../progress-rollup.js';
 import { projectService, PROJECT_STATUS, type ProjectData } from '../project.service.js';
 import { RequirementService } from '../../requirements/requirement.service.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 /** 三层证据齐全的 metadata（l1 自动验证 / l2 agent 评审 / l3 人工确认） */
 const att = (kind: string) => ({ verdict: 'approved', by: 'x', at: '2026-07-29T00:30:00Z', kind });

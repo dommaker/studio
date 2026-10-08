@@ -43,7 +43,7 @@ vi.mock('@dommaker/studio-agent', () => ({
   agentRunner: { executeLightweight: mockExecuteLightweight },
 }));
 
-vi.mock('../../workunit/workunit.service', () => ({
+vi.mock('../../workunit/workunit-review', () => ({
   WorkUnitService: vi.fn().mockImplementation(function () {
     return {
       claim: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'active' }),

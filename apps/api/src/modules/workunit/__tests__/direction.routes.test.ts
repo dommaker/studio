@@ -11,7 +11,7 @@ const { mockGetById, mockApplyPlanDirection } = vi.hoisted(() => ({
   mockApplyPlanDirection: vi.fn(),
 }));
 
-vi.mock('../workunit.service.js', () => ({
+vi.mock('../workunit-review.js', () => ({
   WorkUnitService: class {
     getById = mockGetById;
   },

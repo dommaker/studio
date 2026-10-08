@@ -14,7 +14,8 @@
  */
 import fs from 'node:fs';
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
+import { WorkUnitService } from './workunit-review.js';
+import type { WorkUnitMetadata } from './workunit.types.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { withBlockedCta } from './blocked-cta.js';

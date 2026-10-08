@@ -23,7 +23,7 @@ import { FileStore, logger, type ChannelMessageData } from '@dommaker/studio-sha
 import { NotificationService } from '@dommaker/studio-notification';
 import type { MessageMeta, MessageRecord } from '../channels/index.js';
 import { parseWuMetadata, parseWuTitle } from './wu-metadata.js';
-import type { WorkUnitData } from './workunit.service.js';
+import type { WorkUnitData } from './workunit-crud.js';
 import { getStore } from '../../core/store.js';
 
 

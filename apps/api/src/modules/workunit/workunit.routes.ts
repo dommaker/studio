@@ -61,7 +61,8 @@ import {
   postMessageBodySchema,
   patchMessageBodySchema,
 } from '@dommaker/studio-contract';
-import { WorkUnitService, type WorkUnitData } from './workunit.service.js';
+import { WorkUnitService } from './workunit-review.js';
+import type { WorkUnitData } from './workunit-crud.js';
 import type { CreateWorkUnitInput, UpdateWorkUnitInput } from './workunit-crud.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';

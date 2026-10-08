@@ -1,14 +1,16 @@
 /**
- * #672 结构测试：workunit.service.ts 按职责拆分层（PURE_MOVE）防漂移网。
+ * #672 结构测试：workunit 服务按职责拆分层（PURE_MOVE）防漂移网。
+ * （架构精简刀6：workunit.service.ts 兼容门面删除，WorkUnitService 类本体落位
+ *  workunit-review.ts 继承链末端。）
  *
  * ① 新分层类存在且为 function；② 继承链沿链成立（Service → Review → Lifecycle → Query → Crud）；
  * ③ WorkUnitService 原型链方法面 == 拆分前基线（35 个，采集于拆分前代码，含 TS private——
- *    编译期修饰，运行时仍在原型上）；④ workunit.service.js 模块 value exports == 拆分前基线；
+ *    编译期修饰，运行时仍在原型上）；④ workunit-review.js 模块 value exports == 基线；
  * ⑤ 职责落位：每层 own property 正好是本层方法（查询派生 / 状态机+统一尾部 / 评审验收）。
  */
 import { describe, expect, it } from 'vitest';
-import * as serviceModule from '../workunit.service.js';
-import { WorkUnitService } from '../workunit.service.js';
+import * as serviceModule from '../workunit-review.js';
+import { WorkUnitService } from '../workunit-review.js';
 import { WorkUnitCrudService } from '../workunit-crud.js';
 import { WorkUnitQueryService } from '../workunit-query.js';
 import { WorkUnitLifecycleService } from '../workunit-lifecycle.js';
@@ -25,8 +27,7 @@ const BASELINE_METHODS = [
 ];
 
 const BASELINE_EXPORTS = [
-  'ANALYSIS_TASKS_MAX', 'INSPECTION_OPPORTUNITIES_MAX', 'WU_LEASE_TTL_MS',
-  'WorkUnitService', 'snapshotToData', 'waitForReviewPassSettled',
+  'WorkUnitReviewService', 'WorkUnitService', 'waitForReviewPassSettled',
 ];
 
 const ownMethods = (cls: { prototype: object }): string[] =>
@@ -58,7 +59,7 @@ describe('workunit.service 职责拆分层（#672）', () => {
     expect([...new Set(names)].sort()).toEqual(BASELINE_METHODS);
   });
 
-  it('④ workunit.service.js 模块 value exports == 拆分前基线', () => {
+  it('④ workunit-review.js 模块 value exports == 基线（本层类 + 末层类 + 观测口）', () => {
     expect(Object.keys(serviceModule).sort()).toEqual(BASELINE_EXPORTS);
   });
 

@@ -14,7 +14,7 @@ import { eventBus, FileStore, logger } from '@dommaker/studio-shared';
 import { RequirementService, deriveTitle, TERMINAL_WORKUNIT_STATUSES, type RequirementWithProject } from '../requirement.service.js';
 import type { ProjectData } from '../../pmo/project.service.js';
 import { initRequirementRollup } from '../rollup.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 let tmpDir: string;
 let fileStore: FileStore;

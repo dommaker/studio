@@ -16,7 +16,7 @@ import {
   evaluateInspectionEvent, checkInspectionCooldown, resolveInspectionScanThreshold,
   INSPECTION_SCAN_TRIGGER_ID, DEFAULT_INSPECTION_SCAN_THRESHOLD,
 } from '../inspection-scan';
-import { WorkUnitService } from '../../workunit/workunit.service';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 import { readStudioEvents } from '@dommaker/studio-shared';
 import type { TriggerConfig } from '../trigger.types';
 

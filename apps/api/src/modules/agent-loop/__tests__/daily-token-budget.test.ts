@@ -63,7 +63,9 @@ import {
   resolveDailyTokenBudget,
   tokenBudgetGuardEnabled,
 } from '../daily-token-budget';
-import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 const mockRole = {
   id: 'role-budget',

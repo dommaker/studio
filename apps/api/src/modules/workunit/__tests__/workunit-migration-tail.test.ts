@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus, type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitData } from '../workunit-crud.js';
 import { parseWuMetadata } from '../wu-metadata.js';
 
 let tmpDir: string;

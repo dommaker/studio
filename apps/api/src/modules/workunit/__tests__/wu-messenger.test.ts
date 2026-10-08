@@ -10,7 +10,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, eventBus, type ChannelMessageData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitData } from '../workunit-crud.js';
 
 const { mockResolvePmoProjectId } = vi.hoisted(() => ({
   mockResolvePmoProjectId: vi.fn(),

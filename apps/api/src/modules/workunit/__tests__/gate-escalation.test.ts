@@ -8,7 +8,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
-import { WorkUnitService, type WorkUnitMetadata } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
 import { scanGateEscalationReminders } from '../gate-escalation.js';
 
 const { mockNotifyAlert } = vi.hoisted(() => ({ mockNotifyAlert: vi.fn() }));

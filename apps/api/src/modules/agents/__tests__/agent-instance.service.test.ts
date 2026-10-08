@@ -6,7 +6,7 @@ import os from 'node:os';
 import { FileStore, type RuntimeStateData } from '@dommaker/studio-shared';
 
 import { AgentInstanceService, summarizeRoleStates } from '../agent-instance.service';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-instance-test-'));

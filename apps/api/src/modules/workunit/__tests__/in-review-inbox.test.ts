@@ -18,7 +18,7 @@ vi.mock('../../agent-monitor/index.js', () => ({
 }));
 
 import { initInReviewInbox } from '../in-review-inbox.js';
-import { WorkUnitService } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
 
 let tmpDir: string;
 let fileStore: FileStore;

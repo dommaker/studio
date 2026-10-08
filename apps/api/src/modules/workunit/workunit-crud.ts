@@ -20,7 +20,7 @@ import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
 import { parseWuPmoId } from '../requirements/index.js';
-import type { WorkUnitMetadata } from './workunit.service.js';
+import type { WorkUnitMetadata } from './workunit.types.js';
 import { getStore } from '../../core/store.js';
 
 

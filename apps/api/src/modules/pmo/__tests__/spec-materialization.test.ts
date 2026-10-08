@@ -18,7 +18,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 import { projectService, PROJECT_STATUS, type ProjectData } from '../project.service.js';
 import { SpecMaterialization, parseSpecTasks, SPEC_TASKS_MAX } from '../spec-materialization.js';
 

@@ -7,7 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, waitForReviewPassSettled, type WorkUnitMetadata, type WorkUnitData } from '../workunit.service.js';
+import { WorkUnitService, waitForReviewPassSettled } from '../workunit-review.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
+import type { WorkUnitData } from '../workunit-crud.js';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from '../merge-on-review-pass.js';
 
 const { mockExecSh, mockPostWuSystemMessage, mockResolvePmoProjectId, mockSystemExecRun, mockLoadSingleSkill } = vi.hoisted(() => ({

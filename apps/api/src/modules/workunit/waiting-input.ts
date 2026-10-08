@@ -37,7 +37,9 @@
  *   阈值 + 一次性 waitingReminded 标记，消息带统一 CTA（blocked-cta 模板）。
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from './workunit.service.js';
+import { WorkUnitService } from './workunit-review.js';
+import type { WorkUnitMetadata } from './workunit.types.js';
+import type { WorkUnitData } from './workunit-crud.js';
 import { PLAN_STEP_LIMIT } from './workunit.types.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';

@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
 import { PENDING_CONFIRM_TYPES, resolveInitialStatus } from '../workunit.types.js';
 
 let tmpDir: string;

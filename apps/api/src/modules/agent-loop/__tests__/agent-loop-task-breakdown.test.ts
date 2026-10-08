@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseTaskBreakdown } from '../agent-loop-parsers.js';
-import { ANALYSIS_TASKS_MAX } from '../../workunit/workunit.service.js';
+import { ANALYSIS_TASKS_MAX } from '../../workunit/workunit.types.js';
 
 describe('parseTaskBreakdown', () => {
   it('解析多行 TASK: 行', () => {

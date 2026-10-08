@@ -24,7 +24,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { NotificationService } from '@dommaker/studio-notification';
 // #665（ADR 2026-08-24 落地）：notification.created SSE 负载与 studio-contract 同源
 import type { NotificationCreatedPayload } from '@dommaker/studio-contract';
-import { WorkUnitService, type WorkUnitData } from './workunit.service.js';
+import { WorkUnitService } from './workunit-review.js';
+import type { WorkUnitData } from './workunit-crud.js';
 import { MANUAL_GATE_TYPES } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { notifyAlert } from '../../utils/notifier.js';

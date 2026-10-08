@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { routeMessage, getMergeWindowMs, resolveMergeTarget } from '../message-routing.js';
 import { channelMessageService } from '../channel-message.service.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 let channelId: string;
 let tmpDir: string;

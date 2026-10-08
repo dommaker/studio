@@ -14,7 +14,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, WU_LEASE_TTL_MS, type WorkUnitMetadata } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import { WU_LEASE_TTL_MS, type WorkUnitMetadata } from '../workunit.types.js';
 import { scanTimedOutWorkUnits } from '../timeout-release.js';
 
 vi.mock('../wu-messenger.js', () => ({
