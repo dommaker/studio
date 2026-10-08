@@ -1,6 +1,6 @@
 // types/sse.ts — SSE 信封类型锚定测试：
 // #665 起信封与 studio-contract 同源；#690 起 SseMessage = 已校验词表事件 | loose 信封联合
-// （运行时校验件 parseSseMessage/isSseEvent 归 api/sseHooks.ts，锚定测试在 api/__tests__/sseParser.test.ts）。
+// （运行时校验件 parseSseMessage/isSseEvent 归 api/sseParser.ts，锚定测试在 api/__tests__/sseParser.test.ts）。
 import { describe, it, expect } from 'vitest';
 import { sseEnvelopeSchema } from '@dommaker/studio-contract';
 import type { SseMessage, SseStatus } from '../sse';

@@ -239,4 +239,5 @@
 | channel | apps/web/src/types/channel.ts | 频道域客户端本地类型（P3-a 自 api/channel.ts 迁出——api 层不声明导出类型， |
 | readiness | apps/api/src/bootstrap/readiness.ts | ── readiness 状态（2026-10-03 根因修复 B 批）── |
 | sse | apps/web/src/types/sse.ts | SSE 客户端类型（P3-a 自 api/sseHooks.ts 迁出——api 层不声明导出类型）。 |
+| soft-steps | apps/api/src/bootstrap/soft-steps.ts | ── 「失败只 log 不拒启」装配纪律的唯一固化点（#686）── |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |
