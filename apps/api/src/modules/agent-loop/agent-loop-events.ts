@@ -11,7 +11,7 @@ import type { ExecutionResult } from '@dommaker/studio-agent';
 import type { WorkunitTokenEvent } from '@dommaker/studio-contract';
 import { noteTokensWritten } from './daily-token-budget.js';
 import { noteTokenLedgerWritten } from '../../utils/token-ledger.js';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
 
 

@@ -11,7 +11,7 @@ import {
   type WorkUnitData,
 } from '../workunit/index.js';
 import { isSystemRole } from '../../core/system-role.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import { judgeClaimFitness, parseUnfitRoles } from './claim-fitness.js';
 import type { AgentLoopHost } from './loop-host.js';

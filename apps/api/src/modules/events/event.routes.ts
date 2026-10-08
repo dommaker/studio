@@ -28,7 +28,7 @@ import {
   resolveStudioEventsFile,
   getStudioEventTime,
   type StudioEventLevel,
-} from '../../utils/studio-events.js';
+} from '@dommaker/studio-shared';
 import { readStudioEventsTail, studioEventLevelOf, levelAtLeast } from '../../utils/studio-events-tail.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import {

@@ -7,7 +7,7 @@
  * 门面方法为薄封装。
  */
 
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
 import type { KnowledgeServiceDeps, ExecutionOutcome } from './knowledge-types.js';
 

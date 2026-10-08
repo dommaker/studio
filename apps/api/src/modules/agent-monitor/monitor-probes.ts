@@ -25,7 +25,7 @@ import { parseWuMetadata } from '../workunit/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
 import { snapshotToData } from '../workunit/index.js';
 import { DECISION_SPEC_TYPES } from '../workunit/index.js';
-import { getStudioEventTime, parseStudioEventPayload } from '../../utils/studio-events.js';
+import { getStudioEventTime, parseStudioEventPayload } from '@dommaker/studio-shared';
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
 const FAILURE_THRESHOLD = 3;

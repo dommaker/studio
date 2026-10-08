@@ -28,7 +28,7 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
 
 

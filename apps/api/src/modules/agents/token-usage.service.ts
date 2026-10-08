@@ -26,7 +26,7 @@ import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { TREE_TOKEN_BUDGET } from '../workunit/index.js';
 import { readCollab } from '../workunit/index.js';
 import { buildAssigneeProfileResolver } from '../workunit/index.js';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 // #342：窗口读口（尾部倒读 + 窗口外早停）——三个事件读点切到此读口
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { getStore } from '../../core/store.js';

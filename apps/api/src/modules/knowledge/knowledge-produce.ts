@@ -10,7 +10,7 @@
 
 import { logger } from '@dommaker/studio-shared';
 // P2-c 拆环：getSystemExecutor/StudioRoleNotConfiguredError 改函数内动态 import（见 extractFromConversationImpl）
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
 import { ENTRY_TYPE_MAP } from './knowledge-types.js';
 import type {

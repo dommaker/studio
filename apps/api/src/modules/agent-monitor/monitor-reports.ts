@@ -20,7 +20,7 @@ import {
   writeStudioEvent,
   parseStudioEventPayload,
   getStudioEventTime,
-} from '../../utils/studio-events.js';
+} from '@dommaker/studio-shared';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 

@@ -58,24 +58,29 @@ vi.mock('../../workunit/workunit.service.js', () => ({
   WorkUnitService: vi.fn(function () { return { close: mockCloseWithNotice, updateMetadata: mockUpdateMetadata }; }),
 }));
 
-// #181：统一事件流读取打桩（全量 mock——真模块顶层 new FileStore() 依赖 shared，不宜 importOriginal）
 // #335：读口切到窗口读（studio-events-tail.readStudioEventsSince），打桩随之迁移
 vi.mock('../../../utils/studio-events-tail.js', () => ({
   readStudioEventsSince: mockReadStudioEventsSince,
 }));
-vi.mock('../../../utils/studio-events.js', () => ({
-  parseStudioEventPayload: (event: { payload?: unknown }) => {
-    const raw = event?.payload;
-    if (raw === null || raw === undefined) return null;
-    if (typeof raw === 'object') return raw;
-    if (typeof raw !== 'string') return null;
-    try { return JSON.parse(raw); } catch { return null; }
-  },
-  getStudioEventTime: (event: { createdAt?: unknown }) => {
-    const ts = typeof event?.createdAt === 'string' ? new Date(event.createdAt).getTime() : NaN;
-    return Number.isFinite(ts) ? ts : NaN;
-  },
-}));
+// #181：统一事件流读取打桩；架构精简刀6 后源模块 = @dommaker/studio-shared，
+// 整包 mock 会截断其他消费方（notification-service 等），故 importOriginal 摊开只覆写两个读口
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return {
+    ...orig,
+    parseStudioEventPayload: (event: { payload?: unknown }) => {
+      const raw = event?.payload;
+      if (raw === null || raw === undefined) return null;
+      if (typeof raw === 'object') return raw;
+      if (typeof raw !== 'string') return null;
+      try { return JSON.parse(raw); } catch { return null; }
+    },
+    getStudioEventTime: (event: { createdAt?: unknown }) => {
+      const ts = typeof event?.createdAt === 'string' ? new Date(event.createdAt).getTime() : NaN;
+      return Number.isFinite(ts) ? ts : NaN;
+    },
+  };
+});
 
 import {
   checkFailureTrend,

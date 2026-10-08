@@ -16,7 +16,7 @@ import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommaker/studio-agent';
 import { parseWuMetadata, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { resolvePmoBranchForWU } from '../requirements/index.js';
-import { writeStudioEvent, resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { writeStudioEvent, resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
 import { knowledgeService } from '../knowledge/index.js';

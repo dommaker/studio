@@ -15,8 +15,8 @@
 import path from 'node:path';
 import { readProjectTraces, type ExecutionTrace } from '@dommaker/harness';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
-import { parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
+import { parseStudioEventPayload, getStudioEventTime } from '@dommaker/studio-shared';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readJsonl 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 

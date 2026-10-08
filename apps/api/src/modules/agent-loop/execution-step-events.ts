@@ -44,7 +44,7 @@ import type {
   ExecutionStreamChunk,
   ExecutionStreamChunkKind,
 } from '@dommaker/studio-contract';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
 
 export type { ExecutionStepToolCall, ExecutionStreamChunk, ExecutionStreamChunkKind };
 export type ExecutionStepEventPayload = ExecutionStepEvent;

@@ -22,7 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { FileStore, logger } from '@dommaker/studio-shared';
-import { parseStudioEventPayload } from './studio-events.js';
+import { parseStudioEventPayload } from '@dommaker/studio-shared';
 import { getStore } from '../core/store.js';
 
 

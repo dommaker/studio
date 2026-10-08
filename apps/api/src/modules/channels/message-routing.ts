@@ -26,7 +26,7 @@ import {
   type FileRefDrop,
   type FileRefVocabularyDeps,
 } from './file-ref-vocabulary.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
 import { recordAgentDecision } from '../audit-logs/index.js';
 import { getStore } from '../../core/store.js';
 

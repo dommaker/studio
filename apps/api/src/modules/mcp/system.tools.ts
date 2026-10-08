@@ -4,7 +4,7 @@
  * T3 拆分：自 tools.ts 原样提取（systemHealth / emitEvent）。
  */
 
-import { resolveStudioEventsFile, writeStudioEvent } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile, writeStudioEvent } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { RegisteredTool } from './tool-registry.js';
 

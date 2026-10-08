@@ -17,7 +17,7 @@ import {
 import { TriggerStore } from './trigger-store.js';
 import { getTriggerScheduler } from './trigger-registry.js';
 import { executeCreateAction, executeExecuteAction } from './trigger-action.js';
-import { parseStudioEventPayload } from '../../utils/studio-events.js';
+import { parseStudioEventPayload } from '@dommaker/studio-shared';
 // #342/#654：窗口读口（尾部倒读 + 窗口外早停；file 缺省即 resolveStudioEventsFile()）
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { recordAgentDecision } from '../audit-logs/index.js';

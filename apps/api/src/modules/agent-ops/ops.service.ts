@@ -15,7 +15,7 @@ import { loadRules, type OpsRules } from './ops-rules.js';
 import { getStore } from '../../core/store.js';
 import { readDiskUsage, readMemoryUsage, readLoadAvgRaw, countProcessesByCmdline, listPidsByCmdline } from '../../core/proc-probes.js';
 import { hashPassword } from '../auth/index.js';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { ensureFrontendDist } from '../../utils/frontend-dist.js';
 
 const execAsync = promisify(exec);

@@ -4,7 +4,8 @@
  * 覆盖：路径解析（测试隔离）、空 payload 拒收、正常写入形态、
  * 读 API、payload 解析、事件时间兼容（createdAt / timestamp）。
  *
- * #361：实现下沉 @dommaker/studio-shared（utils/studio-events.ts 变薄壳转发）。
+ * #361：实现下沉 @dommaker/studio-shared；架构精简刀6 删除 apps/api 薄壳转发，
+ * 本测试直引共享包正本。
  * 写口内部 logger/FileStore 均为共享包相对导入，包级 mock 拦不到 —— 拒收
  * 告警断言改 spy 真实 console（共享 logger 为 console 实现）。
  */
@@ -21,7 +22,7 @@ import {
   parseStudioEventPayload,
   getStudioEventTime,
   defaultStudioEventLevel,
-} from '../studio-events.js';
+} from '@dommaker/studio-shared';
 
 describe('resolveStudioEventsFile', () => {
   it('vitest 环境 → 隔离目录下的 studio-events.jsonl', () => {

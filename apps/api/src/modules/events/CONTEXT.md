@@ -48,7 +48,7 @@
 ### 注意事项
 
 - **契约驱动迁移（2026-10 批次 5/7）**：event.routes.ts 三个 REST 端点 defineRoute 化——响应统一 `{ data }` 壳（原裸对象/平铺进壳），错误统一 `{ error: { code, message } }`（原 `{ error: string }` 与 agent-events 的 `{ error, details }` 退役；手写 guard 收进 zod，500 文案由固定串变为实际错误消息）；契约正本 = `packages/studio-contract/src/events.ts`。SSE /events/stream 不走 defineRoute（headersSent 长连接），但事件流 payload #665 起契约化（`packages/studio-contract/src/sse-events.ts`，ADR 2026-08-24 落地）：14 个事件词表 + payload 判别联合 + loose 信封兜底；发射点类型同源（import type 契约 payload），wire parity 测试 = `__tests__/sse-payload-contract.test.ts`（真实构造器产物 JSON round-trip 过 sseEventSchema）；前端本地事件类型声明清零
-- StudioEvent 用 jsonl 文件存储（D18 起统一经 `../../utils/studio-events.js` 的 writeStudioEvent 写入；空 payload 拒绝落盘）
+- StudioEvent 用 jsonl 文件存储（D18 起统一经 `@dommaker/studio-shared` 的 writeStudioEvent 写入；空 payload 拒绝落盘）
 - POST /api/v1/events 的 payload 为空（{} / null / 缺失 / '{}'）→ 400（D18：空事件不产信号只产噪音，调用方自查）
 - SSE 使用 EventBus pub/sub (B0-002)，不依赖数据库
 - **SSE 帧格式（2026-07-29 修复）**：只写 `id:` + `data:` 匿名事件（不写 `event:` 命名行——EventSource.onmessage 只收匿名事件），且 data 是完整信封 `{event_type, event_id, timestamp, data}`（此前只发内层 payload，客户端按 event_type 分发恒失败，全站 SSE 实际不通）。topic 映射（`getTopicFromEventType` 纯前缀，已导出供单测锁定）：execution./runtime.→executions、node.→nodes、task.→tasks、goal.→goals、knowledge.→knowledge、workunit.→workunits（含 workunit.tokens / workunit.execution.*）、channel.→channels、requirement.→requirements（2026-08-24 新增）、其余→all（客户端默认订阅 all 全收）。**B6（2026-09-16 channel 性能审计）**：广播循环每事件仅 1 次 `JSON.stringify`（惰性 memo——零匹配客户端零成本），各客户端复用同一字符串；原为逐客户端重复序列化且在发消息热路径上

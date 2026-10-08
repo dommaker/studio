@@ -7,7 +7,7 @@
  * getAuditReport/getAnalystAccuracy/getStats）仅做薄封装。
  */
 
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 // #342：窗口读口（尾部倒读 + 窗口外早停）——事件流扫描切到此读口
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 

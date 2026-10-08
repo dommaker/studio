@@ -48,7 +48,7 @@
 
 ### 依赖关系
 
-- 依赖：`@dommaker/studio-shared`（logger, FileStore）、`@dommaker/studio-skill`（skillLoader）、`../../utils/studio-events.js`（D18 统一事件写入，emitEvent / tool:call traces）
+- 依赖：`@dommaker/studio-shared`（logger, FileStore）、`@dommaker/studio-skill`（skillLoader）、`@dommaker/studio-shared` studio-events（D18 统一事件写入，emitEvent / tool:call traces）
 - 依赖：各业务模块（workunit, pmo, knowledge, skills）
 - 被依赖：`routes.ts` / `server.ts`（HTTP 与 JSON-RPC 入口）
 

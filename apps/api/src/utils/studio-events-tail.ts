@@ -12,8 +12,8 @@
  */
 import { promises as fs } from 'node:fs';
 import { iterateJsonlLinesBackward, readJsonlTail } from '@dommaker/studio-shared';
-import type { StudioEventLevel } from './studio-events.js';
-import { getStudioEventTime, resolveStudioEventsFile } from './studio-events.js';
+import type { StudioEventLevel } from '@dommaker/studio-shared';
+import { getStudioEventTime, resolveStudioEventsFile } from '@dommaker/studio-shared';
 
 /** 事件分级（envelope 无 level 字段 = info；非法值回退 info） */
 export function studioEventLevelOf(event: { level?: unknown }): StudioEventLevel {

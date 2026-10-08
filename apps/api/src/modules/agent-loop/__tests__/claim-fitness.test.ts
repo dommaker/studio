@@ -25,7 +25,7 @@ const { mockRun } = vi.hoisted(() => ({ mockRun: vi.fn() }));
 const { mockWriteStudioEvent } = vi.hoisted(() => ({ mockWriteStudioEvent: vi.fn() }));
 
 // studio-events 间谍包装：真实写盘保留（vitest 下 STUDIO_EVENTS_FILE 已隔离），另断言台账字段
-vi.mock('../../../utils/studio-events.js', async (importOriginal) => {
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as { writeStudioEvent: (t: string, p: unknown, o?: unknown) => Promise<boolean> };
   mockWriteStudioEvent.mockImplementation(orig.writeStudioEvent);
   return { ...orig, writeStudioEvent: mockWriteStudioEvent };

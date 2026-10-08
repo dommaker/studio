@@ -22,7 +22,7 @@ import zlib from 'node:zlib';
 import { randomUUID } from 'node:crypto';
 import { logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { getStudioEventTime } from './studio-events.js';
+import { getStudioEventTime } from '@dommaker/studio-shared';
 import { isTestEnv, resolveStudioLogsDir } from './studio-log-path.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

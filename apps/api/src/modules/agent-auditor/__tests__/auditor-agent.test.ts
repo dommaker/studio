@@ -69,7 +69,7 @@ describe('AuditorService B3-005', () => {
     }
 
     // Create session:summary events in a tmp STUDIO_EVENTS_FILE — D18 后代码
-    // 经 utils/studio-events 的 resolveStudioEventsFile() 懒解析统一事件文件。
+    // 经 @dommaker/studio-shared 的 resolveStudioEventsFile() 懒解析统一事件文件。
     // Keeps fixtures out of the real home dir.
     prevStudioEventsFile = process.env.STUDIO_EVENTS_FILE;
     testEventsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-events-'));

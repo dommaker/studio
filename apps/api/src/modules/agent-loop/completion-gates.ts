@@ -31,7 +31,7 @@ import {
 import { CODE_WORKTREE_TYPES, runWuVerification, type WuVerifyOutcome } from './wu-verification.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
 import type { StepResult } from './agent-loop.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
 
 /** §10.5 提交守卫：worktree 是否有未提交改动（异步，不阻塞事件循环）。
  *  git 调用失败返回 false —— 守卫静默跳过，绝不因基础设施故障阻断完成。 */

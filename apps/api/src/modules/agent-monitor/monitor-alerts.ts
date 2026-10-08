@@ -3,7 +3,7 @@
  *
  * 从 monitor.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责告警出口侧：
- *   - 告警日志分级 + 统一事件写入（D18: utils/studio-events）+ notifyAlert 通知出口（P0 修复 4）
+ *   - 告警日志分级 + 统一事件写入（D18: @dommaker/studio-shared studio-events）+ notifyAlert 通知出口（P0 修复 4）
  *   - FL-037: critical 告警升级 Triage
  *   - H3: 告警写入 KnowledgeBus pattern
  */
@@ -13,7 +13,7 @@ import { knowledgeService } from '../knowledge/index.js';
 import { notifyAlert } from '../../utils/notifier.js';
 import type { MonitorAlert } from './types.js';
 import { triageService } from '../triage/index.js';
-import { resolveStudioEventsFile, writeStudioEvent } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile, writeStudioEvent } from '@dommaker/studio-shared';
 
 // ── 告警指纹冷却去重（#220，#218 决议）──
 // 进程内存态，不落盘：FileStore 故障本身是告警条件之一，落盘 = 循环依赖。

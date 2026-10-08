@@ -199,7 +199,7 @@ export async function studioStatus() {
   // 5. G4: Trajectory eval（D18: 统一事件文件，StudioEvent 形态）
   try {
     const fs = await import('fs');
-    const { resolveStudioEventsFile, parseStudioEventPayload } = await import('../utils/studio-events.js');
+    const { resolveStudioEventsFile, parseStudioEventPayload } = await import('@dommaker/studio-shared');
     const sf = resolveStudioEventsFile();
     if (fs.existsSync(sf)) {
       const lines = fs.readFileSync(sf, 'utf-8').split('\n').filter(Boolean);

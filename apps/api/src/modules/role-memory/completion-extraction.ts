@@ -14,7 +14,7 @@
  */
 
 import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';

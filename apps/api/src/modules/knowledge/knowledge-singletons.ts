@@ -29,7 +29,7 @@ import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { MtimeMemoKnowledgeStore } from './knowledge-store-memo.js';
 import { getStore } from '../../core/store.js';

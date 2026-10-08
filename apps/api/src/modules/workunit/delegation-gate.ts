@@ -20,7 +20,7 @@ import * as path from 'path';
 import { FileStore, logger, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import type { WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { syncTokenLedger } from '../../utils/token-ledger.js';
 
 /** 协作元数据（WorkUnitMetadata.collab 的具象类型） */

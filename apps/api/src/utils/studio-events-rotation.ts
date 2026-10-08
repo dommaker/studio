@@ -21,7 +21,7 @@
 import {
   resolveStudioEventsFile,
   defaultStudioEventLevel,
-} from './studio-events.js';
+} from '@dommaker/studio-shared';
 import { rotateJsonlLog } from './studio-log-rotation.js';
 
 /** 噪声（level=debug）热保留天数，超期滚动删除（#60：噪声 7 天滚） */

@@ -17,7 +17,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import type { Resolution, CreateResolutionInput, MatchResolutionInput, MatchResolutionResult } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
 

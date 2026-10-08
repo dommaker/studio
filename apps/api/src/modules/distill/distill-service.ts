@@ -58,7 +58,7 @@ import {
   resolveDailyTokenBudget,
   getDailyTokenUsage,
 } from '../agent-loop/index.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import type { WorkUnitData } from '../workunit/index.js';
 

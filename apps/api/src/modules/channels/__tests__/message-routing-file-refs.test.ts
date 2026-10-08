@@ -13,7 +13,7 @@ import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
 import { channelMessageService } from '../channel-message.service.js';
-import { readStudioEvents, parseStudioEventPayload } from '../../../utils/studio-events.js';
+import { readStudioEvents, parseStudioEventPayload } from '@dommaker/studio-shared';
 import {
   invalidateFileRefVocabularyCache,
   type FileRefVocabularyDeps,

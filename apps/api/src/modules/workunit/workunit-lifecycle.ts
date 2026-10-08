@@ -14,7 +14,7 @@ import { snapshotToData } from './workunit.mappers.js';
 import { WorkUnitQueryService } from './workunit-query.js';
 import { type WorkUnitData } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
 import { recordAgentDecision, type AuditActor } from '../audit-logs/index.js';
 
 export class WorkUnitLifecycleService extends WorkUnitQueryService {

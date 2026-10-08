@@ -17,7 +17,7 @@ import {
   INSPECTION_SCAN_TRIGGER_ID, DEFAULT_INSPECTION_SCAN_THRESHOLD,
 } from '../inspection-scan';
 import { WorkUnitService } from '../../workunit/workunit.service';
-import { readStudioEvents } from '../../../utils/studio-events';
+import { readStudioEvents } from '@dommaker/studio-shared';
 import type { TriggerConfig } from '../trigger.types';
 
 let tmpDir: string;

@@ -4,7 +4,7 @@
 
 import { logger } from '@dommaker/studio-shared';
 import { preferenceObserver } from '../knowledge/index.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
 
 export type ToolRiskLevel = 'low' | 'medium' | 'high';
 

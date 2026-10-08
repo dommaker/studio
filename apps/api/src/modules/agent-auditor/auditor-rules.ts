@@ -17,7 +17,7 @@ import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/index.js';
 import { skillStore } from '../skills/index.js';
 import { WorkUnitService } from '../workunit/index.js';
-import { resolveStudioEventsFile, getStudioEventTime } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile, getStudioEventTime } from '@dommaker/studio-shared';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readJsonl 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
