@@ -39,4 +39,14 @@ describe('el-monitor preload（#678 固化，原 #675 诊断工具）', () => {
     expect(res.status).toBe(0);
     expect(res.stderr).toContain('[EL]');
   });
+
+  it('env 非正数 → 启动即报错退出（防笔误 setInterval(NaN) 高频刷输出，#680）', () => {
+    const res = runChild('setTimeout(()=>{},100)', { EL_MONITOR_INTERVAL_MS: 'abc' });
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/EL_MONITOR_INTERVAL_MS 须为正数毫秒/);
+
+    const res2 = runChild('setTimeout(()=>{},100)', { EL_MONITOR_THRESHOLD_MS: '-5' });
+    expect(res2.status).not.toBe(0);
+    expect(res2.stderr).toMatch(/EL_MONITOR_THRESHOLD_MS 须为正数毫秒/);
+  });
 });

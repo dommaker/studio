@@ -6,7 +6,7 @@
     "date": "2026-10-03",
     "seed": 0,
     "runs": 50,
-    "note": "冻结参考值，摘自 docs/architecture/performance-baseline.md §6.2（读，实测于 f0ff48c4）+ §7/§7.1（冷启动/写/SSE，实测于 meta.commit ff546ba9）。f0ff48c4→ff546ba9 之间仅多一条只读路由，读端点数字无实质影响。2026-10-08 架构精简刀2：legacy agents CRUD 面删除，GET /api/v1/agents 不再存在，agents 列表行同步移除（bench 读端点 8→7）。参考机：4 vCPU / 3.7 GB RAM 内存受限开发机；异机对比先读 README「基线重锚」。"
+    "note": "冻结参考值，摘自 docs/architecture/performance-baseline.md §6.2（读，实测于 f0ff48c4）+ §7/§7.1（冷启动/写/SSE，实测于 meta.commit ff546ba9）。读端点沿用 f0ff48c4 实测、未在 ff546ba9 复测：该区间实际含 9 commits / 67 文件（+2866/-201），含 0543e7e0 路由遮蔽修复（行为面）、20acaab3 harness 1.16→2.0、d6b19c54 OpenAPI 路由等，对读端点数字的影响未经实测（#680 更正——原「仅多一条只读路由，无实质影响」口径与 git 历史不符）。2026-10-08 架构精简刀2：legacy agents CRUD 面删除，GET /api/v1/agents 不再存在，agents 列表行同步移除（bench 读端点 8→7）。参考机：4 vCPU / 3.7 GB RAM 内存受限开发机；异机对比先读 README「基线重锚」。"
   },
   "coldStart": { "runs": [1500, 2600, 2300] },
   "endpoints": [

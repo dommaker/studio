@@ -29,6 +29,10 @@ NODE_OPTIONS="--import $PWD/scripts/perf/el-monitor.mjs" node node_modules/tsx/d
   配置缺失/文件不存在回落 compareReports 内置默认值（20% / 5ms / 1000ms）。
 - 接线：`.github/workflows/perf-gate.yml`（每周 schedule + workflow_dispatch，
   不进日常 CI）；ship 前本地跑 `pnpm perf:gate` 同口径。
+  不接 ship 自动前置的论据（#678 评估结论，#680 沉淀）：baseline.json 锚定参考机，
+  回归门机器敏感，非参考机跑 ship 前置会噪声误红、侵蚀门禁信用；且 bench 分钟级
+  耗时会拖慢每次 ship。周频 CI 负责发现 + ship 前人工本地跑负责拦截，是当前机器
+  锚定下的合理分工；若未来 baseline 多机化/自校准，再评估进 ship 前置。
 - 基线重锚：`baseline.json` 数字锚定参考机（见文件 meta.note）。换参考机或架构
   大版本后，用 `pnpm perf:bench -- --out scripts/perf/baseline.json` 在参考机上
   重测并提交，同时在 performance-baseline.md 记录新锚点与环境差异。

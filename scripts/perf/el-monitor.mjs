@@ -4,10 +4,21 @@
 // 每个采样窗口报告一次 monitorEventLoopDelay 直方图，只在窗口 max 超阈值时输出，
 // 便于关联 warmup/阻塞窗口。窗口与阈值可用环境变量调：
 //   EL_MONITOR_INTERVAL_MS（默认 500）  EL_MONITOR_THRESHOLD_MS（默认 100）
+// env 非正数直接抛错退出（#680，防笔误 setInterval(NaN) 退化 ~1ms 高频刷输出）。
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 
-const intervalMs = Number(process.env.EL_MONITOR_INTERVAL_MS ?? 500);
-const thresholdMs = Number(process.env.EL_MONITOR_THRESHOLD_MS ?? 100);
+function readPositiveMs(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`el-monitor 环境变量非法：${name} 须为正数毫秒，实际 ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+const intervalMs = readPositiveMs('EL_MONITOR_INTERVAL_MS', 500);
+const thresholdMs = readPositiveMs('EL_MONITOR_THRESHOLD_MS', 100);
 
 const h = monitorEventLoopDelay({ resolution: 20 });
 h.enable();

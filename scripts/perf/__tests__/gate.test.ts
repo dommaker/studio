@@ -26,6 +26,18 @@ describe('parseGateArgs', () => {
   it('未知参数抛错', () => {
     expect(() => parseGateArgs(['--seed', '5'])).toThrow('未知参数');
   });
+
+  it('--config 尾参缺值 → 友好报错（非 TypeError）', () => {
+    expect(() => parseGateArgs(['--config'])).toThrow('--config 缺参数值');
+  });
+
+  it('数字旗标缺值/非法 → 报错（防 Number(undefined)=NaN 静默全绿，#680）', () => {
+    expect(() => parseGateArgs(['--threshold'])).toThrow('--threshold 缺参数值');
+    expect(() => parseGateArgs(['--threshold', 'abc'])).toThrow('--threshold 须为正数');
+    expect(() => parseGateArgs(['--min-delta-ms', '-1'])).toThrow('--min-delta-ms 须为正数');
+    expect(() => parseGateArgs(['--cold-start-min-delta-ms', '0'])).toThrow('--cold-start-min-delta-ms 须为正数');
+    expect(() => parseGateArgs(['--threshold', '--config'])).toThrow('--threshold 缺参数值');
+  });
 });
 
 describe('loadGateThresholds', () => {
@@ -60,20 +72,20 @@ describe('loadGateThresholds', () => {
   it('未知 threshold 键抛错（防笔误静默落默认值）', () => {
     expect(() => loadGateThresholds(writeCfg({ thresholds: { thresholdPc: 20 } }))).toThrow('未知阈值键');
   });
+
+  it('仓内 gate-thresholds.json 默认值不变（20% / 5ms / 1000ms）', () => {
+    expect(loadGateThresholds(defaultConfigPath)).toEqual({
+      thresholdPct: 20,
+      minDeltaMs: 5,
+      coldStartMinDeltaMs: 1000,
+    });
+  });
 });
 
 describe('resolveGateOptions', () => {
   it('CLI 参数优先于配置文件', () => {
     expect(resolveGateOptions({ configPath: defaultConfigPath, opts: { thresholdPct: 50 } })).toEqual({
       thresholdPct: 50,
-      minDeltaMs: 5,
-      coldStartMinDeltaMs: 1000,
-    });
-  });
-
-  it('仓内 gate-thresholds.json 默认值不变（20% / 5ms / 1000ms）', () => {
-    expect(loadGateThresholds(defaultConfigPath)).toEqual({
-      thresholdPct: 20,
       minDeltaMs: 5,
       coldStartMinDeltaMs: 1000,
     });

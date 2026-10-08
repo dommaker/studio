@@ -22,14 +22,32 @@ export interface GateArgs {
   opts: CompareOptions;
 }
 
+/** 取旗标值；缺值（尾参或紧跟另一旗标）直接抛友好报错，不放行 undefined */
+function takeFlagValue(argv: string[], i: number, flag: string): string {
+  const value = argv[i];
+  if (value === undefined || value.startsWith('--')) throw new Error(`${flag} 缺参数值`);
+  return value;
+}
+
+/** 取正数旗标值；缺值/非正数抛错——对齐 loadGateThresholds 配置面校验，防 Number(undefined)=NaN 静默全绿（#680） */
+function takePositiveNumber(argv: string[], i: number, flag: string): number {
+  const raw = takeFlagValue(argv, i, flag);
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${flag} 须为正数，实际 ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
 export function parseGateArgs(argv: string[]): GateArgs {
   const args: GateArgs = { configPath: defaultConfigPath, opts: {} };
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--config') args.configPath = argv[++i];
-    else if (argv[i] === '--threshold') args.opts.thresholdPct = Number(argv[++i]);
-    else if (argv[i] === '--min-delta-ms') args.opts.minDeltaMs = Number(argv[++i]);
-    else if (argv[i] === '--cold-start-min-delta-ms') args.opts.coldStartMinDeltaMs = Number(argv[++i]);
-    else throw new Error(`未知参数：${argv[i]}`);
+    const flag = argv[i];
+    if (flag === '--config') args.configPath = takeFlagValue(argv, ++i, flag);
+    else if (flag === '--threshold') args.opts.thresholdPct = takePositiveNumber(argv, ++i, flag);
+    else if (flag === '--min-delta-ms') args.opts.minDeltaMs = takePositiveNumber(argv, ++i, flag);
+    else if (flag === '--cold-start-min-delta-ms') args.opts.coldStartMinDeltaMs = takePositiveNumber(argv, ++i, flag);
+    else throw new Error(`未知参数：${flag}`);
   }
   return args;
 }
