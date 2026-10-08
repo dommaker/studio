@@ -187,9 +187,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // CSO 验证子路由（2026-07 收紧：/api/v1/cso 只挂 validate，不再整挂 harness router——否则 /harness 的 Admin 收紧可被 /cso/* 双挂载绕过）
   const { csoRoutes } = await import('./modules/harness/cso.routes.js') as { csoRoutes: Router };
 
-  // Built-in Toolset routes (HZ-026)
-  const { default: builtinToolRoutes } = await import('./modules/builtin-tools/routes.js') as { default: Router };
-
   // Channel routes (B1-001)——P2-e 拆 attachment/read/write 三 router（鉴权挂 registry entry；
   // attachment 单条保 ?token= 前置 tokenQueryToHeader，鉴权留路由内）
   const { channelReadRoutes, channelWriteRoutes, channelAttachmentRoutes } = await import('./modules/channels/channel.routes.js');
@@ -316,7 +313,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server（localhost/admin/permission service 三态混合粒度，鉴权留路由内；rate limit via tool-registry；消息面为协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
     { path: '/api/v1/harness', router: harnessRoutes, middleware: admin, comment: 'T-015: Harness 监控集成' },
     { path: '/api/v1/cso', router: csoRoutes, comment: 'Decision #5: CSO 验证（无需认证；仅 csoRoutes，不再整挂 harness router）' },
-    { path: '/api/v1/builtin-tools', router: builtinToolRoutes, middleware: admin, comment: 'HZ-026: Built-in Toolset' },
 
     // 文档与审查
     { path: '/api/v1/specs', router: specsRoutes.specsOpenRoutes, middleware: auth, comment: 'SP-002（读 + analyze-change：登录即可）' },

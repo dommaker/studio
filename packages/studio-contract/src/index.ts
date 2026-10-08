@@ -40,7 +40,6 @@ export * from './harness.js';
 export * from './cso.js';
 export * from './iron-laws.js';
 export * from './mcp.js';
-export * from './builtin-tools.js';
 export * from './discord.js';
 export * from './deploy.js';
 export * from './agents.js';

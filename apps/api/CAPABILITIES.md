@@ -28,7 +28,6 @@
 | routes | src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | src/modules/auth/routes.ts | POST /api/v1/auth/guest-session |
 | service | src/modules/auth/service.ts | 认证服务 - Auth Service |
-| routes | src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | channel-init | src/modules/channels/channel-init.ts | Seed default channels on startup (B1-001) |
 | channel-message.service | src/modules/channels/channel-message.service.ts | ChannelMessage Service — centralized message creation + event publishing |
 | channel.routes | src/modules/channels/channel.routes.ts | Channel Routes — B1-001/B1-002/B1-009/B1-011 |
@@ -179,7 +178,6 @@
 | routes | src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | src/modules/auth/routes.ts | GET /api/v1/auth/status |
 | service | src/modules/auth/service.ts | 认证服务 - Auth Service |
-| routes | src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | attachments | src/modules/channels/attachments.ts | 频道消息图片附件（2026-09，「频道里加上截图」，docs/plans/2026-09-channel-attachments.md） |
 | channel.service | src/modules/channels/channel.service.ts | F6: 归一化 + 校验 defaultWorkspaceId（channel PATCH 用）。 |
 | convert-to-task.service | src/modules/channels/convert-to-task.service.ts | AC-E2: Convert to Task Service |

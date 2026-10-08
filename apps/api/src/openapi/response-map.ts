@@ -207,7 +207,7 @@ import {
   ironLawGetResponseSchema,
   ironLawCheckResponseSchema,
   ironLawCheckAllResponseSchema,
-  // mcp / builtin-tools / executions / agents / agent-profiles
+  // mcp / executions / agents / agent-profiles
   mcpToolListResponseSchema,
   mcpToolCallResponseSchema,
   mcpHealthResponseSchema,
@@ -217,9 +217,6 @@ import {
   mcpRolePermissionsResponseSchema,
   mcpPermissionSetResponseSchema,
   mcpAuditResponseSchema,
-  builtinToolListResponseSchema,
-  builtinToolGetResponseSchema,
-  builtinToolPatchResponseSchema,
   executionEventResponseSchema,
   agentTokenUsageResponseSchema,
   agentProfileListResponseSchema,
@@ -507,10 +504,7 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'PUT /api/v1/mcp/admin/permissions': { response: mcpPermissionSetResponseSchema, summary: '权限设置' },
   'GET /api/v1/mcp/admin/audit': { response: mcpAuditResponseSchema, summary: 'MCP 审计日志' },
 
-  // ── builtin-tools / agents / agent-profiles ──
-  'GET /api/v1/builtin-tools': { response: builtinToolListResponseSchema, summary: '内置工具列表' },
-  'GET /api/v1/builtin-tools/:name': { response: builtinToolGetResponseSchema, summary: '内置工具详情' },
-  'PATCH /api/v1/builtin-tools/:name': { response: builtinToolPatchResponseSchema, summary: '内置工具开关' },
+  // ── agents / agent-profiles ──
   'POST /api/v1/executions/events': { response: executionEventResponseSchema, summary: 'runtime 事件回调（本机限定，events 模块）' },
   'GET /api/v1/agents/:id/token-usage': { response: agentTokenUsageResponseSchema, summary: '角色级 token 视图（§10.5）' },
   'GET /api/v1/agent-profiles': { response: agentProfileListResponseSchema, summary: 'AgentProfile 列表（分页）' },

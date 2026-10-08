@@ -1,6 +1,6 @@
 # 架构精简：死亡面大扫除 + 结构归正 + 防护瘦身
 
-> 状态：Phase 0 已完成（2026-10-08，20 个 commit 落本地 master，65124ad6…bc2743ff）；Phase 1–3 已起票（#681–#696）
+> 状态：Phase 0 已完成（2026-10-08，20 个 commit 落本地 master，65124ad6…bc2743ff）；Phase 1–3 已起票（#681–#696）；P1-9 已完成（#689，2026-10-09：builtin-tools 确认死面整删，mcp 三件套复查结论=保留）
 > 前置：docs/plans/2026-10-arch-deepening.md（深化轮，#664–#675 已收官）；目标架构正本 docs/architecture/target-architecture.md
 
 ## 工单映射（2026-10-08 起票，全部 ready-for-agent）

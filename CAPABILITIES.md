@@ -23,7 +23,6 @@
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | auth | apps/api/src/modules/auth/ | POST /api/v1/auth/guest-session |
-| routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | channels | apps/api/src/modules/channels/ | Seed default channels on startup (B1-001) |
 | companies | apps/api/src/modules/companies/ | Company API 路由 — 存储迁移 Prisma → FileStore |
 | discord | apps/api/src/modules/discord/ | B3-002/B3-003: Shared command runner for CLI and Discord |
@@ -167,7 +166,6 @@
 | routes | apps/api/src/modules/action-center/routes.ts | 行动中心 API 路由（#468） |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
-| routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
 | routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015)（挂载门面） |
@@ -190,7 +188,6 @@
 | routes | apps/api/src/modules/action-center/routes.ts | 行动中心 API 路由（#468） |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
-| routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
 | routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015)（挂载门面） |

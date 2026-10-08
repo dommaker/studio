@@ -55,6 +55,7 @@
 ### 注意事项
 
 - tools.ts 是门面，不包含 tool 定义。新增 tool 在对应域 *.tools.ts 中添加，并在 tools.ts 的 allTools 数组中展开（注册顺序即数组顺序）。
+- **三件套复查结论（#689，2026-10-09，保留）**：tools.ts / tool-registry.ts / tool-store.ts 各有活消费方与独立职责，非多余间接层——tools.ts 承载注册组装 + 风险级别标注 + 权限种子 + executeTool 执行包装（限流/权限/审计/追踪），被 server.ts 与 routes.ts 消费；tool-registry.ts 承载注册表本体 + 健康/统计/限流/故障检测，被 routes.ts/admin.routes.ts/index.ts 直用；tool-store.ts 是 6 个域 tools 文件与单测 mock 锚点的共享存储助手。收敛为三合一反而把装配、机制、存储三种关注点糊成一团，维持现状。
 - 风险级别按工具名前缀自动分配（create/store/extract/approve/assign/update 等 → medium，delete/drop/truncate → high，其余 → low）。
 - 权限模型默认 executor（本地 Agent）可调用普通 tool；**危险工具收口（2026-08-25）**：publishPackage 仅 admin/deploy 默认允许，其余系统角色 seed 为 allowed:false，且历史过度授权记录启动时强制纠正（permission.service.ts seedDefaultPermissions，旧 seed 只增不改不会自愈）。publishPackage 本体同步收口：bumpType 白名单 fail-fast + 全部 execFileSync 数组参数 + git tag 前 semver 校验；dist 完整性校验调 @dommaker/harness 的 verifyReleaseArtifacts 自检（清单由包声明面运行时推导，不硬编码，#425）。
 - **HTTP 端点鉴权分层（2026-07-24 收紧；2026-08-25 补洞）**：`GET /tools`、`GET /health` 保持公开（Lurk）；`POST /tools/:name` → `requireAuth+requireAdmin`；`POST /messages`、`GET /sse`、**`POST /`（完整 JSON-RPC 面，2026-08-25 补挂）** → `requireLocalhost`（真实客户端为本机 agent，`STUDIO_MCP_URL` 默认 localhost SSE）；`/admin/*` → `requireAuth+requireAdmin`。permission.service 的 RBAC 是 agent 角色维度，与 HTTP 用户鉴权是两层。**requireLocalhost 语义（2026-08-25 修复）**：拒绝携带 X-Forwarded-For/CF-Connecting-IP 的请求——同机反代下公网流量 TCP 对端也是 127.0.0.1，单靠 IP 判不出，须靠转发头识别（middleware/auth.ts）。

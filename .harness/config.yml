@@ -19,7 +19,6 @@ governance:
       - apps/api/src/modules/agents
       - apps/api/src/modules/audit-logs
       - apps/api/src/modules/auth
-      - apps/api/src/modules/builtin-tools
       - apps/api/src/modules/channels
       - apps/api/src/modules/companies
       - apps/api/src/modules/deploy
