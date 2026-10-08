@@ -329,6 +329,72 @@ describe('E5: 「加载更多」真追加（对齐 E2 WU 列表口径）', () =>
   });
 });
 
+describe('#692: 统一视图分页单真相源（追加页并进 tabQ 通道，重拉即整体替换）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSearch.mockResolvedValue({ data: { data: { results: [] } } });
+  });
+
+  const page1 = Array.from({ length: 50 }, (_, i) => ({
+    id: `p1-${i}`, title: `首页条目${i}`, consumptionMode: 'rule', source: 's', content: 'x', tags: [],
+  }));
+  // offset=0 第二次起返回带「重拉后」标记的首页，用作重拉完成的确证（重拉期间列表落骨架，不能拿旧内容当 settle 信号）
+  const pagedMock = () => {
+    let zeroOffsetCalls = 0;
+    mockListUnified.mockImplementation(({ offset = 0 }: { offset?: number }) => {
+      if (offset !== 0) {
+        return Promise.resolve({ data: { data: {
+          entries: [{ id: 'p2-0', title: '追加条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }],
+          total: 51,
+        } } });
+      }
+      zeroOffsetCalls += 1;
+      const entries = zeroOffsetCalls === 1
+        ? page1
+        : page1.map((e, i) => (i === 0 ? { ...e, title: '重拉后首页条目0' } : e));
+      return Promise.resolve({ data: { data: { entries, total: 51 } } });
+    });
+  };
+
+  it('手动新建成功后重拉首页，旧快照的追加页不残留（原 moreEntries 双真相源：reload 不清本地累加）', async () => {
+    pagedMock();
+    mockCreateUnifiedEntry.mockResolvedValue({ data: {} });
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+
+    expect(await screen.findByText('首页条目0')).toBeTruthy();
+    fireEvent.click(screen.getByText('加载更多'));
+    expect(await screen.findByText('追加条目')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('+ 新建'));
+    fireEvent.change(screen.getByPlaceholderText('标题'), { target: { value: '新条目' } });
+    fireEvent.change(screen.getByPlaceholderText('内容'), { target: { value: '内容' } });
+    fireEvent.click(screen.getByText('保存'));
+
+    await waitFor(() => expect(mockCreateUnifiedEntry).toHaveBeenCalledTimes(1));
+    // 重拉完成（标记条目上屏）后：追加页基于旧快照已失效，只剩首页数据
+    expect(await screen.findByText('重拉后首页条目0')).toBeTruthy();
+    expect(screen.queryByText('追加条目')).toBeNull();
+    expect(screen.getByText('已加载 50 / 共 51')).toBeTruthy();
+  });
+
+  it('SSE 事件防抖重拉后，旧快照的追加页不残留', async () => {
+    pagedMock();
+    let sseHandler: ((msg: { event_type: string; data?: unknown }) => void) | null = null;
+    mockOnEvent.mockImplementation((h: typeof sseHandler) => { sseHandler = h; return () => {}; });
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+
+    expect(await screen.findByText('首页条目0')).toBeTruthy();
+    fireEvent.click(screen.getByText('加载更多'));
+    expect(await screen.findByText('追加条目')).toBeTruthy();
+
+    act(() => { sseHandler!({ event_type: 'knowledge.entry_changed', data: { action: 'created', entryId: 'x' } }); });
+
+    expect(await screen.findByText('重拉后首页条目0', {}, { timeout: 2000 })).toBeTruthy();
+    expect(screen.queryByText('追加条目')).toBeNull();
+    await waitFor(() => expect(mockListUnified).toHaveBeenCalledTimes(3)); // 首拉 + 加载更多 + 重拉
+  });
+});
+
 describe('批次 F-1: 全局搜索失败反馈（原先 catch 静默置空，落「无匹配结果」假空态）', () => {
   beforeEach(() => {
     vi.clearAllMocks();

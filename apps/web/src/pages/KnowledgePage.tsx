@@ -74,8 +74,8 @@ export function KnowledgePage() {
   const [unifiedMode, setUnifiedMode] = useState('');
   // E5-1：「待审」筛选（maturity=draft，/knowledge/unified 原生支持 maturity 参数）
   const [reviewOnly, setReviewOnly] = useState(false);
-  // E5-3：追加式分页——首页走 tabQ（切 tab/筛选渲染期重置），追加页本地累加
-  const [moreEntries, setMoreEntries] = useState<UnifiedEntry[]>([]);
+  // E5-3 追加式分页（#692 单真相源）：追加页并进 tabQ 同一取数通道（见 handleLoadMore），
+  // 本地只留请求中锁存；切 tab/筛选/reload 由 useAsyncData deps 重置与整份替换天然丢弃旧快照追加页
   const [moreLoading, setMoreLoading] = useState(false);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [manualForm, setManualForm] = useState({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
@@ -117,8 +117,7 @@ export function KnowledgePage() {
   const reloadTab = tabQ.reload; // 引用稳定（useAsyncData 内 useCallback）
   useEffect(() => {
     const flush = () => {
-      setMoreEntries([]); // 追加页基于旧快照，首页重拉后失效（同切 tab 口径）
-      reloadTab();
+      reloadTab(); // 整份替换首页——旧快照的追加页随之失效（#692 单真相源，无需手动清）
     };
     const off = onEvent(msg => {
       if (msg.event_type !== 'knowledge.entry_changed') return;
@@ -164,28 +163,30 @@ export function KnowledgePage() {
 
   // 派生面（render 沿用原名）：unified / gap 形态按激活 tab 只有一侧有数据
   const unifiedLoading = tabQ.loading;
-  const baseEntries = tabQ.data?.kind === 'unified' ? tabQ.data.entries : [];
+  // #692 单真相源：首页 + 追加页都在 tabQ.data.entries（handleLoadMore 追加进同一通道）
+  const unifiedEntries = tabQ.data?.kind === 'unified' ? tabQ.data.entries : [];
   const unifiedTotal = tabQ.data?.kind === 'unified' ? tabQ.data.total : 0;
-  const unifiedEntries = moreEntries.length > 0 ? [...baseEntries, ...moreEntries] : baseEntries;
   const gapLoading = tabQ.loading;
   const gapData = tabQ.data?.kind === 'gap' ? tabQ.data.items : [];
   const costs = costsQ.data;
 
-  // E5-3: 真追加「加载更多」——offset = 已加载条数，按 id 去重拼接（对齐 E2 WU 列表 loadMoreWorkUnits 口径）
+  // E5-3: 真追加「加载更多」——offset = 已加载条数，按 id 去重拼接进 tabQ 同一通道（对齐 E2 WU 列表 loadMoreWorkUnits 口径）
   const handleLoadMore = async () => {
     if (moreLoading) return;
+    const loaded = tabQ.data?.kind === 'unified' ? tabQ.data.entries : [];
     setMoreLoading(true);
     try {
       const res = await knowledgeApi.listUnified({
         limit: UNIFIED_PAGE_SIZE,
-        offset: baseEntries.length + moreEntries.length,
+        offset: loaded.length,
         consumptionMode: unifiedMode || undefined,
         maturity: reviewOnly ? 'draft' : undefined,
       });
       const next = res.data.data.entries || [];
-      setMoreEntries(prev => {
-        const seen = new Set([...baseEntries, ...prev].map(e => e.id));
-        return [...prev, ...next.filter(e => !seen.has(e.id))];
+      tabQ.setData(prev => {
+        if (prev?.kind !== 'unified') return prev;
+        const seen = new Set(prev.entries.map(e => e.id));
+        return { ...prev, entries: [...prev.entries, ...next.filter(e => !seen.has(e.id))] };
       });
     } catch (e) {
       // 批次A 模式：失败不静默（服务端 error.message 优先），已加载内容保留可重试
@@ -206,7 +207,6 @@ export function KnowledgePage() {
       tabQ.setData(prev => (prev?.kind === 'unified'
         ? { ...prev, entries: prev.entries.filter(e => e.id !== entryId), total: Math.max(0, prev.total - 1) }
         : prev));
-      setMoreEntries(prev => prev.filter(e => e.id !== entryId));
     } catch (e) {
       // 失败保留在列表中可重试 + toast 提示（服务端 error.message 优先）
       const m = serverErrorMessage(e);
@@ -349,7 +349,7 @@ export function KnowledgePage() {
           {/* Tab bar — E5-4：去 emoji，激活态底线收进 .u-tab/.u-tab-active */}
           <div className="flex gap-1 mb-6 overflow-x-auto pb-1 border-b u-border">
             {tabs.map(tab => (
-              <button key={tab.id} onClick={() => { setActiveTab(tab.id); setMoreEntries([]); }}
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                 className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition-colors ${activeTab === tab.id ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}>
                 {tab.label}
               </button>
@@ -367,7 +367,7 @@ export function KnowledgePage() {
           {activeTab === 'unified' && (
             <div>
               <div className="flex gap-2 mb-4">
-                <Select value={unifiedMode} onChange={v => { setUnifiedMode(v); setMoreEntries([]); }}
+                <Select value={unifiedMode} onChange={v => setUnifiedMode(v)}
                   options={[
                     { value: '', label: '全部类型' },
                     { value: 'rule', label: '规则 (rule)' },
@@ -376,7 +376,7 @@ export function KnowledgePage() {
                     { value: 'reference', label: '参考 (reference)' },
                   ]} />
                 {/* E5-1：「待审」筛选（maturity=draft） */}
-                <button onClick={() => { setReviewOnly(v => !v); setMoreEntries([]); }}
+                <button onClick={() => setReviewOnly(v => !v)}
                   className={`btn btn-sm ${reviewOnly ? 'btn-primary' : 'btn-secondary'}`}>
                   待审
                 </button>
