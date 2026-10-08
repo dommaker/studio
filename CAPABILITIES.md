@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-10-02
+> 最后更新: 2026-10-08
 
 ---
 
@@ -9,7 +9,6 @@
 | src | packages/studio-agent/src/ | studio-agent 类型定义 |
 | audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
 | notification-service | packages/studio-notification/src/services/notification-service.ts | 通知服务 |
-| cli | packages/studio-shared/src/cli/ | 命令注册框架 |
 | levels | packages/studio-shared/src/constants/levels.ts | 级别配置 - 全局统一的职级定义 |
 | src | packages/studio-shared/src/ | Studio Event Bus — 替代 Redis pub/sub（2026-05-08） |
 | auditor-types | packages/studio-shared/src/harness/auditor/auditor-types.ts | Auditor ↔ 其他角色协议定义（BP-013 + BP-014） |
@@ -27,13 +26,10 @@
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | channels | apps/api/src/modules/channels/ | Seed default channels on startup (B1-001) |
 | companies | apps/api/src/modules/companies/ | Company API 路由 — 存储迁移 Prisma → FileStore |
-| routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | discord | apps/api/src/modules/discord/ | B3-002/B3-003: Shared command runner for CLI and Discord |
 | events | apps/api/src/modules/events/ | G30: StudioEvent API Endpoints |
-| routes | apps/api/src/modules/executions/routes.ts | Execution API 路由 |
 | harness | apps/api/src/modules/harness/ | Iron Laws API — 从 runtime-proxy 迁移 (2026-05-14) |
 | knowledge | apps/api/src/modules/knowledge/ | DecisionChainExtractor (G-004) — 从 Meeting 辩论 + Goal 执行中提取决策链 |
-| routes | apps/api/src/modules/lark/routes.ts | 飞书机器人交互回调 |
 | mcp | apps/api/src/modules/mcp/ | MCP Admin Routes — tool management, permissions, audit |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
 | outbound-notify | apps/api/src/modules/outbound-notify/ | NotifyService - 通知服务 |
@@ -169,17 +165,13 @@
 | WuGateActions | apps/web/src/components/workunit/WuGateActions.tsx | WuGateActions — WU 审查闸门动作三处合一（2026-09 页面重设计 E2-4，docs/plans/2026-09-page-redesign.md）： |
 | action-center.service | apps/api/src/modules/action-center/action-center.service.ts | 行动中心派生服务（#468 统一行动中心）。 |
 | routes | apps/api/src/modules/action-center/routes.ts | 行动中心 API 路由（#468） |
-| routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
-| routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
-| routes | apps/api/src/modules/executions/routes.ts | Execution API 路由 |
 | routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015)（挂载门面） |
 | routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理（挂载门面） |
-| routes | apps/api/src/modules/lark/routes.ts | 飞书机器人交互回调 |
 | routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
 | routes | apps/api/src/modules/outbound-notify/routes.ts | Notify API 路由 |
@@ -196,17 +188,13 @@
 | CommandPalette | apps/web/src/components/CommandPalette.tsx | CommandPalette — Cmd/Ctrl+K 全局搜索面板（批次 D-2 项 8，docs/plans/2026-09-ui-interaction-polish.md）。 |
 | Skeleton | apps/web/src/components/ui/Skeleton.tsx | Skeleton — 批次 E-2 静态骨架占位（docs/plans/2026-09-ui-polish-batch-e.md AC1） |
 | routes | apps/api/src/modules/action-center/routes.ts | 行动中心 API 路由（#468） |
-| routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
-| routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
-| routes | apps/api/src/modules/executions/routes.ts | Execution API 路由 |
 | routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015)（挂载门面） |
 | routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理（挂载门面） |
-| routes | apps/api/src/modules/lark/routes.ts | 飞书机器人交互回调 |
 | routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
 | clawbot-client | apps/api/src/modules/notify-channels/clawbot-client.ts | #525 P2-6：ClawBot（iLink 协议）客户端 —— 扫码绑定 + 文本发送 |
@@ -227,7 +215,6 @@
 | proposal-source | apps/api/src/modules/audit-logs/proposal-source.ts | audit-logs/proposal-source (#591 A 类) — review-proposal 正本的聚合读面 |
 | DeleteRoleDialog | apps/web/src/components/monitoring/DeleteRoleDialog.tsx | 删除角色确认框（#630，ADR 2026-09-23 决策 5）：删除能力服务端早已完整（清频道成员与路由指名、 |
 | RoleFormModal | apps/web/src/components/monitoring/RoleFormModal.tsx | 角色表单唯一正本（#630，ADR 2026-09-23-role-form-module 决策 1/2/3）： |
-| config | packages/studio-shared/src/cli/config.ts | 配置加载器 |
 | seed | packages/studio-skill/src/seed.ts | seed — 内置 skill 库首启播种与升级（#223） |
 | agent-loop | apps/api/src/bootstrap/agent-loop.ts | ── AS-026: AgentLoop per AgentProfile ── |
 | bridges | apps/api/src/bootstrap/bridges.ts | ── 事件订阅初始化（workunit.status_changed 等 → 各域消费者）── |
@@ -241,7 +228,6 @@
 | tunnel | apps/api/src/bootstrap/tunnel.ts | ── Cloudflared Tunnel — 自动重启守护 + URL 变化通知 ── |
 | warmup | apps/api/src/bootstrap/warmup.ts | ── 冷启动异步任务（全部 fire-and-forget，不阻塞启动）── |
 | types | packages/studio-agent/src/services/types.ts | Executor 公共类型 |
-| types | packages/studio-agent/src/types.ts | studio-agent 类型定义 |
 | types | packages/studio-skill/src/types.ts | Skill 定义类型 |
 | incident-notification | apps/api/src/modules/triage/incident-notification.ts | incident 落通知（#468 行动中心）：incident.created/escalated 处理点同步写 |
 | incident-store | apps/api/src/modules/triage/incident-store.ts | incident-store（#255）— incidents.jsonl append-only 存储语义 |
@@ -254,6 +240,6 @@
 | ChannelStreamHead | apps/web/src/components/channel/ChannelStreamHead.tsx | ChannelStreamHead — 消息流头部块（P3-b 自 ChannelDetailPage 切出）： |
 | ChannelTopbar | apps/web/src/components/channel/ChannelTopbar.tsx | ChannelTopbar — 频道页顶栏（P3-b 自 ChannelDetailPage 切出）： |
 | channel | apps/web/src/types/channel.ts | 频道域客户端本地类型（P3-a 自 api/channel.ts 迁出——api 层不声明导出类型， |
-| websocket | apps/web/src/types/websocket.ts | SSE 客户端本地类型（P3-a 自 api/websocketHooks.ts 迁出——api 层不声明导出类型）。 |
-| workunit | apps/web/src/types/workunit.ts | WorkUnit 事件负载本地类型（P3-a 自 api/workunit.ts 迁出——api 层不声明导出类型）。 |
+| readiness | apps/api/src/bootstrap/readiness.ts | ── readiness 状态（2026-10-03 根因修复 B 批）── |
+| sse | apps/web/src/types/sse.ts | SSE 客户端类型（P3-a 自 api/sseHooks.ts 迁出——api 层不声明导出类型）。 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |
