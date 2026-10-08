@@ -221,8 +221,6 @@ import {
   builtinToolGetResponseSchema,
   builtinToolPatchResponseSchema,
   executionEventResponseSchema,
-  legacyAgentListResponseSchema,
-  legacyAgentResponseSchema,
   agentTokenUsageResponseSchema,
   agentProfileListResponseSchema,
   agentProfileResponseSchema,
@@ -512,15 +510,11 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'PUT /api/v1/mcp/admin/permissions': { response: mcpPermissionSetResponseSchema, summary: '权限设置' },
   'GET /api/v1/mcp/admin/audit': { response: mcpAuditResponseSchema, summary: 'MCP 审计日志' },
 
-  // ── builtin-tools / executions / agents / agent-profiles ──
+  // ── builtin-tools / agents / agent-profiles ──
   'GET /api/v1/builtin-tools': { response: builtinToolListResponseSchema, summary: '内置工具列表' },
   'GET /api/v1/builtin-tools/:name': { response: builtinToolGetResponseSchema, summary: '内置工具详情' },
   'PATCH /api/v1/builtin-tools/:name': { response: builtinToolPatchResponseSchema, summary: '内置工具开关' },
   'POST /api/v1/executions/events': { response: executionEventResponseSchema, summary: 'runtime 事件回调（本机限定，events 模块）' },
-  'GET /api/v1/agents': { response: legacyAgentListResponseSchema, summary: 'Agent 列表（LEGACY 面）' },
-  'POST /api/v1/agents': { response: legacyAgentResponseSchema, summary: '注册 Agent（LEGACY 面）' },
-  'GET /api/v1/agents/:agentId': { response: legacyAgentResponseSchema, summary: 'Agent 详情（LEGACY 面）' },
-  'PUT /api/v1/agents/:agentId': { response: legacyAgentResponseSchema, summary: '更新 Agent（LEGACY 面）' },
   'GET /api/v1/agents/:id/token-usage': { response: agentTokenUsageResponseSchema, summary: '角色级 token 视图（§10.5）' },
   'GET /api/v1/agent-profiles': { response: agentProfileListResponseSchema, summary: 'AgentProfile 列表（分页）' },
   'POST /api/v1/agent-profiles': { response: agentProfileResponseSchema, summary: '创建 AgentProfile' },

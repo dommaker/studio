@@ -89,14 +89,11 @@ for (const c of splitCases) {
   if (c.adminToo) await expectPosture(entries[2], 'admin', `${c.path}[admin]`);
 }
 
-// ── legacy agents：token-usage 前置 + open/write/admin 三档 ──
+// ── agents：token-usage 单 entry（legacy CRUD 面已随架构精简刀2 删除）──
 {
   const entries = entriesOf('/api/v1/agents');
-  if (entries.length !== 4) fail('/api/v1/agents', `应有 4 个 entry（实 ${entries.length} 个）`);
+  if (entries.length !== 1) fail('/api/v1/agents', `应有 1 个 entry（实 ${entries.length} 个）`);
   await expectPosture(entries[0], 'open', 'agents[token-usage]');
-  await expectPosture(entries[1], 'open', 'agents[open]');
-  await expectPosture(entries[2], 'authNotGuest', 'agents[write]');
-  await expectPosture(entries[3], 'admin', 'agents[admin]');
 }
 
 // ── skills 三组：demotion 先于 skills，write 均挂 authNotGuest ──

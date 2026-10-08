@@ -1,6 +1,5 @@
 // studio-agent 入口
 
-export { AgentRegistry } from './services/agent-registry.js';
 export { AgentRunner, agentRunner } from './services/agent-runner.js';
 
 export type { AgentTask, ExecutionResult } from './services/types.js';

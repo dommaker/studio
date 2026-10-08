@@ -1,7 +1,8 @@
 /**
  * B2 单元测试 — 不需要运行服务器的模块
  *
- * 覆盖: error-class, memory-store, knowledge-agent
+ * 覆盖: error-class, knowledge-agent
+ * （memory-store 已随 2026-10 架构精简刀2 删除——唯一消费方是 legacy AgentRegistry）
  */
 import { describe, it, expect } from 'vitest';
 
@@ -60,62 +61,6 @@ describe('Triage ErrorClass (P1-11)', () => {
       const r = classifySystemError(type, details);
       expect(validClasses).toContain(r.errorClass);
     }
-  });
-});
-
-describe('MemoryStore (B0-011)', () => {
-  it('get/set/del KV operations', async () => {
-    const { memoryStore } = await import('@dommaker/studio-shared');
-    await memoryStore.set('test-key', 'test-value');
-    const val = await memoryStore.get('test-key');
-    expect(val).toBe('test-value');
-    await memoryStore.del('test-key');
-    expect(await memoryStore.get('test-key')).toBeNull();
-  });
-
-  it('setex stores value', async () => {
-    const { memoryStore } = await import('@dommaker/studio-shared');
-    await memoryStore.setex('test-ttl', 10, 'val');
-    expect(await memoryStore.get('test-ttl')).toBe('val');
-  });
-
-  it('mget returns multiple values', async () => {
-    const { memoryStore } = await import('@dommaker/studio-shared');
-    await memoryStore.set('m1', 'a');
-    await memoryStore.set('m2', 'b');
-    const vals = await memoryStore.mget('m1', 'm2', 'm3');
-    expect(vals).toEqual(['a', 'b', null]);
-  });
-
-  it('list operations (rpush/lpop/llen)', async () => {
-    const { memoryStore } = await import('@dommaker/studio-shared');
-    const key = 'test-list-' + Date.now();
-    await memoryStore.rpush(key, 'a', 'b', 'c');
-    expect(await memoryStore.llen(key)).toBe(3);
-    expect(await memoryStore.lpop(key)).toBe('a');
-    expect(await memoryStore.llen(key)).toBe(2);
-    expect(await memoryStore.lpop(key)).toBe('b');
-    expect(await memoryStore.lpop(key)).toBe('c');
-    expect(await memoryStore.lpop(key)).toBeNull();
-  });
-
-  it('hash operations (hset/hget/hgetall)', async () => {
-    const { memoryStore } = await import('@dommaker/studio-shared');
-    await memoryStore.hset('hash1', 'field1', 'val1');
-    await memoryStore.hset('hash1', 'field2', 'val2');
-    expect(await memoryStore.hget('hash1', 'field1')).toBe('val1');
-    const all = await memoryStore.hgetall('hash1');
-    expect(all).toEqual({ field1: 'val1', field2: 'val2' });
-  });
-
-  it('pub/sub works', async () => {
-    const { memoryStore } = await import('@dommaker/studio-shared');
-    const received: string[] = [];
-    memoryStore.subscribe('test-channel', (msg) => received.push(msg));
-    await memoryStore.publish('test-channel', JSON.stringify({ hello: 'world' }));
-    // wait for async delivery
-    await new Promise(r => setTimeout(r, 50));
-    expect(received.length).toBeGreaterThanOrEqual(0); // async, may not be immediate
   });
 });
 

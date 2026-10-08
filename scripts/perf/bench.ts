@@ -1,6 +1,6 @@
 /**
  * perf bench CLI（#673）——一条命令复现 performance-baseline.md 同口径测量：
- * 冷启动 3 轮（run1 全新数据区含首启 seed，run2/3 同区重启）→ 读 8 端点 +
+ * 冷启动 3 轮（run1 全新数据区含首启 seed，run2/3 同区重启）→ 读 7 端点 +
  * 写 2 端点（各 3 warmup + 50 串行）→ SSE 20 轮。`--seed N` 先经 API 预置
  * N 条 workunit 再测（FileStore 全量扫描端点的数据量画像）。
  *
@@ -20,7 +20,6 @@ import { makeTempHome, removeTempHome, startServer, stopServer, waitReady, type 
 
 const READ_ENDPOINTS: Array<{ name: string; path: string }> = [
   { name: 'health', path: '/api/v1/health' },
-  { name: 'agents 列表', path: '/api/v1/agents' },
   { name: 'channels 列表', path: '/api/v1/channels' },
   { name: 'workunits 列表', path: '/api/v1/workunits' },
   { name: 'pmo 项目列表', path: '/api/v1/pmo/project' },

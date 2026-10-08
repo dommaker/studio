@@ -2,17 +2,16 @@
 
 ### 职责
 
-提供 Agent 执行引擎的核心能力，包括统一执行器（AgentRunner）与 Agent 注册中心（AgentRegistry）。负责将 provider 抽象参数转化为 CLI 参数（cli-adapter），管理轻量执行路径，并收集输出与指标。
+提供 Agent 执行引擎的核心能力：统一执行器（AgentRunner）将 provider 抽象参数转化为 CLI 参数（cli-adapter），管理轻量执行路径，并收集输出与指标。
+（AgentRegistry 注册中心已随 2026-10 架构精简刀2 删除——唯一消费方是 apps/api legacy agents CRUD 面。）
 
 ### 核心导出
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| `AgentRegistry` | services/agent-registry.ts | Agent 注册中心，支持注册、发现、缓存、Schema 校验 |
 | `AgentRunner`, `agentRunner` | services/agent-runner.ts | 统一执行器（executeLightweight / stop / stopProcessGroup / stopAllProcessGroups），支持流式 JSON 输出；stop() 所有权唯一（runningProcesses 只在此注册）；#178 `stopProcessGroup` = kill(-pid) 杀整进程组（fencing 易主/租约场景，ESRCH 跳过、非 ESRCH 回落单杀）；#179（#66 决议 2）`stopAllProcessGroups` = 优雅关闭时 SIGTERM 杀全部注册进程组并清表（不等 step 落盘，api shutdown 调用）。**#562 删除多 session 循环 `execute()`**，包入口公共面随之收窄 |
 | `buildSpawnArgs` | cli-adapter.ts | 纯函数，为指定 provider 构建 CLI spawn 参数（command + args）；#565 起 SpawnParams 增可选 `supportedFlags`（能力探测产出，studio-shared capability-probe），提供时剔除模板 conditionalFlags 中目标 CLI 不认识的 flag，缺省 = fail-open 全量传参（runner-params buildSessionCommand 是消费点） |
 | 类型 `Provider`, `SpawnParams`, `SpawnArgs` | cli-adapter.ts | CLI 适配相关类型 |
-| 类型 `AgentMetadata`, `JSONSchema` 等 | types.ts | Agent 元数据、JSON Schema 等类型定义 |
 | 类型 `AgentTask`, `ExecutionResult`, `ExecutorConfig`, `PrerequisiteCheck`, `RunnerExecutionState` | services/types.ts | 任务、执行结果与执行器配置类型（原 session-manager.ts）；#565 起 ExecutionResult 增可选 `failureClass`（studio-shared failure-classifier 产出，runner-lightweight 失败路径命中已知特征时带出，error 同时加 `[category] guidance` 前缀；未命中行为与现状一致）；`RunnerExecutionState` #562 起自 runner-execution.ts 迁入本文件 |
 
 ### 依赖关系
@@ -21,8 +20,7 @@
 - `@dommaker/studio-shared`（核心库：logger, eventBus, FileStore, parseStreamEvents, resolveProviderDefinition, buildArgsFromTemplate 等）
 - `@dommaker/studio-shared/node`（execSh, resolveSessionId, readSessionIdFile, resolveVpsWorkspace）
 - `@dommaker/studio-shared/harness`（parseSessionMetrics、extractProviderUsage）
-- `uuid`（生成唯一标识）
-- `ajv`、`ajv-formats`（JSON Schema 校验）
+- `ajv`、`ajv-formats`、`uuid`（package.json 声明保留但 src 已无 import——原 AgentRegistry 的依赖，随 2026-10 架构精简刀2 成死依赖，待连 lockfile 一起剪）
 
 **下游（依赖本目录的模块）**:
 - `apps/api` 的 daemon 层（session-manager.ts）和 modules/agents、modules/discord 等路由/循环模块
@@ -41,4 +39,3 @@
 - **runner-output spawn 尾部管线（Wave-4 抽取）**：`processSessionOutput(stdout, ctx)` 写 .agent.log → stream-json 解析（extractResult/extractUsage）→ tool:call/file:change 事件 → recordSessionMetrics → session:end。差异经 ctx 传入（agentRole/stage/sessionCount/isFirstSession/promptSize/sessionMs）；isError 告警与分支保留在调用方。**#134：ctx 增 `provider`，非 claude provider 的 streamUsage 改走 `extractProviderUsage`（opencode/codex 事件形态 extractUsage 吃不下），claude/缺省行为不变。**本文件现只剩这一条管线：曾同住的两个多 session 循环配套 helper 已在 #587 摘除（停滞判定改由 agent-loop 的静默看门狗承担，见上条）。
 - **执行目录解析（#481，2026-09-11 重排）**：worktree-resolver `resolveWorkspace` 三级链 = ① `task.parameters.workspaceRoot`（归属链直接路径）→ ② `hasWorktree=true` 建专属 git worktree（代码类，绝不退回共享目录）→ ③ 无归属落**显式配置的共享工作目录**（`REPO_DIR`，执行时现场读 = 单一来源，只读类任务能读到代码），未配置/不存在落隔离 scratch（`studioPath('scratch')/<executionId>`，绝不猜真实仓）。原 Priority 2「读本机 VPS workspace 记录 root」已删——那条记录的 root 是服务器首次启动时从 REPO_DIR 抄入的一次性抄件（改配置不生效、启动顺序决定生效方），远程节点方向判死后退出执行面。配套 `ensureDeps` 前置条件：目录内既无 lockfile 又无 package.json 即判定非项目检出直接返回（否则拿 repoDir 的 lockfile 把 node_modules 硬链进空 scratch）。测试：`__tests__/worktree-resolver.test.ts`（含「无归属不在 repoDir 建 worktree」防回归锚点）。
 - **provider-hooks（#147 步内前置拦截层，2026-08-15；#154 改指 harness shim）**：`services/provider-hooks.ts` = per-provider 执法配置生成器，由 propagateHarnessConfig 调用（幂等）。claude 走 `.claude/settings.json` permissions.deny（--print 下 hook 不触发、deny 实测生效）；codex 走项目级 `.codex/hooks.json` PreToolUse；kimi 走 `KIMI_CODE_HOME` per-worktree 隔离 + config.toml [[hooks]]。codex/kimi 的 hook 统一指向 `@dommaker/harness` 包内 `dist/pretool-use-hook.js`（#154：harness 包出厂 shim，studio-agent 不再生成脚本；旧版 `<worktree>/.studio/command-gate-hook.js` 由 removeLegacyHookScript 自愈清理，kimi 旧配置按 fragment 全串匹配重写迁移）。buildSessionEnv 按 provider=kimi 且 home 已生成时注入 KIMI_CODE_HOME（runner-lightweight 传 worktree）。codex spawn 模板的 trust 门 bypass flag 与安全基线 `-c` 覆盖（沙箱/网络/env 白名单）见 `packages/studio-shared` providers.ts 的 CODEX_SAFETY_CONFIG_ARGS 锚点。**codex PreToolUse matcher 覆盖（P1-5，2026-09-23）**：`Bash`（黑名单 exit 2 阻断）+ `apply_patch|Edit|Write` + `mcp__.*`（后两组当前只留痕不拦截——shim 解析扩展在 harness 侧同步，文件写拦截归 codex 沙箱；Edit/Write 是 codex 官方认可的 apply_patch matcher 别名非真实工具名，hook 输入 tool_name 恒为 `apply_patch`）。
-- **Cache 与性能**：AgentRegistry 使用外部 CacheStore（如 Redis），注意 TTL 和缓存键约定（`agent:` 前缀）。

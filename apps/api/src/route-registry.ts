@@ -122,7 +122,6 @@ export function describeEntryAuth(entry: Pick<RouteEntry, 'middleware'>): AuthPo
  */
 export async function buildRouteTable(): Promise<RouteEntry[]> {
   const [
-    agentRouters,
     auditLogRoutes,
     { notificationRoutes },
     { knowledgeRoutes, knowledgeInternalRoutes },
@@ -135,7 +134,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     dingtalkRoutes,
     { deployWebhookRoutes },
   ] = await Promise.all([
-    import('./modules/agents/routes.js'),
     import('./modules/audit-logs/routes.js').then(m => m.default),
     import('./modules/notifications/routes.js') as Promise<{ notificationRoutes: Router }>,
     import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
@@ -242,7 +240,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // AgentProfile routes (AS-025 Phase 2)
   const { agentProfileOpenRoutes, agentProfileWriteRoutes } = await import('./modules/agents/agent-profile.routes.js');
 
-  // §10.5 角色级 token 视图（只读聚合，挂在 /api/v1/agents 下，须先于 legacy agentRoutes 注册）
+  // §10.5 角色级 token 视图（只读聚合，/api/v1/agents 下唯一活面）
   const { default: tokenUsageRoutes } = await import('./modules/agents/token-usage.routes.js') as { default: Router };
 
   // RuntimeInstance routes (AS-026 AC-1)
@@ -274,15 +272,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/auth', router: authRoutes, comment: 'SEC-001: 认证系统（混合粒度，不上移）' },
 
     // 核心业务
-    // 顺序约束①：tokenUsageRoutes 必须先于 legacy agent open 路由挂载（见文件尾部 assertRouteOrder）。
-    // 原因：两者同挂 /api/v1/agents，token-usage 只处理 GET /:id/token-usage 并放行其余路径；
-    // 显式定序保证该聚合端点恒由 tokenUsageRoutes 接管，不被 legacy 路由的任何通配变更吞掉。
-    { path: '/api/v1/agents', router: tokenUsageRoutes, comment: '§10.5: 角色级 token 视图（仅 /:id/token-usage，先于 legacy 注册）' },
-    // P2-e：legacy agents 拆 open/write/admin 三档（原路由内挂载上移；DELETE 原 requireRole('Admin') 单挂，
-    // 现 = requireAuth+requireAdmin，全部模式下状态码与错误体逐点等价）
-    { path: '/api/v1/agents', router: agentRouters.agentOpenRoutes },
-    { path: '/api/v1/agents', router: agentRouters.agentWriteRoutes, middleware: authNotGuest },
-    { path: '/api/v1/agents', router: agentRouters.agentAdminRoutes, middleware: admin },
+    // §10.5 角色级 token 视图（只读聚合，/api/v1/agents 下唯一活面——legacy CRUD 面
+    // 已随架构精简刀2 删除，只处理 GET /:id/token-usage，其余路径 404）
+    { path: '/api/v1/agents', router: tokenUsageRoutes, comment: '§10.5: 角色级 token 视图（仅 /:id/token-usage）' },
     // runtime 事件回调（events 模块；POST /events 路由内 requireLocalhost，粒度混合不上移）
     { path: '/api/v1/executions', router: runtimeEventRoutes, comment: 'agent-runtime 事件回调（自 executions 模块迁入，URL 不变）' },
 
@@ -310,12 +302,12 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/projects', router: projectRoutes, middleware: auth, comment: 'AC-D1+D3: Local project discovery（登录即可：PMO 新建表单工程下拉依赖）' },
 
     // 能力与工具
-    // 顺序约束②：skillDemotionOpenRoutes 必须先于 skillsOpenRoutes 挂载（见文件尾部 assertRouteOrder）。
+    // 顺序约束①：skillDemotionOpenRoutes 必须先于 skillsOpenRoutes 挂载（见文件尾部 assertRouteOrder）。
     // 原因：skillsOpenRoutes 的 GET /:id 未命中时直接 404 不 next()，
     // 若 SkillHub 先挂载，GET /api/v1/skills/demotion-proposals 会被 :id='demotion-proposals' 吞掉，降级提案端点死路。
     { path: '/api/v1/skills/demotion-proposals', router: skillDemotionOpenRoutes, comment: '§10.6: skill 降级提案（先于 SkillHub 注册；读开放）' },
     { path: '/api/v1/skills/demotion-proposals', router: skillDemotionWriteRoutes, middleware: authNotGuest },
-    // §10.6 同理：skillsOpenRoutes 的 GET /:id 未命中直接 404，proposals 必须先于 SkillHub 挂载
+    // §10.6 同理（顺序约束②）：skillsOpenRoutes 的 GET /:id 未命中直接 404，proposals 必须先于 SkillHub 挂载
     { path: '/api/v1/skills/proposals', router: skillProposalOpenRoutes },
     { path: '/api/v1/skills/proposals', router: skillProposalWriteRoutes, middleware: authNotGuest },
     { path: '/api/v1/skills', router: skillsOpenRoutes, comment: 'FL-025: SkillHub（读开放）' },
@@ -369,14 +361,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/dingtalk', router: dingtalkRoutes, comment: '钉钉机器人回调（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
   ];
 
-  // 启动断言（fail-fast）：两处顺序敏感注册约束，顺序被改动破坏时启动即报错，
-  // 而不是上线后静默 404 / 路由错。约束原因见上方「顺序约束①/②」注释。
+  // 启动断言（fail-fast）：顺序敏感注册约束，顺序被改动破坏时启动即报错，
+  // 而不是上线后静默 404 / 路由错。约束原因见上方「顺序约束」注释。
   assertRouteOrder(table, [
-    {
-      before: { path: '/api/v1/agents', router: tokenUsageRoutes },
-      after: { path: '/api/v1/agents', router: agentRouters.agentOpenRoutes },
-      reason: '§10.5: token-usage 聚合端点必须先于 legacy agent open 路由挂载，保证 /:id/token-usage 恒由 tokenUsageRoutes 接管。',
-    },
     {
       before: { path: '/api/v1/skills/demotion-proposals', router: skillDemotionOpenRoutes },
       after: { path: '/api/v1/skills', router: skillsOpenRoutes },
