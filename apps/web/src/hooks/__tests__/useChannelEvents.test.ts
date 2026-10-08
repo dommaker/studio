@@ -37,7 +37,7 @@ function msg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessage {
     content: `内容-${id}`,
     replyToId: null,
     workUnitId: null,
-    meta: '{}',
+    meta: {},
     createdAt: iso(seq++),
     ...over,
   };
@@ -140,7 +140,7 @@ describe('useChannelMessages', () => {
     }
 
     it('replaces the message in place with the full message body when present', async () => {
-      const m1 = msg('m1', { content: '旧内容', meta: '{"k1":"a"}', createdAt: iso(0) });
+      const m1 = msg('m1', { content: '旧内容', meta: { k1: 'a' }, createdAt: iso(0) });
       const result = await renderLoaded([m1]);
 
       const full = { ...m1, content: '新内容', meta: { k1: 'a', k2: 'b' } };
@@ -153,7 +153,7 @@ describe('useChannelMessages', () => {
     });
 
     it('meta-only update keeps old meta keys via merged message.meta truth', async () => {
-      const m1 = msg('m1', { meta: '{"k1":"a"}', createdAt: iso(0) });
+      const m1 = msg('m1', { meta: { k1: 'a' }, createdAt: iso(0) });
       const result = await renderLoaded([m1]);
 
       // 模拟 updateMessage 仅传 meta：顶层 meta 是增量输入原值，message.meta 才是合并真值
@@ -164,7 +164,7 @@ describe('useChannelMessages', () => {
     });
 
     it('falls back to incremental patch for legacy shape without message field', async () => {
-      const m1 = msg('m1', { content: '旧内容', meta: '{"k1":"a"}', createdAt: iso(0) });
+      const m1 = msg('m1', { content: '旧内容', meta: { k1: 'a' }, createdAt: iso(0) });
       const result = await renderLoaded([m1]);
 
       act(() => handler(sseUpdate({ channelId: 'ch-1', messageId: 'm1', meta: { k2: 'b' } })));

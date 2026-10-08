@@ -65,7 +65,7 @@ const iso = (offsetMin: number) => new Date(t0 + offsetMin * 60000).toISOString(
 
 const msg = (id: string, over: Partial<ChannelMessage> = {}): ChannelMessage => ({
   id, channelId: 'ch-1', authorType: 'agent', agentName: 'pm',
-  content: `内容-${id}`, replyToId: null, meta: '{}', createdAt: iso(0), ...over,
+  content: `内容-${id}`, replyToId: null, meta: {}, createdAt: iso(0), ...over,
 });
 
 let currentMessages: ChannelMessage[] = [];

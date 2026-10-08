@@ -101,7 +101,7 @@ describe('useChannelLiveExecutions', () => {
     expect(result.current).toEqual([{ workUnitId: 'WU-1', step: 5 }]);
   });
 
-  it('step 事件缺 channelId（旧后端）→ 不过滤，保持现状行为', async () => {
+  it('step 事件缺 channelId（无频道 WU）→ 不过滤，保持现状行为', async () => {
     mockList.mockResolvedValue({ data: { data: [wuRow('WU-1')] } });
     const { result } = renderHook(() => useChannelLiveExecutions('ch-1'));
     await waitFor(() => expect(result.current).toHaveLength(1));
@@ -114,7 +114,7 @@ describe('useChannelLiveExecutions', () => {
   it('他频道 WU 终态 status_changed → 其（未过滤进入的）step 条目一并清理', async () => {
     const { result } = renderHook(() => useChannelLiveExecutions('ch-1'));
     await waitFor(() => expect(mockList).toHaveBeenCalled());
-    act(() => { handler!(stepEvent('WU-9', 9)); }); // 缺 channelId，向后兼容路径进入 steps
+    act(() => { handler!(stepEvent('WU-9', 9)); }); // 缺 channelId（无频道 WU）不过滤进入 steps
     act(() => { handler!(statusChanged('WU-9', 'done', 'ch-other')); }); // 他频道终态 → 清理残留
     act(() => useChannelWorkStore.getState().applyWorkunitSnapshot('ch-1',
       wuRow('WU-9', { metadata: JSON.stringify({ stepCount: 2 }) })));

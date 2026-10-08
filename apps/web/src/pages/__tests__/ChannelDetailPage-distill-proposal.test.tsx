@@ -65,7 +65,7 @@ const MESSAGES = [
   {
     id: 'msg-dp-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'KK',
     content: '知识提炼提案 — 待确认', workUnitId: null, replyToId: null,
-    meta: JSON.stringify({
+    meta: {
       cardType: 'distill_proposal',
       status: 'ready',
       cardData: {
@@ -76,7 +76,7 @@ const MESSAGES = [
           { id: 'ore-2', title: '[Session Fix] 修复超时' },
         ],
       },
-    }),
+    },
     createdAt: new Date().toISOString(),
   },
 ];

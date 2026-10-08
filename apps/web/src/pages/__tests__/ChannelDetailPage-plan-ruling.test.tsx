@@ -57,7 +57,7 @@ const MESSAGES = [
   {
     id: 'msg-pr-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'Planner',
     content: '需要输入: 裁决轮——2 个待决问题请一次性裁决', workUnitId: 'wu-plan-1', replyToId: null,
-    meta: JSON.stringify({ cardType: 'plan_ruling' }),
+    meta: { cardType: 'plan_ruling' },
     createdAt: new Date().toISOString(),
   },
 ];

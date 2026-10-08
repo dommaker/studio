@@ -28,7 +28,7 @@ function msg(id: string, seq: number, over: Partial<ChannelMessage> = {}): Chann
     content: `内容-${id}`,
     replyToId: null,
     workUnitId: null,
-    meta: '{}',
+    meta: {},
     createdAt: iso(seq),
     ...over,
   };
@@ -202,7 +202,7 @@ describe('channelMessageStore', () => {
     });
 
     it('legacy patch：仅 meta 整体替换、骨架不假复活；带 content 复活清 degraded', async () => {
-      const m1 = msg('m1', 0, { content: '', meta: '{}', degraded: true });
+      const m1 = msg('m1', 0, { content: '', meta: {}, degraded: true });
       mockListMessages.mockResolvedValue({ data: { data: { messages: [m1], hasMore: false } } });
       const store = useChannelMessageStore.getState();
       await store.fetchMessages('ch-1');

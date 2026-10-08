@@ -32,12 +32,12 @@ const msg = (id: string, content: string, meta: Record<string, unknown>): Channe
   agentName: 'KK',
   content,
   replyToId: null,
-  meta: JSON.stringify(meta),
+  meta: meta,
   createdAt: new Date().toISOString(),
 });
 
 const renderCard = (message: ChannelMessage, onAction: ReturnType<typeof vi.fn>, metaOverride?: Record<string, unknown>) =>
-  render(<ReviewProposalCard message={message} meta={metaOverride ?? JSON.parse(message.meta!)} onAction={onAction} />);
+  render(<ReviewProposalCard message={message} meta={metaOverride ?? message.meta} onAction={onAction} />);
 
 // ---------- distill_proposal（原 DistillProposalCard 8 用例） ----------
 
@@ -177,7 +177,7 @@ describe('ReviewProposalCard — gc_proposal（原 GcProposalCard）', () => {
   });
 
   it('forced=true 时显示超容量强制说明', () => {
-    const meta = JSON.parse(gcMessage.meta!);
+    const meta = structuredClone(gcMessage.meta) as { cardData: Record<string, unknown> };
     meta.cardData.forced = true;
     meta.cardData.mainAreaCount = 203;
     renderCard(gcMessage, vi.fn(), meta);
@@ -326,7 +326,7 @@ describe('ReviewProposalCard — memory_proposal（原 MemoryProposalCard）', (
   });
 
   it('meta.status 已为 approved → 直接渲染已确认（无按钮）', () => {
-    const meta = { ...JSON.parse(memoryMessage.meta!), status: 'approved' };
+    const meta = { ...memoryMessage.meta, status: 'approved' };
     renderCard(memoryMessage, vi.fn(), meta);
     expect(screen.getByText(/已确认/)).toBeTruthy();
     expect(screen.queryByText('丢弃')).not.toBeTruthy();
@@ -433,7 +433,7 @@ describe('ReviewProposalCard — knowledge_proposal（原 KnowledgeProposalCard�
   });
 
   it('meta.status 已为 approved → 直接渲染已审核状态（无按钮）', () => {
-    const meta = { ...JSON.parse(knowledgeMessage.meta!), status: 'approved' };
+    const meta = { ...knowledgeMessage.meta, status: 'approved' };
     renderCard(knowledgeMessage, vi.fn(), meta);
     expect(screen.getByText(/已通过/)).toBeTruthy();
     expect(screen.queryByText('拒绝')).not.toBeTruthy();

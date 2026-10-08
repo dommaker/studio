@@ -13,7 +13,7 @@ const baseMessage: ChannelMessage = {
   agentName: 'Studio',
   content: '分析结论待确认（#wu-ana-1），确认后将按 TASK 拆分自动派工',
   replyToId: null,
-  meta: JSON.stringify({ cardType: 'analysis_confirm' }),
+  meta: { cardType: 'analysis_confirm' },
   createdAt: new Date().toISOString(),
 };
 

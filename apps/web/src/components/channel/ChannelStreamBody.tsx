@@ -49,12 +49,9 @@ function singleAuthorOf(messages: ChannelMessage[]): string | null {
   return names.size === 1 ? [...names][0] : null;
 }
 
-/** 卡片消息粗判（meta string/object 两形态）：链式合并不吞卡片——卡片自身就是全宽模块 */
+/** 卡片消息粗判：链式合并不吞卡片——卡片自身就是全宽模块 */
 function hasCardMeta(m: ChannelMessage): boolean {
-  const meta = m.meta as unknown;
-  if (!meta) return false;
-  if (typeof meta === 'string') return meta.includes('cardType');
-  return typeof meta === 'object' && 'cardType' in (meta as Record<string, unknown>);
+  return typeof m.meta === 'object' && m.meta !== null && 'cardType' in m.meta;
 }
 
 /** 消息作者短名（线程锚点摘要头用，与 ChannelMessageItem quote 行同口径） */

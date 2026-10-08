@@ -34,7 +34,7 @@ function serverMsg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessa
     content: '你好',
     replyToId: null,
     workUnitId: null,
-    meta: '{}',
+    meta: {},
     createdAt: iso(10),
     ...over,
   };

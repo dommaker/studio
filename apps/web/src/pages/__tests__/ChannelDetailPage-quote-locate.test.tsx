@@ -64,12 +64,12 @@ const BASE_MESSAGES: ChannelMessage[] = [
   {
     id: 'm-parent', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm-agent',
     content: '上游结论：用方案 A', workUnitId: null, replyToId: null,
-    meta: '{}', createdAt: iso(0),
+    meta: {}, createdAt: iso(0),
   },
   {
     id: 'm-reply', channelId: 'ch-1', authorType: 'human' as const,
     content: '同意，就这么办', workUnitId: null, replyToId: 'm-parent',
-    meta: '{}', createdAt: iso(1),
+    meta: {}, createdAt: iso(1),
   },
 ];
 
@@ -143,7 +143,7 @@ describe('ChannelDetailPage — quote/reply 预览点击定位上游消息（Pha
       {
         id: 'm-leaf', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm-agent',
         content: '补充：方案 A 已落地', workUnitId: null, replyToId: 'm-reply',
-        meta: '{}', createdAt: iso(2),
+        meta: {}, createdAt: iso(2),
       },
     ]);
     renderPage();
@@ -187,7 +187,7 @@ describe('ChannelDetailPage — quote/reply 预览点击定位上游消息（Pha
     const oldMsg: ChannelMessage = {
       id: 'm-target', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm-agent',
       content: '更早的上游消息', workUnitId: null, replyToId: null,
-      meta: '{}', createdAt: iso(-50),
+      meta: {}, createdAt: iso(-50),
     };
     previewTargetId = 'm-target';
     seedMessages(BASE_MESSAGES, { hasMore: true });
@@ -232,17 +232,17 @@ describe('ChannelDetailPage — quote/reply 预览点击定位上游消息（Pha
       {
         id: 't-root', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm-agent',
         content: '线程根：发布计划', workUnitId: null, replyToId: null,
-        meta: '{}', createdAt: iso(0),
+        meta: {}, createdAt: iso(0),
       },
       {
         id: 't-mid', channelId: 'ch-1', authorType: 'human' as const,
         content: '中层回复：同意', workUnitId: null, replyToId: 't-root',
-        meta: '{}', createdAt: iso(1),
+        meta: {}, createdAt: iso(1),
       },
       {
         id: 't-leaf', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm-agent',
         content: '深层回复：定在周五', workUnitId: null, replyToId: 't-mid',
-        meta: '{}', createdAt: iso(2),
+        meta: {}, createdAt: iso(2),
       },
     ]);
     previewTargetId = 't-leaf';

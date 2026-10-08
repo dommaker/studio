@@ -26,7 +26,7 @@ const replyTo: ChannelMessage = {
   agentName: 'pm-agent',
   content: '上游结论：用方案 A',
   replyToId: null,
-  meta: '{}',
+  meta: {},
   createdAt: new Date().toISOString(),
 };
 

@@ -25,7 +25,7 @@ const pendingMessage: ChannelMessage = {
   authorType: 'human',
   content: '发送中的消息',
   replyToId: null,
-  meta: '{}',
+  meta: {},
   createdAt: new Date().toISOString(),
   pending: true,
 };

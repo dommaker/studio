@@ -47,7 +47,7 @@ const now = Date.now();
 const iso = (offsetMin: number) => new Date(now + offsetMin * 60000).toISOString();
 const msg = (id: string, offsetMin: number): ChannelMessage => ({
   id, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
-  content: `消息 ${id}`, workUnitId: null, replyToId: null, meta: '{}', createdAt: iso(offsetMin),
+  content: `消息 ${id}`, workUnitId: null, replyToId: null, meta: {}, createdAt: iso(offsetMin),
 });
 
 let currentMessages: ChannelMessage[] = [];

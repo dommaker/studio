@@ -24,7 +24,7 @@ function makeMsg(meta: Record<string, unknown>, content = '卡片内容'): Chann
   return {
     id: 'msg-1', channelId: 'ch-1', authorType: 'agent', agentName: 'KK',
     content, workUnitId: null, replyToId: null,
-    meta: JSON.stringify(meta),
+    meta: meta,
     createdAt: new Date().toISOString(),
   };
 }

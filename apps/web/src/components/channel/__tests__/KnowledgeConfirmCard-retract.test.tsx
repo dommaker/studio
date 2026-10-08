@@ -16,11 +16,11 @@ function makeMsg(): ChannelMessage {
     agentName: 'KK',
     content: '撤回确认',
     replyToId: null,
-    meta: JSON.stringify({
+    meta: {
       cardType: 'retract_confirm',
       status: 'ready',
       cardData: { skillId: 'skill-1', skillName: 'legacy-x' },
-    }),
+    },
     createdAt: new Date().toISOString(),
   };
 }
@@ -29,7 +29,7 @@ describe('KnowledgeConfirmCard retract — #288 锁存 + 两步确认', () => {
   it('两步确认：首次点确认废弃仅进入待确认态（不触发 onAction），再次点击才执行', async () => {
     const onAction = vi.fn().mockResolvedValue(true);
     const msg = makeMsg();
-    render(<KnowledgeConfirmCard message={msg} meta={JSON.parse(msg.meta!)} onAction={onAction} />);
+    render(<KnowledgeConfirmCard message={msg} meta={msg.meta} onAction={onAction} />);
     fireEvent.click(screen.getByText('确认废弃'));
     expect(onAction).not.toHaveBeenCalled();
     // 待确认态：按钮文案变为二次确认提示
@@ -42,7 +42,7 @@ describe('KnowledgeConfirmCard retract — #288 锁存 + 两步确认', () => {
   it('待确认态点拒绝 → 退出待确认态并执行 retract_reject（拒绝本身单击直达）', async () => {
     const onAction = vi.fn().mockResolvedValue(true);
     const msg = makeMsg();
-    render(<KnowledgeConfirmCard message={msg} meta={JSON.parse(msg.meta!)} onAction={onAction} />);
+    render(<KnowledgeConfirmCard message={msg} meta={msg.meta} onAction={onAction} />);
     fireEvent.click(screen.getByText('确认废弃'));
     expect(screen.getByText(/再次点击确认废弃/)).toBeTruthy();
     fireEvent.click(screen.getByText('拒绝'));
@@ -54,7 +54,7 @@ describe('KnowledgeConfirmCard retract — #288 锁存 + 两步确认', () => {
     let resolve: (v: boolean) => void = () => {};
     const onAction = vi.fn().mockImplementation(() => new Promise<boolean>(r => { resolve = r; }));
     const msg = makeMsg();
-    render(<KnowledgeConfirmCard message={msg} meta={JSON.parse(msg.meta!)} onAction={onAction} />);
+    render(<KnowledgeConfirmCard message={msg} meta={msg.meta} onAction={onAction} />);
     fireEvent.click(screen.getByText('确认废弃'));
     fireEvent.click(screen.getByText(/再次点击确认废弃/));
     await waitFor(() => expect(onAction).toHaveBeenCalledTimes(1));
@@ -72,7 +72,7 @@ describe('KnowledgeConfirmCard retract — #288 锁存 + 两步确认', () => {
   it('失败重武装：onAction 返回 false → 退出待确认态，按钮恢复可点可重试', async () => {
     const onAction = vi.fn().mockResolvedValue(false);
     const msg = makeMsg();
-    render(<KnowledgeConfirmCard message={msg} meta={JSON.parse(msg.meta!)} onAction={onAction} />);
+    render(<KnowledgeConfirmCard message={msg} meta={msg.meta} onAction={onAction} />);
     fireEvent.click(screen.getByText('确认废弃'));
     fireEvent.click(screen.getByText(/再次点击确认废弃/));
     await waitFor(() => expect(onAction).toHaveBeenCalledTimes(1));

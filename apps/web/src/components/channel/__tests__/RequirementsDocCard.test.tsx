@@ -22,7 +22,7 @@ const MESSAGE: ChannelMessage = {
   content: '需求文档正文',
   workUnitId: null,
   replyToId: null,
-  meta: '{}',
+  meta: {},
   createdAt: '2026-08-01T00:00:00Z',
 };
 

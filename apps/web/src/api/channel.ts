@@ -56,8 +56,9 @@ export const channelApi = {
     api.patch<{ data: Channel }>(`/channels/${channelId}`, data),
 
   listMessages: (channelId: string, params?: { before?: string; limit?: number }) =>
-    // 响应里的 total 后端 2026-09 起恒 0（默认跳过节流扫描，?includeTotal=true 才实算）且前端无消费方
-    api.get<{ data: ChannelMessagesResult }>(
+    // 响应里的 total 后端 2026-09 起恒 0（默认跳过节流扫描，?includeTotal=true 才实算）且前端无消费方；
+    // messages 用本地 ChannelMessage——meta 收窄 object（REST 出口 shapeMessageData 单点解析）
+    api.get<{ data: Omit<ChannelMessagesResult, 'messages'> & { messages: ChannelMessage[] } }>(
       `/channels/${channelId}/messages`,
       { params }
     ),

@@ -14,7 +14,7 @@ const base: ChannelMessage = {
   agentName: 'dev-agent',
   content: '正文内容',
   replyToId: null,
-  meta: '{}',
+  meta: {},
   createdAt: '2026-08-19T00:00:00.000Z',
 };
 

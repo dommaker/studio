@@ -56,7 +56,8 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
       if (msg.event_type === 'channel.message_sent') {
         const data = msg.data as ChannelMessageSentPayload | undefined;
         if (data?.channelId === channelId && data?.message) {
-          useChannelMessageStore.getState().applyMessageSent(channelId, data.message);
+          // SSE message = shapeMessageData 产物（meta 恒 object），契约 union 的 string 位无活写入方
+          useChannelMessageStore.getState().applyMessageSent(channelId, data.message as ChannelMessage);
         }
       } else if (msg.event_type === 'channel.message_updated') {
         const data = msg.data as ChannelMessageUpdatedPayload | undefined;

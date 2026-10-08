@@ -27,7 +27,7 @@ import { setClientPerfSink, resetClientPerfSink, emitReceiptRendered } from '../
 function msg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessage {
   return {
     id, channelId: 'ch-1', authorType: 'agent', content: `内容-${id}`,
-    replyToId: null, workUnitId: null, meta: '{}',
+    replyToId: null, workUnitId: null, meta: {},
     createdAt: new Date(1000).toISOString(), ...over,
   };
 }

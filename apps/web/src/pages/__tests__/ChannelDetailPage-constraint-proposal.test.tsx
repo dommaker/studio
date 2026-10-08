@@ -57,7 +57,7 @@ import { ChannelDetailPage } from '../ChannelDetailPage';
 const STRING_META_MESSAGE = {
   id: 'msg-cp-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'Evolution',
   content: '## 🔧 新约束提案 cp-1 — 待审核\n\n条文草稿：前端代码不得出现内网地址', workUnitId: null, replyToId: null,
-  meta: JSON.stringify({
+  meta: {
     cardType: 'constraint_proposal',
     cardData: {
       proposalId: 'cp-1',
@@ -68,7 +68,7 @@ const STRING_META_MESSAGE = {
       severity: 'warning',
       sourceEntry: { id: 'k-1', title: 'no internal url in web code' },
     },
-  }),
+  },
   createdAt: new Date().toISOString(),
 };
 

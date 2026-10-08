@@ -58,7 +58,7 @@ const STRING_META_MESSAGE = {
   id: 'msg-ep-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'Evolution',
   content: '## 🧬 约束进化提案 EP-0001 — 待审核\n\n证据：累计评估 60 次，拦到 0 次（从来没拦到过）',
   workUnitId: null, replyToId: null,
-  meta: JSON.stringify({
+  meta: {
     cardType: 'evolution_proposal',
     cardData: {
       proposalId: 'EP-0001',
@@ -68,7 +68,7 @@ const STRING_META_MESSAGE = {
       constraintChange: 'retire',
       source: 'harness:usage-report',
     },
-  }),
+  },
   createdAt: new Date().toISOString(),
 };
 

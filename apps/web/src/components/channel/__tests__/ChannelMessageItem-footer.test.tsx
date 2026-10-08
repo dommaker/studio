@@ -14,7 +14,7 @@ const msgWithMeta = (meta: Record<string, unknown>): ChannelMessage => ({
   authorType: 'agent',
   agentName: 'dev-agent',
   content: '里程碑：REQ 已立项',
-  meta, // object 形态——F1 现场的真实下发型（string 形态由 messageMeta.test 覆盖）
+  meta, // object——线上唯一形态（后端 shapeMessageData 单点解析）
   createdAt: '2026-08-19T00:00:00.000Z',
 });
 

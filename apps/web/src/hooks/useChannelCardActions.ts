@@ -30,7 +30,7 @@ export function useChannelCardActions({ channelId, messages, refresh }: UseChann
   const dispatch = useCallback(async (messageId: string, action: string): Promise<boolean> => {
     if (action === 'converted') { refresh(); return true; }
     // 卡片 meta 解析（提案卡与 retract 卡共用；缺 cardData → null，exec/分支按缺数据返回 false）
-    // #264：meta 双型兼容——线上为 object，存量/夹具为 string
+    // #264：meta 恒为 object（后端 REST/SSE 出口 shapeMessageData 单点解析）
     const cardDataOf = (): Record<string, any> | null => {
       const msg = messagesRef.current.find(m => m.id === messageId);
       return parseMeta(msg?.meta).cardData ?? null;

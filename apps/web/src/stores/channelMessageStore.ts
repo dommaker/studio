@@ -228,7 +228,8 @@ export const useChannelMessageStore = create<ChannelMessageState>((set, get) => 
       let messages = cur.messages;
       if (data.message) {
         // #315：全量 message 本体的 meta 为后端合并后真值，消除增量 meta 整体替换丢旧 key 的分叉
-        const full = data.message;
+        // （shapeMessageData 产物，meta 恒 object；契约 union 的 string 位无活写入方）
+        const full = data.message as ChannelMessage;
         messages = cur.messages.map(m => (m.id === full.id ? full : m));
       } else if (data.messageId) {
         messages = cur.messages.map(m =>
@@ -237,7 +238,7 @@ export const useChannelMessageStore = create<ChannelMessageState>((set, get) => 
             // 仅 meta 的 patch 骨架不假复活（空正文不应渲染为全量行）
             ? {
                 ...m,
-                meta: data.meta ?? m.meta,
+                meta: (data.meta as Record<string, unknown> | undefined) ?? m.meta,
                 ...(data.content != null ? { content: data.content, degraded: false } : {}),
               }
             : m

@@ -93,7 +93,7 @@ function msg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessage {
 describe('projectActivityMessages — #416 消息摘要投影（全量消息 → 右栏最小条目集）', () => {
   it('卡片消息（meta.cardType，string meta）→ card 条目，带 wuId', () => {
     const items = projectActivityMessages([
-      msg('m1', { meta: JSON.stringify({ cardType: 'analysis_confirm' }), workUnitId: 'wu-1', content: '第一行\n第二行' }),
+      msg('m1', { meta: { cardType: 'analysis_confirm' }, workUnitId: 'wu-1', content: '第一行\n第二行' }),
     ]);
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ id: 'm1', kind: 'card', wuId: 'wu-1' });
@@ -111,9 +111,9 @@ describe('projectActivityMessages — #416 消息摘要投影（全量消息 →
     expect(items[0].kind).toBe('wu');
   });
 
-  it('坏 meta（非 JSON）静默跳过 card 判定，不炸', () => {
+  it('meta 无 cardType → 非 card 判定，按 wu 条目投影', () => {
     const items = projectActivityMessages([
-      msg('m1', { meta: '{bad json', workUnitId: 'wu-1' }),
+      msg('m1', { meta: { note: 'plain' }, workUnitId: 'wu-1' }),
     ]);
     expect(items[0].kind).toBe('wu');
   });
