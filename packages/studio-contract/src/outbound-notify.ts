@@ -17,7 +17,6 @@ import { dataBodySchema } from './envelope.js';
 /** NotifyMessage.type 词表（service 层联合类型的 wire 正本） */
 export const notifyMessageTypeSchema = z.enum([
   'task-failed', 'timeout', 'crash', 'zombie', 'human-needed',
-  'meeting-started', 'meeting-message', 'meeting-completed', 'meeting-cancelled',
   'user-intervention-needed',
 ]);
 export type NotifyMessageType = z.infer<typeof notifyMessageTypeSchema>;

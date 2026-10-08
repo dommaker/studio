@@ -163,22 +163,6 @@ export class DiscordNotifier {
   }
 
   /**
-   * 发送带确认/拒绝按钮的消息
-   *
-   * meetings 模块已删除，确认/拒绝 URL 无有效目标 —— 降级为纯文本通知。
-   * TODO: 接入新审批链路后恢复按钮
-   */
-  async sendWithConfirmButtons(
-    title: string,
-    content: string,
-    actionId: string,
-    channelId?: string
-  ): Promise<void> {
-    logger.info(`[DiscordNotifier] confirm action ${actionId} sent without buttons (meetings module removed)`);
-    await this.send({ title, content, channelId });
-  }
-
-  /**
    * B3-004: 单向推送 Channel 消息到 Discord
    *
    * 仅推送 @human 的消息和 Agent 结果卡片，不双向同步。
