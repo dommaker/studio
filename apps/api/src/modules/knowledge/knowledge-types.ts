@@ -105,7 +105,7 @@ export interface ExecutionOutcome {
   details: string;
   timestamp: string;
   mode?: 'external_agent' | 'channel';
-  /** #90: 失败步的错误类型（execution_failed 等） */
+  /** #90: 失败步的错误类型（execution_failed 等）；success=false 时落 payload 供失败分析 */
   errorType?: string;
 }
 

@@ -24,7 +24,7 @@
 - `executor.ts`（Executor 接口，LocalExecutor 委托 agentRunner）、`execution-step-events.ts`（步级事件落盘+步内流式 SSE；#665 起 payload 类型与 studio-contract/sse-events.ts 同源——ExecutionStepEventPayload/ExecutionStreamChunk 是契约类型别名，改形状先改契约，wire parity 见 events/__tests__/sse-payload-contract.test.ts）
 - `wu-verification.ts`（自动验证可复用实现）、`completion-gates.ts`（收口守卫链）、`completion-harvest.ts`（#542 per-WU-type COMPLETE 收割注册表）、`result-bookkeeping.ts`（#655 recordResult 簿记段）、`review-contract.ts`（verdict 语义单一来源）
 - `review-dispatcher.ts`（F4 review 派发）、`dispatch-reconciliation.ts`（派工/评审断链 5min 对账，P2-d 刀5 自 agents 根随迁——依赖 review-dispatcher + monitor-alerts，留 agents 会拉成 agents↔agent-loop 环）
-- `__tests__/` — 60 个测试文件（agents root __tests__ loop 系 47 + 原 loop/__tests__ 9 + #668 新增 2：execution-cwd 直测 / loop-segments 段接线钉线 + #671 新增 1：prompt-composer-snapshot 全九段产出快照钉线（拆分前后逐字节等价兜底）；段行为由既有测试网兜底）
+- `__tests__/` — 60 个测试文件（agents root __tests__ loop 系 48 + 原 loop/__tests__ 9 + #668 新增 2：execution-cwd 直测 / loop-segments 段接线钉线 + #671 新增 1：prompt-composer-snapshot 全九段产出快照钉线（拆分前后逐字节等价兜底）；段行为由既有测试网兜底）
 
 ### 核心导出
 

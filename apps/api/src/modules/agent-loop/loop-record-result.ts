@@ -227,7 +227,7 @@ export class ResultRecorder {
       : contractArtifactBlocked
         ? {
             failureType: 'contract_artifact',
-            message: `契约产物连续缺失 ${guardUpdates.contractArtifactCount} 次，任务已转 blocked，等待人工介入。缺失产物与提示已记录到任务上下文`,
+            message: `契约产物连续缺失 ${guardUpdates.contractArtifactCount} 次，任务已转 blocked，等待人类介入。缺失产物与提示已记录到任务上下文`,
           }
         : null;
     if (outputGateBlocked) {

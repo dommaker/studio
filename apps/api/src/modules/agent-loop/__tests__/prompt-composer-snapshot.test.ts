@@ -2,7 +2,9 @@
  * #671 — prompt-composer 拆分钉线测试：全九段（persona/roster/skills/map/memory/knowledge/files/
  * contract/handoff）+ hint 段全触发的富场景，对 composeStepPrompt 产出（prompt / knowledgeContext /
  * skillMatched / injectedKnowledgeIds / consumedHintUpdates）做整量快照。
- * 用途 = 拆分（纯结构移动）前后产出逐字节等价的对比兜底：快照在拆分前生成，拆分后必须不变。
+ * 用途 = 拆分（纯结构移动）前后产出逐字节等价的对比兜底：快照与拆分同 commit 落盘
+ * （生成时序无法从 git 历史独立验证；拆分前等价性已由 #664–#675 批次复审人工逐字节比对确认），
+ * 拆分后必须不变。
  * STUDIO_HOME 路径在快照前归一为占位符，避免机器间路径漂移假红。
  */
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';

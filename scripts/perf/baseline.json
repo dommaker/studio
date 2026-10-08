@@ -6,7 +6,7 @@
     "date": "2026-10-03",
     "seed": 0,
     "runs": 50,
-    "note": "冻结参考值，摘自 docs/architecture/performance-baseline.md §6.2（读）+ §7（冷启动）+ §7.1（写/SSE）。参考机：4 vCPU / 3.7 GB RAM 内存受限开发机；异机对比先读 README「基线重锚」。"
+    "note": "冻结参考值，摘自 docs/architecture/performance-baseline.md §6.2（读，实测于 f0ff48c4）+ §7/§7.1（冷启动/写/SSE，实测于 meta.commit ff546ba9）。f0ff48c4→ff546ba9 之间仅多一条只读路由，读端点数字无实质影响。参考机：4 vCPU / 3.7 GB RAM 内存受限开发机；异机对比先读 README「基线重锚」。"
   },
   "coldStart": { "runs": [1500, 2600, 2300] },
   "endpoints": [

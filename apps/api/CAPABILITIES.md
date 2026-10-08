@@ -229,12 +229,9 @@
 | entries.routes | src/modules/knowledge/entries.routes.ts | entries.routes — 知识条目子路由（KnowledgeStore 条目的导出/问答/缺口/统一浏览） |
 | files.routes | src/modules/knowledge/files.routes.ts | files.routes — 知识库文件浏览子路由（文件系统扫描/读取） |
 | internal.routes | src/modules/knowledge/internal.routes.ts | internal.routes — 知识库内部子路由（无 auth，本地服务间调用） |
-| knowledge-data-layer | src/modules/knowledge/knowledge-data-layer.ts | knowledge-data-layer — KnowledgeService 的数据层（文件系统存取） |
 | knowledge-design-doc | src/modules/knowledge/knowledge-design-doc.ts | knowledge-design-doc — 设计时知识沉淀工具（#343 起自 knowledge-bus.service.ts 迁出） |
 | knowledge-form-gate | src/modules/knowledge/knowledge-form-gate.ts | knowledge-form-gate — 知识形态门禁（knowledge / data / skill / rule 判定）。 |
-| knowledge-forms | src/modules/knowledge/knowledge-forms.ts | knowledge-forms — 知识形态门禁（form validation gate） |
 | knowledge-metrics | src/modules/knowledge/knowledge-metrics.ts | knowledge-metrics — KnowledgeService 的 Measure 能力带（飞轮度量 / 健康 / 审计 / 准确度）。 |
-| knowledge-search-helpers | src/modules/knowledge/knowledge-search-helpers.ts | knowledge-search-helpers — 关键词检索与 RAG 降级 helpers |
 | knowledge-semantic-search | src/modules/knowledge/knowledge-semantic-search.ts | knowledge-semantic-search — mcp-local-rag 语义检索支撑。 |
 | knowledge-store-memo | src/modules/knowledge/knowledge-store-memo.ts | MtimeMemoKnowledgeStore — FileKnowledgeStore 的 mtime 校验聚合 memo 包装（#343）。 |
 | knowledge-types | src/modules/knowledge/knowledge-types.ts | knowledge-types — KnowledgeService 的 Studio 侧类型与类型映射 |

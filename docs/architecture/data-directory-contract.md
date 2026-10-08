@@ -41,7 +41,7 @@ data/
     REQ-0042.json    # RequirementData（每需求一个文件）
 ```
 
-现行扩展段（代码在用，同样属契约内）：`companies/`（companies/routes.ts、mcp/tool-store.ts）、`evolution/`（file-store.ts SeqEntryStore，E1 提案）、`resolutions/`、`trends/`（knowledge-data-layer.ts，按日 md）、`tasks/`（executions 遗留接口仍活）、`spec-reviews/`（mcp/spec.tools.ts）、`users/`（ops.service/notification 写读）、`skills/`（skill-demotion.ts）、`attachments/`（channels/attachments.ts）。
+现行扩展段（代码在用，同样属契约内）：`companies/`（companies/routes.ts、mcp/tool-store.ts）、`evolution/`（file-store.ts SeqEntryStore，E1 提案）、`resolutions/`、`trends/`（trend-data.ts，按日 md）、`tasks/`（executions 遗留接口仍活）、`spec-reviews/`（mcp/spec.tools.ts）、`users/`（ops.service/notification 写读）、`skills/`（skill-demotion.ts）、`attachments/`（channels/attachments.ts）。
 
 ### ② 根级配置、索引与程序数据
 

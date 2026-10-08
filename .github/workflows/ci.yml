@@ -40,7 +40,7 @@ jobs:
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
       - name: Security (secrets via harness)
         run: npx harness security secrets
-      # 模块级循环依赖门（#666）：纯 Node 脚本无构建前置，放最前 fail fast；
+      # 模块级循环依赖门（#666）：纯 Node 脚本无构建前置、毫秒级断言，置于 build 之前；
       # 新增环 / 豁免清单漂移即红，豁免正本 scripts/module-cycle-exemptions.mjs（逐条带原因）。
       - name: Cycle gate (module deps)
         run: pnpm lint:cycles

@@ -14,7 +14,7 @@
 |---|---|
 | `lib/stats.ts` | 纯函数：percentile / summarize（p50/p95/max） |
 | `lib/report.ts` | BenchReport 类型 + renderMarkdown（baseline 同口径表格）+ compareReports（>20% 回归检测，min-delta 绝对噪声地板） |
-| `lib/server.ts` | 隔离起服：mkdtemp STUDIO_HOME + 空闲端口 + spawn `npx tsx apps/api/src/index.ts`，/health 轮询出冷启动，/readyz 出全量就绪 |
+| `lib/server.ts` | 隔离起服：mkdtemp STUDIO_HOME + 空闲端口 + spawn `node node_modules/tsx/dist/cli.mjs apps/api/src/index.ts`（`spawn(process.execPath, [tsxCli])`，不经 npx/npm 壳），/health 轮询出冷启动，/readyz 出全量就绪 |
 | `bench.ts` | CLI：冷启动 3 轮（run1 全新数据区 / run2/3 重启）+ 读 8 端点（3 warmup + 50 串行）+ 写 2 端点 + SSE 20 轮；`--seed N` 先经 API 预置 N 条 workunit 再测（数据量画像） |
 | `compare.ts` | CLI：两份 report JSON 对比，回归 >阈值（默认 20%）exit 1 |
 | `gate.ts` | bench + compare baseline.json 一把梭（`pnpm perf:gate`） |

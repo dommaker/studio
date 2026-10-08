@@ -49,7 +49,7 @@
 | 2 | #665 | SSE 事件负载契约化（ADR 2026-08-24 落地） | 独立 |
 | 2 | #666 | 循环依赖检测接 CI | 独立 |
 | 2 | #667 | WorkUnit 写路径单口（ADR 2026-09-15 补票） | 先于 #672 |
-| 3 | #668 | agent-loop.ts 1881 行拆分 | Phase 2 后；先于 #671 |
+| 3 | #668 | agent-loop.ts 1885 行拆分 | Phase 2 后；先于 #671 |
 | 3 | #669 | knowledge-service.ts 1228 行拆分 | #664 后 |
 | 3 | #670 | FileStore 门面治理（file-store*.ts） | 独立（引擎语义冻结） |
 | 3 | #671 | prompt-composer.ts 859 行拆分 | #668 后 |

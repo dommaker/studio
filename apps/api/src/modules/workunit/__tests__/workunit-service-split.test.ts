@@ -2,7 +2,7 @@
  * #672 结构测试：workunit.service.ts 按职责拆分层（PURE_MOVE）防漂移网。
  *
  * ① 新分层类存在且为 function；② 继承链沿链成立（Service → Review → Lifecycle → Query → Crud）；
- * ③ WorkUnitService 原型链方法面 == 拆分前基线（34 个，采集于拆分前代码，含 TS private——
+ * ③ WorkUnitService 原型链方法面 == 拆分前基线（35 个，采集于拆分前代码，含 TS private——
  *    编译期修饰，运行时仍在原型上）；④ workunit.service.js 模块 value exports == 拆分前基线；
  * ⑤ 职责落位：每层 own property 正好是本层方法（查询派生 / 状态机+统一尾部 / 评审验收）。
  */

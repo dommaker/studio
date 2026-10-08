@@ -50,6 +50,8 @@ export type { WorkunitTokenEvent, ExecutionStepToolCall, ExecutionStepEvent, Exe
 /**
  * 从 GET /events?type=workunit:tokens 的响应行中解析某个 WorkUnit 的 token 事件。
  * payload 损坏或不属于该 WorkUnit 的行跳过（不计 0，不编造）。
+ * 行的 createdAt 不进入输出：契约 WorkunitTokenEvent 无该字段（#665 起类型与契约同源），
+ * 唯一消费方 WorkUnitDrawer 不读它——静默丢弃是知情取舍，非遗漏。
  */
 export function parseWorkunitTokenEvents(
   rows: Array<{ payload: unknown; createdAt?: string }>,
