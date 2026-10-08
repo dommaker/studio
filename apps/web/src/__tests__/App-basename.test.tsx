@@ -116,16 +116,15 @@ describe('#291 basename 深链路由', () => {
   });
 });
 
-describe('#474 双路由合并：/project/:id 存量链接重定向', () => {
-  it('/project/PMO-1 重定向到 /pmo/project/PMO-1 并渲染项目详情页', async () => {
-    renderAt('/project/PMO-1', '/');
+describe('#474 双路由合并：项目详情唯一入口', () => {
+  it('/pmo/project/PMO-1 直开渲染项目详情页（正主路由）', async () => {
+    renderAt('/pmo/project/PMO-1', '/');
     expect(await screen.findByTestId('project-detail-page')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/pmo/project/PMO-1');
   });
 
-  it('/pmo/project/PMO-1 直开渲染项目详情页（正主路由不变）', async () => {
-    renderAt('/pmo/project/PMO-1', '/');
-    expect(await screen.findByTestId('project-detail-page')).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/pmo/project/PMO-1');
+  it('旧 /project/:id 路由已摘除 → 落 404', async () => {
+    renderAt('/project/PMO-1', '/');
+    expect(await screen.findByTestId('not-found-page')).toBeInTheDocument();
   });
 });

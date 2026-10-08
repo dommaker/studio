@@ -1,6 +1,6 @@
 // App.tsx - Agent Studio - 路由重构
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Routes, Route, useLocation, useNavigate, useParams, Navigate } from 'react-router-dom';
+import { Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
 const ChannelHomeRedirect = lazy(() => import('./pages/ChannelHomeRedirect').then(m => ({ default: m.ChannelHomeRedirect })));
 const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({ default: m.TriageBanner })));
 const CommandPalette = lazy(() => import('./components/CommandPalette').then(m => ({ default: m.CommandPalette })));
@@ -63,13 +63,6 @@ function PmoDataSync() {
 function WorkUnitStoreSync() {
   useWorkUnitStoreSync();
   return null;
-}
-
-// #474：/project/:id 旧路由收编——双路由渲染同一页面已合并为 /pmo/project/:id 唯一入口，
-// 存量链接（书签/外部引用）在此 301 式重定向（replace 不留历史栈）
-function LegacyProjectRedirect() {
-  const { projectId } = useParams<{ projectId: string }>();
-  return <Navigate to={`/pmo/project/${projectId}`} replace />;
 }
 
 export default function App() {
@@ -205,8 +198,7 @@ export default function App() {
                 </Suspense>
               }
             />
-            {/* #474：双路由合并——/project/:id 不再直挂页面，存量链接重定向到 /pmo/project/:id */}
-            <Route path="/project/:projectId" element={<LegacyProjectRedirect />} />
+            {/* #474：双路由合并——/pmo/project/:id 为项目详情唯一入口 */}
             <Route path="/goals" element={<Navigate to="/workunits" replace />} />
             <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
             <Route path="/audit-logs" element={<Suspense fallback={<PageLoader />}><AuditLogsPage /></Suspense>} />
