@@ -1,7 +1,7 @@
 // WorkUnit Store — Agent Network §3.28c-1
 import { create } from 'zustand';
 import axios from 'axios';
-import { workunitApi, type PaginatedResponse, type WorkUnit } from '../api/workunit';
+import { workunitApi, type WorkUnit } from '../api/workunit';
 import { createFreshIdTracker } from '../utils/freshIds';
 import { errorMessage } from '../utils/errorMessage';
 
@@ -125,19 +125,20 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         page: params?.page ?? page,
         limit,
       });
-      const result = data as PaginatedResponse<WorkUnit>;
+      // 契约分页壳 PaginatedBody（{ data, pagination } 必填），无第二形态
+      const result = data;
       set({
-        workunits: result?.data ?? (result as unknown as WorkUnit[]) ?? [],
-        total: result?.pagination?.total ?? 0,
-        page: result?.pagination?.page ?? 1,
+        workunits: result.data,
+        total: result.pagination.total,
+        page: result.pagination.page,
         // #405：仅无 status/type/q 过滤时本次 total 才是未归属总数，可同步徽标；
         // 交集过滤下 total 是交集计数，不能覆盖徽标（徽标由 loadUnattributedCount 维护）
         ...(unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter) && !searchQuery
-          ? { unattributedTotal: result?.pagination?.total ?? 0 } : {}),
+          ? { unattributedTotal: result.pagination.total } : {}),
         // 全量总数徽标：仅无任何过滤时本次 total 才是全量，可同步 allTotal；
         // 过滤态下 total 是过滤计数，「总数」chip 不得随之变脸（过滤态由 loadAllCount 补齐）
         ...(!unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter) && !searchQuery
-          ? { allTotal: result?.pagination?.total ?? 0 } : {}),
+          ? { allTotal: result.pagination.total } : {}),
         loading: false,
       });
     } catch (e) {
@@ -159,14 +160,14 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         page: page + 1,
         limit,
       });
-      const result = data as PaginatedResponse<WorkUnit>;
-      const incoming = result?.data ?? [];
+      const result = data;
+      const incoming = result.data;
       // SSE created 插头部会让下一页与前页行重叠——按 id 去重再拼接
       const seen = new Set(get().workunits.map(w => w.id));
       set({
         workunits: [...get().workunits, ...incoming.filter(w => !seen.has(w.id))],
-        total: result?.pagination?.total ?? 0,
-        page: result?.pagination?.page ?? page + 1,
+        total: result.pagination.total,
+        page: result.pagination.page,
         loading: false,
       });
     } catch (e) {
@@ -254,8 +255,7 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   loadUnattributedCount: async () => {
     try {
       const { data } = await workunitApi.list({ attributed: false, page: 1, limit: 1 });
-      const result = data as PaginatedResponse<WorkUnit>;
-      set({ unattributedTotal: result?.pagination?.total ?? 0 });
+      set({ unattributedTotal: data.pagination.total });
     } catch {
       // best-effort：徽标留旧值（null = 不显示数字），下次加载/重连自愈
     }
@@ -264,8 +264,7 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   loadAllCount: async () => {
     try {
       const { data } = await workunitApi.list({ page: 1, limit: 1 });
-      const result = data as PaginatedResponse<WorkUnit>;
-      set({ allTotal: result?.pagination?.total ?? 0 });
+      set({ allTotal: data.pagination.total });
     } catch {
       // best-effort：徽标留旧值（null = chip 回退显示过滤态 total），下次加载/重连自愈
     }

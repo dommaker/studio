@@ -38,8 +38,6 @@ export type {
 } from '@dommaker/studio-contract';
 /** 巡检机会条目（契约名 InspectionOpportunity；UI 侧沿用短名 Opportunity） */
 export type { InspectionOpportunity as Opportunity } from '@dommaker/studio-contract';
-/** 分页壳别名 = 契约 PaginatedBody（后端 formatPaginatedResponse 同形状） */
-export type PaginatedResponse<T> = PaginatedBody<T>;
 
 // 事件负载类型（WorkunitTokenEvent/ExecutionStepToolCall/ExecutionStepEvent/ExecutionStreamChunk）
 // #665（ADR 2026-08-24 落地）：与 studio-contract 同源（sse-events.ts），本地声明清零，
