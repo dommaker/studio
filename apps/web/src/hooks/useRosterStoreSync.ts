@@ -5,20 +5,18 @@
 //    重连时 REST refetch 打底）。
 // 引用计数单例、重连强刷、门禁轮询全在 useDataPlaneSync；本文件只剩 roster 的事件路由与参数。
 import { type SseMessage } from '../api/sseHooks';
+import { isSseEvent } from '../api/sseParser';
 import { useRosterStore, ROSTER_POLL_INTERVAL_MS } from '../stores/rosterStore';
-// #665：agent.instance.status_changed 负载类型 = studio-contract 同源（rosterStore 签名同）
-import type { AgentInstanceStatusChangedPayload, WorkunitEventPayload } from '@dommaker/studio-contract';
 import { useDataPlaneSync } from './useDataPlaneSync';
 
 function handleRosterEvent(msg: SseMessage) {
   const store = useRosterStore.getState();
-  if (msg.event_type === 'agent.instance.status_changed') {
-    const data = msg.data as AgentInstanceStatusChangedPayload | undefined;
-    if (data) store.applyInstanceStatusEvent(data);
+  if (isSseEvent(msg, 'agent.instance.status_changed')) {
+    if (msg.data) store.applyInstanceStatusEvent(msg.data);
     return;
   }
-  if (msg.event_type === 'workunit.status_changed') {
-    const wu = (msg.data as WorkunitEventPayload | null)?.workunit;
+  if (isSseEvent(msg, 'workunit.status_changed')) {
+    const wu = msg.data?.workunit;
     if (wu?.id) store.applyWorkunitStatusEvent(wu);
   }
 }

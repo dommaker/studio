@@ -6,10 +6,9 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { type ChannelMessage, type FileRef, type SendIntent } from '../api/channel';
 import { useSseContext } from '../api/sseHooks';
+import { isSseEvent } from '../api/sseParser';
 import { useGatedPoll } from './useGatedPoll';
 import { useChannelMessageStore } from '../stores/channelMessageStore';
-// #665：channel.message_sent/updated 负载类型 = studio-contract 同源
-import type { ChannelMessageSentPayload, ChannelMessageUpdatedPayload } from '@dommaker/studio-contract';
 import type { PruneOptions } from '../utils/messagePruning';
 
 /** 缺键（未加载）时的稳定空列表——防下游 memo 因每渲染新引用失效 */
@@ -53,14 +52,14 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
   useEffect(() => {
     if (!channelId) return;
     const unsub = onEvent((msg) => {
-      if (msg.event_type === 'channel.message_sent') {
-        const data = msg.data as ChannelMessageSentPayload | undefined;
-        if (data?.channelId === channelId && data?.message) {
+      if (isSseEvent(msg, 'channel.message_sent')) {
+        const data = msg.data;
+        if (data?.channelId === channelId && data.message) {
           // SSE message = shapeMessageData 产物（meta 恒 object），契约 union 的 string 位无活写入方
           useChannelMessageStore.getState().applyMessageSent(channelId, data.message as ChannelMessage);
         }
-      } else if (msg.event_type === 'channel.message_updated') {
-        const data = msg.data as ChannelMessageUpdatedPayload | undefined;
+      } else if (isSseEvent(msg, 'channel.message_updated')) {
+        const data = msg.data;
         if (data?.channelId === channelId) {
           useChannelMessageStore.getState().applyMessageUpdated(channelId, data);
         }

@@ -1,6 +1,6 @@
 # 架构精简：死亡面大扫除 + 结构归正 + 防护瘦身
 
-> 状态：Phase 0 已完成（2026-10-08，20 个 commit 落本地 master，65124ad6…bc2743ff）；Phase 1–3 已起票（#681–#696）；P1-9 已完成（#689，2026-10-09：builtin-tools 确认死面整删，mcp 三件套复查结论=保留）；P1-7 已完成（#687，2026-10-09：events 三处反向依赖修复——lock-events-bridge 迁 agent-monitor、Skill 建议经 eventBus 倒置入 skills、EXECUTION_STREAM_SSE_TYPE 上移 contract）
+> 状态：Phase 0 已完成（2026-10-08，20 个 commit 落本地 master，65124ad6…bc2743ff）；Phase 1–3 已起票（#681–#696）；P1-9 已完成（#689，2026-10-09：builtin-tools 确认死面整删，mcp 三件套复查结论=保留）；P1-7 已完成（#687，2026-10-09：events 三处反向依赖修复——lock-events-bridge 迁 agent-monitor、Skill 建议经 eventBus 倒置入 skills、EXECUTION_STREAM_SSE_TYPE 上移 contract）；P2-1 已完成（#690，2026-10-09：sseEventSchema 接 onmessage 单点（api/sseParser.ts parseSseMessage），14 处 msg.data 裸强转收口为 isSseEvent narrow，畸形负载 console.warn + 丢弃）
 > 前置：docs/plans/2026-10-arch-deepening.md（深化轮，#664–#675 已收官）；目标架构正本 docs/architecture/target-architecture.md
 
 ## 工单映射（2026-10-08 起票，全部 ready-for-agent）

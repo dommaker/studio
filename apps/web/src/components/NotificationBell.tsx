@@ -15,11 +15,12 @@ import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSseContext } from '../api/sseHooks';
+import { isSseEvent } from '../api/sseParser';
 import { useNotificationStore, type Notification, type StateItem } from '../stores/notificationStore';
 import { showBrowserNotification, requestBrowserNotificationPermission } from '../utils/browserNotification';
 import { toast } from '../utils/toast';
 // #665（ADR 2026-08-24 落地）：channel.message_sent / notification.created 负载与 studio-contract 同源，本地声明清零
-import type { ChannelMessageSentPayload, NotificationCreatedPayload } from '@dommaker/studio-contract';
+import type { ChannelMessageSentPayload } from '@dommaker/studio-contract';
 import { IconBell } from './ui/icons';
 import type { DrawerState } from './channel/WorkUnitDrawer';
 
@@ -116,17 +117,17 @@ export function NotificationBell() {
   // #517：重拉走共享防抖（scheduleLoad）；startFlash / showBrowserNotification 保持即时不防抖
   useEffect(() => {
     const unsub = onEvent((msg) => {
-      if (msg.event_type === 'channel.message_sent') {
-        const data = msg.data as ChannelMessageSentPayload | undefined;
+      if (isSseEvent(msg, 'channel.message_sent')) {
+        const data = msg.data;
         if (data?.message && isAtHumanMeta(data.message.meta)) {
           scheduleLoad();
           startFlash(data.message.agentName || 'Agent');
         }
       } else if (msg.event_type === 'workunit.status_changed') {
         scheduleLoad();
-      } else if (msg.event_type === 'notification.created') {
+      } else if (isSseEvent(msg, 'notification.created')) {
         // #523 人闸催办/认领滞留 tier1：铃铛重拉 + 浏览器原生通知（granted 才弹，零配置保底）
-        const data = msg.data as NotificationCreatedPayload | undefined;
+        const data = msg.data;
         scheduleLoad();
         if (data?.title) showBrowserNotification(data.title, data.content ?? '');
       }

@@ -6,13 +6,12 @@
 // unreadStore.resyncOnReconnect 拉 REST 最新一页补底数，不再「错过即丢」。
 import { useEffect, useRef } from 'react';
 import { useSseContext, type SseMessage } from '../api/sseHooks';
+import { isSseEvent } from '../api/sseParser';
 import { useUnreadStore } from '../stores/unreadStore';
-// #665：channel.message_sent 负载 = studio-contract 同源
-import type { ChannelMessageSentPayload } from '@dommaker/studio-contract';
 
 function handleUnreadEvent(msg: SseMessage) {
-  if (msg.event_type !== 'channel.message_sent') return;
-  const data = msg.data as ChannelMessageSentPayload | null;
+  if (!isSseEvent(msg, 'channel.message_sent')) return;
+  const data = msg.data;
   if (!data?.channelId) return;
   const at = data.message?.createdAt ? Date.parse(data.message.createdAt) : undefined;
   useUnreadStore.getState().applyMessageSent(

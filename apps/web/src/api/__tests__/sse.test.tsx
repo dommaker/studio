@@ -96,14 +96,55 @@ describe('SseProvider — 单连接不变量', () => {
       FakeEventSource.instances[0].onmessage?.({
         data: JSON.stringify({
           event_id: 'e1',
-          event_type: 'workunit.status_changed',
+          event_type: 'workunit:removed',
           timestamp: new Date().toISOString(),
-          data: {},
+          data: { id: 'wu-1', channelId: null },
         }),
       });
     });
-    expect(received).toEqual(['workunit.status_changed']);
+    expect(received).toEqual(['workunit:removed']);
     act(() => unsub());
+  });
+
+  // #690：sseEventSchema 接到 onmessage 单点——词表内畸形负载不分发 + 可见 log（不静默）
+  it('词表内畸形负载不分发给订阅者 + console.warn 可见（#690 运行时校验接线）', () => {
+    renderProvider();
+    const received: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      act(() => {
+        ctx!.onEvent((msg) => received.push(msg.event_type));
+      });
+      act(() => {
+        FakeEventSource.instances[0].onmessage?.({
+          data: JSON.stringify({
+            event_type: 'workunit:removed',
+            timestamp: new Date().toISOString(),
+            data: { channelId: 'ch-1' }, // 缺 id，畸形
+          }),
+        });
+      });
+      expect(received).toEqual([]);
+      expect(warn).toHaveBeenCalled();
+      expect(String(warn.mock.calls[0][0])).toContain('workunit:removed');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // #690：词表外事件（runtime.* 遗留 / knowledge 桥 payload 键）loose 透传，不受校验拦截
+  it('词表外事件 loose 透传给订阅者', () => {
+    renderProvider();
+    const received: string[] = [];
+    act(() => {
+      ctx!.onEvent((msg) => received.push(msg.event_type));
+    });
+    act(() => {
+      FakeEventSource.instances[0].onmessage?.({
+        data: JSON.stringify({ event_type: 'knowledge.doc_changed', payload: { id: 'd1' } }),
+      });
+    });
+    expect(received).toEqual(['knowledge.doc_changed']);
   });
 
   // 决策 9（2026-08 SSE 负载加深）：断线重连 → onReconnect 注册回调一次性触发

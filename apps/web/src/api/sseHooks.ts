@@ -17,7 +17,9 @@ function buildSseUrl(): string {
 
 // SseMessage/SseStatus：P3-a 迁至 src/types/sse.ts（api 层不声明导出类型），
 // 此处仅 re-export，消费方 import 路径不变。
-import type { SseMessage, SseStatus } from '../types/sse';
+// #690：sseEventSchema 接到 es.onmessage 单点解析（parseSseMessage，运行时件归 ./sseParser）。
+import { parseSseMessage } from './sseParser';
+import { type SseMessage, type SseStatus } from '../types/sse';
 export type { SseMessage, SseStatus };
 
 interface UseSSEOptions {
@@ -82,12 +84,16 @@ export function useSse(options: UseSSEOptions = {}) {
     };
 
     es.onmessage = (event) => {
+      let raw: unknown;
       try {
-        const message: SseMessage = JSON.parse(event.data);
-        callbacksRef.current.onMessage?.(message);
+        raw = JSON.parse(event.data);
       } catch {
         // SSE heartbeat comments are not JSON, skip silently
+        return;
       }
+      // #690：sseEventSchema 单点校验——词表内畸形负载可见 log + 丢弃；词表外 loose 透传
+      const message = parseSseMessage(raw);
+      if (message) callbacksRef.current.onMessage?.(message);
     };
 
     es.onerror = () => {
