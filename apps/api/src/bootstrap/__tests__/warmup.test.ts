@@ -3,6 +3,7 @@
  * startWarmupTasks / startPostRoutesWarmup 同步返回不抛错，各任务模块被触达。
  */
 import { describe, it, expect, vi } from 'vitest';
+import { logger } from '@dommaker/studio-shared';
 
 const spies = vi.hoisted(() => ({
   verifyConsumptionChain: vi.fn(async () => {}),
@@ -61,6 +62,15 @@ describe('warmup 冷启动任务挂载', () => {
     await vi.waitFor(() => expect(spies.fullScan).toHaveBeenCalled());
     await vi.waitFor(() => expect(spies.startPeriodicSnapshots).toHaveBeenCalled());
     await vi.waitFor(() => expect(spies.coldStartAll).toHaveBeenCalled());
+  });
+
+  it('verifyConsumptionChain 失败有 warn 落日志（#686 修复静默吞异常）', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    spies.verifyConsumptionChain.mockRejectedValueOnce(new Error('boom'));
+    startWarmupTasks();
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(warn.mock.calls.some(([msg]) => String(msg).includes('ConsumptionChain'))).toBe(true);
+    warn.mockRestore();
   });
 
   it('startPostRoutesWarmup：members 迁移 + 本地 workspace 注册被触达', async () => {

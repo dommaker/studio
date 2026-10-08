@@ -6,9 +6,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const calls = vi.hoisted(() => [] as string[]);
+const flags = vi.hoisted(() => ({ failOnMonitor: false }));
 
 vi.mock('../../modules/agent-monitor/index.js', () => ({
-  monitorService: { start: () => calls.push('monitor'), stop: vi.fn() },
+  monitorService: {
+    start: () => {
+      if (flags.failOnMonitor) throw new Error('monitor boom');
+      calls.push('monitor');
+    },
+    stop: vi.fn(),
+  },
 }));
 vi.mock('../../modules/agent-auditor/index.js', () => ({
   auditorService: { start: () => calls.push('auditor'), stop: vi.fn() },
@@ -31,6 +38,7 @@ import { startCoreServices } from '../services.js';
 
 beforeEach(() => {
   calls.length = 0;
+  flags.failOnMonitor = false;
 });
 
 describe('startCoreServices', () => {
@@ -38,6 +46,14 @@ describe('startCoreServices', () => {
     await startCoreServices();
     expect(calls).toEqual([
       'monitor', 'auditor', 'requirement-rollup', 'pmo-rollup', 'ops', 'evolution-scheduler',
+    ]);
+  });
+
+  it('monitor 启动失败只 warn 不拒启，后续服务照常启动（#686 纪律固化）', async () => {
+    flags.failOnMonitor = true;
+    await expect(startCoreServices()).resolves.toBeUndefined();
+    expect(calls).toEqual([
+      'auditor', 'requirement-rollup', 'pmo-rollup', 'ops', 'evolution-scheduler',
     ]);
   });
 });
