@@ -45,6 +45,9 @@ import type {
   ExecutionStreamChunkKind,
 } from '@dommaker/studio-contract';
 import { writeStudioEvent } from '@dommaker/studio-shared';
+// #687：常量正本上移 studio-contract（事件词表同源），此处 re-export 保持既有 import 路径不变
+import { EXECUTION_STREAM_SSE_TYPE } from '@dommaker/studio-contract';
+export { EXECUTION_STREAM_SSE_TYPE };
 
 export type { ExecutionStepToolCall, ExecutionStreamChunk, ExecutionStreamChunkKind };
 export type ExecutionStepEventPayload = ExecutionStepEvent;
@@ -271,9 +274,6 @@ export async function emitWorkUnitFailedEvent(payload: WorkUnitFailedEventPayloa
 }
 
 // ─── Layer B：步内流式 chunk（SSE-only，不落盘） ───
-
-/** SSE 信封的 event_type（workunit. 前缀 → workunits topic） */
-export const EXECUTION_STREAM_SSE_TYPE = 'workunit.execution.stream';
 
 const STREAM_TEXT_MAX_CHARS = 500;
 const MAX_CHUNKS_PER_LINE = 10;

@@ -27,6 +27,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 | SkillRecord, SkillCreateInput, SkillUpdateInput | skill-store.ts | 技能元数据的类型定义及文件型 CRUD |
 | LoadedSkill, SessionSkillState, LoadSkillOptions | skill-loader.ts | 技能加载相关的类型定义；#361 起磁盘加载归 `@dommaker/studio-skill` 包加载器（loadSingle），本文件只留会话级 load 缓存 + skill_used 事件发射（第三份 frontmatter 解析器已删） |
 | aggregateSkillUsage, scanSkillDemotions, approveDemotion, rejectDemotion, DemotionProposalStore | skill-demotion.ts | §10.6 降级通路：skill_used 事件 + WU 终态聚合 → 降级提案（只提案不自动生效；approve 改 frontmatter status，正文逐字节保留）；票 D 起 successRate 使用归因（usedWuIds ∩ 终态）+ exposures 曝光计数仅展示；提案存 ~/.studio/data/skills/demotion-proposals.json |
+| initSessionPatternSuggest | session-pattern-suggest.ts | KE-001 P5（#687 依赖倒置自 events/session-summary-generator 迁入）：订阅 eventBus 'session:summary'（events 落盘后发布，events 不 import 本模块）——同一 patternType 30d 内 ≥3 次且无同模式 Skill → skillStore 建 proposal 草稿；bootstrap/bridges.ts 装配，幂等 |
 | SkillUsageScanner, initSkillUsageScan, extractUsedSkillNames | skill-usage-scan.ts | 度量地基票 B：WU done → readTranscript 扫 rawOutput 中 `skills/<name>/SKILL.md` 痕迹 → 每 skill 一条 skill_used（channel=transcript，level=info）；纯确定性零 LLM，eventBus 钩子（index.ts 挂载），聚合侧 (skill, WU) 去重吸收重复触发 |
 | router | skill-demotion-routes.ts | 降级提案列表（?scan=true 触发扫描）/ 审批路由，挂载至 /api/v1/skills/demotion-proposals（先于 /api/v1/skills 注册） |
 
@@ -43,7 +44,6 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 
 **下游（谁依赖本目录）**
 - `apps/api/src/modules/agents`（auditor-execution.ts、auditor-rules.ts）
-- `apps/api/src/modules/events`（session-summary-generator.ts）
 - `apps/api/src/modules/knowledge`（pattern-miner.ts）
 - `apps/api/src/modules/mcp`（skill.tools.ts）
 - `apps/api/src/modules/workunit`（workunit.service.ts）

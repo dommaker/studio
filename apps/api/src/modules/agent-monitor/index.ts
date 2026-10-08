@@ -5,6 +5,7 @@
  * 公共面 = 提升时实际被模块外消费的符号；新增跨模块消费时在此补导出。
  */
 export { scanStaleAgentInstances } from './instance-timeout-scan.js';
+export { initLockEventsBridge } from './lock-events-bridge.js';
 export { dispatchMonitorAlerts, emitMonitorEvent } from './monitor-alerts.js';
 export { monitorService } from './monitor.service.js';
 export type { MonitorAlert, MonitorAlertSource } from './types.js';

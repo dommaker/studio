@@ -20,10 +20,11 @@ import { eventBus } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 // #665（ADR 2026-08-24 落地）：SSE 事件负载契约在 studio-contract/sse-events.ts——
 // connection.established 裸帧类型同源；事件词表 + payload 判别联合见契约文件。
+// #687：EXECUTION_STREAM_SSE_TYPE 常量正本同在该契约（原 agent-loop 反向依赖斩断）。
 import type { ConnectionEstablishedFrame } from '@dommaker/studio-contract';
+import { EXECUTION_STREAM_SSE_TYPE } from '@dommaker/studio-contract';
 import { logger } from '../../utils/logger.js';
 import { SseReplayBuffer } from './sse-replay-buffer.js';
-import { EXECUTION_STREAM_SSE_TYPE } from '../agent-loop/index.js';
 
 const router = Router();
 

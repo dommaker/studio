@@ -7,8 +7,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockAppendJsonl = vi.hoisted(() => vi.fn());
 // #342：读口切到窗口读（studio-events-tail.readStudioEventsSince），打桩随之迁移
 const mockReadStudioEventsSince = vi.hoisted(() => vi.fn());
-const mockSkillStoreFindFirst = vi.hoisted(() => vi.fn());
-const mockSkillStoreCreate = vi.hoisted(() => vi.fn());
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
@@ -29,13 +27,6 @@ vi.mock('../../../utils/studio-events-tail.js', () => ({
 
 vi.mock('../../utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
-
-vi.mock('../../modules/skills/skill-store.js', () => ({
-  skillStore: {
-    findFirst: mockSkillStoreFindFirst,
-    create: mockSkillStoreCreate,
-  },
 }));
 
 describe('SessionSummaryGenerator', () => {

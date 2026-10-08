@@ -18,8 +18,9 @@ const EVENT_SUBSCRIPTIONS: readonly SoftStep[] = [
   },
   {
     // #169: lock.* 事件（stale 回收/获锁超时）→ Monitor 告警全管线
+    // #687：桥归属 agent-monitor（消费 Monitor 能力即 Monitor 业务），events 不再反向依赖
     name: 'LockEventsBridge',
-    run: async () => (await import('../modules/events/index.js')).initLockEventsBridge(),
+    run: async () => (await import('../modules/agent-monitor/index.js')).initLockEventsBridge(),
   },
   {
     // PMO 分析接力：analysis 确认 → 拆 task WU 派工
@@ -55,6 +56,11 @@ const EVENT_SUBSCRIPTIONS: readonly SoftStep[] = [
     // skill 度量地基票 B：WU done → transcript 后验扫描 skill 使用痕迹 → skill_used 事件（纯确定性零 LLM）
     name: 'SkillUsageScan',
     run: async () => (await import('../modules/skills/index.js')).initSkillUsageScan(),
+  },
+  {
+    // KE-001 P5（#687 依赖倒置）：session:summary 事件 → 复发模式 Skill 建议
+    name: 'SessionPatternSuggest',
+    run: async () => (await import('../modules/skills/index.js')).initSessionPatternSuggest(),
   },
   {
     // #143 蒸馏主链路：WU done → 门槛检测（纯计数零 LLM）→ distill_proposal 人审卡

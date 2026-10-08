@@ -1,5 +1,6 @@
 /**
- * lock.* 事件 → Monitor 告警桥（#169 / #64 决议 4）
+ * lock.* 事件 → Monitor 告警桥（#169 / #64 决议 4；#687 自 events 模块迁入——
+ * 桥消费的是 Monitor 能力，归属业务模块，斩断 events 基础设施反向依赖）
  *
  * FileStore.withLock 的 stale 回收（lock.stale_reclaimed）与获锁超时
  * （lock.acquire_timeout）发布在进程内 eventBus 上——studio-shared 是纯包，
@@ -12,13 +13,13 @@
  */
 
 import { eventBus, logger } from '@dommaker/studio-shared';
-import { dispatchMonitorAlerts, emitMonitorEvent } from '../agent-monitor/index.js';
+import { dispatchMonitorAlerts, emitMonitorEvent } from './monitor-alerts.js';
 
 const FORWARDED_EVENTS = ['lock.stale_reclaimed', 'lock.acquire_timeout'] as const;
 
 let started = false;
 
-/** 幂等：重复调用不再注册（index.ts 启动时调用一次） */
+/** 幂等：重复调用不再注册（bootstrap/bridges.ts 启动装配时调用一次） */
 export function initLockEventsBridge(): void {
   if (started) return;
   started = true;
@@ -36,5 +37,5 @@ export function initLockEventsBridge(): void {
       }]);
     });
   }
-  logger.info('[Events] Lock events bridge subscribed', { events: FORWARDED_EVENTS });
+  logger.info('[AgentMonitor] Lock events bridge subscribed', { events: FORWARDED_EVENTS });
 }

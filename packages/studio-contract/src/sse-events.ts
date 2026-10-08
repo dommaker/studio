@@ -214,6 +214,12 @@ export type KnowledgeEntryChangedPayload = z.infer<typeof knowledgeEntryChangedP
 
 // ── 事件词表 + 判别联合 ──
 
+/**
+ * workunit.execution.stream 的 event_type 字面量（#687：常量自 agent-loop 上移本契约，
+ * 发射点 agent-loop 与消费方 events/sse.routes 同源，斩断 events → agent-loop 反向依赖）。
+ */
+export const EXECUTION_STREAM_SSE_TYPE = 'workunit.execution.stream' as const;
+
 /** SSE 事件词表（判别联合收编范围；词表外事件走 sseEnvelopeSchema loose 兜底） */
 export const SSE_EVENT_TYPES = [
   'channel.message_sent',

@@ -12,19 +12,20 @@ Monitor Agent（P2-d 刀6 自 modules/agents/monitor 提升为顶层模块）：
 - `monitor-alerts.ts` — 告警分发/Triage 升级（指纹冷却去重 w4h/c1h）
 - `monitor-reports.ts` — 轨迹评估/每日洞察/交互观察
 - `monitor-lifecycle.ts` — 知识沉淀闸门+每日 TTL 清理（#653 起 studio-events.jsonl 清理已删——事件保留执法归 studio-events-rotation 单口）
+- `lock-events-bridge.ts` — lock.* 事件 → Monitor 告警桥（#169；#687 自 events 模块迁入——桥消费的是 Monitor 能力，归属本模块，斩断 events 基础设施反向依赖）
 - `instance-timeout-scan.ts` — 心跳过期 5min 扫描+pid 复核（P2-d 刀6 自 agents 根随迁——依赖 monitor-alerts；#363 统一回收 terminated 实例；2026-09-24 起 terminate 死实例后连带释放其持有的 active WU 回池）
 - `types.ts` — MonitorAlert/MonitorAlertSource 类型（P2-d 刀1 自 agents/types.ts 拆分归属）
 - `exec-async` 已下沉 `core/exec-async.ts`（P2-d 刀1）
-- `__tests__/` — monitor-* ×8 + instance-timeout-scan
+- `__tests__/` — monitor-* ×8 + instance-timeout-scan + lock-events-bridge
 
 ### 核心导出
 
-- `index.ts` — 模块公共出口 barrel：`monitorService`、`dispatchMonitorAlerts`、`emitMonitorEvent`、`scanStaleAgentInstances`、`MonitorAlert`/`MonitorAlertSource`（type）
+- `index.ts` — 模块公共出口 barrel：`monitorService`、`dispatchMonitorAlerts`、`emitMonitorEvent`、`scanStaleAgentInstances`、`initLockEventsBridge`（#687 迁入）、`MonitorAlert`/`MonitorAlertSource`（type）
 
 ### 依赖关系
 
 - 上游：`modules/agents`（barrel：AgentInstanceService/INSTANCE_ALIVE_TIMEOUT_MS，instance-timeout-scan 消费）、`modules/triage`（barrel：triageService 告警升级）、`modules/knowledge`、`modules/workunit`、`core/`（store/proc-probes/exec-async）、`utils/`；动态 import `modules/mcp`、`modules/channels`
-- 下游：`bootstrap/`（services/lifecycle/migrations/handlers）、`modules/events`（lock-events-bridge 静态）、`modules/pmo`（analysis-handoff 动态）、`modules/workunit`（in-review-inbox 动态）、`modules/agent-loop`（dispatch-reconciliation 告警出声）
+- 下游：`bootstrap/`（services/lifecycle/migrations/handlers）、`modules/pmo`（analysis-handoff 动态）、`modules/workunit`（in-review-inbox 动态）、`modules/agent-loop`（dispatch-reconciliation 告警出声）
 
 ### 注意事项
 

@@ -11,3 +11,4 @@ export { skillLoaderService } from './skill-loader.js';
 export { parseSkillHintsFromScope, selectSkillsForInjection } from './skill-selector.js';
 export { skillStore } from './skill-store.js';
 export { initSkillUsageScan } from './skill-usage-scan.js';
+export { initSessionPatternSuggest } from './session-pattern-suggest.js';

@@ -1,5 +1,5 @@
 /**
- * bootstrap/bridges 测试（P2-a）：11 项事件订阅按原 index.ts 顺序初始化；
+ * bootstrap/bridges 测试（P2-a）：12 项事件订阅按原 index.ts 顺序初始化；
  * 单项失败只 log，不阻断后续订阅。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -12,7 +12,8 @@ vi.mock('../../modules/agent-loop/index.js', () => ({
 vi.mock('../../modules/events/workunit-events-bridge.js', () => ({
   initWorkunitEventsBridge: () => calls.push('workunit-events-bridge'),
 }));
-vi.mock('../../modules/events/lock-events-bridge.js', () => ({
+// #687：桥迁 agent-monitor——mock 整个 barrel，避免加载 monitor.service 等重依赖
+vi.mock('../../modules/agent-monitor/index.js', () => ({
   initLockEventsBridge: () => calls.push('lock-events-bridge'),
 }));
 vi.mock('../../modules/pmo/analysis-handoff.js', () => ({
@@ -36,6 +37,9 @@ vi.mock('../../modules/role-memory/completion-extraction.js', () => ({
 vi.mock('../../modules/skills/skill-usage-scan.js', () => ({
   initSkillUsageScan: () => calls.push('skill-usage-scan'),
 }));
+vi.mock('../../modules/skills/session-pattern-suggest.js', () => ({
+  initSessionPatternSuggest: () => calls.push('session-pattern-suggest'),
+}));
 vi.mock('../../modules/distill/distill-runtime.js', () => ({
   initDistillLoop: () => calls.push('distill-loop'),
 }));
@@ -47,7 +51,7 @@ beforeEach(() => {
 });
 
 describe('initEventSubscriptions', () => {
-  it('按原 index.ts 顺序初始化全部 11 项订阅', async () => {
+  it('按原 index.ts 顺序初始化全部 12 项订阅', async () => {
     await initEventSubscriptions();
     expect(calls).toEqual([
       'review-dispatcher',
@@ -60,6 +64,7 @@ describe('initEventSubscriptions', () => {
       'spec-materialization',
       'completion-extraction',
       'skill-usage-scan',
+      'session-pattern-suggest',
       'distill-loop',
     ]);
   });

@@ -1,5 +1,5 @@
 /**
- * lock.* 事件 → Monitor 告警桥单测（#169 / #64 决议 4）
+ * lock.* 事件 → Monitor 告警桥单测（#169 / #64 决议 4；#687 随桥自 events 迁入 agent-monitor）
  *  - eventBus 的 lock.stale_reclaimed / lock.acquire_timeout 被转发：
  *    结构化字段落统一事件流（lock.* 类型）+ dispatchMonitorAlerts 全管线
  *    （monitor:alert 事件 + notifyAlert 通知出口，warning 级）
@@ -31,7 +31,7 @@ vi.mock('../../../utils/notifier.js', () => ({
 vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: { recordPattern: vi.fn(() => Promise.resolve()) },
 }));
-vi.mock('../triage/index.js', () => ({
+vi.mock('../../triage/index.js', () => ({
   triageService: { handleAlert: vi.fn(() => Promise.resolve()) },
 }));
 

@@ -17,23 +17,21 @@
 | sse.routes.ts | GET /api/v1/events/clients | SSE 客户端列表 (debug) |
 | sse-replay-buffer.ts | SseReplayBuffer | #491：SSE 短窗口内存 replay buffer（环形，容量 500，id = 服务端单调 seq） |
 | workunit-events-bridge.ts | initWorkunitEventsBridge() | eventBus 的 workunit.created/status_changed + workunit:removed（#538 决策 5：service.delete 删除出声，负载 { id, channelId }，前端 workunitStore/channelWorkStore 删行，不进频道）+ requirement.created/updated（2026-08-24 SSE 负载加深，REQ chips SSE 驱动）→ 'events' 频道（前端 WU 列表/抽屉/REQ chips 实时刷新）；index.ts 启动时调用，幂等 |
-| lock-events-bridge.ts | initLockEventsBridge() | #169: eventBus 的 lock.stale_reclaimed/lock.acquire_timeout → 结构化字段落统一事件流 + dispatchMonitorAlerts 全管线（warning 级，不设 critical）；index.ts 启动时调用，幂等 |
 | （agent-loop 直发） | workunit.execution.step | WU 执行步事件（思考/工具/skill/用量）：agent-loop 每步结束经 eventBus.publish 直发（不经过桥），`workunit.` 前缀自动落 workunits topic；落盘形态 `workunit:execution_step` 供 GET /events 回放 |
 | （agent-loop 直发） | workunit.execution.stream | WU 步内流式 chunk（Layer B，2026-07-30）：step 执行中 CLI stdout 按行提炼 thinking/text/tool/result 直发，**SSE-only 不落盘**（行级体量防膨胀；步级归档走 execution.step）；同前缀落 workunits topic |
 | （agent-loop 直发） | workunit.tokens | WU 执行完成的 token 记账（2026-08-24 SSE 负载加深）：writeWorkunitTokenEvent 落盘 workunit:tokens 后顺带发 SSE（data = 落盘现成字段 + channelId），WU 抽屉 token 条事件驱动刷新；同前缀落 workunits topic |
-| session-summary-generator.ts | generateSessionSummary() | session:end → session:summary 聚合 |
+| session-summary-generator.ts | generateSessionSummary() | session:end → session:summary 聚合；落盘后 eventBus 发布 'session:summary'（#687 依赖倒置：KE-001 P5 复发模式 Skill 建议迁 skills/session-pattern-suggest 订阅接出，本模块不 import skills） |
 | session-summary-generator.ts | classifyPattern() (内部) | 根据文件/工具序列分类模式 |
 
 ### 依赖关系
 
 - `@dommaker/studio-shared` (FileStore) — jsonl 持久化
 - `@dommaker/studio-shared` (eventBus) — SSE pub/sub（#324：SSE 直订 eventBus，event-store 浅适配器已删除；背压 = res.write 返回 false 即断开慢客户端，断开时一并 clearInterval heartbeat 防 write-after-end）
-- `../agents/monitor/monitor-alerts.js` — lock-events-bridge 的告警全管线出口（#169）
-- `../skills/skill-store.js` — 模式匹配 Skill 建议 (KE-001 P5)
+- **无业务模块依赖（#687 反向依赖修复）**：lock-events-bridge 归属调整迁 agent-monitor；KE-001 P5 Skill 建议经 eventBus 'session:summary' 由 skills 订阅接进来；EXECUTION_STREAM_SSE_TYPE 常量正本上移 studio-contract/sse-events.ts。本模块只依赖 studio-shared / studio-contract / core / utils
 
 ### 测试
 
-七个测试文件，72+ 个用例：
+六个测试文件，72 个用例：
 
 | 文件 | 用例数 | 覆盖内容 |
 |------|--------|---------|
@@ -43,7 +41,6 @@
 | `__tests__/workunit-events-bridge.test.ts` | 3 | workunit.* + workunit:removed + requirement.* 事件转发 'events' 频道（信封形状）；桥 started 幂等是模块态，同文件后续用例 init 为 no-op 靠订阅残留生效 |
 | `__tests__/sse-routes.test.ts` | 13 | getTopicFromEventType 映射表锁定；#324 背压断开慢客户端；#491 重连 replay（按序补发/topics 过滤/不可解析游标/有洞不补发）；#524 stream chunk 不入 replay buffer；B6 广播每事件序列化一次 |
 | `__tests__/sse-replay-buffer.test.ts` | 7 | #491 replay buffer：seq 单调递增、环形淘汰、replay 窗口语义（有洞 → null） |
-| `__tests__/lock-events-bridge.test.ts` | 1 | #169: lock.* 事件 → 结构化事件流 + dispatchMonitorAlerts 全管线（warning + notifyAlert）、init 幂等 |
 
 ### 注意事项
 
