@@ -18,7 +18,8 @@
 import * as os from 'os';
 import * as path from 'path';
 import { FileStore, logger, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
-import type { WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
+import type { WorkUnitMetadata } from './workunit.types.js';
+import type { WorkUnitData } from './workunit-crud.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { syncTokenLedger } from '../../utils/token-ledger.js';
@@ -75,17 +76,11 @@ export interface DelegationCheckResult {
   target?: AgentProfileData;
 }
 
-/**
- * TODO(§4.3 P2): 树级预算闸门 —— 按 collab.rootId 聚合 studio-events.jsonl 的
- * workunit:tokens（executionTokens），`树已耗 + 子 WU 预估 ≤ TREE_TOKEN_BUDGET(400K)`。
- * P1 留桩恒通过。
- */
 /** §4.3 树级 token 预算上限 */
 export const TREE_TOKEN_BUDGET = 400_000;
 
 /**
- * §4.3 P2 树级预算闸门：树已耗 ≤ TREE_TOKEN_BUDGET(400K)。
- * 子 WU 预估取 0（TODO 后续基于历史均值）。
+ * §4.3 树级预算闸门：树已耗 ≤ TREE_TOKEN_BUDGET(400K)，子 WU 预估取 0。
  * #320：树已耗改读 token 账本（per-WU 累计，O(树内 WU 数)），不再每次委派全扫
  * studio-events.jsonl 逐行 parse payload；账本落后由 syncTokenLedger 增量补扫自愈。
  * 兜底语义不变：事件文件不存在/同步失败 -> treeTotal=0，pass。
