@@ -12,6 +12,7 @@ import * as path from 'path';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { loadRules, type OpsRules } from './ops-rules.js';
+import { getStore } from '../../core/store.js';
 import { readDiskUsage, readMemoryUsage, readLoadAvgRaw, countProcessesByCmdline, listPidsByCmdline } from '../../core/proc-probes.js';
 import { hashPassword } from '../auth/index.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
@@ -511,25 +512,4 @@ export class OpsService {
 /** Factory — port from env or default */
 export function createOpsService(port?: number): OpsService {
   return new OpsService(port || parseInt(process.env.PORT || '3001', 10));
-}
-
-// ── Health endpoint factory ──
-import { Router, Request, Response } from 'express';
-import { getStore } from '../../core/store.js';
-
-export function createHealthRoutes(ops: OpsService): Router {
-  const router = Router();
-  router.get('/', async (_req: Request, res: Response) => {
-    try {
-      const status = await ops.getStatus();
-      const isHealthy = status.apiResponding;
-      res.status(isHealthy ? 200 : 503).json({
-        status: isHealthy ? 'healthy' : 'degraded',
-        ...status,
-      });
-    } catch (e: any) {
-      res.status(500).json({ status: 'error', error: String(e) });
-    }
-  });
-  return router;
 }

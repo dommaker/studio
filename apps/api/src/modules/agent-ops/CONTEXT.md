@@ -6,7 +6,7 @@
 
 ### 目录结构
 
-- `ops.service.ts` — OpsService 门面 + `createOpsService` 工厂（唯一公共导出）；`createHealthRoutes`（/healthz 健康端点，当前无消费方）
+- `ops.service.ts` — OpsService 门面 + `createOpsService` 工厂（唯一公共导出）
 - `ops-rules.ts` — 守护规则加载（processes_to_clean 等契约）
 - `system-health.ts` — collectSystemHealth / checkThresholds / runGC（done/closed 且 completedAt >30 天 WU 清理，无生产接线仅测试可达）
 - `__tests__/` — ops-health-probe（探针语义防回归）、ops-agent-resilience、ops-worktree-gc、system-health
