@@ -44,7 +44,6 @@
     "tools:health": "./scripts/tools/health-check.sh",
     "tools:status": "./scripts/tools/status.sh",
     "typecheck": "node bin/tsc-gate.js --check --baseline .tsc-baseline.json --packages apps/api,apps/web,packages/studio-contract,packages/studio-shared,packages/studio-agent,packages/studio-skill,packages/studio-spec,packages/studio-audit,packages/studio-notification",
-    "cleanup:data": "npx tsx scripts/cleanup-runtime-data.ts",
     "gen:agents-md": "node scripts/gen-agents-md.mjs",
     "agents-md:sync": "npx harness sync-docs --agents && node scripts/gen-agents-md.mjs",
     "postinstall": "node -e \"const fs=require('fs'),{execSync}=require('child_process');if(fs.existsSync('scripts/harness-sync.js'))execSync('node scripts/harness-sync.js',{stdio:'inherit'})\"",

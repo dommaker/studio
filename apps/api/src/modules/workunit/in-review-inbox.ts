@@ -3,7 +3,7 @@
  *
  * analysis 类型有专门路径（analysis-handoff 决议 2，trigger 巡检单免确认直转 +
  * 其余投收件箱）；其余类型无频道卡 in_review 此前零痕迹
- * （仓内 cleanup-stuck-in-review-no-channel 脚本说明是已知积压源）。
+ * （2026-08 曾跑过一次存量清理脚本，此类积压是已知来源）。
  *
  * 机制：订阅 workunit.status_changed，命中 in_review ∧ 无频道 ∧ 非 analysis
  * 即 dispatchMonitorAlerts（warning 级既有管线：monitor:alert 事件 + notifyAlert

@@ -22,7 +22,7 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
   惰性转 stale（EVOLUTION_PROPOSAL_TTL_MS），不占 open-exists/duplicate 位（EP-0002 自锁修复）
 - `incident-ledger.ts` — 历史事故台账（#602 D5）：append-only incident-ledger.jsonl
   （ci-red/review-reject/incident-commit，kind+ref 去重），runScan scanned.incidents
-  只观测不进启发式；Phase 2 违规计数器续写同一格式。回填脚本 scripts/bootstrap-incident-ledger.ts
+  只观测不进启发式；Phase 2 违规计数器续写同一格式。存量回填已于 #602 一次性完成
 - `review-adapter.ts` — review-proposal 正本 adapter（kind='evolution'，#623：频道文本
   审核退役、归位正本卡片）：renderCardContent（当前/提案/理由/证据窗口）、onApprove/
   onReject 调 EvolutionService.decide（apply/幂等/APPLY_FAILED 重试语义复用）；
