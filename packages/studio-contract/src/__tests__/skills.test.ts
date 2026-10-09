@@ -1,7 +1,7 @@
 /**
- * skills 域契约测试：实体/请求/响应 schema 的接受-拒绝边界 + Skill/SkillManifestEntry/
- * DemotionProposal parity。正本 = skill-store.ts SkillRecord、skill-demotion.ts
- * DemotionProposal、manifest-loader 投影与 routes 实测 wire 行为。
+ * skills 域契约测试：实体/请求/响应 schema 的接受-拒绝边界。
+ * schema 即正本（原 Skill/SkillManifestEntry/DemotionProposal 手写 interface 双写互验
+ * parity 层已退役，类型同源由编译期断言锚定）。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -104,22 +104,7 @@ describe('skillSchema', () => {
     expect(full.name).toBe('tdd-implement');
   });
 
-  // strict:false 仓 z.infer 全字段退化可选 → Skill 是手写 interface；parity 兜漂移
-  it('parity：Skill interface fixture 全键 = schema.shape 键且通过校验；必填字段删除即拒', () => {
-    const full: Skill = {
-      ...skillRow,
-      roleId: 'role-1',
-      category: 'code_gen',
-      description: 'desc',
-      prompt: 'body',
-      trigger: '实现',
-      agentTypes: '["implement"]',
-      tools: '["fs"]',
-      required: '[]',
-      metadata: '{"k":1}',
-    };
-    expect(skillSchema.parse(full)).toEqual(full);
-    expect(Object.keys(skillSchema.shape).sort()).toEqual(Object.keys(full).sort());
+  it('必填字段删除即拒', () => {
     for (const key of Object.keys(skillRow)) {
       const { [key]: _drop, ...rest } = skillRow as unknown as Record<string, unknown>;
       expect(skillSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
@@ -161,9 +146,8 @@ describe('派生读形状', () => {
 });
 
 describe('SkillManifestEntry', () => {
-  it('parity：interface fixture 全键 = schema.shape 键；agentTypes/triggers 必填数组', () => {
+  it('agentTypes/triggers 等必填字段删除即拒', () => {
     expect(skillManifestEntrySchema.parse(manifestEntryRow)).toEqual(manifestEntryRow);
-    expect(Object.keys(skillManifestEntrySchema.shape).sort()).toEqual(Object.keys(manifestEntryRow).sort());
     for (const key of Object.keys(manifestEntryRow)) {
       const { [key]: _drop, ...rest } = manifestEntryRow as unknown as Record<string, unknown>;
       expect(skillManifestEntrySchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
@@ -172,9 +156,8 @@ describe('SkillManifestEntry', () => {
 });
 
 describe('DemotionProposal', () => {
-  it('parity：interface fixture 全键 = schema.shape 键；kind/status/suggestedStatus 词表', () => {
+  it('必填字段删除即拒；kind/suggestedStatus 词表', () => {
     expect(demotionProposalSchema.parse(demotionRow)).toEqual(demotionRow);
-    expect(Object.keys(demotionProposalSchema.shape).sort()).toEqual(Object.keys(demotionRow).sort());
     for (const key of Object.keys(demotionRow)) {
       const { [key]: _drop, ...rest } = demotionRow as unknown as Record<string, unknown>;
       expect(demotionProposalSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);

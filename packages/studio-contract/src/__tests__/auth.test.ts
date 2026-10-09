@@ -1,6 +1,7 @@
 /**
- * auth 域契约测试：实体 parity + 请求边界 + 响应壳。
- * 正本 = apps/api/src/modules/auth/routes.ts + service.ts（AuthResult/SafeUser/SessionData）
+ * auth 域契约测试：实体 schema 边界 + 请求边界 + 响应壳。
+ * schema 即正本（类型 = z.infer 同源，编译期锚定）；服务端正本 =
+ * apps/api/src/modules/auth/routes.ts + service.ts（AuthResult/SafeUser/SessionData）
  * + 前端 authStore 实际消费。
  */
 
@@ -14,9 +15,6 @@ import {
   type AuthResult,
   authStatusResultSchema,
   authMeResultSchema,
-  type AuthMeResult,
-  authRefreshResultSchema,
-  type AuthRefreshResult,
   guestSessionBodySchema,
   registerBodySchema,
   loginBodySchema,
@@ -52,32 +50,23 @@ const session: AuthSession = {
   refreshToken: null,
 };
 
-describe('实体 parity', () => {
-  it('AuthUser fixture 通过校验；nullable 字段 null 合法；缺必填抛错', () => {
-    expect(authUserSchema.parse(user)).toEqual(user);
+describe('实体 schema 边界', () => {
+  it('AuthUser/AuthSession 必填字段缺失即拒', () => {
     expect(() => authUserSchema.parse({ ...user, id: undefined })).toThrow();
     expect(() => authUserSchema.parse({ ...user, role: undefined })).toThrow();
-  });
-
-  it('AuthSession fixture 通过校验；refreshToken 响应面恒 null', () => {
-    expect(authSessionSchema.parse(session)).toEqual(session);
     expect(() => authSessionSchema.parse({ ...session, expiresAt: undefined })).toThrow();
   });
 
   it('AuthResult：login/register 带 user+refreshToken；guest-session 可无 user/refreshToken', () => {
-    const loginResult: AuthResult = { user, session, token: 'jwt', refreshToken: 'rt' };
+    const loginResult = { user, session, token: 'jwt', refreshToken: 'rt' };
     expect(authResultSchema.parse(loginResult)).toEqual(loginResult);
-    const guestResult: AuthResult = { session, token: 'jwt' };
+    const guestResult = { session, token: 'jwt' };
     expect(authResultSchema.parse(guestResult)).toEqual(guestResult);
     expect(() => authResultSchema.parse({ session, token: undefined })).toThrow();
   });
 
-  it('AuthMeResult / AuthRefreshResult fixture', () => {
-    const me: AuthMeResult = { user, session };
-    expect(authMeResultSchema.parse(me)).toEqual(me);
+  it('AuthMeResult：未登录 user/session 恒 null 合法', () => {
     expect(authMeResultSchema.parse({ user: null, session: null })).toEqual({ user: null, session: null });
-    const refresh: AuthRefreshResult = { accessToken: 'at', refreshToken: 'rt', userId: 'u1' };
-    expect(authRefreshResultSchema.parse(refresh)).toEqual(refresh);
   });
 });
 

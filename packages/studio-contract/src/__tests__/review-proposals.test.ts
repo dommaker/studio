@@ -1,7 +1,7 @@
 /**
- * review-proposal 域契约测试：状态词表/params/响应 schema 的接受-拒绝边界 +
- * ReviewProposalApproveResult parity。正本 = review-proposal/routes.ts 实测 wire、
- * store.ts 状态词表。
+ * review-proposal 域契约测试：状态词表/params/响应 schema 的接受-拒绝边界 + 响应壳。
+ * schema 即正本（手写 interface 已退役为 z.infer 同源 + 编译期锚定）；
+ * wire 参照 = review-proposal/routes.ts 实测 wire、store.ts 状态词表。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -50,13 +50,6 @@ describe('reviewProposalParamsSchema', () => {
 });
 
 describe('approve/reject/status 响应 data', () => {
-  it('parity：approve executed 形状（success:true + adapter data 透传）', () => {
-    expect(reviewProposalApproveResultSchema.parse(approveRow)).toEqual(approveRow);
-    // per-kind 扩展键透传（archivedIds/promoted/workUnitId/constraintId/proposalId 等）
-    expect(reviewProposalApproveResultSchema.parse({ success: true, workUnitId: 'wu-1', promoted: 2 }).promoted).toBe(2);
-    expect(() => reviewProposalApproveResultSchema.parse({ productIds: [] })).toThrow(); // success 必填
-  });
-
   it('approve skipped（预算熔断 200）形状', () => {
     const skipped: ReviewProposalApproveResult = { success: false, skipped: 'budget-exhausted' };
     expect(reviewProposalApproveResultSchema.parse(skipped)).toEqual(skipped);

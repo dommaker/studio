@@ -1,5 +1,5 @@
 /**
- * SSE 负载 ↔ 契约 wire parity（#665，ADR 2026-08-24 落地）。
+ * SSE 负载 round-trip 行为校验（#665，ADR 2026-08-24 落地）。
  *
  * 用真实发射点构造器产出的负载，经 JSON 序列化 round-trip（= /events/stream wire 形态）
  * 过 packages/studio-contract 的 sseEventSchema 判别联合——锁定「构造器 drift ↔ 契约」双向：
@@ -44,7 +44,7 @@ const ASSISTANT_LINE = JSON.stringify({
   },
 });
 
-describe('agent-loop 执行事件 ↔ 契约 parity', () => {
+describe('agent-loop 执行事件 wire round-trip 过契约', () => {
   it('workunit.execution.step：buildExecutionStepEvent 产物 wire 形态过判别联合', () => {
     const events = parseStreamEvents(
       [ASSISTANT_LINE, JSON.stringify({ type: 'result', result: 'ACTION: progress', usage: { input_tokens: 3, output_tokens: 5 } })].join('\n'),
@@ -87,7 +87,7 @@ describe('agent-loop 执行事件 ↔ 契约 parity', () => {
   });
 });
 
-describe('桥事件 ↔ 契约 parity', () => {
+describe('桥事件 wire round-trip 过契约', () => {
   it('workunit.status_changed：snapshotToData 快照 + claimable 的 wire 形态过判别联合', () => {
     const snapshot = {
       id: 'wu-1', parentId: null, type: 'task', scope: 's', assigneeId: null,

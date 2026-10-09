@@ -1,7 +1,8 @@
 /**
- * agent-profiles / agent-instances 域契约测试：实体 parity（手写 interface ↔ schema 互验）
+ * agent-profiles / agent-instances 域契约测试：实体 schema 边界
  * + 请求 schema（name/roleId 必填收 zod）+ 响应壳。
- * 正本 = apps/api/src/modules/agents/agent-profile.service.ts（AgentProfileData wire）
+ * schema 即正本（类型 = z.infer 同源，编译期锚定）；服务端正本 =
+ * apps/api/src/modules/agents/agent-profile.service.ts（AgentProfileData wire）
  * + agent-instance.service.ts（RuntimeStateData wire）。
  */
 
@@ -74,59 +75,32 @@ const instance: AgentInstance = {
 const preset: RolePresetSummary = { name: 'qa', description: '测试角色' };
 
 describe('agentProfileSchema / agentProfileListItemSchema', () => {
-  it('parity：AgentProfile fixture（全字段）通过校验；可省字段缺省合法', () => {
-    expect(agentProfileSchema.parse(profile)).toEqual(profile);
-    const minimal: AgentProfile = {
-      id: 'p-2',
-      name: 'bare',
-      description: null,
-      channels: '[]',
-      status: 'inactive',
-      provider: null,
-      createdAt: profile.createdAt,
-      updatedAt: profile.updatedAt,
-    };
-    expect(agentProfileSchema.parse(minimal)).toEqual(minimal);
+  it('必填字段（id/name/createdAt）缺失即拒', () => {
     expect(() => agentProfileSchema.parse({ ...profile, id: undefined })).toThrow();
     expect(() => agentProfileSchema.parse({ ...profile, name: undefined })).toThrow();
     expect(() => agentProfileSchema.parse({ ...profile, createdAt: undefined })).toThrow();
   });
 
-  it('parity：kind 词表（system/user）；历史无 kind 记录合法', () => {
+  it('kind 词表（system/user）；历史无 kind 记录合法', () => {
     const { kind: _kind, ...noKind } = profile;
     expect(agentProfileSchema.parse(noKind)).toEqual(noKind);
     expect(() => agentProfileSchema.parse({ ...profile, kind: 'robot' })).toThrow();
   });
 
-  it('parity：AgentProfileListItem = AgentProfile + 实例态聚合三键', () => {
-    expect(agentProfileListItemSchema.parse(listItem)).toEqual(listItem);
+  it('AgentProfileListItem 缺实例态聚合三键即拒', () => {
     expect(() => agentProfileListItemSchema.parse(profile)).toThrow();
   });
 });
 
 describe('rolePresetSummarySchema', () => {
-  it('parity：name 必填、description 可选（死字段不浮出）', () => {
-    expect(rolePresetSummarySchema.parse(preset)).toEqual(preset);
+  it('name 必填、description 可选（死字段不浮出）', () => {
     expect(rolePresetSummarySchema.parse({ name: 'bare' })).toEqual({ name: 'bare' });
     expect(() => rolePresetSummarySchema.parse({ description: 'x' })).toThrow();
   });
 });
 
 describe('agentInstanceSchema', () => {
-  it('parity：AgentInstance fixture（全字段）通过校验；可省字段缺省合法', () => {
-    expect(agentInstanceSchema.parse(instance)).toEqual(instance);
-    const minimal: AgentInstance = {
-      id: 'inst-2',
-      roleId: 'p-1',
-      sessionId: null,
-      status: 'idle',
-      currentWorkUnitId: null,
-      startedAt: instance.startedAt,
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
-    };
-    expect(agentInstanceSchema.parse(minimal)).toEqual(minimal);
+  it('必填字段（roleId/startedAt）缺失即拒', () => {
     expect(() => agentInstanceSchema.parse({ ...instance, roleId: undefined })).toThrow();
     expect(() => agentInstanceSchema.parse({ ...instance, startedAt: undefined })).toThrow();
   });

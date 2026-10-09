@@ -1,7 +1,6 @@
 /**
- * evolution 域契约测试：EvolutionProposal parity + 请求/响应 schema 接受-拒绝边界。
- * 正本 = studio-shared file-store-types.ts EvolutionProposalData、generator.ts
- * GenerationResult、constraint-adapter.ts ConstraintProposal/ConstraintScanResult。
+ * evolution 域契约测试：schema 接受-拒绝边界 + 请求/响应壳。
+ * schema 即正本；同名类型为 z.infer alias / import type 同源，由编译期断言锚定，无 parity 互验层。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -67,25 +66,6 @@ describe('evolutionProposalSchema', () => {
     expect(evolutionProposalSchema.safeParse({ ...proposalRow, action: 'delete' }).success).toBe(false);
     expect(evolutionProposalSchema.safeParse({ ...proposalRow, constraintChange: 'message' }).success).toBe(false);
     expect(evolutionEvidenceSchema.safeParse({ windowHours: 24 }).success).toBe(false);
-  });
-
-  // strict:false 仓 z.infer 全字段退化可选 → EvolutionProposal 是手写 interface；parity 兜漂移
-  it('parity：EvolutionProposal fixture 全键 = schema.shape 键且通过校验；必填字段删除即拒', () => {
-    const full: EvolutionProposal = {
-      ...proposalRow,
-      constraintChange: 'disable',
-      decidedBy: 'api:local',
-      decidedAt: '2026-09-02T00:00:00.000Z',
-      appliedAt: null,
-      rejectReason: null,
-      staledAt: null,
-    };
-    expect(evolutionProposalSchema.parse(full)).toEqual(full);
-    expect(Object.keys(evolutionProposalSchema.shape).sort()).toEqual(Object.keys(full).sort());
-    for (const key of Object.keys(proposalRow)) {
-      const { [key]: _drop, ...rest } = proposalRow as unknown as Record<string, unknown>;
-      expect(evolutionProposalSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
   });
 });
 

@@ -1,7 +1,7 @@
 /**
- * knowledge 域契约测试：实体/请求/响应 schema 的接受-拒绝边界 +
- * UnifiedKnowledgeEntry/KnowledgeEntryItem/Resolution/KnowledgeSearchResult/
- * KnowledgeMaintenanceResult parity。正本 = knowledge-service.ts / knowledge-types.ts /
+ * knowledge 域契约测试：实体/请求/响应 schema 的接受-拒绝边界 + 响应壳。
+ * schema 即正本（手写 interface 已退役为 z.infer 同源 + 编译期锚定）；
+ * wire 参照 = knowledge-service.ts / knowledge-types.ts /
  * resolution.service.ts / engine/unified-query.ts 与各 routes 实测 wire 行为。
  */
 
@@ -135,7 +135,7 @@ const maintenanceRow: KnowledgeMaintenanceResult = {
   contradictionsResolved: 3,
 };
 
-describe('knowledgeEntrySchema（harness KnowledgeEntry wire 重声明）', () => {
+describe('knowledgeEntrySchema（harness KnowledgeEntry wire，executionResults 字段级单向锚定）', () => {
   it('接受全字段条目（含人工创建行的 source 字段 sourceReferences）', () => {
     expect(knowledgeEntrySchema.parse(entryRow)).toEqual(entryRow);
   });
@@ -159,34 +159,32 @@ describe('knowledgeEntrySchema（harness KnowledgeEntry wire 重声明）', () =
   });
 });
 
-describe('手写 interface parity（z.infer 退化规避）', () => {
-  it('parity：UnifiedKnowledgeEntry fixture 通过校验；实际下发的完整条目也过（passthrough）', () => {
-    expect(unifiedKnowledgeEntrySchema.parse(unifiedRow)).toEqual(unifiedRow);
-    // wire 实际 = 完整 KnowledgeEntry + 投影扩展，passthrough 放行
+describe('实体 wire 边界', () => {
+  it('UnifiedKnowledgeEntry：完整条目 passthrough 放行；缺 id/title 即拒', () => {
     const full = unifiedKnowledgeEntrySchema.parse({ ...entryRow, source: 'store' });
     expect(full.id).toBe('ke-1');
     expect(() => unifiedKnowledgeEntrySchema.parse({ ...unifiedRow, id: undefined })).toThrow();
     expect(() => unifiedKnowledgeEntrySchema.parse({ ...unifiedRow, title: undefined })).toThrow();
   });
 
-  it('parity：KnowledgeEntryItem fixture 通过校验；完整条目 passthrough 放行', () => {
+  it('KnowledgeEntryItem：完整条目 passthrough 放行；缺 id 即拒', () => {
     expect(knowledgeEntryItemSchema.parse(entryItemRow)).toEqual(entryItemRow);
     expect(() => knowledgeEntryItemSchema.parse({ ...entryItemRow, id: undefined })).toThrow();
   });
 
-  it('parity：Resolution fixture 通过校验；tags 双重编码串形态同样接受', () => {
+  it('Resolution：tags 双重编码串形态同样接受（历史行容错）；缺 id 即拒', () => {
     expect(resolutionSchema.parse(resolutionRow)).toEqual(resolutionRow);
     expect(resolutionSchema.parse({ ...resolutionRow, tags: '["a"]' }).tags).toBe('["a"]');
     expect(() => resolutionSchema.parse({ ...resolutionRow, id: undefined })).toThrow();
   });
 
-  it('parity：KnowledgeSearchResult fixture 通过校验；缺 snippet/score 即拒', () => {
+  it('KnowledgeSearchResult：缺 snippet/score 即拒', () => {
     expect(knowledgeSearchResultSchema.parse(searchHitRow)).toEqual(searchHitRow);
     expect(() => knowledgeSearchResultSchema.parse({ ...searchHitRow, snippet: undefined })).toThrow();
     expect(() => knowledgeSearchResultSchema.parse({ ...searchHitRow, score: undefined })).toThrow();
   });
 
-  it('parity：KnowledgeMaintenanceResult fixture 通过校验；缺字段即拒', () => {
+  it('KnowledgeMaintenanceResult：缺字段即拒', () => {
     expect(knowledgeMaintenanceResultSchema.parse(maintenanceRow)).toEqual(maintenanceRow);
     expect(() => knowledgeMaintenanceResultSchema.parse({ ...maintenanceRow, dedupMerged: undefined })).toThrow();
   });

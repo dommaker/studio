@@ -1,6 +1,6 @@
 /**
- * triggers 域契约测试：TriggerConfig parity + 请求/响应 schema 接受-拒绝边界。
- * 正本 = trigger.types.ts（TriggerConfig/TriggerLogEntry）与 trigger.routes.ts 实测 wire。
+ * triggers 域契约测试：schema 接受-拒绝边界 + 派生读形状 + 请求/响应壳。
+ * schema 即正本；同名类型为 z.infer alias / import type 同源，由编译期断言锚定，无 parity 互验层。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -70,16 +70,6 @@ describe('triggerConfigSchema', () => {
     expect(triggerConfigSchema.safeParse({
       ...triggerRow, action: { type: 'UPDATE', target: 'workunit', config: { query: {} } },
     }).success).toBe(false);
-  });
-
-  // strict:false 仓 z.infer 判别联合退化 → TriggerConfigWire 是手写 interface；parity 兜漂移
-  it('parity：TriggerConfigWire fixture 全键 = schema.shape 键且通过校验；必填字段删除即拒', () => {
-    expect(triggerConfigSchema.parse(triggerRow)).toEqual(triggerRow);
-    expect(Object.keys(triggerConfigSchema.shape).sort()).toEqual(Object.keys(triggerRow).sort());
-    for (const key of Object.keys(triggerRow)) {
-      const { [key]: _drop, ...rest } = triggerRow as unknown as Record<string, unknown>;
-      expect(triggerConfigSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
   });
 });
 

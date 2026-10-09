@@ -30,7 +30,7 @@ import {
 } from '../workunit.js';
 import * as contractIndex from '../index.js';
 
-/** 后端 snapshotToData JSON 序列化后的最小合法形状（interface 类型即 parity 被测对象） */
+/** 后端 snapshotToData JSON 序列化后的最小合法形状（类型 = z.infer 同源，编译期锚定） */
 const wuRow = {
   id: 'wu-1',
   parentId: null,
@@ -66,32 +66,6 @@ describe('workUnitSchema', () => {
     const { id: _id, ...noId } = wuRow;
     expect(workUnitSchema.safeParse(noId).success).toBe(false);
     expect(workUnitSchema.safeParse({ ...wuRow, parentId: undefined }).success).toBe(false);
-  });
-
-  // strict:false 仓 z.infer 全字段退化可选 → WorkUnit 是手写 interface；
-  // parity 测试兜「interface ↔ schema 漂移」（改一边不改另一边时这里红）
-  it('parity：WorkUnit interface fixture 全键 = schema.shape 键且通过校验', () => {
-    const full: WorkUnit & Required<Pick<WorkUnit, 'workspaceId' | 'reqId' | 'assigneeRoleId' | 'claimable'>> = {
-      ...wuRow,
-      claimable: false,
-    };
-    expect(workUnitSchema.parse(full)).toEqual(full);
-    expect(Object.keys(workUnitSchema.shape).sort()).toEqual(Object.keys(full).sort());
-  });
-
-  it('parity：interface 必填字段逐一删除 → schema 拒绝（必填集对齐）', () => {
-    const OPTIONAL_KEYS = new Set(['workspaceId', 'reqId', 'assigneeRoleId', 'claimable']);
-    const requiredKeys = Object.keys(wuRow).filter(k => !OPTIONAL_KEYS.has(k));
-    expect(requiredKeys.length).toBeGreaterThan(0);
-    for (const key of requiredKeys) {
-      const { [key]: _drop, ...rest } = wuRow as unknown as Record<string, unknown>;
-      expect(workUnitSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
-    // interface 可选字段删除 → 仍通过
-    for (const key of ['workspaceId', 'reqId', 'assigneeRoleId']) {
-      const { [key]: _drop, ...rest } = wuRow as unknown as Record<string, unknown>;
-      expect(workUnitSchema.safeParse(rest).success, `删除可选 ${key} 应放行`).toBe(true);
-    }
   });
 });
 

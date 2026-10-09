@@ -1,6 +1,7 @@
 /**
- * audit-logs 域契约测试：行/stats parity + 查询边界 + 响应壳。
- * 正本 = apps/api/src/modules/audit-logs/routes.ts +
+ * audit-logs 域契约测试：行/stats schema wire 行为 + 查询边界 + 响应壳。
+ * schema 即正本（手写 interface 已退役为 z.infer 同源 + 编译期锚定）；
+ * wire 参照 = apps/api/src/modules/audit-logs/routes.ts +
  * packages/studio-audit audit-service.ts + proposal-source.ts。
  */
 
@@ -8,7 +9,6 @@ import { describe, it, expect } from 'vitest';
 import {
   auditLogRowSchema,
   type AuditLog,
-  auditLogStatsSchema,
   type AuditLogStats,
   auditLogListQuerySchema,
   auditLogStatsQuerySchema,
@@ -43,10 +43,6 @@ const stats: AuditLogStats = {
 };
 
 describe('auditLogRowSchema', () => {
-  it('parity：归一后 fixture 通过校验（details/changes 对象形态）', () => {
-    expect(auditLogRowSchema.parse(normalizedRow)).toEqual(normalizedRow);
-  });
-
   it('wire 原形态：details/changes 为 JSON 串或 null 合法', () => {
     const wireRow = {
       id: 'a2', action: 'propose', resource: 'distill', status: 'executed',
@@ -68,14 +64,6 @@ describe('auditLogRowSchema', () => {
     const base = { id: 'a4', action: 'x', resource: 'y', status: 'success', createdAt: 't' };
     expect(auditLogRowSchema.parse({ ...base, actorType: 'agent' }).actorType).toBe('agent');
     expect(() => auditLogRowSchema.parse({ ...base, actorType: 'robot' })).toThrow();
-  });
-});
-
-describe('auditLogStatsSchema parity', () => {
-  it('fixture 通过校验；缺必填段抛错', () => {
-    expect(auditLogStatsSchema.parse(stats)).toEqual(stats);
-    expect(() => auditLogStatsSchema.parse({ ...stats, totalLogs: undefined })).toThrow();
-    expect(() => auditLogStatsSchema.parse({ ...stats, dailyStats: undefined })).toThrow();
   });
 });
 

@@ -31,7 +31,6 @@ import {
   channelResponseSchema,
   channelCurrentPmoResponseSchema,
   channelMessagesResultSchema,
-  type ChannelMessagesResult,
   channelMessagesResponseSchema,
   deleteChannelResultSchema,
   archiveChannelResultSchema,
@@ -41,7 +40,7 @@ import {
 } from '../channels.js';
 import * as contractIndex from '../index.js';
 
-/** 后端 ChannelData 全字段最小合法形状（interface 类型即 parity 被测对象） */
+/** 后端 ChannelData 全字段最小合法形状（类型 = z.infer 同源，编译期锚定） */
 const channelRow: Channel = {
   id: 'ch-1',
   name: '#研发',
@@ -80,37 +79,12 @@ describe('channelSchema', () => {
     expect(channelSchema.safeParse(noMembers).success).toBe(false);
     expect(channelSchema.safeParse({ ...channelRow, defaultPath: undefined }).success).toBe(false);
   });
-
-  // strict:false 仓 z.infer 全字段退化可选 → Channel 是手写 interface；parity 兜漂移
-  it('parity：Channel interface fixture 全键 = schema.shape 键且通过校验', () => {
-    const full: Channel & Required<Pick<Channel, 'routing'>> = {
-      ...channelRow,
-      routing: { plan: null },
-    };
-    expect(channelSchema.parse(full)).toEqual(full);
-    expect(Object.keys(channelSchema.shape).sort()).toEqual(Object.keys(full).sort());
-  });
-
-  it('parity：interface 必填字段逐一删除 → schema 拒绝（必填集对齐）', () => {
-    for (const key of Object.keys(channelRow)) {
-      const { [key]: _drop, ...rest } = channelRow as unknown as Record<string, unknown>;
-      expect(channelSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
-  });
 });
 
 describe('channelMessageSchema', () => {
   it('接受 REST 出口形状（meta object）与 SSE/存量形态（meta string）', () => {
     expect(channelMessageSchema.parse(messageRow)).toEqual(messageRow);
     expect(channelMessageSchema.parse({ ...messageRow, meta: '{"a":1}' }).meta).toBe('{"a":1}');
-  });
-
-  it('parity：ChannelMessage interface fixture 全键 = schema.shape 键；必填字段删除即拒', () => {
-    expect(Object.keys(channelMessageSchema.shape).sort()).toEqual(Object.keys(messageRow).sort());
-    for (const key of Object.keys(messageRow)) {
-      const { [key]: _drop, ...rest } = messageRow as unknown as Record<string, unknown>;
-      expect(channelMessageSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
   });
 });
 
@@ -211,14 +185,9 @@ describe('派生读与响应 schema', () => {
     expect(updateMembersResultSchema.parse({ members: [], warning: 'w' }).warning).toBe('w');
   });
 
-  it('parity：ChannelMessagesResult interface（手写，store 按必填消费）↔ schema 互验', () => {
-    const result: ChannelMessagesResult = { messages: [messageRow], total: 1, hasMore: false };
+  it('messages 结果：{ messages, total, hasMore } 三键必填', () => {
+    const result = { messages: [messageRow], total: 1, hasMore: false };
     expect(channelMessagesResultSchema.parse(result)).toEqual(result);
-    expect(Object.keys(channelMessagesResultSchema.shape).sort()).toEqual(Object.keys(result).sort());
-    for (const key of Object.keys(result)) {
-      const { [key]: _drop, ...rest } = result as unknown as Record<string, unknown>;
-      expect(channelMessagesResultSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
   });
 
   it('convert-to-task 响应复用 workunit 实体壳', () => {

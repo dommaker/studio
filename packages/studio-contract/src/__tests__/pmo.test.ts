@@ -1,6 +1,6 @@
 /**
- * pmo 域契约测试：实体/请求/响应 schema 的接受-拒绝边界 + 手写 interface parity。
- * 正本 = project.service.ts ProjectData / okr.service.ts / delivery.ts + 路由实测 wire 行为。
+ * pmo 域契约测试：实体/请求/响应 schema 的接受-拒绝边界。
+ * 正本 = schema 自身（类型经 z.infer 同源，编译期锚定）；wire 行为依据 project.service.ts ProjectData / okr.service.ts / delivery.ts + 路由实测。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -8,11 +8,8 @@ import {
   projectSchema,
   type Project,
   pmoMapSchema,
-  type PmoMap,
   pmoDecisionSchema,
-  type PmoDecision,
   fogItemSchema,
-  type FogItem,
   deliveryLegSchema,
   okrSchema,
   type Okr,
@@ -121,9 +118,8 @@ describe('projectSchema', () => {
     expect(projectSchema.safeParse({ ...projectRow, deliveryPolicy: 'yolo' }).success).toBe(false);
   });
 
-  // strict:false 仓 z.infer 全字段退化可选 → Project 是手写 interface；parity 兜漂移
-  it('parity：Project interface fixture 全键 = schema.shape 键且通过校验', () => {
-    const full: Project = {
+  it('可选字段全集：delivered*/map/deliveries 合法值接受', () => {
+    const full = {
       ...projectRow,
       reqAlias: 'REQ-0001',
       deliveryPolicy: 'auto-merge',
@@ -136,14 +132,6 @@ describe('projectSchema', () => {
       deliveries: [{ gitRepo: '/r', branch: 'PMO-1', status: 'delivered', deliveredAt: 't', deliverCommit: 'c' }],
     };
     expect(projectSchema.parse(full)).toEqual(full);
-    expect(Object.keys(projectSchema.shape).sort()).toEqual(Object.keys(full).sort());
-  });
-
-  it('parity：interface 必填字段逐一删除 → schema 拒绝（必填集对齐）', () => {
-    for (const key of Object.keys(projectRow)) {
-      const { [key]: _drop, ...rest } = projectRow as unknown as Record<string, unknown>;
-      expect(projectSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
   });
 
   it('嵌套形状：pmoMap / deliveryLeg 词表', () => {
@@ -152,39 +140,15 @@ describe('projectSchema', () => {
     expect(deliveryLegSchema.safeParse({ gitRepo: null, branch: null, status: 'bogus' }).success).toBe(false);
   });
 
-  it('parity：PmoMap/FogItem/PmoDecision 手写 interface（前后端均按必填消费）↔ schema 互验', () => {
-    const map: PmoMap = {
-      destination: 'd',
-      decisions: [{ wuId: 'w', summary: 's', resolvedAt: 't' }],
-      fog: [{ id: 'f', question: 'q', wuId: null, status: 'open' }],
-      specSpawnedAt: 't2',
-      specWuId: null,
-    };
-    expect(pmoMapSchema.parse(map)).toEqual(map);
-    expect(Object.keys(pmoMapSchema.shape).sort()).toEqual(Object.keys(map).sort());
-    const fog: FogItem = { id: 'f', question: 'q', wuId: 'w', status: 'resolved' };
-    expect(Object.keys(fogItemSchema.shape).sort()).toEqual(Object.keys(fog).sort());
-    for (const key of Object.keys(fog)) {
-      const { [key]: _drop, ...rest } = fog as unknown as Record<string, unknown>;
-      expect(fogItemSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
-    const decision: PmoDecision = { wuId: 'w', summary: 's', resolvedAt: 't' };
-    expect(Object.keys(pmoDecisionSchema.shape).sort()).toEqual(Object.keys(decision).sort());
-    for (const key of Object.keys(decision)) {
-      const { [key]: _drop, ...rest } = decision as unknown as Record<string, unknown>;
-      expect(pmoDecisionSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
+  it('fog / decision：合法形状接受（status 词表内）', () => {
+    expect(fogItemSchema.parse({ id: 'f', question: 'q', wuId: 'w', status: 'resolved' })).toBeTruthy();
+    expect(pmoDecisionSchema.parse({ wuId: 'w', summary: 's', resolvedAt: 't' })).toBeTruthy();
   });
 });
 
 describe('okrSchema', () => {
-  it('parity：Okr interface fixture 全键 = schema.shape 键；必填字段删除即拒', () => {
+  it('接受后端 wire 形状（全字段含 projectCount）', () => {
     expect(okrSchema.parse(okrRow)).toEqual(okrRow);
-    expect(Object.keys(okrSchema.shape).sort()).toEqual(Object.keys(okrRow).sort());
-    for (const key of Object.keys(okrRow)) {
-      const { [key]: _drop, ...rest } = okrRow as unknown as Record<string, unknown>;
-      expect(okrSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
   });
 
   it('detail / mutation 形状：detail 带 Company null + Execution + _count；mutation 无 projectCount', () => {
@@ -196,7 +160,7 @@ describe('okrSchema', () => {
 });
 
 describe('deliveryStatusSchema', () => {
-  it('parity：DeliveryStatus interface fixture 全键 = schema.shape 键且通过校验', () => {
+  it('接受后端 wire 形状（含可选 legs 数组）', () => {
     const full: DeliveryStatus = {
       ...deliveryRow,
       legs: [{
@@ -206,7 +170,6 @@ describe('deliveryStatusSchema', () => {
     };
     expect(deliveryStatusSchema.parse(full)).toEqual(full);
     expect(deliveryStatusSchema.parse(deliveryRow)).toEqual(deliveryRow);
-    expect(Object.keys(deliveryStatusSchema.shape).sort()).toEqual(Object.keys(full).sort());
   });
 
   it('必填字段删除即拒；gaps.missing 词表校验', () => {

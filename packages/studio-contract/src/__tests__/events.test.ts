@@ -1,6 +1,6 @@
 /**
- * events 域契约测试：StudioEventItem/EventSearchResult parity + 请求边界 + 响应壳。
- * 正本 = apps/api/src/modules/events/event.routes.ts + utils/studio-events.ts 写口。
+ * events 域契约测试：事件行/游标壳行为 + 请求边界 + 响应壳。
+ * schema 即正本；同名类型为 z.infer alias / import type 同源，由编译期断言锚定，无 parity 互验层。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -8,7 +8,6 @@ import {
   studioEventItemSchema,
   type StudioEventItem,
   eventSearchResultSchema,
-  type EventSearchResult,
   createStudioEventBodySchema,
   createStudioEventResultSchema,
   listStudioEventsQuerySchema,
@@ -29,8 +28,7 @@ const eventRow: StudioEventItem = {
 };
 
 describe('studioEventItemSchema', () => {
-  it('parity：StudioEventItem fixture 通过校验；扩展键透传（历史行 timestamp 等）', () => {
-    expect(studioEventItemSchema.parse(eventRow)).toEqual(eventRow);
+  it('扩展键透传（历史行 timestamp 等）；缺 type 即拒', () => {
     const withExtra = { ...eventRow, timestamp: 123, extra: 'x' };
     expect(studioEventItemSchema.parse(withExtra)).toEqual(withExtra);
     expect(() => studioEventItemSchema.parse({ ...eventRow, type: undefined })).toThrow();
@@ -42,8 +40,8 @@ describe('studioEventItemSchema', () => {
 });
 
 describe('eventSearchResultSchema（游标壳）', () => {
-  it('parity：EventSearchResult fixture；nextCursor null = 没有更旧的', () => {
-    const result: EventSearchResult = { events: [eventRow], total: 1, nextCursor: null };
+  it('nextCursor null = 没有更旧的；缺 nextCursor 即拒', () => {
+    const result = { events: [eventRow], total: 1, nextCursor: null };
     expect(eventSearchResultSchema.parse(result)).toEqual(result);
     expect(eventSearchResponseSchema.parse({ data: result }).data.nextCursor).toBeNull();
     expect(() => eventSearchResultSchema.parse({ ...result, nextCursor: undefined })).toThrow();
