@@ -1,14 +1,21 @@
 /**
- * FileStoreWorkUnitBase — FileStore 的 WorkUnit 事件溯源层（从 file-store.ts 抽出）
+ * WorkUnitStore — FileStore 的 WorkUnit 事件溯源域 store（#681 P1-1 组合化：
+ * 自 FileStoreWorkUnitBase 继承层转型为构造注入 FileStoreCore 的独立 store）
  *
  * events.jsonl 事件流 + index.json 快照的读写、claim/upsert/remove 的 flock 互斥。
- * 继承 FileStoreBase 的原子读写与 withLock；门面 FileStore 再继承本类。
+ * 裸原语与 withLock 经 ctx.base（FileStoreBase）；默认读写走 ctx.io（CachedFileIo
+ * 读穿缓存，唯一实现）；锁内读路径（claim/upsert/flush/updateMetadata/
+ * createSnapshotGuarded/reconcile）永远直调 readIndexFile 裸读，不经缓存
+ * （#314 D1 例外条款 / ADR 2026-08-24-cache-seam-decision-rules）。
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { FileStoreBase, isErrnoError } from './file-store-base';
+import { isErrnoError } from './file-store-base';
+import type { FileStoreCore } from './file-store-core';
+import { jsonCache, cacheSet, statMtimeMs, cloneCached } from './file-store-cache';
+import { readMetricsBegin, emitReadMetric } from './read-metrics';
 import type { WorkUnitEvent, WorkUnitSnapshot, WorkUnitFilter } from './file-store-types';
 
 /** #314（D2）：租约推前的合并落盘窗口（默认 60s，≪ 5min 租约 TTL，活跃持有方不被误判到期） */
@@ -91,7 +98,7 @@ export function parseWorkUnitIndexContent(content: string, sourcePath = 'index.j
   return Array.from(byId.values());
 }
 
-/** FileStoreWorkUnitBase 构造选项 */
+/** WorkUnitStore 构造选项 */
 export interface FileStoreWorkUnitOptions {
   /** 租约推前的落盘间隔（测试注入 0 = 每跳即落盘的即时持久化契约） */
   leaseFlushIntervalMs?: number;
@@ -107,7 +114,8 @@ interface PendingLeaseRefresh {
   updatedAt: string;
 }
 
-export class FileStoreWorkUnitBase extends FileStoreBase {
+export class WorkUnitStore {
+  private readonly ctx: FileStoreCore;
   private readonly leaseFlushIntervalMs: number;
   /** 上次落盘时刻；初始化为构造时刻（首个落盘窗口自实例创建起算，语义无害） */
   private lastLeaseFlushAt: number;
@@ -116,8 +124,8 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
   private readonly indexCompaction: Required<IndexCompactionOptions>;
   private indexAppendCount = 0;
 
-  constructor(baseDir?: string, opts?: FileStoreWorkUnitOptions) {
-    super(baseDir);
+  constructor(ctx: FileStoreCore, opts?: FileStoreWorkUnitOptions) {
+    this.ctx = ctx;
     this.leaseFlushIntervalMs = opts?.leaseFlushIntervalMs ?? LEASE_FLUSH_INTERVAL_MS;
     this.lastLeaseFlushAt = Date.now();
     this.indexCompaction = {
@@ -128,15 +136,15 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
   }
 
   private get lockDir(): string {
-    return path.join(this.baseDir, 'workunits', 'lock');
+    return path.join(this.ctx.baseDir, 'workunits', 'lock');
   }
 
   private get eventsPath(): string {
-    return path.join(this.baseDir, 'workunits', 'events.jsonl');
+    return path.join(this.ctx.baseDir, 'workunits', 'events.jsonl');
   }
 
-  protected get indexPath(): string {
-    return path.join(this.baseDir, 'workunits', 'index.json');
+  private get indexPath(): string {
+    return path.join(this.ctx.baseDir, 'workunits', 'index.json');
   }
 
   // ═══════════════════════
@@ -144,7 +152,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
   // ═══════════════════════
 
   async appendEvent(event: WorkUnitEvent): Promise<void> {
-    await this.appendJsonl(this.eventsPath, event);
+    await this.ctx.io.appendJsonl(this.eventsPath, event);
   }
 
   /**
@@ -154,9 +162,9 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * 回写把全部已有快照抹掉）；JSONL 撕裂尾行跳过（append 崩溃容错，
    * events 是正本，reconcileIndex 兜底）。
    * 永远裸读（不走缓存）：锁内路径要求跨进程实时性。锁外只读的 getIndex
-   * 经 readIndexForQuery seam 由门面覆盖为读穿缓存（#314 D1）。
+   * 经 readIndexForQuery 走读穿缓存（#314 D1）。
    */
-  protected async readIndexFile(): Promise<WorkUnitSnapshot[] | null> {
+  private async readIndexFile(): Promise<WorkUnitSnapshot[] | null> {
     let content: string;
     try {
       content = await fs.promises.readFile(this.indexPath, 'utf-8');
@@ -175,7 +183,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
   private async appendIndexRowsLocked(rows: Array<WorkUnitSnapshot | WorkUnitIndexTombstone>): Promise<void> {
     await this.migrateLegacyIndexLocked();
     for (const row of rows) {
-      await this.appendJsonl(this.indexPath, row);
+      await this.ctx.io.appendJsonl(this.indexPath, row);
     }
     this.indexAppendCount += rows.length;
     await this.compactIndexIfNeededLocked();
@@ -209,7 +217,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
     }
     if (!legacy) return;
     const snapshots = parseWorkUnitIndexContent(await fs.promises.readFile(this.indexPath, 'utf-8'), this.indexPath);
-    await this.writeJsonl(this.indexPath, snapshots);
+    await this.ctx.io.writeJsonl(this.indexPath, snapshots);
   }
 
   /** 定期压实评估（锁内）：行数 ≥ minLines 且死行占比 ≥ deadRatio → 重写为 fold 后 JSONL */
@@ -226,18 +234,43 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
     if (rawLines < this.indexCompaction.minLines) return;
     const folded = parseWorkUnitIndexContent(content, this.indexPath);
     if ((rawLines - folded.length) / rawLines < this.indexCompaction.deadRatio) return;
-    await this.writeJsonl(this.indexPath, folded);
+    await this.ctx.io.writeJsonl(this.indexPath, folded);
   }
 
   /**
-   * getIndex 的读路径 seam（#314 D1）：基类缺省 = readIndexFile 裸读 + 按 filter 选行；
-   * 门面 FileStore 覆盖为 mtime 校验的读穿缓存（锁外只读场景跨进程安全）。
-   * 锁内读路径（claim/upsert/flush/updateMetadata/createSnapshotGuarded/reconcile）
-   * 永远直调 readIndexFile，不经本 seam（#314 D1 例外条款不受下推影响）。
+   * getIndex 的读路径（#314 D1）：mtime 校验的读穿缓存（锁外只读场景跨进程安全；
+   * #681 组合化后为唯一实现，不再有「基类裸读缺省 + 覆盖」双形态）。
+   * 保留 readIndexFile 的严格损坏语义（撕裂/非数组抛错，不静默当空），
+   * 命中返回结构克隆。锁内读路径不经过本方法（readIndexFile 保持裸读）。
+   * #406：filter 下推——命中路径在共享缓存数组上按引用选行、只克隆命中行
+   * （monitor 等带 status 过滤的读口不再为丢弃的行付克隆税）；无 filter 时
+   * 全量克隆，与 #314 行为一致。
    */
-  protected async readIndexForQuery(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[] | null> {
-    const snapshots = await this.readIndexFile();
-    return snapshots === null ? null : applyFilter(snapshots, filter);
+  private async readIndexForQuery(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[] | null> {
+    const filePath = this.indexPath;
+    const t = readMetricsBegin();
+    const t0 = t?.() ?? 0;
+    const mtimeMs = await statMtimeMs(filePath);
+    const t1 = t?.() ?? 0;
+    if (mtimeMs === null) {
+      jsonCache.delete(filePath);
+      if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
+      return null;
+    }
+    const hit = jsonCache.get(filePath);
+    if (hit && hit.mtimeMs === mtimeMs) {
+      // 共享缓存数组上按引用选行（applyFilter 不 mutate），克隆只发生在命中子集上
+      const matched = hit.value === null ? null : applyFilter(hit.value as WorkUnitSnapshot[], filter);
+      const cached = cloneCached(matched) as WorkUnitSnapshot[] | null;
+      if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
+      return cached;
+    }
+    const value = await this.readIndexFile();
+    const t2 = t?.() ?? 0;
+    cacheSet(jsonCache, filePath, { value, mtimeMs });
+    const cloned = cloneCached(value === null ? null : applyFilter(value, filter)) as WorkUnitSnapshot[] | null;
+    if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t() - t2 });
+    return cloned;
   }
 
   async getIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
@@ -287,11 +320,11 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
   }
 
   async rebuildIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
-    const events = await this.readJsonl<WorkUnitEvent>(this.eventsPath);
+    const events = await this.ctx.io.readJsonl<WorkUnitEvent>(this.eventsPath);
     const snapshots = Array.from(this.reduceEventsToSnapshots(events).values());
 
     // 写回 index.json（#524 P1-2：JSONL 压实写 = 派生物全量重建）
-    await this.writeJsonl(this.indexPath, snapshots);
+    await this.ctx.io.writeJsonl(this.indexPath, snapshots);
 
     return applyFilter(snapshots, filter);
   }
@@ -303,7 +336,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * opts.assigneeRoleId 双职：写入 WU 的角色冗余快照 + B6 指名守卫的认领方 roleId 判据。
    */
   async claimWorkUnit(wuId: string, assigneeId: string, opts?: { assigneeRoleId?: string | null; timeoutAt?: string | null }): Promise<boolean> {
-    return this.withLock(this.lockDir, async () => {
+    return this.ctx.base.withLock(this.lockDir, async () => {
       // 读取当前 index（不存在 → 空；撕裂/损坏 → 抛错，不再幻影 "not found"）
       const snapshots = (await this.readIndexFile()) ?? [];
 
@@ -338,7 +371,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
           timeoutAt,
         },
       };
-      await this.appendJsonl(this.eventsPath, claimEvent);
+      await this.ctx.io.appendJsonl(this.eventsPath, claimEvent);
 
       // #524 P1-2：index append-only——追加一行更新后快照，不再全量重写
       await this.appendIndexRowsLocked([
@@ -356,7 +389,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * 全程持有 workunits flock（与 claimWorkUnit 同一把锁），跨进程并发写不会丢更新。
    */
   async upsertSnapshot(snapshot: WorkUnitSnapshot): Promise<void> {
-    return this.withLock(this.lockDir, () => this.upsertSnapshotLocked(snapshot));
+    return this.ctx.base.withLock(this.lockDir, () => this.upsertSnapshotLocked(snapshot));
   }
 
   /**
@@ -374,7 +407,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * 与 upsertSnapshot 同一把 workunits flock。
    */
   async removeSnapshot(id: string): Promise<void> {
-    return this.withLock(this.lockDir, () => this.removeSnapshotLocked(id));
+    return this.ctx.base.withLock(this.lockDir, () => this.removeSnapshotLocked(id));
   }
 
   /** removeSnapshot 的无锁变体：仅供已持有 this.lockDir 的内部路径调用 */
@@ -396,8 +429,8 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * 统一走本原语，不再锁外分两步。
    */
   async commitSnapshot(event: WorkUnitEvent, snapshot: WorkUnitSnapshot): Promise<void> {
-    return this.withLock(this.lockDir, async () => {
-      await this.appendJsonl(this.eventsPath, event);
+    return this.ctx.base.withLock(this.lockDir, async () => {
+      await this.ctx.io.appendJsonl(this.eventsPath, event);
       await this.upsertSnapshotLocked(snapshot);
     });
   }
@@ -407,8 +440,8 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * removeSnapshotLocked 同锁完成。墓碑保证 rebuildIndex / reconcileIndex 不复活已删 WU。
    */
   async commitRemoval(event: WorkUnitEvent, id: string): Promise<void> {
-    return this.withLock(this.lockDir, async () => {
-      await this.appendJsonl(this.eventsPath, event);
+    return this.ctx.base.withLock(this.lockDir, async () => {
+      await this.ctx.io.appendJsonl(this.eventsPath, event);
       await this.removeSnapshotLocked(id);
     });
   }
@@ -468,7 +501,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
       this.lastLeaseFlushAt = Date.now();
       return { flushed: 0, dropped: 0 };
     }
-    return this.withLock(this.lockDir, async () => {
+    return this.ctx.base.withLock(this.lockDir, async () => {
       const snapshots = (await this.readIndexFile()) ?? [];
       let flushed = 0;
       let dropped = 0;
@@ -490,7 +523,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
           timestamp: pending.updatedAt,
           data: { timeoutAt: pending.timeoutAt, updatedAt: pending.updatedAt },
         };
-        await this.appendJsonl(this.eventsPath, event);
+        await this.ctx.io.appendJsonl(this.eventsPath, event);
         flushedRows.push({ ...current, timeoutAt: pending.timeoutAt, updatedAt: pending.updatedAt });
         this.pendingLeaseRefreshes.delete(wuId);
         flushed++;
@@ -521,7 +554,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
     mutator: (current: Record<string, unknown>) => Record<string, unknown>,
     opts?: { touchUpdatedAt?: boolean },
   ): Promise<WorkUnitSnapshot | null> {
-    return this.withLock(this.lockDir, async () => {
+    return this.ctx.base.withLock(this.lockDir, async () => {
       const snapshots = (await this.readIndexFile()) ?? [];
       const current = snapshots.find(s => s.id === wuId);
       if (!current) return null;
@@ -539,7 +572,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
         timestamp: isoNow,
         data: updated as unknown as Record<string, unknown>,
       };
-      await this.appendJsonl(this.eventsPath, event);
+      await this.ctx.io.appendJsonl(this.eventsPath, event);
       await this.upsertSnapshotLocked(updated);
       return updated;
     });
@@ -555,7 +588,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
     snapshot: WorkUnitSnapshot,
     guard: (snapshots: WorkUnitSnapshot[]) => boolean,
   ): Promise<boolean> {
-    return this.withLock(this.lockDir, async () => {
+    return this.ctx.base.withLock(this.lockDir, async () => {
       const snapshots = (await this.readIndexFile()) ?? [];
       if (!guard(snapshots)) return false;
       const event: WorkUnitEvent = {
@@ -564,7 +597,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
         timestamp: new Date().toISOString(),
         data: snapshot as unknown as Record<string, unknown>,
       };
-      await this.appendJsonl(this.eventsPath, event);
+      await this.ctx.io.appendJsonl(this.eventsPath, event);
       await this.upsertSnapshotLocked(snapshot);
       return true;
     });
@@ -576,8 +609,8 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * 历史数据可能已分叉，不对账永远不可知；对账在同一把 flock 内进行，与写路径互斥。
    */
   async reconcileIndex(): Promise<WorkUnitReconcileResult> {
-    return this.withLock(this.lockDir, async () => {
-      const events = await this.readJsonl<WorkUnitEvent>(this.eventsPath);
+    return this.ctx.base.withLock(this.lockDir, async () => {
+      const events = await this.ctx.io.readJsonl<WorkUnitEvent>(this.eventsPath);
       const expected = this.reduceEventsToSnapshots(events);
       const index = (await this.readIndexFile()) ?? [];
       const indexById = new Map(index.map(s => [s.id, s]));
@@ -596,7 +629,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
 
       const consistent = missingInIndex === 0 && staleInIndex === 0 && diverged === 0;
       if (!consistent) {
-        await this.writeJsonl(this.indexPath, Array.from(expected.values()));
+        await this.ctx.io.writeJsonl(this.indexPath, Array.from(expected.values()));
       }
       return {
         consistent,
@@ -637,7 +670,7 @@ function parseMetadataTolerant(metadata: string | null): Record<string, unknown>
   }
 }
 
-/** getIndex/filter 下推共用的快照选行口径（#406）：seam 与门面缓存命中路径共用，改口径只改这里 */
+/** getIndex/filter 下推共用的快照选行口径（#406）：seam 与缓存命中路径共用，改口径只改这里 */
 export function applyFilter(snapshots: WorkUnitSnapshot[], filter?: WorkUnitFilter): WorkUnitSnapshot[] {
   if (!filter) return snapshots;
   return snapshots.filter(s => {

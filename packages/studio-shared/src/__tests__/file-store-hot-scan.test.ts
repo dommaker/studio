@@ -31,6 +31,17 @@ vi.mock('../jsonl-tail', async (importOriginal) => {
 });
 
 import { FileStore, type ChannelData, type ChannelMessageData } from '../file-store';
+import type { CachedFileIo } from '../file-store-cached';
+
+/**
+ * #681 组合化观测点适配：内部全量读口 = 门面持有的 CachedFileIo 实例
+ * （继承链时代经 this.readJsonl 虚分派到覆盖层，spy 挂门面方法即可观测；
+ * 组合后门面 readJsonl 是纯委托，内部路径直引 ctx.io——spy 改挂 io 实例）。
+ */
+function spyOnInternalReadJsonl(store: FileStore) {
+  const io = (store as unknown as { ctx: { io: CachedFileIo } }).ctx.io;
+  return vi.spyOn(io, 'readJsonl');
+}
 
 const CH = 'ch-hot';
 const BASE_MS = Date.UTC(2026, 0, 1);
@@ -105,7 +116,7 @@ describe('FileStore 热层倒扫（2026-09-16 channel 体检 B4/B5）', () => {
   describe('B4：queryMessagesPage before 锚在热层', () => {
     it('锚在热层中部：结果与全量语义逐条一致，倒扫到锚即停（扫描行数有界，不走 readJsonl 全量）', async () => {
       seedBigHotFile(tmpDir);
-      const readJsonlSpy = vi.spyOn(store, 'readJsonl');
+      const readJsonlSpy = spyOnInternalReadJsonl(store);
       scanCounter.lines = 0;
 
       const page = await store.queryMessagesPage(CH, { before: 'm2501', limit: 50 });
@@ -151,7 +162,7 @@ describe('FileStore 热层倒扫（2026-09-16 channel 体检 B4/B5）', () => {
       const rows: ChannelMessageData[] = [];
       for (let i = 1; i <= 100; i++) rows.push(makeRow(`m${i}`, sameTs));
       seedHotFile(tmpDir, rows);
-      const readJsonlSpy = vi.spyOn(store, 'readJsonl');
+      const readJsonlSpy = spyOnInternalReadJsonl(store);
 
       const page = await store.queryMessagesPage(CH, { before: 'm51', limit: 10 });
       // 全量语义：等 ts 稳定排序 = 文件序，锚点 index 50，页 = m41..m50
@@ -168,7 +179,7 @@ describe('FileStore 热层倒扫（2026-09-16 channel 体检 B4/B5）', () => {
       for (let i = 1; i <= 100; i++) rows.push(makeRow(`m${i}`, BASE_MS + i * 1000));
       rows.push({ ...makeRow('m45', BASE_MS + 45 * 1000), content: 'm45 v2' });
       seedHotFile(tmpDir, rows);
-      const readJsonlSpy = vi.spyOn(store, 'readJsonl');
+      const readJsonlSpy = spyOnInternalReadJsonl(store);
 
       const page = await store.queryMessagesPage(CH, { before: 'm51', limit: 10 });
       expect(page.messages.map(m => m.id)).toEqual(Array.from({ length: 10 }, (_, k) => `m${41 + k}`));
@@ -179,7 +190,7 @@ describe('FileStore 热层倒扫（2026-09-16 channel 体检 B4/B5）', () => {
 
     it('锚点 id 不存在（热层穷举未命中、无冷数据）→ 空页 + hasMore=false，不走 readJsonl 全量', async () => {
       seedBigHotFile(tmpDir);
-      const readJsonlSpy = vi.spyOn(store, 'readJsonl');
+      const readJsonlSpy = spyOnInternalReadJsonl(store);
 
       const page = await store.queryMessagesPage(CH, { before: 'm-gone', limit: 50, includeTotal: true });
       expect(page.messages).toEqual([]);
@@ -196,7 +207,7 @@ describe('FileStore 热层倒扫（2026-09-16 channel 体检 B4/B5）', () => {
         if (i > 2970) return { ...row, workUnitId: 'wu-hot' };
         return row;
       });
-      const readJsonlSpy = vi.spyOn(store, 'readJsonl');
+      const readJsonlSpy = spyOnInternalReadJsonl(store);
       scanCounter.lines = 0;
 
       const r = await store.queryMessages(CH, { workUnitId: 'wu-hot', limit: 10 });
@@ -230,7 +241,7 @@ describe('FileStore 热层倒扫（2026-09-16 channel 体检 B4/B5）', () => {
       const rows: ChannelMessageData[] = [];
       for (let i = 1; i <= 50; i++) rows.push(makeRow(`m${i}`, sameTs, i > 40 ? { workUnitId: 'wu-x' } : undefined));
       seedHotFile(tmpDir, rows);
-      const readJsonlSpy = vi.spyOn(store, 'readJsonl');
+      const readJsonlSpy = spyOnInternalReadJsonl(store);
 
       const r = await store.queryMessages(CH, { workUnitId: 'wu-x', limit: 3 });
       // 全量语义：wu-x = m41..m50，升序（等 ts 稳定 = 文件序），末尾 3 条
@@ -246,7 +257,7 @@ describe('FileStore 热层倒扫（2026-09-16 channel 体检 B4/B5）', () => {
 
     it('#576：workUnitId + before + limit：before（createdAt 严格 <）进谓词，倒扫早停有界', async () => {
       seedBigHotFile(tmpDir, (row, i) => (i > 2970 ? { ...row, workUnitId: 'wu-hot' } : row));
-      const readJsonlSpy = vi.spyOn(store, 'readJsonl');
+      const readJsonlSpy = spyOnInternalReadJsonl(store);
       scanCounter.lines = 0;
 
       // before = m2996 的 createdAt：wu-hot ∩ createdAt < before = m2971..m2995，末尾 10 条

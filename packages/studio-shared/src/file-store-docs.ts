@@ -1,5 +1,7 @@
 /**
- * FileStoreDocsBase — 扁平目录清单与 Markdown 文档层（#670 自 file-store.ts 拆出，PURE_MOVE）
+ * DocsStore — 扁平目录清单与 Markdown 文档域 store（#681 P1-1 组合化：自
+ * FileStoreDocsBase 继承层转型为构造注入 FileStoreCore 的独立 store；
+ * #670 自 file-store.ts 拆出，PURE_MOVE）
  *
  * 承载：扁平目录 JSON 清单原语 listJsonInDir（#362 收编单点）、
  * Markdown 读写（frontmatter，读穿缓存 #321）、索引管理 buildIndex/listDocs、
@@ -9,13 +11,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isErrnoError } from './file-store-base';
-import { FileStoreSeqEntriesBase } from './file-store-seq-entries';
+import type { FileStoreCore } from './file-store-core';
 import { mdCache, cacheSet, statMtimeMs, cloneCached, collectNonNull, invalidateFileKey } from './file-store-cache';
 import { parseFrontmatter, serializeFrontmatter } from './frontmatter';
 
-// ─── FileStoreDocsBase 类 ───
+// ─── DocsStore 类 ───
 
-export class FileStoreDocsBase extends FileStoreSeqEntriesBase {
+export class DocsStore {
+  private readonly ctx: FileStoreCore;
+
+  constructor(ctx: FileStoreCore) {
+    this.ctx = ctx;
+  }
 
   // ═══════════════════════
   // 扁平目录 JSON 清单原语（#362 收编单点）
@@ -29,14 +36,14 @@ export class FileStoreDocsBase extends FileStoreSeqEntriesBase {
   public async listJsonInDir<T>(dir: string): Promise<T[]> {
     let entries: fs.Dirent[];
     try {
-      entries = await this.readdirCached(dir);
+      entries = await this.ctx.io.readdirCached(dir);
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') return [];
       throw err;
     }
     const results = await Promise.all(entries
       .filter(e => e.isFile() && e.name.endsWith('.json'))
-      .map(e => this.readJson<T>(path.join(dir, e.name))));
+      .map(e => this.ctx.io.readJson<T>(path.join(dir, e.name))));
     return collectNonNull(results);
   }
 
@@ -93,7 +100,7 @@ export class FileStoreDocsBase extends FileStoreSeqEntriesBase {
    */
   async writeDoc(dir: string, key: string, meta: Record<string, unknown>, body: string): Promise<void> {
     const filePath = path.join(dir, `${key}.md`);
-    await this.ensureDir(path.dirname(filePath));
+    await this.ctx.base.ensureDir(path.dirname(filePath));
     const content = serializeFrontmatter(meta, body);
     await fs.promises.writeFile(filePath, content, 'utf-8');
     invalidateFileKey(filePath);
@@ -102,7 +109,7 @@ export class FileStoreDocsBase extends FileStoreSeqEntriesBase {
   // ═══ 索引管理 ═══
 
   async buildIndex(dir: string, fields: string[]): Promise<void> {
-    await this.ensureDir(dir);
+    await this.ctx.base.ensureDir(dir);
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
     const mdFiles = entries.filter(e => e.isFile() && e.name.endsWith('.md') && e.name !== '_index.md').map(e => e.name);
     const header = `# Directory Index\n# Auto-generated\n# Total: ${mdFiles.length} entries\n#\n# filename|${fields.join('|')}`;
@@ -139,7 +146,7 @@ export class FileStoreDocsBase extends FileStoreSeqEntriesBase {
 
   async appendChangelog(dir: string, key: string, entry: string): Promise<void> {
     const changelogDir = path.join(dir, key);
-    await this.ensureDir(changelogDir);
+    await this.ctx.base.ensureDir(changelogDir);
     const filePath = path.join(changelogDir, 'CHANGELOG.md');
     const newEntry = `\n## ${new Date().toISOString()}\n\n${entry}\n`;
     try {

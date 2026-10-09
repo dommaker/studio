@@ -2,7 +2,9 @@
  * FileStoreBase — FileStore 的底层原语层（从 file-store.ts 抽出）
  *
  * baseDir 解析、目录创建、JSON/JSONL 原子读写（tmp+rename）、mkdir 文件锁 withLock。
- * 上层域方法在 file-store-workunit.ts 与门面 file-store.ts 中经继承叠加。
+ * #681 P1-1 起为组合结构的共享基座：各域 store（WorkUnitStore/MessagesStore/…）
+ * 经 FileStoreCore.base 持有本类实例调用裸原语（锁内/跨进程实时路径），
+ * 默认读写路径走 FileStoreCore.io（CachedFileIo 读穿缓存）。
  */
 
 import fs from 'node:fs';
@@ -95,8 +97,8 @@ export class FileStoreBase {
 
   // ─── 内部工具方法 ───
 
-  /** 确保目录存在 */
-  protected async ensureDir(dir: string): Promise<void> {
+  /** 确保目录存在（#681：转 public 供组合结构各域 store 经 FileStoreCore.base 调用） */
+  public async ensureDir(dir: string): Promise<void> {
     await fs.promises.mkdir(dir, { recursive: true });
   }
 

@@ -1,5 +1,6 @@
 /**
- * FileStoreWorkUnitBase 直接单元测试（不经门面 file-store.ts）
+ * WorkUnitStore 直接单元测试（不经门面 file-store.ts）
+ * #681 P1-1 组合化：FileStoreWorkUnitBase 继承层 → WorkUnitStore（构造注入 FileStoreCore）
  *
  * 覆盖：events.jsonl 事件溯源（appendEvent → rebuildIndex → getIndex 一致）、
  * readIndexFile 损坏语义、claimWorkUnit（flock 互斥 + timeoutAt 语义）、
@@ -10,7 +11,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { FileStoreWorkUnitBase, parseWorkUnitIndexContent } from '../file-store-workunit';
+import { WorkUnitStore, parseWorkUnitIndexContent } from '../file-store-workunit';
+import { createFileStoreCore, type FileStoreCore } from '../file-store-core';
 import type { WorkUnitEvent, WorkUnitSnapshot } from '../file-store-types';
 
 function createTempDir(): string {
@@ -49,13 +51,15 @@ function createdEvent(snap: WorkUnitSnapshot): WorkUnitEvent {
   };
 }
 
-describe('FileStoreWorkUnitBase（直接单元测试）', () => {
+describe('WorkUnitStore（直接单元测试）', () => {
   let tmpDir: string;
-  let store: FileStoreWorkUnitBase;
+  let store: WorkUnitStore;
+  let core: FileStoreCore;
 
   beforeEach(() => {
     tmpDir = createTempDir();
-    store = new FileStoreWorkUnitBase(tmpDir);
+    core = createFileStoreCore(tmpDir);
+    store = new WorkUnitStore(core);
   });
 
   afterEach(() => {
@@ -236,7 +240,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       await seedWu(makeWuSnapshot('wu1'));
       await store.claimWorkUnit('wu1', 'agent1');
 
-      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const events = await core.io.readJsonl<WorkUnitEvent>(eventsPath());
       const claimed = events.filter(e => e.type === 'claimed');
       expect(claimed).toHaveLength(1);
       expect(claimed[0].wuId).toBe('wu1');
@@ -255,7 +259,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       expect(await store.claimWorkUnit('wu1', 'agent2')).toBe(false);
 
       // 第二次 claim 未产生多余事件、未改写归属
-      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const events = await core.io.readJsonl<WorkUnitEvent>(eventsPath());
       expect(events.filter(e => e.type === 'claimed')).toHaveLength(1);
       const [wu] = await store.getIndex();
       expect(wu.assigneeId).toBe('agent1');
@@ -275,7 +279,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       const [wu] = await store.getIndex();
       expect(wu.assigneeId).toBe('inst-1');
       // 被拒那次不产生 claimed 事件
-      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const events = await core.io.readJsonl<WorkUnitEvent>(eventsPath());
       expect(events.filter(e => e.type === 'claimed')).toHaveLength(1);
     });
 
@@ -326,7 +330,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       const [wu] = await store.getIndex();
       expect(wu.timeoutAt).toBe(lease);
 
-      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const events = await core.io.readJsonl<WorkUnitEvent>(eventsPath());
       const claimed = events.filter(e => e.type === 'claimed');
       expect(claimed).toHaveLength(1);
       expect(claimed[0].data).toMatchObject({ timeoutAt: lease });
@@ -346,7 +350,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       const [wu] = await store.getIndex();
       expect(wu.assigneeRoleId).toBe('role-coder');
 
-      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const events = await core.io.readJsonl<WorkUnitEvent>(eventsPath());
       const claimed = events.filter(e => e.type === 'claimed');
       expect(claimed).toHaveLength(1);
       expect(claimed[0].data).toMatchObject({ assigneeId: 'inst-1', assigneeRoleId: 'role-coder' });
@@ -459,7 +463,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       expect(JSON.parse(updated!.metadata!)).toMatchObject({ stepCount: 2, tag: 'x' });
 
       // 成对写：事件流与索引同步（rebuild 结论与 index 一致）
-      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const events = await core.io.readJsonl<WorkUnitEvent>(eventsPath());
       expect(events.filter(e => e.type === 'updated' && e.wuId === 'wu1')).toHaveLength(1);
       const rebuilt = await store.rebuildIndex();
       expect(JSON.parse(rebuilt[0].metadata!).stepCount).toBe(2);
@@ -469,7 +473,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       await seedWu(makeWuSnapshot('wu1'));
       const result = await store.updateMetadata('nope', cur => cur);
       expect(result).toBeNull();
-      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const events = await core.io.readJsonl<WorkUnitEvent>(eventsPath());
       expect(events.filter(e => e.wuId === 'nope')).toHaveLength(0);
     });
 
@@ -556,7 +560,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       const snap = makeWuSnapshot('wu1');
       await store.commitSnapshot(createdEvent(snap), snap);
 
-      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const events = await core.io.readJsonl<WorkUnitEvent>(eventsPath());
       expect(events).toHaveLength(1);
       expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1']);
       // 对账口径一致（无需重建）
@@ -570,7 +574,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
         return store.commitSnapshot(createdEvent(snap), snap);
       }));
       expect(await store.getIndex()).toHaveLength(20);
-      expect(await store.readJsonl<WorkUnitEvent>(eventsPath())).toHaveLength(20);
+      expect(await core.io.readJsonl<WorkUnitEvent>(eventsPath())).toHaveLength(20);
     });
 
     it('commitRemoval 同锁成对：墓碑事件 + 索引移除，rebuild 不复活', async () => {
@@ -614,7 +618,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       const ok = await store.createSnapshotGuarded(snap, noChildGuard('p1'));
       expect(ok).toBe(true);
       expect((await store.getIndex()).map(s => s.id)).toEqual(['child-1']);
-      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const events = await core.io.readJsonl<WorkUnitEvent>(eventsPath());
       expect(events.filter(e => e.type === 'created' && e.wuId === 'child-1')).toHaveLength(1);
     });
 
@@ -624,7 +628,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       const ok = await store.createSnapshotGuarded(snap, noChildGuard('p1'));
       expect(ok).toBe(false);
       expect((await store.getIndex()).map(s => s.id)).toEqual(['existing']);
-      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const events = await core.io.readJsonl<WorkUnitEvent>(eventsPath());
       expect(events.filter(e => e.wuId === 'child-2')).toHaveLength(0);
     });
 
@@ -654,7 +658,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       await seedWu(makeWuSnapshot('wu1'));
       await seedWu(makeWuSnapshot('wu2'));
       // 人为制造分叉：index 抹掉 wu2（模拟 upsert 前崩溃）
-      await store.writeJson(indexPath(), [makeWuSnapshot('wu1')]);
+      await core.io.writeJson(indexPath(), [makeWuSnapshot('wu1')]);
 
       const recon = await store.reconcileIndex();
       expect(recon).toMatchObject({ consistent: false, rebuilt: true, missingInIndex: 1 });
@@ -663,7 +667,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
 
     it('索引内容陈旧（同 id 字段不一致）→ 以事件流为准重建', async () => {
       await seedWu(makeWuSnapshot('wu1', { scope: 'real' }));
-      await store.writeJson(indexPath(), [makeWuSnapshot('wu1', { scope: 'stale' })]);
+      await core.io.writeJson(indexPath(), [makeWuSnapshot('wu1', { scope: 'stale' })]);
 
       const recon = await store.reconcileIndex();
       expect(recon).toMatchObject({ consistent: false, rebuilt: true, diverged: 1 });
@@ -672,7 +676,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
 
     it('索引多出条目（事件流无）→ 重建清除并报告 staleInIndex', async () => {
       await seedWu(makeWuSnapshot('wu1'));
-      await store.writeJson(indexPath(), [makeWuSnapshot('wu1'), makeWuSnapshot('phantom')]);
+      await core.io.writeJson(indexPath(), [makeWuSnapshot('wu1'), makeWuSnapshot('phantom')]);
 
       const recon = await store.reconcileIndex();
       expect(recon).toMatchObject({ consistent: false, rebuilt: true, staleInIndex: 1 });
@@ -826,7 +830,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
     });
 
     it('leaseFlushIntervalMs: 0 → refresh 当跳即落盘（即时持久化契约）', async () => {
-      const immediate = new FileStoreWorkUnitBase(tmpDir, { leaseFlushIntervalMs: 0 });
+      const immediate = new WorkUnitStore(createFileStoreCore(tmpDir), { leaseFlushIntervalMs: 0 });
       await seedClaimed();
       const next = new Date(Date.now() + 5 * 60_000);
 
@@ -861,11 +865,13 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
 
 describe('index.json append-only（#524 P1-2）', () => {
   let tmpDir: string;
-  let store: FileStoreWorkUnitBase;
+  let store: WorkUnitStore;
+  let core: FileStoreCore;
 
   beforeEach(() => {
     tmpDir = createTempDir();
-    store = new FileStoreWorkUnitBase(tmpDir);
+    core = createFileStoreCore(tmpDir);
+    store = new WorkUnitStore(core);
   });
 
   afterEach(() => {
@@ -939,7 +945,7 @@ describe('index.json append-only（#524 P1-2）', () => {
   });
 
   it('定期压实：死行占比超阈值时重写为 fold 后 JSONL', async () => {
-    const compacting = new FileStoreWorkUnitBase(tmpDir, {
+    const compacting = new WorkUnitStore(createFileStoreCore(tmpDir), {
       indexCompaction: { checkInterval: 2, minLines: 4, deadRatio: 0.3 },
     });
     await compacting.upsertSnapshot(makeWuSnapshot('wu1'));

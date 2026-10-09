@@ -1,26 +1,35 @@
 /**
- * FileStoreCachedBase — 读穿缓存覆盖层（#670 自 file-store.ts 拆出，PURE_MOVE）
+ * CachedFileIo — 读穿缓存读写原语（#681 P1-1 组合化：自 FileStoreCachedBase 覆盖层转型）
  *
- * ─── 读穿缓存覆盖（A1，工单 26）───
+ * 继承链时代本层以「覆盖基类 readJson/readJsonl/写后失效」的形态叠加在链上；
+ * 组合化后本类是读穿缓存的唯一实现（不再有「基类裸读缺省 + 覆盖」双形态）：
+ * 各域 store 的默认读写路径经 FileStoreCore.io 走本类，锁内/跨进程实时路径
+ * 经 FileStoreCore.base 走 FileStoreBase 裸原语（ADR 例外条款）。
  *
- * 基类（file-store-base.ts）读写原语在此覆盖为带 mtime 校验的读穿缓存版本；
- * FileStoreWorkUnitBase 的方法经虚分派同样走缓存与失效。
- * 缓存共享件（jsonCache/jsonlCache/statMtimeMs/cacheSet/cloneCached/invalidateFileKey）
- * 在 file-store-cache.ts 定义并 import 共用（口径注释见该文件）。
+ * 承载：readJson/readJsonl（mtime 校验读穿缓存 + 命中克隆）、writeJson/appendJsonl/
+ * writeJsonl（委托 base 原子写 + 写后失效）、readdirCached/readdir（目录读穿缓存，
+ * #321；自 file-store-messages-core.ts 迁入——它本是通用件，被 entities/seq/docs/
+ * messages 四域共用）。WorkUnit 索引读口 readIndexForQuery 随域留在 file-store-workunit.ts。
+ *
+ * 缓存共享件（jsonCache/jsonlCache/dirCache/statMtimeMs/cacheSet/cloneCached/
+ * invalidateFileKey）在 file-store-cache.ts 定义并 import 共用（口径注释见该文件）。
  */
 
 import fs from 'node:fs';
-import { isErrnoError } from './file-store-base';
-import { applyFilter } from './file-store-workunit';
-import { FileStoreMessagesBase } from './file-store-messages';
-import { jsonCache, jsonlCache, cacheSet, statMtimeMs, cloneCached, invalidateFileKey } from './file-store-cache';
+import { isErrnoError, type FileStoreBase } from './file-store-base';
+import { dirCache, jsonCache, jsonlCache, cacheSet, statMtimeMs, cloneCached, invalidateFileKey } from './file-store-cache';
 import { readMetricsBegin, emitReadMetric } from './read-metrics';
-import type { WorkUnitSnapshot, WorkUnitFilter } from './file-store-types';
 
-// ─── FileStoreCachedBase 类 ───
+// ─── CachedFileIo 类 ───
 
-export class FileStoreCachedBase extends FileStoreMessagesBase {
+export class CachedFileIo {
+  private readonly base: FileStoreBase;
 
+  constructor(base: FileStoreBase) {
+    this.base = base;
+  }
+
+  /** 读取 JSON 文件（mtime 校验读穿缓存）；不存在或损坏返回 null；命中返回结构克隆 */
   public async readJson<T>(filePath: string): Promise<T | null> {
     const t = readMetricsBegin();
     const t0 = t?.() ?? 0;
@@ -56,24 +65,25 @@ export class FileStoreCachedBase extends FileStoreMessagesBase {
     return cloned;
   }
 
-  /** 写入 JSON 文件（原子写），写后失效缓存 */
+  /** 写入 JSON 文件（原子写，委托 base），写后失效缓存 */
   public async writeJson(filePath: string, data: unknown): Promise<void> {
-    await super.writeJson(filePath, data);
+    await this.base.writeJson(filePath, data);
     invalidateFileKey(filePath);
   }
 
-  /** 追加一行 JSONL，写后失效缓存 */
+  /** 追加一行 JSONL（委托 base），写后失效缓存 */
   public async appendJsonl(filePath: string, data: unknown): Promise<void> {
-    await super.appendJsonl(filePath, data);
+    await this.base.appendJsonl(filePath, data);
     invalidateFileKey(filePath);
   }
 
-  /** 写入全部 JSONL 行（覆盖），写后失效缓存 */
+  /** 写入全部 JSONL 行（覆盖，委托 base 原子写），写后失效缓存 */
   public async writeJsonl(filePath: string, data: unknown[]): Promise<void> {
-    await super.writeJsonl(filePath, data);
+    await this.base.writeJsonl(filePath, data);
     invalidateFileKey(filePath);
   }
 
+  /** 读取全部 JSONL 行（mtime 校验读穿缓存；跳过解析失败的行）；命中返回结构克隆 */
   public async readJsonl<T>(filePath: string): Promise<T[]> {
     const t = readMetricsBegin();
     const t0 = t?.() ?? 0;
@@ -114,42 +124,34 @@ export class FileStoreCachedBase extends FileStoreMessagesBase {
     return cloned;
   }
 
-  /** readdirCached / readdir（readdir 读穿缓存公开入口，#321）随消息子域下移为
-   *  FileStoreMessagesBase 的 protected / public 成员，本类经继承继续使用。 */
-
-  /**
-   * #314（D1）：getIndex 的锁外只读路径走读穿缓存（复用 jsonCache，key =
-   * workunits/index.json 绝对路径；所有索引写经 writeJson 覆盖自动精确失效）。
-   * 保留 readIndexFile 的严格损坏语义（撕裂/非数组抛错，不静默当空），
-   * 命中返回结构克隆。锁内读路径不经过本方法（readIndexFile 保持裸读）。
-   * #406：filter 下推——命中路径在共享缓存数组上按引用选行、只克隆命中行
-   * （monitor 等带 status 过滤的读口不再为丢弃的行付克隆税）；无 filter 时
-   * 全量克隆，与 #314 行为一致。下推只动本锁外读穿路径，锁内裸读不经此 seam。
-   */
-  protected async readIndexForQuery(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[] | null> {
-    const filePath = this.indexPath;
+  /** readdir（withFileTypes）读穿缓存：目录 mtime 校验，目录内容增删触发重读 */
+  public async readdirCached(dir: string): Promise<fs.Dirent[]> {
     const t = readMetricsBegin();
     const t0 = t?.() ?? 0;
-    const mtimeMs = await statMtimeMs(filePath);
+    const mtimeMs = await statMtimeMs(dir);
     const t1 = t?.() ?? 0;
     if (mtimeMs === null) {
-      jsonCache.delete(filePath);
-      if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
-      return null;
+      dirCache.delete(dir);
+      const fallback = await fs.promises.readdir(dir, { withFileTypes: true }); // 保留 ENOENT 抛错语义
+      if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: false, statMs: t1 - t0, readParseMs: t() - t1, cloneMs: 0 });
+      return fallback;
     }
-    const hit = jsonCache.get(filePath);
+    const hit = dirCache.get(dir);
     if (hit && hit.mtimeMs === mtimeMs) {
-      // 共享缓存数组上按引用选行（applyFilter 不 mutate），克隆只发生在命中子集上
-      const matched = hit.value === null ? null : applyFilter(hit.value as WorkUnitSnapshot[], filter);
-      const cached = cloneCached(matched) as WorkUnitSnapshot[] | null;
-      if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
-      return cached;
+      if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
+      return hit.value;
     }
-    const value = await this.readIndexFile();
-    const t2 = t?.() ?? 0;
-    cacheSet(jsonCache, filePath, { value, mtimeMs });
-    const cloned = cloneCached(value === null ? null : applyFilter(value, filter)) as WorkUnitSnapshot[] | null;
-    if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t() - t2 });
-    return cloned;
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: false, statMs: t1 - t0, readParseMs: t() - t1, cloneMs: 0 });
+    cacheSet(dirCache, dir, { value: entries, mtimeMs });
+    return entries;
+  }
+
+  /**
+   * readdir 读穿缓存公开入口（#321）：聚合读层（library/sdd-legacy）扫外部仓目录用。
+   * 目录 mtime 校验；目录不存在抛 ENOENT（与 fs.readdir 语义一致，调用方自行容错）。
+   */
+  public async readdir(dir: string): Promise<fs.Dirent[]> {
+    return this.readdirCached(dir);
   }
 }

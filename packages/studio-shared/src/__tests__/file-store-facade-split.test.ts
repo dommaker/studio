@@ -1,50 +1,47 @@
 /**
- * #670 结构测试：FileStore 门面拆分（PURE_MOVE）防漂移网。
+ * #681 结构测试：FileStore 组合化（继承链 → 组合）防漂移网。
+ * （前身为 #670 继承链拆分的 PURE_MOVE 基线测试；#681 P1-1 改写为组合结构等价断言）
  *
- * ① 新分层类存在且为 function；② 继承链 instanceof 沿链成立；
- * ③ FileStore 原型链方法面 == 拆分前基线；④ ./file-store 模块 value exports == 基线。
- * ③④ 基线采集于拆分前代码（walk 原型链至 FileStoreBase 为止 + Object.keys 模块命名空间）。
+ * ① 组合件类存在且为 function（FileStoreBase/CachedFileIo/WorkUnitStore/
+ *    MessagesStore/EntityStore/DocsStore），两个空壳类（FileStoreMessagesBase /
+ *    FileStore 空继承）已删除；
+ * ② 组合结构断言：FileStore 不继承任何域类（原型直接挂 Object.prototype），
+ *    公共方法全部以自有属性形式承载在 FileStore.prototype（逐方法委托）；
+ * ③ FileStore 公共方法面 == 组合前公共方法面基线（继承链时代散落在各层
+ *    prototype 的私有/protected 内部件不再出现在门面上——它们是内部实现，
+ *    不作为公共契约；公共面逐条保留）；
+ * ④ ./file-store 模块 value exports == 基线（导出面不变）。
  */
 import { describe, expect, it } from 'vitest';
 import * as fsModule from '../file-store';
 import { FileStore } from '../file-store';
 import { FileStoreBase } from '../file-store-base';
-import { FileStoreWorkUnitBase } from '../file-store-workunit';
-import { FileStoreMessagesCoreBase } from '../file-store-messages-core';
-import { FileStoreMessagesQueryBase } from '../file-store-messages-query';
-import { FileStoreMessagesArchiveBase } from '../file-store-messages-archive';
-import { FileStoreMessagesBase } from '../file-store-messages';
-import { FileStoreCachedBase } from '../file-store-cached';
-import { FileStoreEntitiesBase } from '../file-store-entities';
-import { FileStoreSeqEntriesBase } from '../file-store-seq-entries';
-import { FileStoreDocsBase } from '../file-store-docs';
+import { CachedFileIo } from '../file-store-cached';
+import { WorkUnitStore } from '../file-store-workunit';
+import { MessagesStore } from '../file-store-messages';
+import { MessagesCoreStore } from '../file-store-messages-core';
+import { MessagesQueryStore } from '../file-store-messages-query';
+import { MessagesArchiveStore } from '../file-store-messages-archive';
+import { EntityStore } from '../file-store-entities';
+import { DocsStore } from '../file-store-docs';
 
-const BASELINE_METHODS = [
-  'agentsDir', 'allocateEvolutionSeq', 'allocateRequirementSeq', 'allocateSeq',
-  'appendChangelog', 'appendEvent', 'appendIndexRowsLocked', 'appendJsonl', 'appendMessage',
-  'archiveAnchorMs', 'archiveChannelMessages', 'archiveChannelMessagesLocked', 'archiveDir',
-  'archiveMonthPath', 'buildIndex', 'channelConfigPath', 'channelStoreConfig', 'channelsDir',
-  'claimWorkUnit', 'commitRemoval', 'commitSnapshot', 'compactIndexIfNeededLocked',
-  'compactMessagesIfNeededLocked', 'countColdLines', 'countFileLines', 'createChannel',
-  'createDirEntity', 'createEvolutionProposal', 'createProfile', 'createRequirement',
-  'createSnapshotGuarded', 'createState', 'deleteChannel', 'deleteDirEntity', 'deleteProfile',
-  'deleteState', 'entryPath', 'eventsPath', 'evolutionStoreConfig', 'flushWorkUnitLeases',
-  'getChannel', 'getChannelVersion', 'getDirEntity', 'getEntry', 'getEvolutionProposal',
-  'getIndex', 'getMessageById', 'getMessagesSince', 'getProfile', 'getRequirement', 'getState',
-  'indexPath', 'iterateColdMessages', 'listArchiveMonths', 'listChannels', 'listDirEntities',
-  'listDocs', 'listEntries', 'listEvolutionProposals', 'listExistingSeqs', 'listJsonInDir',
-  'listMessageChannelIds', 'listProfiles', 'listRequirements', 'listStates', 'lockDir',
-  'messagesLockDir', 'messagesPath', 'migrateChannelsEncoding', 'migrateLegacyIndexLocked',
-  'profilePath', 'profileStoreConfig', 'queryAllMessages', 'queryMessages', 'queryMessagesPage',
-  'readChannelMessagesDelta', 'readDoc', 'readDocCached', 'readDocWithMtime', 'readIndexFile',
-  'readIndexForQuery', 'readJson', 'readJsonl', 'readMessagesTail', 'readdir', 'readdirCached',
-  'rebuildIndex', 'reconcileIndex', 'reduceEventsToSnapshots', 'refreshWorkUnitLease',
-  'removeDirIfEmpty', 'removeSnapshot', 'removeSnapshotLocked', 'requirementStoreConfig',
-  'resolveActiveMessages', 'runtimeStateStoreConfig', 'scanHotToAnchor', 'softDeleteMessage',
-  'statePath', 'sweepEmptyAgentDirs', 'thawChannelWorkUnitMessages', 'thawWorkUnitMessages',
-  'updateChannel', 'updateDirEntity', 'updateEntry', 'updateEvolutionProposal',
-  'updateMetadata', 'updateProfile', 'updateRequirement', 'updateState', 'upsertSnapshot',
-  'upsertSnapshotLocked', 'writeDoc', 'writeJson', 'writeJsonl',
+/** 公共方法面基线（组合前 FileStore 实例可调用的全部公共方法，逐条保留） */
+const BASELINE_PUBLIC_METHODS = [
+  'allocateEvolutionSeq', 'allocateRequirementSeq', 'appendChangelog', 'appendEvent',
+  'appendJsonl', 'appendMessage', 'archiveChannelMessages', 'buildIndex', 'claimWorkUnit',
+  'commitRemoval', 'commitSnapshot', 'createChannel', 'createEvolutionProposal',
+  'createProfile', 'createRequirement', 'createSnapshotGuarded', 'createState',
+  'deleteChannel', 'deleteProfile', 'deleteState', 'flushWorkUnitLeases', 'getChannel',
+  'getChannelVersion', 'getDataDir', 'getEvolutionProposal', 'getIndex', 'getMessageById',
+  'getMessagesSince', 'getProfile', 'getRequirement', 'getState', 'listChannels',
+  'listDocs', 'listEvolutionProposals', 'listJsonInDir', 'listMessageChannelIds',
+  'listProfiles', 'listRequirements', 'listStates', 'migrateChannelsEncoding',
+  'queryAllMessages', 'queryMessages', 'queryMessagesPage', 'readChannelMessagesDelta',
+  'readDoc', 'readDocWithMtime', 'readJson', 'readJsonl', 'readMessagesTail', 'readdir',
+  'rebuildIndex', 'reconcileIndex', 'refreshWorkUnitLease', 'removeSnapshot',
+  'softDeleteMessage', 'sweepEmptyAgentDirs', 'thawWorkUnitMessages', 'updateChannel',
+  'updateEvolutionProposal', 'updateMetadata', 'updateProfile', 'updateRequirement',
+  'updateState', 'upsertSnapshot', 'withLock', 'writeDoc', 'writeJson', 'writeJsonl',
 ];
 
 const BASELINE_EXPORTS = [
@@ -53,43 +50,29 @@ const BASELINE_EXPORTS = [
   'serializeFrontmatter', 'stringifyChannels',
 ];
 
-describe('file-store 门面拆分（#670）', () => {
-  it('① 新分层类存在且为 function', () => {
+describe('file-store 组合化（#681 P1-1）', () => {
+  it('① 组合件类存在且为 function', () => {
     for (const cls of [
-      FileStoreMessagesCoreBase, FileStoreMessagesQueryBase, FileStoreMessagesArchiveBase,
-      FileStoreMessagesBase, FileStoreCachedBase, FileStoreEntitiesBase,
-      FileStoreSeqEntriesBase, FileStoreDocsBase,
+      FileStoreBase, CachedFileIo, WorkUnitStore,
+      MessagesStore, MessagesCoreStore, MessagesQueryStore, MessagesArchiveStore,
+      EntityStore, DocsStore,
     ]) {
       expect(typeof cls).toBe('function');
     }
   });
 
-  it('② 继承链 instanceof 沿链成立', () => {
-    expect(FileStore.prototype).toBeInstanceOf(FileStoreDocsBase);
-    expect(FileStoreDocsBase.prototype).toBeInstanceOf(FileStoreSeqEntriesBase);
-    expect(FileStoreSeqEntriesBase.prototype).toBeInstanceOf(FileStoreEntitiesBase);
-    expect(FileStoreEntitiesBase.prototype).toBeInstanceOf(FileStoreCachedBase);
-    expect(FileStoreCachedBase.prototype).toBeInstanceOf(FileStoreMessagesBase);
-    expect(FileStoreMessagesBase.prototype).toBeInstanceOf(FileStoreMessagesArchiveBase);
-    expect(FileStoreMessagesArchiveBase.prototype).toBeInstanceOf(FileStoreMessagesQueryBase);
-    expect(FileStoreMessagesQueryBase.prototype).toBeInstanceOf(FileStoreMessagesCoreBase);
-    expect(FileStoreMessagesCoreBase.prototype).toBeInstanceOf(FileStoreWorkUnitBase);
-    expect(FileStoreWorkUnitBase.prototype).toBeInstanceOf(FileStoreBase);
+  it('② 组合结构：FileStore 不继承任何域类（原型直挂 Object.prototype）', () => {
+    expect(Object.getPrototypeOf(FileStore.prototype)).toBe(Object.prototype);
+    expect(FileStore.prototype).not.toBeInstanceOf(FileStoreBase);
   });
 
-  it('③ FileStore 方法面 == 拆分前基线', () => {
-    const names: string[] = [];
-    let proto = FileStore.prototype;
-    while (proto && proto !== FileStoreBase.prototype && proto !== Object.prototype) {
-      for (const n of Object.getOwnPropertyNames(proto)) {
-        if (n !== 'constructor') names.push(n);
-      }
-      proto = Object.getPrototypeOf(proto);
-    }
-    expect([...new Set(names)].sort()).toEqual(BASELINE_METHODS);
+  it('③ FileStore 公共方法面 == 组合前基线（自有属性逐方法委托）', () => {
+    const names = Object.getOwnPropertyNames(FileStore.prototype)
+      .filter(n => n !== 'constructor');
+    expect(names.sort()).toEqual(BASELINE_PUBLIC_METHODS);
   });
 
-  it('④ ./file-store 模块 value exports == 拆分前基线', () => {
+  it('④ ./file-store 模块 value exports == 组合前基线', () => {
     expect(Object.keys(fsModule).sort()).toEqual(BASELINE_EXPORTS);
   });
 });

@@ -1,17 +1,18 @@
 /**
- * FileStoreMessagesCoreBase — 频道消息子域核心层（#670 自 file-store-messages.ts 拆出，PURE_MOVE）
+ * MessagesCoreStore — 频道消息子域核心件（#681 P1-1 组合化：自 FileStoreMessagesCoreBase
+ * 继承层转型为构造注入 FileStoreCore 的独立 store；#670 自 file-store-messages.ts 拆出，PURE_MOVE）
  *
- * 承载：FileStoreOptions、写侧压实（#319）常量与注入、append/tombstone 写路径、
- * readdirCached/readdir、消息路径件、resolveActiveMessages 归并入口。
- * 查询面在 file-store-messages-query.ts，归档/解冻在 file-store-messages-archive.ts。
- * 继承 FileStoreWorkUnitBase（getIndex 供归档计龄锚点）。
+ * 承载：FileStoreOptions、写侧压实（#319）常量与注入、append/tombstone 写路径、消息路径件、
+ * resolveActiveMessages 归并入口。查询面在 file-store-messages-query.ts（MessagesQueryStore），
+ * 归档/解冻在 file-store-messages-archive.ts（MessagesArchiveStore）。
+ * readdirCached/readdir 目录读穿缓存已随组合化迁入 CachedFileIo（file-store-cached.ts）——
+ * 它本是通用件（entities/seq/docs/messages 四域共用），不再是消息域私有。
+ * 组合壳 MessagesStore 在 file-store-messages.ts 持有本类与 query/archive 实例并委托。
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
-import { FileStoreWorkUnitBase, type FileStoreWorkUnitOptions } from './file-store-workunit';
-import { dirCache, cacheSet, statMtimeMs } from './file-store-cache';
-import { readMetricsBegin, emitReadMetric } from './read-metrics';
+import type { FileStoreCore } from './file-store-core';
+import type { FileStoreWorkUnitOptions } from './file-store-workunit';
 import { foldJsonlById } from './jsonl-fold';
 import type {
   ChannelMessageData,
@@ -65,16 +66,18 @@ export interface FileStoreOptions extends FileStoreWorkUnitOptions {
   messageArchive?: MessageArchiveOptions;
 }
 
-// ─── FileStoreMessagesCoreBase 类 ───
+// ─── MessagesCoreStore 类 ───
 
-export class FileStoreMessagesCoreBase extends FileStoreWorkUnitBase {
+export class MessagesCoreStore {
+  private readonly ctx: FileStoreCore;
   private readonly messageCompaction: Required<MessageCompactionOptions>;
-  protected readonly messageArchive: { maxAgeDays: number; now: () => Date };
+  /** 归档计龄配置（#327；public readonly 供 MessagesArchiveStore 消费） */
+  public readonly messageArchive: { maxAgeDays: number; now: () => Date };
   /** 压实评估计数（按 messages.jsonl 绝对路径；挂实例——同 baseDir 不同阈值配置的实例互不串扰） */
   private readonly messageAppendCounts = new Map<string, number>();
 
-  constructor(baseDir?: string, opts?: FileStoreOptions) {
-    super(baseDir, opts);
+  constructor(ctx: FileStoreCore, opts?: FileStoreOptions) {
+    this.ctx = ctx;
     this.messageCompaction = {
       checkInterval: opts?.messageCompaction?.checkInterval ?? MESSAGE_COMPACT_CHECK_INTERVAL,
       minLines: opts?.messageCompaction?.minLines ?? MESSAGE_COMPACT_MIN_LINES,
@@ -86,63 +89,32 @@ export class FileStoreMessagesCoreBase extends FileStoreWorkUnitBase {
     };
   }
 
-  /** readdir（withFileTypes）读穿缓存：目录 mtime 校验，目录内容增删触发重读 */
-  protected async readdirCached(dir: string): Promise<fs.Dirent[]> {
-    const t = readMetricsBegin();
-    const t0 = t?.() ?? 0;
-    const mtimeMs = await statMtimeMs(dir);
-    const t1 = t?.() ?? 0;
-    if (mtimeMs === null) {
-      dirCache.delete(dir);
-      const fallback = await fs.promises.readdir(dir, { withFileTypes: true }); // 保留 ENOENT 抛错语义
-      if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: false, statMs: t1 - t0, readParseMs: t() - t1, cloneMs: 0 });
-      return fallback;
-    }
-    const hit = dirCache.get(dir);
-    if (hit && hit.mtimeMs === mtimeMs) {
-      if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
-      return hit.value;
-    }
-    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: false, statMs: t1 - t0, readParseMs: t() - t1, cloneMs: 0 });
-    cacheSet(dirCache, dir, { value: entries, mtimeMs });
-    return entries;
-  }
+  // ─── 路径生成（包内公开：query/archive/entities 域经组合引用共用） ───
 
-  /**
-   * readdir 读穿缓存公开入口（#321）：聚合读层（library/sdd-legacy）扫外部仓目录用。
-   * 目录 mtime 校验；目录不存在抛 ENOENT（与 fs.readdir 语义一致，调用方自行容错）。
-   */
-  public async readdir(dir: string): Promise<fs.Dirent[]> {
-    return this.readdirCached(dir);
-  }
-
-  // ─── 路径生成 ───
-
-  protected messagesPath(channelId: string): string {
-    return path.join(this.baseDir, 'channels', channelId, 'messages.jsonl');
+  public messagesPath(channelId: string): string {
+    return path.join(this.ctx.baseDir, 'channels', channelId, 'messages.jsonl');
   }
 
   /** #327：冷文件目录（超龄消息按月归档，纯 ChannelMessageData 行，无 tombstone） */
-  protected archiveDir(channelId: string): string {
-    return path.join(this.baseDir, 'channels', channelId, 'archive');
+  public archiveDir(channelId: string): string {
+    return path.join(this.ctx.baseDir, 'channels', channelId, 'archive');
   }
 
-  protected archiveMonthPath(channelId: string, month: string): string {
+  public archiveMonthPath(channelId: string, month: string): string {
     return path.join(this.archiveDir(channelId), `messages-${month}.jsonl`);
   }
 
-  protected channelsDir(): string {
-    return path.join(this.baseDir, 'channels');
+  public channelsDir(): string {
+    return path.join(this.ctx.baseDir, 'channels');
+  }
+
+  public messagesLockDir(channelId: string): string {
+    return path.join(this.ctx.baseDir, 'channels', channelId, 'messages.lock');
   }
 
   // ═══════════════════════
   // ChannelMessage (JSONL)
   // ═══════════════════════
-
-  protected messagesLockDir(channelId: string): string {
-    return path.join(this.baseDir, 'channels', channelId, 'messages.lock');
-  }
 
   /**
    * 追加频道消息（#319：per-channel 文件锁 + 写侧压实检查）。
@@ -150,8 +122,8 @@ export class FileStoreMessagesCoreBase extends FileStoreWorkUnitBase {
    * （压实读后写窗口内落入的新行被 rename 覆盖）会丢消息。
    */
   async appendMessage(channelId: string, msg: ChannelMessageData): Promise<void> {
-    await this.withLock(this.messagesLockDir(channelId), async () => {
-      await this.appendJsonl(this.messagesPath(channelId), msg);
+    await this.ctx.base.withLock(this.messagesLockDir(channelId), async () => {
+      await this.ctx.io.appendJsonl(this.messagesPath(channelId), msg);
       await this.compactMessagesIfNeededLocked(channelId);
     });
   }
@@ -167,26 +139,26 @@ export class FileStoreMessagesCoreBase extends FileStoreWorkUnitBase {
     if (n % this.messageCompaction.checkInterval !== 0) return;
 
     // 锁内裸读（ADR 2026-08-24-cache-seam-decision-rules 例外条款）：压实依据必须是此刻磁盘真值
-    const rows = await super.readJsonl<ChannelMessageRow>(filePath);
+    const rows = await this.ctx.base.readJsonl<ChannelMessageRow>(filePath);
     if (rows.length < this.messageCompaction.minLines) return;
 
     const winners = mergeActiveRows(rows);
     if ((rows.length - winners.length) / rows.length < this.messageCompaction.deadRatio) return;
 
-    // 基类 writeJsonl 为原子写（tmp+rename），FileStore 覆盖版负责缓存失效
-    await this.writeJsonl(filePath, winners);
+    // 原子写（tmp+rename，委托 base）+ 写后缓存失效
+    await this.ctx.io.writeJsonl(filePath, winners);
   }
 
-  /** 解析 JSONL，按 id 去重（最新条目生效），过滤已删除 */
-  protected resolveActiveMessages(channelId: string): Promise<ChannelMessageData[]> {
-    return this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId)).then(mergeActiveRows);
+  /** 解析 JSONL，按 id 去重（最新条目生效），过滤已删除（读穿缓存路径） */
+  public resolveActiveMessages(channelId: string): Promise<ChannelMessageData[]> {
+    return this.ctx.io.readJsonl<ChannelMessageRow>(this.messagesPath(channelId)).then(mergeActiveRows);
   }
 
   async softDeleteMessage(channelId: string, messageId: string): Promise<void> {
     // #319：与 appendMessage 同锁——压实重写与 tombstone 追加竞争会丢 tombstone（已删消息复活）
-    await this.withLock(this.messagesLockDir(channelId), async () => {
+    await this.ctx.base.withLock(this.messagesLockDir(channelId), async () => {
       // 锁内裸读（ADR 例外条款）：要删的必须是此刻磁盘最新状态，不走读穿缓存
-      const all = await super.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
+      const all = await this.ctx.base.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
       const msg = all.find(m => m.id === messageId && !m.deleted);
       if (!msg) throw new Error(`Message not found: ${messageId}`);
       // append tombstone
@@ -194,7 +166,7 @@ export class FileStoreMessagesCoreBase extends FileStoreWorkUnitBase {
         ...msg,
         deleted: true,
       };
-      await this.appendJsonl(this.messagesPath(channelId), tombstone);
+      await this.ctx.io.appendJsonl(this.messagesPath(channelId), tombstone);
       await this.compactMessagesIfNeededLocked(channelId);
     });
   }

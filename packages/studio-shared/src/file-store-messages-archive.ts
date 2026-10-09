@@ -1,23 +1,41 @@
 /**
- * FileStoreMessagesArchiveBase — 频道消息子域归档层（#670 自 file-store-messages.ts 拆出，PURE_MOVE）
+ * MessagesArchiveStore — 频道消息子域归档件（#681 P1-1 组合化：自
+ * FileStoreMessagesArchiveBase 继承层转型为构造注入的独立 store；
+ * #670 自 file-store-messages.ts 拆出，PURE_MOVE）
  *
- * 承载：冷热归档 sweep（#327）与 reopen 解冻。写路径/压实在 file-store-messages-core.ts，
- * 查询面在 file-store-messages-query.ts。
+ * 承载：冷热归档 sweep（#327）与 reopen 解冻。写路径/压实在
+ * file-store-messages-core.ts（MessagesCoreStore），查询面在
+ * file-store-messages-query.ts（MessagesQueryStore）。
+ * 组合依赖：core（路径件/锁目录/计龄配置）、query（冷月清单）、
+ * workunit（getIndex 供归档计龄锚点）——均为显式构造注入，替代原跨层 this 调用。
  */
 
 import fs from 'node:fs';
 import { isErrnoError } from './file-store-base';
-import { FileStoreMessagesQueryBase } from './file-store-messages-query';
-import { mergeActiveRows } from './file-store-messages-core';
+import type { FileStoreCore } from './file-store-core';
+import { type MessagesCoreStore, mergeActiveRows } from './file-store-messages-core';
+import type { MessagesQueryStore } from './file-store-messages-query';
+import type { WorkUnitStore } from './file-store-workunit';
 import type {
   ChannelMessageData,
   ChannelMessageRow,
   WorkUnitSnapshot,
 } from './file-store-types';
 
-// ─── FileStoreMessagesArchiveBase 类 ───
+// ─── MessagesArchiveStore 类 ───
 
-export class FileStoreMessagesArchiveBase extends FileStoreMessagesQueryBase {
+export class MessagesArchiveStore {
+  private readonly ctx: FileStoreCore;
+  private readonly core: MessagesCoreStore;
+  private readonly query: MessagesQueryStore;
+  private readonly workunit: WorkUnitStore;
+
+  constructor(ctx: FileStoreCore, core: MessagesCoreStore, query: MessagesQueryStore, workunit: WorkUnitStore) {
+    this.ctx = ctx;
+    this.core = core;
+    this.query = query;
+    this.workunit = workunit;
+  }
 
   // ─── 消息生命周期归档（#327）───
 
@@ -35,14 +53,14 @@ export class FileStoreMessagesArchiveBase extends FileStoreMessagesQueryBase {
    * （顺带压实效果：死行不进冷热文件）。
    */
   async archiveChannelMessages(): Promise<{ archivedMessages: number }> {
-    const nowMs = this.messageArchive.now().getTime();
-    const maxAgeMs = this.messageArchive.maxAgeDays * 86_400_000;
+    const nowMs = this.core.messageArchive.now().getTime();
+    const maxAgeMs = this.core.messageArchive.maxAgeDays * 86_400_000;
     // WU 计龄锚点索引（读穿缓存 mtime 校验；sweep 是离线任务，锚点滞后最多影响一轮）
-    const wuIndex = new Map((await this.getIndex()).map(s => [s.id, s]));
+    const wuIndex = new Map((await this.workunit.getIndex()).map(s => [s.id, s]));
 
     let entries: fs.Dirent[];
     try {
-      entries = await fs.promises.readdir(this.channelsDir(), { withFileTypes: true });
+      entries = await fs.promises.readdir(this.core.channelsDir(), { withFileTypes: true });
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') return { archivedMessages: 0 };
       throw err;
@@ -51,7 +69,7 @@ export class FileStoreMessagesArchiveBase extends FileStoreMessagesQueryBase {
     let archivedMessages = 0;
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      archivedMessages += await this.withLock(this.messagesLockDir(entry.name), () =>
+      archivedMessages += await this.ctx.base.withLock(this.core.messagesLockDir(entry.name), () =>
         this.archiveChannelMessagesLocked(entry.name, wuIndex, nowMs, maxAgeMs));
     }
     return { archivedMessages };
@@ -64,9 +82,9 @@ export class FileStoreMessagesArchiveBase extends FileStoreMessagesQueryBase {
     nowMs: number,
     maxAgeMs: number,
   ): Promise<number> {
-    const filePath = this.messagesPath(channelId);
+    const filePath = this.core.messagesPath(channelId);
     // 锁内裸读（ADR 例外条款，同压实）：归档依据必须是此刻磁盘真值
-    const rows = await super.readJsonl<ChannelMessageRow>(filePath);
+    const rows = await this.ctx.base.readJsonl<ChannelMessageRow>(filePath);
     if (rows.length === 0) return 0;
 
     const active = mergeActiveRows(rows);
@@ -89,15 +107,15 @@ export class FileStoreMessagesArchiveBase extends FileStoreMessagesQueryBase {
     }
     for (const [month, msgs] of byMonth) {
       msgs.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      const monthPath = this.archiveMonthPath(channelId, month);
-      const existingIds = new Set((await super.readJsonl<ChannelMessageData>(monthPath)).map(m => m.id));
+      const monthPath = this.core.archiveMonthPath(channelId, month);
+      const existingIds = new Set((await this.ctx.base.readJsonl<ChannelMessageData>(monthPath)).map(m => m.id));
       for (const msg of msgs) {
         if (existingIds.has(msg.id)) continue;
-        await this.appendJsonl(monthPath, msg);
+        await this.ctx.io.appendJsonl(monthPath, msg);
       }
     }
     // 后原子重写热文件（tmp+rename，同压实纪律；崩溃在中间 = 同 id 冷热都有，查询面按 id 去重）
-    await this.writeJsonl(filePath, keep);
+    await this.ctx.io.writeJsonl(filePath, keep);
     return archive.length;
   }
 
@@ -129,7 +147,7 @@ export class FileStoreMessagesArchiveBase extends FileStoreMessagesQueryBase {
   async thawWorkUnitMessages(workUnitId: string): Promise<{ thawedMessages: number }> {
     let entries: fs.Dirent[];
     try {
-      entries = await fs.promises.readdir(this.channelsDir(), { withFileTypes: true });
+      entries = await fs.promises.readdir(this.core.channelsDir(), { withFileTypes: true });
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') return { thawedMessages: 0 };
       throw err;
@@ -137,7 +155,7 @@ export class FileStoreMessagesArchiveBase extends FileStoreMessagesQueryBase {
     let thawedMessages = 0;
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const months = await this.listArchiveMonths(entry.name);
+      const months = await this.query.listArchiveMonths(entry.name);
       if (months.length === 0) continue; // 零成本短路：无冷文件不取锁
       thawedMessages += await this.thawChannelWorkUnitMessages(entry.name, workUnitId, months);
     }
@@ -149,18 +167,18 @@ export class FileStoreMessagesArchiveBase extends FileStoreMessagesQueryBase {
     // 锁外预检（读穿缓存）：该频道冷文件无此 WU 的行 → 不取锁
     let hasMatch = false;
     for (const month of months) {
-      const rows = await this.readJsonl<ChannelMessageData>(this.archiveMonthPath(channelId, month));
+      const rows = await this.ctx.io.readJsonl<ChannelMessageData>(this.core.archiveMonthPath(channelId, month));
       if (rows.some(m => m.workUnitId === workUnitId)) { hasMatch = true; break; }
     }
     if (!hasMatch) return 0;
 
-    return this.withLock(this.messagesLockDir(channelId), async () => {
+    return this.ctx.base.withLock(this.core.messagesLockDir(channelId), async () => {
       // 锁内裸读重判（预检后可能有并发 sweep/thaw 改动）
       const thawRows: ChannelMessageData[] = [];
       const rewrittenMonths: Array<{ monthPath: string; remain: ChannelMessageData[] }> = [];
       for (const month of months) {
-        const monthPath = this.archiveMonthPath(channelId, month);
-        const rows = await super.readJsonl<ChannelMessageData>(monthPath);
+        const monthPath = this.core.archiveMonthPath(channelId, month);
+        const rows = await this.ctx.base.readJsonl<ChannelMessageData>(monthPath);
         const remain = rows.filter(m => {
           if (m.workUnitId === workUnitId) { thawRows.push(m); return false; }
           return true;
@@ -170,18 +188,18 @@ export class FileStoreMessagesArchiveBase extends FileStoreMessagesQueryBase {
       if (thawRows.length === 0) return 0;
 
       // 先 append 回热文件（保留原 id/createdAt，按 createdAt 升序；热侧已有同 id 不重复）
-      const hotPath = this.messagesPath(channelId);
-      const hotIds = new Set((await super.readJsonl<ChannelMessageRow>(hotPath)).map(r => r.id));
+      const hotPath = this.core.messagesPath(channelId);
+      const hotIds = new Set((await this.ctx.base.readJsonl<ChannelMessageRow>(hotPath)).map(r => r.id));
       thawRows.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       let appended = 0;
       for (const msg of thawRows) {
         if (hotIds.has(msg.id)) continue;
-        await this.appendJsonl(hotPath, msg);
+        await this.ctx.io.appendJsonl(hotPath, msg);
         appended++;
       }
       // 后原子重写冷文件剔除已 thaw 行（tmp+rename，同 sweep 纪律）
       for (const { monthPath, remain } of rewrittenMonths) {
-        await this.writeJsonl(monthPath, remain);
+        await this.ctx.io.writeJsonl(monthPath, remain);
       }
       return appended;
     });
