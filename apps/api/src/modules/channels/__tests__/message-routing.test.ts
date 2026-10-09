@@ -6,7 +6,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus, FileStore, type AgentProfileData, type ChannelMessageData } from '@dommaker/studio-shared';
-import { routeMessage, detectMention } from '../message-routing.js';
+import { routeMessage } from '../message-routing.js';
+import { detectMention } from '../mention-match.js';
 import { channelMessageService } from '../channel-message.service.js';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 

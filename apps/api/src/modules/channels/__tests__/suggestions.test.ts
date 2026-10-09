@@ -24,7 +24,7 @@ import {
   SUGGESTION_TIMING,
   type ChannelSuggestion,
 } from '../suggestions.js';
-import { detectMention } from '../message-routing.js';
+import { detectMention } from '../mention-match.js';
 
 // #444 契约测试会真跑 dispatchReviewNow（自评兜底路径发频道系统消息）——
 // 按范式仅对发声出口（wu-messenger）做 importOriginal 间谍包装

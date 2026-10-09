@@ -11,15 +11,16 @@
  * 决策 11: 路由层不认识 skill——`+skill名` token 保留在 scope 原文，
  * 由 agent-loop step 时经 parseSkillHintsFromScope 解析（skill-selector.ts）。
  */
-import { logger, FileStore, parseChannels, type ChannelData } from '@dommaker/studio-shared';
+import { logger, FileStore, type ChannelData } from '@dommaker/studio-shared';
 import { channelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { resumeWaitingWorkUnit } from '../workunit/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
 import { resolveMergeTarget } from './merge-target.js';
+import { detectMention, matchMentionAgent, stripMentionScope } from './mention-match.js';
 import { resolveReqIdForDispatch } from '../requirements/index.js';
 import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/index.js';
-import { STUDIO_ROLE_NAME, isSystemRole } from '../../core/system-role.js'; // P2-c 拆环：纯原语自 agents 下沉 core，channels→agents 此边清零
+import { STUDIO_ROLE_NAME } from '../../core/system-role.js';
 import {
   validateFileRefs,
   type FileRef,
@@ -29,18 +30,6 @@ import {
 import { writeStudioEvent } from '@dommaker/studio-shared';
 import { recordAgentDecision } from '../audit-logs/index.js';
 import { getStore } from '../../core/store.js';
-
-
-
-/**
- * Detect @mention in message content.
- * Returns the first matched name, or null if no @mention found.
- */
-export function detectMention(content: string): string | null {
-  // \w 只等价于 [A-Za-z0-9_]，中文等 Unicode 名字匹配不到 — 用 \p{L}/\p{N} 放宽
-  const match = content.match(/@([\p{L}\p{N}_-]+)/u);
-  return match ? match[1] : null;
-}
 
 /**
  * #534：派发上下文袋——routeMessage 的第 4 参（原 fs? + options? 两参合并为单一 ctx?）。
@@ -257,37 +246,12 @@ export async function routeMessage(
         return null;
       }),
     ]);
-    // §9.5: mention 匹配以 channel.members 为界 — 只能 @ 到本频道成员（修越界 bug）。
-    // members 为空（历史频道未回填）时回退到全量 active profile 匹配，保持既有行为。
-    const memberIds = parseChannels(channel?.members);
-    const inScope = (p: (typeof allProfiles)[number]) => memberIds.length === 0 || memberIds.includes(p.id);
-    // #632：系统角色（studio）不参与精确匹配——@studio 永不建指向 studio 的 WU，
-    // 按未匹配 mention 走「转自动认领」提示（defaultProfileId 转派分支已随 #632 退役）
-    let agent = allProfiles.find(p => p.name === mentionName && inScope(p) && !isSystemRole(p)) ?? null;
-    // #496: 手打中文连写兜底——token 整体精确匹配失败时，对成员名做最长前缀匹配
-    // （@开发你好 → 命中成员「开发」）。多成员互为前缀取最长；等长歧义（同名 profile
-    // 并列最长）回退现状（未匹配 → #464 转自动认领提示）。studio 系统角色不参与前缀兜底。
-    let prefixMatchName: string | null = null;
-    if (!agent && mentionName !== STUDIO_ROLE_NAME) {
-      const candidates = allProfiles.filter(
-        p => inScope(p) && !isSystemRole(p) && p.name.length > 0 && mentionName.startsWith(p.name),
-      );
-      if (candidates.length > 0) {
-        const maxLen = Math.max(...candidates.map(p => p.name.length));
-        const longest = candidates.filter(p => p.name.length === maxLen);
-        if (longest.length === 1) {
-          agent = longest[0];
-          prefixMatchName = longest[0].name;
-        }
-      }
-    }
+    // mention 匹配（§9.5 成员界 / #632 系统角色不参与 / #496 中文连写最长前缀兜底）
+    // 与 scope 剥离口径均已收口 mention-match.ts 纯函数。
+    const { agent, prefixMatchName } = matchMentionAgent(allProfiles, mentionName, channel);
     // #632：F5 @studio 转派分支（转派目标 = 频道 defaultProfileId 入口角色）已随
     // defaultProfileId 退役删除——@studio 按未匹配 mention 走既有「转自动认领」提示。
-    // #496: 前缀兜底命中时只剥 `@成员名`（保留连写剩余文本作为 scope，如 @开发你好 → 你好）；
-    // 精确匹配/未匹配维持剥整个 @token。成员名字符集 ⊂ [\p{L}\p{N}_-]，内联进正则安全。
-    const scope = prefixMatchName
-      ? content.replace(new RegExp(`@${prefixMatchName}\\s*`, 'u'), '')
-      : content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
+    const scope = stripMentionScope(content, prefixMatchName);
     // B3a 工程归属链（决策 D2 + #285 决策 #249 §4）：Requirement→PMO gitRepo
     // > 文件引用（kept refs 全同仓）> 频道默认工程 > 无归属挂起。
     // #481：显式/频道默认的 workspaceId（机器指针）两级已退役，不再参与归属。
