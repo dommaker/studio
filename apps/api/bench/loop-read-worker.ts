@@ -25,17 +25,17 @@ import { FileStore, parseWorkUnitIndexContent } from '@dommaker/studio-shared';
 // 子路径 exports（studio-dir 先例）；与 file-store.ts 的 './read-metrics' 解析到同一文件 → 同一模块实例（sink 生效前提）
 import { setReadMetricsSink, setSegmentMetricsSink, runWithLoopLabel } from '@dommaker/studio-shared/read-metrics';
 import { scanTimedOutWorkUnits } from '../src/modules/workunit/timeout-release.js';
-import { scanStaleAgentInstances } from '../src/modules/agents/instance-timeout-scan.js';
+import { scanStaleAgentInstances } from '../src/modules/ops/instance-timeout-scan.js';
 import { scanWaitingForInputReminders } from '../src/modules/workunit/waiting-input.js';
-import { reconcileDispatchBreaks } from '../src/modules/agents/dispatch-reconciliation.js';
-import { MonitorService } from '../src/modules/agents/monitor/monitor.service.js';
-import { OpsService } from '../src/modules/agents/ops/ops.service.js';
-import { AuditorService } from '../src/modules/agents/auditor/auditor.service.js';
+import { reconcileDispatchBreaks } from '../src/modules/agent-loop/dispatch-reconciliation.js';
+import { MonitorService } from '../src/modules/ops/monitor.service.js';
+import { OpsService } from '../src/modules/ops/ops.service.js';
+import { AuditorService } from '../src/modules/agent-auditor/auditor.service.js';
 import { loadWindowSignals, resolveEvolutionPaths } from '../src/modules/evolution/signals.js';
-import { triageService } from '../src/modules/agents/triage/triage.service.js';
-import { dailyReflection, type ReportState } from '../src/modules/agents/monitor/monitor-reports.js';
-import { dataLifecycle, type LifecycleState } from '../src/modules/agents/monitor/monitor-lifecycle.js';
-import { checkKnowledgeHealth } from '../src/modules/agents/monitor/monitor-system-probes.js';
+import { triageService } from '../src/modules/triage/triage.service.js';
+import { dailyReflection, type ReportState } from '../src/modules/ops/monitor-reports.js';
+import { dataLifecycle, type LifecycleState } from '../src/modules/ops/monitor-lifecycle.js';
+import { checkKnowledgeHealth } from '../src/modules/ops/monitor-system-probes.js';
 import type { BenchReadEvent, BenchRound, WorkerResult } from './read-metrics-aggregate.js';
 
 // ── 向量库同步桩（第二道）──
