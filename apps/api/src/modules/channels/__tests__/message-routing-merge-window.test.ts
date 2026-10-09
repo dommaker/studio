@@ -8,7 +8,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { routeMessage, getMergeWindowMs, resolveMergeTarget } from '../message-routing.js';
+import { routeMessage } from '../message-routing.js';
+import { getMergeWindowMs, resolveMergeTarget } from '../merge-target.js';
 import { channelMessageService } from '../channel-message.service.js';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 

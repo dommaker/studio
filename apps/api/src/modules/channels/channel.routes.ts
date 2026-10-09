@@ -23,7 +23,8 @@ import {
 import { logger } from '@dommaker/studio-shared';
 import { channelService, ChannelError, validateDefaultWorkspaceId } from './channel.service.js';
 import { saveChannelImage, resolveChannelImage, ATTACHMENT_BODY_LIMIT } from './attachments.js';
-import { routeMessage, resolveMergeTarget } from './message-routing.js';
+import { routeMessage } from './message-routing.js';
+import { resolveMergeTarget } from './merge-target.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { requireAuth } from '../../middleware/auth.js';
