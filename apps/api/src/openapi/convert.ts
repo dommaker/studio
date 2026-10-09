@@ -1,7 +1,8 @@
 /**
- * openapi.ts — zod schema → OpenAPI 3.0 SchemaObject 轻量转换器。
+ * convert.ts — zod schema → OpenAPI 3.0 SchemaObject 轻量转换器（#685 自
+ * packages/studio-contract 搬入；唯一消费方为本目录 build.ts，contract 回归纯 schema 正本）。
  *
- * OpenAPI 文档是 contract 的派生物（CONTEXT.md：不手写 yaml）。本转换器只覆盖
+ * OpenAPI 文档是 contract 的派生物（不手写 yaml）。本转换器只覆盖
  * 仓内 contract 实际用到的 zod 子集（zod 3）：
  *   string / number / boolean / null / enum / literal / unknown / any
  *   object（optional/nullable/passthrough/strict/strip、extend/omit 产物同样是 ZodObject）
@@ -10,7 +11,6 @@
  * 未覆盖的类型退化为 `{}`（不拒绝任何 JSON），并在 x-studio-unconverted 标注原 typeName。
  *
  * 约定：OpenAPI 3.0（nullable: true 形态，非 3.1 的 type: ['x','null']）。
- * 纯函数、零 Node 依赖——apps/web 也 import 本包，保持浏览器可用。
  */
 
 import { z } from 'zod';

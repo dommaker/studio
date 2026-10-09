@@ -1,13 +1,13 @@
 /**
- * openapi.ts（zod → OpenAPI 3.0 SchemaObject 转换器）测试。
- * 覆盖面 = 仓内 contract 实际使用的 zod 子集（见 openapi.ts 头注释清单）；
+ * convert.ts（zod → OpenAPI 3.0 SchemaObject 转换器）测试。
+ * 覆盖面 = 仓内 contract 实际使用的 zod 子集（见 convert.ts 头注释清单）；
  * 断言生成物是合法 OpenAPI 结构（类型/required/壳语义），不逐字段复刻实现细节。
  */
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { zodToOpenAPISchema } from '../openapi.js';
-import { workUnitSchema, workUnitListResponseSchema, reviewConfirmPayloadSchema } from '../workunit.js';
+import { zodToOpenAPISchema } from '../convert.js';
+import { workUnitSchema, workUnitListResponseSchema, reviewConfirmPayloadSchema } from '@dommaker/studio-contract';
 
 describe('zodToOpenAPISchema 基础标量', () => {
   it('string/number/boolean/null/unknown', () => {
