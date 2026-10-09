@@ -367,6 +367,9 @@ importers:
         specifier: ^3.22.0
         version: 3.25.76
     devDependencies:
+      '@dommaker/studio-shared':
+        specifier: workspace:*
+        version: link:../studio-shared
       typescript:
         specifier: ^5.0.0
         version: 5.9.3

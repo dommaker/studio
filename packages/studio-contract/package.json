@@ -19,6 +19,7 @@
     "zod": "^3.22.0"
   },
   "devDependencies": {
+    "@dommaker/studio-shared": "workspace:*",
     "typescript": "^5.0.0",
     "vitest": "^4.1.2"
   },

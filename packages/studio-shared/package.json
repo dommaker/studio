@@ -13,6 +13,10 @@
       "types": "./dist/web.d.ts",
       "default": "./src/web.ts"
     },
+    "./types": {
+      "types": "./dist/entity-types.d.ts",
+      "default": "./src/entity-types.ts"
+    },
     "./node": {
       "types": "./dist/node.d.ts",
       "default": "./src/node.ts"
