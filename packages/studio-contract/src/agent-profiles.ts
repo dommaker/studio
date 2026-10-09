@@ -1,8 +1,7 @@
 /**
- * agent-profiles / agent-instances 域契约（批次 8/8）——正本以
- * apps/api/src/modules/agents/agent-profile.service.ts（AgentProfileData wire，
- * studio-shared file-store-types 重声明，contract 不 import Node 依赖包）与
- * agent-instance.service.ts（RuntimeStateData wire 同理）实测为准。
+ * agent-profiles / agent-instances 域契约（批次 8/8）——实体类型与 studio-shared
+ * file-store-types（AgentProfileData / RuntimeStateData）import type 同源 + 编译期互锚（#685），
+ * schema 推型漂移即编译错误。
  *
  * 端点（route-registry /api/v1/agent-profiles、/api/v1/agent-instances）：
  *   GET    /agent-profiles           列表（status/channelId/includeSystem 过滤 + 分页）
@@ -28,40 +27,17 @@
  */
 
 import { z } from 'zod';
+import type { AgentProfileData, RuntimeStateData } from '@dommaker/studio-shared/types';
 import { dataBodySchema, paginatedBodySchema } from './envelope.js';
+import type { MutualExtends } from './type-assert.js';
 
 // ── 实体 ──
 
 /**
- * 角色档案（= studio-shared AgentProfileData 全字段 wire 重声明）。
- * 手写 interface（前端 rosterStore/RoleFormModal/systemRole 按必填消费）；parity 测试见 __tests__。
+ * 角色档案（= studio-shared AgentProfileData，import type 同源 + 下方互锚）。
  * channels 是 JSON 串（历史数据可能双重编码；§9.5 起写侧已停，channel.members 为成员关系唯一事实源）。
  */
-export interface AgentProfile {
-  id: string;
-  name: string;
-  description: string | null;
-  /** JSON: Channel ID[]（历史可能双重编码；读兜底字段，写侧已停） */
-  channels: string;
-  /** active | inactive */
-  status: string;
-  /** bound CLI: claude | kimi | codex | opencode | openclaw | null */
-  provider: string | null;
-  createdAt: string;
-  updatedAt: string;
-  /** 决策 9: 显式职能域（阶段词表）；创建时可从 .agents/roles/*.yaml 预设带入 */
-  acceptedTypes?: string[];
-  /** 决策 13: 角色自述（prompt「## 你的角色」段内容）；缺省回退 description */
-  persona?: string;
-  /** #91/#462: skill 声明（prompt 注入索引消费） */
-  skills?: string[];
-  /** #91: preset 带入的工具声明 */
-  tools?: string[];
-  /** #91: preset 带入的约束声明（键值对） */
-  constraints?: Record<string, unknown>;
-  /** #631: system=系统内置（不可停用/删除，list 默认排除）；历史无字段记录由 isSystemRole 按 name 兜底 */
-  kind?: 'system' | 'user';
-}
+export type AgentProfile = AgentProfileData;
 export const agentProfileSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -78,60 +54,28 @@ export const agentProfileSchema = z.object({
   constraints: z.record(z.unknown()).optional(),
   kind: z.enum(['system', 'user']).optional(),
 });
+const _assertAgentProfile: MutualExtends<z.infer<typeof agentProfileSchema>, AgentProfileData> = true;
 
 /**
  * 列表行 = AgentProfile + 实例态聚合三键（isOnline/最近启动失败；
  * agent-instance.service summarizeRoleStates 一次 listStates 产出）。
- * 手写 interface（前端 rosterStore 列表切片按必填消费基类字段）；parity 测试见 __tests__。
  */
-export interface AgentProfileListItem extends AgentProfile {
-  isOnline: boolean;
-  /** F2: 最近一次启动失败原因（health probe 等），来自 runtime state */
-  lastError: string | null;
-  lastErrorAt: string | null;
-}
 export const agentProfileListItemSchema = agentProfileSchema.extend({
   isOnline: z.boolean(),
   lastError: z.string().nullable(),
   lastErrorAt: z.string().nullable(),
 });
+export type AgentProfileListItem = z.infer<typeof agentProfileListItemSchema>;
 
 /** #633（ADR 2026-09-23-role-preset-surface）：preset 清单项（只回 name + description，死字段不浮出） */
-export interface RolePresetSummary {
-  name: string;
-  description?: string;
-}
 export const rolePresetSummarySchema = z.object({
   name: z.string(),
   description: z.string().optional(),
 });
+export type RolePresetSummary = z.infer<typeof rolePresetSummarySchema>;
 
-/**
- * 运行实例（= studio-shared RuntimeStateData 全字段 wire 重声明）。
- * 手写 interface（前端 getAgentInstance 旧 AgentInstanceInfo 按必填消费 id/roleId/status）；
- * parity 测试见 __tests__。
- */
-export interface AgentInstance {
-  id: string;
-  /** 对应 AgentProfile.id */
-  roleId: string;
-  sessionId: string | null;
-  /** idle | active | error | terminated */
-  status: string;
-  currentWorkUnitId: string | null;
-  startedAt: string;
-  terminatedAt: string | null;
-  lastHeartbeat: string | null;
-  /** JSON 串 */
-  metadata: string | null;
-  /** process.pid（dead-instance 检测用） */
-  pid?: number;
-  /** F2: 最近启动失败（health probe 等） */
-  lastError?: string | null;
-  lastErrorAt?: string | null;
-  /** #362: updateState 自动补（历史数据缺省） */
-  updatedAt?: string;
-}
+/** 运行实例（= studio-shared RuntimeStateData，import type 同源 + 下方互锚）。 */
+export type AgentInstance = RuntimeStateData;
 export const agentInstanceSchema = z.object({
   id: z.string(),
   roleId: z.string(),
@@ -147,6 +91,7 @@ export const agentInstanceSchema = z.object({
   lastErrorAt: z.string().nullable().optional(),
   updatedAt: z.string().optional(),
 });
+const _assertAgentInstance: MutualExtends<z.infer<typeof agentInstanceSchema>, RuntimeStateData> = true;
 
 // ── 请求 ──
 

@@ -1,8 +1,9 @@
 /**
  * harness 域契约（批次 6/7）——正本以 apps/api/src/modules/harness/
  * 八个子路由（traces/constraints/knowledge/sessions/agents/diagnostics/dashboard）
- * 实测 wire 为准。@dommaker/harness 的类型不可 import（contract 包禁 Node 依赖），
- * wire 形状在此重声明。
+ * 实测 wire 为准。实体 schema 与 harness 类型（经 studio-shared entity-types
+ * 纯类型中转，零运行时依赖）import type 同源 + 编译期锚定（#685）；
+ * ConstraintResult 系与 harness 内存型有意不同构，schema 即正本。
  *
  * 端点（route-registry /api/v1/harness 挂 admin）：
  *   GET  /traces | POST /traces | GET /analysis | GET /analysis/anomalies  轨迹采集/分析（T-015）
@@ -37,18 +38,31 @@
  */
 
 import { z } from 'zod';
+import type {
+  AgentState,
+  ExecutionTrace,
+  KnowledgeEntry,
+  RetiredConstraintEntry,
+} from '@dommaker/studio-shared/types';
 import { dataBodySchema } from './envelope.js';
 
-// ── 宽声明（harness 实体 wire 重声明；字段全集归 harness，passthrough 放行）──
+// ── 实体（harness 类型 import type 同源 + 编译期锚定；passthrough 宽声明只锚可见键）──
 
-/** harness ConstraintResult 项（checkConstraints/checkConstraint 结果元素） */
+/**
+ * harness ConstraintResult 项（checkConstraints/checkConstraint 结果元素）——
+ * wire 与 harness 内存型有意不同构（checkedAt: Date→ISO 串；message 内存可选 wire 必填），
+ * 不同源：schema 锚 id/satisfied/message 三键 + passthrough，schema 即正本。
+ */
 export const constraintResultItemSchema = z.object({
   id: z.string(),
   satisfied: z.boolean(),
   message: z.string(),
 }).passthrough();
 
-/** harness ConstraintCheckResult（checkConstraints 结果） */
+/**
+ * harness ConstraintCheckResult（checkConstraints 结果）——
+ * 元素同上有意不同构（checkedAt: Date→ISO 串），schema 即正本。
+ */
 export const constraintCheckResultSchema = z.object({
   passed: z.boolean(),
   errors: z.array(constraintResultItemSchema),
@@ -66,25 +80,41 @@ export const harnessConstraintSchema = z.object({
   enforcement: z.unknown().optional(),
 }).passthrough();
 
-/** 执行轨迹条目（TraceCollector.read 返回） */
+/**
+ * 执行轨迹条目（TraceCollector.read 返回；= harness ExecutionTrace，下方编译期锚定）。
+ * 源 severity/result 为 union 词表，wire 为 z.string 宽声明（兜历史 passthrough），
+ * 故单向锚（源形状 ⊂ wire 可见键）；passthrough 索引签名只对可见键锚定。
+ */
 export const executionTraceSchema = z.object({
   constraintId: z.string(),
   severity: z.string(),
   result: z.string(),
   timestamp: z.number(),
 }).passthrough();
+const _assertExecutionTrace: ExecutionTrace extends Pick<
+  z.infer<typeof executionTraceSchema>,
+  'constraintId' | 'severity' | 'result' | 'timestamp'
+> ? true : never = true;
 
-/** harness 知识条目（FileKnowledgeStore） */
+/** harness 知识条目（FileKnowledgeStore；= harness KnowledgeEntry，下方编译期锚定，单向宽声明同 executionTraceSchema） */
 export const harnessKnowledgeEntrySchema = z.object({
   id: z.string(),
   title: z.string().optional(),
   content: z.string().optional(),
 }).passthrough();
+const _assertKnowledgeEntry: KnowledgeEntry extends Pick<
+  z.infer<typeof harnessKnowledgeEntrySchema>,
+  'id' | 'title' | 'content'
+> ? true : never = true;
 
-/** AgentLifecycle 状态条目 */
+/** AgentLifecycle 状态条目（= harness AgentState，下方编译期锚定；schema 只锚 id 一键，其余 passthrough） */
 export const harnessAgentStateSchema = z.object({
   id: z.string(),
 }).passthrough();
+const _assertAgentState: AgentState extends Pick<
+  z.infer<typeof harnessAgentStateSchema>,
+  'id'
+> ? true : never = true;
 
 // ── traces ──
 
@@ -161,13 +191,19 @@ export const constraintStatsResultSchema = z.object({
 });
 export type ConstraintStatsResult = z.infer<typeof constraintStatsResultSchema>;
 
-/** GET /constraints/retired 响应 data（config.yml 墓碑唯一落点） */
+/** GET /constraints/retired 响应 data（config.yml 墓碑唯一落点；= harness
+ * RetiredConstraintEntry，下方编译期锚定。source: 'config' 为 wire 加料（源类型无此字段），
+ * 故 Omit 后对可见键单向锚定。 */
 export const retiredConstraintSchema = z.object({
   id: z.string(),
   enabled: z.boolean(),
   source: z.literal('config'),
   retired: z.unknown(),
 });
+const _assertRetiredConstraintEntry: RetiredConstraintEntry extends Omit<
+  z.infer<typeof retiredConstraintSchema>,
+  'source'
+> ? true : never = true;
 export const retiredConstraintListResultSchema = z.object({
   retired: z.array(retiredConstraintSchema),
   total: z.number(),

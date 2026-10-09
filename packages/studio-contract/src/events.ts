@@ -27,37 +27,27 @@ import { dataBodySchema } from './envelope.js';
 export const studioEventLevelSchema = z.enum(['debug', 'info', 'warning', 'critical']);
 export type StudioEventLevel = z.infer<typeof studioEventLevelSchema>;
 
-/** 手写 interface（前端 EventSearchPanel/NeedsAttentionSection 按必填消费 type）；
- * 历史行可能带 timestamp 等扩展键 → passthrough；parity 测试见 __tests__ */
-export interface StudioEventItem {
-  type: string;
-  source?: string;
-  level?: StudioEventLevel;
-  /** JSON 字符串（服务端落盘形态） */
-  payload?: string;
-  createdAt?: string;
-}
+/** 检索行（前端 EventSearchPanel/NeedsAttentionSection 按必填消费 type）；
+ * 历史行可能带 timestamp 等扩展键 → passthrough */
 export const studioEventItemSchema = z.object({
   type: z.string(),
   source: z.string().optional(),
   level: studioEventLevelSchema.optional(),
+  /** JSON 字符串（服务端落盘形态） */
   payload: z.string().optional(),
   createdAt: z.string().optional(),
 }).passthrough();
+export type StudioEventItem = z.infer<typeof studioEventItemSchema>;
 
 // ── 派生读形状 ──
 
-/** GET / 响应 data（手写：events 为手写实体数组；total = 本页条数，nextCursor null = 没有更旧的） */
+/** GET / 响应 data（total = 本页条数，nextCursor null = 没有更旧的） */
 export const eventSearchResultSchema = z.object({
   events: z.array(studioEventItemSchema),
   total: z.number(),
   nextCursor: z.string().nullable(),
 });
-export interface EventSearchResult {
-  events: StudioEventItem[];
-  total: number;
-  nextCursor: string | null;
-}
+export type EventSearchResult = z.infer<typeof eventSearchResultSchema>;
 
 /** POST / 201 响应 data（payload wire 恒为 string：对象 JSON.stringify、字符串原样） */
 export const createStudioEventResultSchema = z.object({

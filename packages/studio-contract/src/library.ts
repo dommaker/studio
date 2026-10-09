@@ -42,20 +42,7 @@ export const libraryListItemSchema = z.object({
   updatedAt: z.string(),
 });
 
-/** 手写 interface（前端 LibraryPage 按必填消费 id/title/kind/projectId/pmoNumber/
- * updatedAt；z.infer 在本仓退化全可选）；parity 测试见 __tests__ */
-export interface LibraryListItem {
-  id: string;
-  title: string;
-  kind: LibraryKind;
-  legacy: boolean;
-  projectId: string;
-  pmoNumber: string;
-  path: string;
-  status?: string;
-  tags?: string[];
-  updatedAt: string;
-}
+export type LibraryListItem = z.infer<typeof libraryListItemSchema>;
 
 export const libraryDocDetailSchema = libraryListItemSchema.extend({
   /** 普通文档 = 去 frontmatter 正文；legacy = requirement body */
@@ -65,14 +52,7 @@ export const libraryDocDetailSchema = libraryListItemSchema.extend({
   design: z.string().nullable().optional(),
   task: z.string().nullable().optional(),
 });
-
-/** 手写 interface（前端 LibraryDocPage 按必填消费 content）；parity 测试见 __tests__ */
-export interface LibraryDocDetail extends LibraryListItem {
-  content: string;
-  requirement?: string | null;
-  design?: string | null;
-  task?: string | null;
-}
+export type LibraryDocDetail = z.infer<typeof libraryDocDetailSchema>;
 
 // ── 请求：query ──
 

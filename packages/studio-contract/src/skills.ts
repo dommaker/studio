@@ -19,36 +19,9 @@ import { dataBodySchema, paginatedBodySchema } from './envelope.js';
 // ── 实体：Skill（= skill-store.ts SkillRecord 全字段）──
 
 /**
- * Skill wire 形状（skills-index.json 记录）。手写 interface（z.infer 在本仓 strict:false
- * 下全字段退化可选；前端 retractDecide 按必填消费 id/status）；parity 测试见 __tests__。
+ * Skill wire 形状（skills-index.json 记录）。
  * agentTypes/tools/required/metadata 为 JSON 串（store 原样存取，路由不解析）。
  */
-export interface Skill {
-  id: string;
-  companyId: string;
-  roleId?: string | null;
-  name: string;
-  source: string;
-  status: string;
-  version: number;
-  category?: string | null;
-  description?: string | null;
-  prompt?: string | null;
-  trigger?: string | null;
-  agentTypes?: string | null;
-  tools?: string | null;
-  required?: string | null;
-  autoLoad: boolean;
-  isBuiltin: boolean;
-  usageCount: number;
-  successRate: number;
-  avgDuration: number;
-  metadata?: string | null;
-  extractedAt: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export const skillSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -74,6 +47,7 @@ export const skillSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+export type Skill = z.infer<typeof skillSchema>;
 
 /** GET / 列表行：Skill + 最新一条 pending 提案 id（#354 提案存取归 review-proposal 正本） */
 export const skillListItemSchema = skillSchema.extend({
@@ -107,13 +81,7 @@ export const skillManifestEntrySchema = z.object({
   agentTypes: z.array(z.string()),
   triggers: z.array(z.string()),
 });
-/** 手写 interface（前端 RoleSkillsModal 按必填消费）；parity 测试见 __tests__ */
-export interface SkillManifestEntry {
-  name: string;
-  description: string;
-  agentTypes: string[];
-  triggers: string[];
-}
+export type SkillManifestEntry = z.infer<typeof skillManifestEntrySchema>;
 
 // ── 实体：SkillStats（GET /stats 聚合）──
 
@@ -163,18 +131,7 @@ export const demotionProposalSchema = z.object({
   createdAt: z.string(),
   reviewedAt: z.string().nullable(),
 });
-/** 手写 interface（实体，与 skill-demotion.ts DemotionProposal 对应）；parity 测试见 __tests__ */
-export interface DemotionProposal {
-  id: string;
-  skillName: string;
-  kind: DemotionKind;
-  status: 'pending' | 'approved' | 'rejected';
-  reason: string;
-  stats: SkillUsageStats & { ageDays: number };
-  suggestedStatus: 'archived';
-  createdAt: string;
-  reviewedAt: string | null;
-}
+export type DemotionProposal = z.infer<typeof demotionProposalSchema>;
 
 // ── 提案提取（skill-proposal-routes）──
 

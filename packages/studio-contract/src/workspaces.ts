@@ -37,31 +37,18 @@ export const workspaceRuntimeSchema = z.object({
 }).passthrough();
 export type WorkspaceRuntime = z.infer<typeof workspaceRuntimeSchema>;
 
-/**
- * Workspace wire 形状（本机记录已知字段；passthrough 放行历史扩展）。
- * 手写 interface（前端 WorkspacePage 按必填消费 id/name/workspaceRoot/status）；
- * runtimes 旧记录可缺省（消费方 `?? []` 兜底）。parity 测试见 __tests__/workspaces.test.ts。
- */
-export interface Workspace {
-  id: string;
-  name: string;
-  workspaceRoot: string;
-  status: string;
-  runtimes?: WorkspaceRuntime[];
-  createdAt: string;
-  updatedAt: string;
-  [key: string]: unknown;
-}
-
+/** Workspace wire 形状（本机记录已知字段；passthrough 放行历史扩展） */
 export const workspaceSchema = z.object({
   id: z.string(),
   name: z.string(),
   workspaceRoot: z.string(),
   status: z.string(),
+  /** 旧记录可缺省（消费方 `?? []` 兜底） */
   runtimes: z.array(workspaceRuntimeSchema).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 }).passthrough();
+export type Workspace = z.infer<typeof workspaceSchema>;
 
 /** GET /runtimes 本机 CLI 清单响应 data（原平铺 `{ runtimes }` 无壳） */
 export const workspaceRuntimesResultSchema = z.object({

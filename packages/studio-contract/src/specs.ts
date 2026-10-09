@@ -1,14 +1,15 @@
 /**
- * specs 域契约——正本字段以 apps/api/src/modules/specs 的 types/change.types.ts
+ * specs 域契约——字段正本在 apps/api/src/modules/specs 的 types/change.types.ts
  * （AnalyzeChangeResult/ChangeRecord/SpecContent）与 types/gate.types.ts
  * （ValidateChangeResult/GatePolicy/CheckResult）、change-history.service.ts
- * （getStats）为准。specs 服务引 harness/Node 依赖，契约包只重声明 wire 形状不 import（消重归 #685）。
+ * （getStats）。正本引 harness/Node 依赖，contract 不可反向 import，
+ * 故 schema 即 wire 正本（无第二声明）。
  *
  * wire 形状（defineRoute 统一壳后）：
  * - 全部 JSON 端点 `{ data: T }`（原已带壳，形状不变）
  * - GET /:id/changes 走统一分页壳 `{ data, pagination }`（原 sendPaginated 同形状）
  * - GET /:id/changes/export 为附件下载（Content-Disposition），handler 自写 res，不进壳
- * - ChangeRecord 的 Date 字段（submittedAt/approvedAt/appliedAt）wire 上为 ISO 串
+ * - ChangeRecord 与内存型有意不同构：Date 字段（submittedAt/approvedAt/appliedAt）wire 上为 ISO 串
  */
 
 import { z } from 'zod';
@@ -93,7 +94,7 @@ export const changeRecordSchema = z.object({
   summary: z.string(),
   status: z.enum(['pending', 'auto_approved', 'approved', 'rejected', 'applied']),
   submittedBy: z.string(),
-  /** Date 序列化为 ISO 串 */
+  /** Date 序列化为 ISO 串（与内存型有意不同构） */
   submittedAt: z.string(),
   approvedBy: z.string().optional(),
   approvedAt: z.string().optional(),

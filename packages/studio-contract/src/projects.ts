@@ -14,23 +14,15 @@ import { dataBodySchema } from './envelope.js';
 
 /**
  * 本地发现工程 wire 形状（= ProjectDiscoveryService LocalProject；扫描命中
- * CLAUDE.md/package.json/.git 标记，工程即叶子不递归内部）。手写 interface
- * （前端 CreateChannelForm/CreateProjectDialog/候选管理按必填消费 name/path/hasClaudeMd）；
- * parity 测试见 __tests__/projects.test.ts。
+ * CLAUDE.md/package.json/.git 标记，工程即叶子不递归内部）。
  */
-export interface LocalProject {
-  name: string;
-  path: string;
-  hasClaudeMd: boolean;
-  language?: string;
-}
-
 export const localProjectSchema = z.object({
   name: z.string(),
   path: z.string(),
   hasClaudeMd: z.boolean(),
   language: z.string().optional(),
 });
+export type LocalProject = z.infer<typeof localProjectSchema>;
 
 /** 归属候选排除清单形状（GET/PUT /exclude 的 data） */
 export const projectExcludeSchema = z.object({

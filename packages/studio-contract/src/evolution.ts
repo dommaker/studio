@@ -1,9 +1,8 @@
 /**
- * evolution 域契约——正本字段以 packages/studio-shared file-store-types.ts
- * （EvolutionProposalData）与 apps/api/src/modules/evolution/generator.ts
- * （GenerationResult）、constraint-adapter.ts（ConstraintProposal/ConstraintScanResult）、
- * evolution.routes.ts 实测 wire 为准。studio-shared 带 Node 依赖，契约包只重声明
- * wire 形状不 import。
+ * evolution 域契约——实体 EvolutionProposal 与 studio-shared file-store-types
+ * （EvolutionProposalData）import type 同源 + 编译期互锚（#685）；runScan 结果
+ * （constraint-adapter.ts 的 ConstraintProposal/ConstraintScanResult、generator.ts 的
+ * GenerationResult）正本在 api 内部不可 import，此处 schema 即契约正本。
  *
  * wire 形状（defineRoute 统一壳后）：
  * - 全部端点 `{ data: T }`（原 `{ success: true, data }` 壳的 success 标志退役）
@@ -13,16 +12,20 @@
  */
 
 import { z } from 'zod';
+import type { EvolutionProposalData, EvolutionProposalStatus, EvolutionTargetType } from '@dommaker/studio-shared/types';
 import { dataBodySchema } from './envelope.js';
+import type { MutualExtends } from './type-assert.js';
 
-// ── 实体：EvolutionProposal（= EvolutionProposalData）──
+// ── 实体：EvolutionProposal（= studio-shared EvolutionProposalData，import type 同源 + 互锚）──
 
 export const evolutionTargetTypeSchema = z.enum(['iron-law', 'guideline', 'prompt-template', 'role-preset']);
 export type EvolutionTargetTypeWire = z.infer<typeof evolutionTargetTypeSchema>;
+const _assertEvolutionTargetType: MutualExtends<z.infer<typeof evolutionTargetTypeSchema>, EvolutionTargetType> = true;
 
 /** stale：pending/approved 超期未审（TTL，#602 D2）惰性转 stale */
 export const evolutionProposalStatusSchema = z.enum(['pending', 'approved', 'rejected', 'applied', 'stale']);
 export type EvolutionProposalStatusWire = z.infer<typeof evolutionProposalStatusSchema>;
+const _assertEvolutionProposalStatus: MutualExtends<z.infer<typeof evolutionProposalStatusSchema>, EvolutionProposalStatus> = true;
 
 export const evolutionEvidenceSchema = z.object({
   windowHours: z.number(),
@@ -31,6 +34,7 @@ export const evolutionEvidenceSchema = z.object({
 });
 export type EvolutionEvidenceWire = z.infer<typeof evolutionEvidenceSchema>;
 
+export type EvolutionProposal = EvolutionProposalData;
 export const evolutionProposalSchema = z.object({
   /** EP-<zero-padded seq>，如 EP-0042 */
   id: z.string(),
@@ -45,6 +49,7 @@ export const evolutionProposalSchema = z.object({
   rationale: z.string(),
   evidence: evolutionEvidenceSchema,
   status: evolutionProposalStatusSchema,
+  /** 历史数据可能含 'harness-autoEvolve'（autoEvolve 已删除），仅为兼容存量记录保留 */
   source: z.string(),
   createdAt: z.string(),
   decidedBy: z.string().nullable().optional(),
@@ -53,28 +58,7 @@ export const evolutionProposalSchema = z.object({
   rejectReason: z.string().nullable().optional(),
   staledAt: z.string().nullable().optional(),
 });
-
-/** 手写 interface（实体，前后端解包后按必填消费）；parity 测试见 __tests__ */
-export interface EvolutionProposal {
-  id: string;
-  seq: number;
-  targetType: EvolutionTargetTypeWire;
-  targetId: string;
-  action: 'add' | 'amend';
-  constraintChange?: 'retire' | 'disable';
-  currentText: string;
-  proposedText: string;
-  rationale: string;
-  evidence: EvolutionEvidenceWire;
-  status: EvolutionProposalStatusWire;
-  source: string;
-  createdAt: string;
-  decidedBy?: string | null;
-  decidedAt?: string | null;
-  appliedAt?: string | null;
-  rejectReason?: string | null;
-  staledAt?: string | null;
-}
+const _assertEvolutionProposal: MutualExtends<z.infer<typeof evolutionProposalSchema>, EvolutionProposalData> = true;
 
 // ── runScan 结果（POST /run）──
 

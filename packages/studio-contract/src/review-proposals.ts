@@ -56,19 +56,14 @@ export type ReviewProposalParams = z.infer<typeof reviewProposalParamsSchema>;
  * distill productIds / gc archivedIds / memory promoted+topicsUpdated / auditor
  * workUnitId / knowledge promoted / constraint constraintId+committed / evolution
  * proposalId+appliedAt / decision-audit 等）；skipped → success:false + skipped。
- * 手写 interface（前端 proposalExec 按必填消费 success）；passthrough 兜扩展键；
- * parity 测试见 __tests__
+ * passthrough 兜 per-kind 扩展键（前端 proposalExec 按必填消费 success）。
  */
-export interface ReviewProposalApproveResult {
-  success: boolean;
-  /** 预算熔断（提案保持 pending，可次日重试）；skipped 时 success=false */
-  skipped?: string;
-  [key: string]: unknown;
-}
 export const reviewProposalApproveResultSchema = z.object({
   success: z.boolean(),
+  /** 预算熔断（提案保持 pending，可次日重试）；skipped 时 success=false */
   skipped: z.string().optional(),
 }).passthrough();
+export type ReviewProposalApproveResult = z.infer<typeof reviewProposalApproveResultSchema>;
 
 /** reject 响应 data */
 export const reviewProposalRejectResultSchema = z.object({

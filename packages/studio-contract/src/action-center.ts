@@ -1,8 +1,8 @@
 /**
  * action-center 域契约——正本以 apps/api/src/modules/action-center/
  * action-center.service.ts（ActionCenterPayload）与 studio-notification
- * NotificationService.getUserNotifications 返回行为准（studio-notification
- * 带 Node 依赖不 import，wire 形状在此重声明）。
+ * NotificationService.getUserNotifications 返回行为准。源带 Node 依赖且
+ * 通知返回为匿名 ReturnType 无导出名，contract 不 import，schema 即 wire 正本。
  *
  * 单端点 GET /api/v1/action-center（requireAuth + requireNotGuest），三类待办
  * 三段返回：stateItems（状态派生：reply/review/confirm，无已读概念）+
@@ -35,21 +35,16 @@ export const actionCenterStateItemSchema = z.object({
   since: z.string(),
 });
 
-/** 手写 interface（前端 notificationStore/needInputViewOf 按必填消费 kind/wuId/
- * scope/channelId/since；z.infer 在本仓退化全可选）；parity 测试见 __tests__ */
-export interface ActionCenterStateItem {
-  kind: ActionCenterStateItemKind;
-  wuId: string;
-  scope: string;
-  channelId: string | null;
-  waitingQuestion?: string;
-  messageId?: string;
-  since: string;
-}
+/** 状态派生待办项（前端 notificationStore/needInputViewOf 按必填消费 kind/wuId/scope/channelId/since） */
+export type ActionCenterStateItem = z.infer<typeof actionCenterStateItemSchema>;
 
-// ── 实体：通知（NotificationService.getUserNotifications wire 重声明）──
+// ── 实体：通知 ──
 
-/** createdAt/readAt 为 Date 实例经 JSON 序列化为 ISO 串（wire 即 string） */
+/**
+ * 通知条目——wire 与 service 内存型有意不同构（createdAt/readAt: Date → ISO 串/null，
+ * JSON 序列化）；源为 NotificationService.getUserNotifications 匿名 ReturnType，
+ * 无导出名，不同源：schema 即正本。
+ */
 export const actionCenterNotificationSchema = z.object({
   id: z.string(),
   userId: z.string(),
@@ -68,16 +63,12 @@ export type ActionCenterNotification = z.infer<typeof actionCenterNotificationSc
 
 // ── 响应 ──
 
-/** GET / 响应 data（三段整体替换；手写：stateItems 为手写实体数组） */
+/** GET / 响应 data（三段整体替换） */
 export const actionCenterPayloadSchema = z.object({
   stateItems: z.array(actionCenterStateItemSchema),
   notifications: z.array(actionCenterNotificationSchema),
   unreadCount: z.number(),
 });
-export interface ActionCenterPayloadWire {
-  stateItems: ActionCenterStateItem[];
-  notifications: ActionCenterNotification[];
-  unreadCount: number;
-}
+export type ActionCenterPayloadWire = z.infer<typeof actionCenterPayloadSchema>;
 
 export const actionCenterResponseSchema = dataBodySchema(actionCenterPayloadSchema);

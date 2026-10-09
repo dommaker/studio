@@ -24,17 +24,19 @@
 
 import { z } from 'zod';
 import { dataBodySchema, paginatedBodySchema } from './envelope.js';
+import type { MutualExtends } from './type-assert.js';
 
 // ── 实体 ──
 
 /**
  * 审计行 wire（AuditService AuditLogRow ⊕ proposal-source ProposalDecisionRow；
  * 提案行是操作轨子集同形——actorType 恒 'agent'、action 恒 'propose'、details 恒 string|null）。
- * 历史行稀疏（可选键缺省即不存在）→ passthrough 放行扩展键。
  * details/changes 落盘为 JSON 串；读取原样透传 → wire = string|null
  * （前端 api/auditLogs.ts normalizeRow 归一为对象消费，union 声明双形态，knowledge tags 先例）。
+ * 历史行稀疏（可选键缺省即不存在）→ 导出 schema passthrough 放行扩展键；
+ * base 不带 passthrough，供 AuditLog 归一形状派生（扩展键不浮出前端消费形状）。
  */
-export const auditLogRowSchema = z.object({
+const auditLogRowBaseSchema = z.object({
   id: z.string(),
   userId: z.string().optional(),
   roleId: z.string().optional(),
@@ -61,15 +63,30 @@ export const auditLogRowSchema = z.object({
   /** #591：操作主体；存量行无此字段（读取侧按 human 归一） */
   actorType: z.enum(['human', 'agent']).optional(),
   createdAt: z.string(),
-}).passthrough();
+});
+export const auditLogRowSchema = auditLogRowBaseSchema.passthrough();
 
 export type AuditLogRow = z.infer<typeof auditLogRowSchema>;
 
 /**
- * 前端消费形状（normalizeRow 归一后：details/changes 恒为对象|undefined）。
- * 手写 interface（AuditLogsPage 按必填消费 id/action/resource/status/createdAt）；parity 见 __tests__
+ * 前端消费形状（normalizeRow 归一后：details/changes 恒为对象|undefined），派生自
+ * wire schema 基础形状：details/changes 去掉 JSON 串/null 双形态，sessionId/requestId
+ * 与 passthrough 扩展键不浮出；AuditLogsPage 按必填消费 id/action/resource/status/createdAt。
  */
-export interface AuditLog {
+export type AuditLog = Omit<
+  z.infer<typeof auditLogRowBaseSchema>,
+  'details' | 'changes' | 'sessionId' | 'requestId'
+> & {
+  details?: Record<string, unknown>;
+  changes?: {
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    fields?: string[];
+  };
+};
+
+/** #685 解三角互锚：与退役手写 interface 旧形状互证，schema 推型漂移即编译错误 */
+type AuditLogLegacy = {
   id: string;
   userId?: string;
   roleId?: string;
@@ -90,18 +107,10 @@ export interface AuditLog {
   errorCode?: string;
   errorMessage?: string;
   createdAt: string;
-}
+};
+const _assertAuditLog: MutualExtends<AuditLog, AuditLogLegacy> = true;
 
-/** GET /stats 响应 data。手写 interface（AuditLogsPage 统计卡按必填消费）；parity 见 __tests__ */
-export interface AuditLogStats {
-  totalLogs: number;
-  successCount: number;
-  failureCount: number;
-  topActions: Array<{ action: string; count: number }>;
-  topResources: Array<{ resource: string; count: number }>;
-  topUsers: Array<{ userId: string; count: number }>;
-  dailyStats: Array<{ date: string; count: number }>;
-}
+/** GET /stats 响应 data（AuditLogsPage 统计卡按必填消费） */
 export const auditLogStatsSchema = z.object({
   totalLogs: z.number(),
   successCount: z.number(),
@@ -111,6 +120,7 @@ export const auditLogStatsSchema = z.object({
   topUsers: z.array(z.object({ userId: z.string(), count: z.number() })),
   dailyStats: z.array(z.object({ date: z.string(), count: z.number() })),
 });
+export type AuditLogStats = z.infer<typeof auditLogStatsSchema>;
 
 // ── 请求 ──
 
@@ -136,8 +146,20 @@ export const auditLogListQuerySchema = z.object({
 });
 export type AuditLogListQuery = z.infer<typeof auditLogListQuerySchema>;
 
-/** 前端查询入参（数值 page/limit；对应 list query 的 wire 串形由 axios 序列化） */
-export interface AuditLogQuery {
+/**
+ * 前端查询入参（数值 page/limit；wire 串形由 axios 序列化），派生自 auditLogListQuerySchema：
+ * 前端不用的 roleId/companyId/resourceId/anonymousId 不浮出，page/limit 由 wire 串形改写数值。
+ */
+export type AuditLogQuery = Omit<
+  AuditLogListQuery,
+  'roleId' | 'companyId' | 'resourceId' | 'anonymousId' | 'page' | 'limit'
+> & {
+  page?: number;
+  limit?: number;
+};
+
+/** #685 解三角互锚：与退役手写 interface 旧形状互证 */
+type AuditLogQueryLegacy = {
   action?: string;
   resource?: string;
   status?: string;
@@ -148,7 +170,8 @@ export interface AuditLogQuery {
   endTime?: string;
   page?: number;
   limit?: number;
-}
+};
+const _assertAuditLogQuery: MutualExtends<AuditLogQuery, AuditLogQueryLegacy> = true;
 
 /** GET /stats 查询参数 */
 export const auditLogStatsQuerySchema = z.object({

@@ -51,28 +51,17 @@ export const triggerActionSchema = z.discriminatedUnion('type', [
 ]);
 export type TriggerActionWire = z.infer<typeof triggerActionSchema>;
 
-/**
- * TriggerConfig wire 形状。手写 interface（z.infer 在本仓 strict:false 下退化可选，
- * 判别联合退化后失去 narrowing——后端路由/store 按必填消费）；parity 测试见 __tests__。
- */
-export interface TriggerConfigWire {
-  id: string;
-  name: string;
-  condition: TriggerConditionWire;
-  action: TriggerActionWire;
-  enabled: boolean;
-  /** system | user | project */
-  scope: string;
-}
-
+/** TriggerConfig wire 形状（= trigger.types.ts TriggerConfig） */
 export const triggerConfigSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   condition: triggerConditionSchema,
   action: triggerActionSchema,
   enabled: z.boolean(),
+  /** system | user | project */
   scope: z.string().min(1),
 });
+export type TriggerConfigWire = z.infer<typeof triggerConfigSchema>;
 
 // ── 派生读形状 ──
 

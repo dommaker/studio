@@ -18,38 +18,7 @@ import { dataBodySchema, paginatedBodySchema } from './envelope.js';
 /**
  * WorkUnit wire 形状（JSON 序列化后的 WorkUnitData：Date → ISO string）。
  * 字段正本 = apps/api workunit-crud.ts snapshotToData；dependsOn 不存在于后端（前端手抄版的漂移字段）。
- *
- * 为什么不用 z.infer：本仓 tsconfig strict:false（strictNullChecks off），zod 的
- * requiredKeys 类型检测（`undefined extends _output`）在该配置下全部退化 → z.infer
- * 所有字段变可选，消费方拿不到必填字段类型（WorkUnit → {status: string} 结构参数全报错）。
- * schema 仍是运行时校验正本；类型与形状的漂移由 __tests__/workunit.test.ts 的
- * parity 测试（interface fixture ↔ schema 互验）兜底。后续域同此例。
  */
-export interface WorkUnit {
-  id: string;
-  parentId: string | null;
-  type: string;
-  scope: string;
-  assigneeId: string | null;
-  status: string;
-  failureType: string | null;
-  retryCount: number;
-  timeoutAt: string | null;
-  channelId: string | null;
-  projectPath: string | null;
-  workspaceId?: string | null;
-  reqId?: string | null;
-  assigneeRoleId?: string | null;
-  metadata: string | null;
-  createdAt: string;
-  updatedAt: string;
-  claimedAt: string | null;
-  completedAt: string | null;
-  /** #109：仅列表项与事件负载附带的「可认领」标记 */
-  claimable?: boolean;
-}
-
-/** workUnitSchema 与 WorkUnit interface 同形（parity 测试锁定，见 __tests__） */
 export const workUnitSchema = z.object({
   id: z.string(),
   parentId: z.string().nullable(),
@@ -73,6 +42,7 @@ export const workUnitSchema = z.object({
   /** #109：仅列表项与事件负载附带的「可认领」标记 */
   claimable: z.boolean().optional(),
 });
+export type WorkUnit = z.infer<typeof workUnitSchema>;
 
 /** #163 巡检机会条目（WU metadata.opportunities 数组元素；adopt/ignore 响应内嵌） */
 export const inspectionOpportunitySchema = z.object({
@@ -351,10 +321,7 @@ export const adoptOpportunityResultSchema = z.object({
   workUnit: workUnitSchema,
   opportunities: z.array(inspectionOpportunitySchema),
 });
-export interface AdoptOpportunityResult {
-  workUnit: WorkUnit;
-  opportunities: InspectionOpportunity[];
-}
+export type AdoptOpportunityResult = z.infer<typeof adoptOpportunityResultSchema>;
 export const adoptOpportunityResponseSchema = dataBodySchema(adoptOpportunityResultSchema);
 
 /** POST ignore：`{ data: { opportunities } }` */

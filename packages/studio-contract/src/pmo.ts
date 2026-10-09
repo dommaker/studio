@@ -26,12 +26,7 @@ export const pmoDecisionSchema = z.object({
   summary: z.string(),
   resolvedAt: z.string(),
 });
-/** 手写 interface（前后端均按必填消费——project.service PmoDecision / web mapUtils） */
-export interface PmoDecision {
-  wuId: string;
-  summary: string;
-  resolvedAt: string;
-}
+export type PmoDecision = z.infer<typeof pmoDecisionSchema>;
 
 export const fogStatusSchema = z.enum(['open', 'in-discussion', 'resolved']);
 export type FogStatus = z.infer<typeof fogStatusSchema>;
@@ -43,13 +38,7 @@ export const fogItemSchema = z.object({
   wuId: z.string().nullable(),
   status: fogStatusSchema,
 });
-/** 手写 interface（前后端均按必填消费——project.service FogItem / web mapUtils） */
-export interface FogItem {
-  id: string;
-  question: string;
-  wuId: string | null;
-  status: FogStatus;
-}
+export type FogItem = z.infer<typeof fogItemSchema>;
 
 /** 探路地图（缺省 null = 非探路型需求） */
 export const pmoMapSchema = z.object({
@@ -61,14 +50,7 @@ export const pmoMapSchema = z.object({
   /** 自动建成的 spec 单 id（溯源回写） */
   specWuId: z.string().nullable().optional(),
 });
-/** 手写 interface（前后端均按必填消费——project.service PmoMap / web mapUtils） */
-export interface PmoMap {
-  destination: string;
-  decisions: PmoDecision[];
-  fog: FogItem[];
-  specSpawnedAt?: string;
-  specWuId?: string | null;
-}
+export type PmoMap = z.infer<typeof pmoMapSchema>;
 
 /** #113 T7 腿状态词表（progress-rollup 逐腿回写；delivered 为终态不被回写） */
 export const deliveryLegStatusSchema = z.enum(['pending', 'active', 'in_review', 'completed', 'delivered']);
@@ -84,45 +66,7 @@ export const deliveryLegSchema = z.object({
 });
 export type DeliveryLeg = z.infer<typeof deliveryLegSchema>;
 
-/**
- * Project wire 形状（= project.service.ts ProjectData 全字段；读取路径统一合成
- * deliveries 单腿缺省）。手写 interface（z.infer 在本仓 strict:false 下全字段退化可选，
- * 前端 PMOPage/ProjectCard/详情页按必填消费）；parity 测试见 __tests__/pmo.test.ts。
- */
-export interface Project {
-  id: string;
-  pmoNumber: string;
-  title: string;
-  description: string | null;
-  requirement: string | null;
-  companyId: string | null;
-  okrId: string | null;
-  status: string;
-  priority: string;
-  progress: number;
-  gitBranch: string | null;
-  gitRepo: string | null;
-  specFilePath: string | null;
-  requirementsDocId: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  /** REQ 只读别名（REQ-XXXX），统一编号对象才有；存量 legacy 项目为 null/缺省 */
-  reqAlias?: string | null;
-  deliveryPolicy?: DeliveryPolicy;
-  /** 杂务 PMO（频道常青小活归集），isChore + channelId 联合标识 */
-  isChore?: boolean;
-  channelId?: string | null;
-  /** auto-merge 交付记录（branch-only 走 mark-delivered 人工落档） */
-  deliveredAt?: string | null;
-  deliveredBy?: string | null;
-  deliverCommit?: string | null;
-  map?: PmoMap | null;
-  /** 多交付腿（缺省 = 读取时由 gitRepo/gitBranch 合成单腿） */
-  deliveries?: DeliveryLeg[];
-}
-
+/** Project wire 形状（= project.service.ts ProjectData 全字段；读取路径统一合成 deliveries 单腿缺省） */
 export const projectSchema = z.object({
   id: z.string(),
   pmoNumber: z.string(),
@@ -142,16 +86,21 @@ export const projectSchema = z.object({
   completedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /** REQ 只读别名（REQ-XXXX），统一编号对象才有；存量 legacy 项目为 null/缺省 */
   reqAlias: z.string().nullable().optional(),
   deliveryPolicy: deliveryPolicySchema.optional(),
+  /** 杂务 PMO（频道常青小活归集），isChore + channelId 联合标识 */
   isChore: z.boolean().optional(),
   channelId: z.string().nullable().optional(),
+  /** auto-merge 交付记录（branch-only 走 mark-delivered 人工落档） */
   deliveredAt: z.string().nullable().optional(),
   deliveredBy: z.string().nullable().optional(),
   deliverCommit: z.string().nullable().optional(),
   map: pmoMapSchema.nullable().optional(),
+  /** 多交付腿（缺省 = 读取时由 gitRepo/gitBranch 合成单腿） */
   deliveries: z.array(deliveryLegSchema).optional(),
 });
+export type Project = z.infer<typeof projectSchema>;
 
 // ── 实体：OKR ──
 
@@ -176,39 +125,23 @@ export const okrKeyResultSchema = z.object({
 });
 export type OkrKeyResult = z.infer<typeof okrKeyResultSchema>;
 
-/**
- * OKR 列表行 wire 形状（okr.service.list 返回）。手写 interface（前端 PMOPage/PMOCard
- * 按必填消费；手抄版 objectives/keyResults 可缺省是漂移——后端恒返回）；parity 测试见 __tests__。
- */
-export interface Okr {
-  id: string;
-  companyId: string;
-  title: string;
-  quarter: string;
-  status: string;
-  /** 0..1（前端 ×100 渲染） */
-  progress: number;
-  objectives: OkrObjective[];
-  keyResults: OkrKeyResult[];
-  createdAt: string;
-  updatedAt: string;
-  /** 关联 PMO 项目数（pmo 项目存储计数；原 executions.jsonl 计数已退役） */
-  projectCount: number;
-}
-
+/** OKR 列表行 wire 形状（okr.service.list 返回） */
 export const okrSchema = z.object({
   id: z.string(),
   companyId: z.string(),
   title: z.string(),
   quarter: z.string(),
   status: z.string(),
+  /** 0..1（前端 ×100 渲染） */
   progress: z.number(),
   objectives: z.array(okrObjectiveSchema),
   keyResults: z.array(okrKeyResultSchema),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /** 关联 PMO 项目数（pmo 项目存储计数；原 executions.jsonl 计数已退役） */
   projectCount: z.number(),
 });
+export type Okr = z.infer<typeof okrSchema>;
 
 /** OKR 详情（GET /okr/:id）：列表行去 projectCount + 关联占位/最近关联/计数 */
 export const okrDetailSchema = z.object({
@@ -296,45 +229,7 @@ export const legDeliveryStatusSchema = z.object({
 });
 export type LegDeliveryStatus = z.infer<typeof legDeliveryStatusSchema>;
 
-/**
- * 交付台账 wire 形状（delivery.ts DeliveryStatus）。手写 interface（前端
- * DeliveryPanel/ProjectProgressCard/详情页按必填消费，测试 fixture 全字段）；
- * parity 测试见 __tests__。前端手抄版缺 channelId 是漂移——后端恒返回。
- */
-export interface DeliveryStatus {
-  projectId: string;
-  pmoNumber: string;
-  branch: string | null;
-  policy: DeliveryPolicy;
-  gitRepo: string | null;
-  wu: {
-    total: number;
-    finished: number;
-    inFlight: number;
-    byStatus: { unassigned: number; active: number; inReview: number; blocked: number };
-  };
-  evidence: {
-    l1Missing: string[];
-    l2Missing: string[];
-    l3Missing: string[];
-    selfReviewCount: number;
-  };
-  deliverable: boolean;
-  missing: string[];
-  /** 项目 WU 链路 token 总消耗（best-effort） */
-  tokens: number;
-  /** #376 归档口径：completed + 实时重算零 WU */
-  archived: boolean;
-  gaps: DeliveryGap[];
-  deliveredAt: string | null;
-  deliveredBy: string | null;
-  deliverCommit: string | null;
-  /** 项目绑定频道（交付播报发帖用；未 publish 为 null） */
-  channelId: string | null;
-  /** 逐腿台账（仅显式多腿项目输出；单腿为 undefined） */
-  legs?: LegDeliveryStatus[];
-}
-
+/** 交付台账 wire 形状（delivery.ts DeliveryStatus） */
 export const deliveryStatusSchema = z.object({
   projectId: z.string(),
   pmoNumber: z.string(),
@@ -345,15 +240,20 @@ export const deliveryStatusSchema = z.object({
   evidence: deliveryEvidenceSchema,
   deliverable: z.boolean(),
   missing: z.array(z.string()),
+  /** 项目 WU 链路 token 总消耗（best-effort） */
   tokens: z.number(),
+  /** #376 归档口径：completed + 实时重算零 WU */
   archived: z.boolean(),
   gaps: z.array(deliveryGapSchema),
   deliveredAt: z.string().nullable(),
   deliveredBy: z.string().nullable(),
   deliverCommit: z.string().nullable(),
+  /** 项目绑定频道（交付播报发帖用；未 publish 为 null） */
   channelId: z.string().nullable(),
+  /** 逐腿台账（仅显式多腿项目输出；单腿为 undefined） */
   legs: z.array(legDeliveryStatusSchema).optional(),
 });
+export type DeliveryStatus = z.infer<typeof deliveryStatusSchema>;
 
 /** #113 T7：单腿交付结果（多腿 deliverProject 逐腿产出） */
 export const legDeliverResultSchema = z.object({

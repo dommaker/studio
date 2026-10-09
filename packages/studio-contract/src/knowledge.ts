@@ -2,12 +2,13 @@
  * knowledge 域契约——正本字段以 apps/api/src/modules/knowledge/ 实测 wire 为准：
  * knowledge-service.ts（KnowledgeService list/get/stats/health/flywheel/audit 等）、
  * knowledge-metrics.ts（FlywheelMetrics/HealthReport/AuditReport/AccuracyReport）、
- * resolution.service.ts（Resolution 投影/density/cross-session，Resolution 实体原在
- * studio-shared types/resolution.ts——Node 依赖不 import，wire 形状在此重声明）、
+ * resolution.service.ts（Resolution 投影/density/cross-session，Resolution wire 与
+ * studio-shared types/resolution.ts 内存型有意不同构，schema 即正本，见下方注记）、
  * engine/unified-query.ts（ListEntriesResult）、knowledge-sync.service.ts、
  * knowledge-design-doc.ts（upsertKnowledge 结果）、knowledge-curator.service.ts
- * （runDailyMaintenance 聚合）与各 routes 实测响应。harness KnowledgeEntry（Node
- * 依赖）的 wire 形状同样在此重声明（knowledgeEntrySchema）。
+ * （runDailyMaintenance 聚合）与各 routes 实测响应。knowledgeEntrySchema 与
+ * harness KnowledgeEntry import type 同源（#685；executionResults 单向锚定，
+ * 条目级锚定受 sourceReferences 所限不可表达，见下方注记）。
  *
  * 三套路由（route-registry.ts）：
  * - /api/v1/knowledge（files/entries/search/maintenance 子路由，auth）
@@ -23,23 +24,34 @@
  */
 
 import { z } from 'zod';
+import type { ExecutionResult as HarnessExecutionResult } from '@dommaker/studio-shared/types';
 import { dataBodySchema } from './envelope.js';
 
-// ── 实体：KnowledgeEntry（harness FileKnowledgeStore 条目 wire 重声明）──
+// ── 实体：KnowledgeEntry（import type 同源 harness + 下方编译期锚定，#685）──
 
-/** 条目来源引用（历史行形态不一——人工创建行带 source 字段）→ 宽松 record */
+/**
+ * 条目来源引用（历史行形态不一——人工创建行带 source 字段）→ 宽松 record。
+ * 不与 harness SourceRef 锚定：SourceRef 是 interface（无索引签名），
+ * 无法对 Record<string, unknown> 做 extends 断言，schema 即正本。
+ */
 export const knowledgeSourceRefSchema = z.record(z.unknown());
 
+/** harness ExecutionResult 同源（source 联合 'human'|'auto' 收窄为 string，单向锚定兜历史数据） */
 export const knowledgeExecutionResultSchema = z.object({
   contributor: z.string(),
   success: z.boolean(),
   timestamp: z.string(),
   source: z.string().optional(),
 });
+const _assertExecutionResult: HarnessExecutionResult extends z.infer<typeof knowledgeExecutionResultSchema> ? true : never = true;
 
 /**
  * harness KnowledgeEntry 全字段 + Studio 扩展（unified-query 投影补
- * applicableAgents/source）。z.infer 退化可选无害（消费方只用投影类型）。
+ * applicableAgents/source）。import type 同源；联合类型
+ * （type/maturity/layer/consumptionMode/origin）收窄为 z.string() 兜历史数据，
+ * 宽声明是既有语义不收紧。条目级 extends 锚定不可表达：sourceReferences 元素是
+ * 宽松 record，而 harness SourceRef 为 interface（无索引签名），extends Record
+ * 不成立——不改 schema 运行时形状凑过，schema 即正本（executionResults 已单向锚定）。
  */
 export const knowledgeEntrySchema = z.object({
   id: z.string(),
@@ -68,19 +80,7 @@ export const knowledgeEntrySchema = z.object({
 });
 export type KnowledgeEntryWire = z.infer<typeof knowledgeEntrySchema>;
 
-/** 统一视图条目（GET /knowledge/unified 的 entries 元素）。手写 interface
- * （前端 KnowledgePage 按必填消费 id/title；z.infer 在本仓退化全可选）；
- * parity 测试见 __tests__ */
-export interface UnifiedKnowledgeEntry {
-  id: string;
-  title: string;
-  content?: string;
-  consumptionMode?: string;
-  source?: string;
-  tags?: string[];
-  /** 成熟度（draft/verified/canonical/deprecated 等；E5 徽标与 draft 审批入口依赖本字段） */
-  maturity?: string;
-}
+/** 统一视图条目（GET /knowledge/unified 的 entries 元素） */
 export const unifiedKnowledgeEntrySchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -88,19 +88,12 @@ export const unifiedKnowledgeEntrySchema = z.object({
   consumptionMode: z.string().optional(),
   source: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  /** 成熟度（draft/verified/canonical/deprecated 等；E5 徽标与 draft 审批入口依赖本字段） */
   maturity: z.string().optional(),
 }).passthrough(); // 实际下发为完整 KnowledgeEntry（投影字段之外全透传）
+export type UnifiedKnowledgeEntry = z.infer<typeof unifiedKnowledgeEntrySchema>;
 
-/** 待审列表条目（GET /knowledge-service/entries?maturity=draft 投影）。
- * 手写 interface（前端 MonitoringPage 按必填消费）；parity 测试见 __tests__ */
-export interface KnowledgeEntryItem {
-  id: string;
-  title: string;
-  type?: string;
-  maturity?: string;
-  created?: string;
-  tags?: string[];
-}
+/** 待审列表条目（GET /knowledge-service/entries?maturity=draft 投影） */
 export const knowledgeEntryItemSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -109,27 +102,13 @@ export const knowledgeEntryItemSchema = z.object({
   created: z.string().optional(),
   tags: z.array(z.string()).optional(),
 }).passthrough(); // 实际下发为完整 KnowledgeEntry
+export type KnowledgeEntryItem = z.infer<typeof knowledgeEntryItemSchema>;
 
-// ── 实体：Resolution（studio-shared types/resolution.ts wire 重声明）──
+// ── 实体：Resolution ──
 
-/** 解法库条目（GET /knowledge/resolutions）。手写 interface（前端 ResolutionCard
- * 按必填消费 id/title）；tags 后端可能双重编码为 JSON 字符串（消费方容错解析）；
- * parity 测试见 __tests__ */
-export interface Resolution {
-  id: string;
-  title: string;
-  pattern?: string;
-  errorClass?: string;
-  layer?: string;
-  fix?: string;
-  status?: string;
-  verifyCount?: number;
-  verifiedAt?: string;
-  sourceGoalId?: string;
-  tags?: string[] | string;
-  createdAt?: string;
-  updatedAt?: string;
-}
+/** 解法库条目（GET /knowledge/resolutions）。wire 与 studio-shared types/resolution.ts
+ * 内存型有意不同构（源全必填 vs wire 宽松读历史行全可选；源 tags: string[] vs wire
+ * string[]|string 双重编码容错），schema 即正本，不与 studio-shared Resolution 同源。 */
 export const resolutionSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -141,21 +120,15 @@ export const resolutionSchema = z.object({
   verifyCount: z.number().optional(),
   verifiedAt: z.string().optional(),
   sourceGoalId: z.string().optional(),
+  /** tags 后端可能双重编码为 JSON 字符串（消费方容错解析） */
   tags: z.union([z.array(z.string()), z.string()]).optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });
+export type Resolution = z.infer<typeof resolutionSchema>;
 
 // ── 实体：全局搜索结果（GET /knowledge/search 的 results 元素）──
 
-/** 手写 interface（前端 KnowledgePage/CommandPalette 按必填消费）；parity 测试见 __tests__ */
-export interface KnowledgeSearchResult {
-  type: string;
-  id: string;
-  title: string;
-  snippet: string;
-  score: number;
-}
 export const knowledgeSearchResultSchema = z.object({
   type: z.string(),
   id: z.string(),
@@ -163,6 +136,7 @@ export const knowledgeSearchResultSchema = z.object({
   snippet: z.string(),
   score: z.number(),
 });
+export type KnowledgeSearchResult = z.infer<typeof knowledgeSearchResultSchema>;
 
 /** 知识缺口类型（GET /knowledge/gaps/:type 的合法值，原手写 400 校验收进 zod） */
 export const knowledgeGapTypeSchema = z.enum([
@@ -195,15 +169,12 @@ export type KnowledgeGapsResult = z.infer<typeof knowledgeGapsResultSchema>;
 export const knowledgeGapStatsSchema = z.record(z.unknown());
 export type KnowledgeGapStats = z.infer<typeof knowledgeGapStatsSchema>;
 
-/** GET /knowledge/unified 响应 data（手写：entries 为手写实体数组，z.infer 退化会反向污染消费点） */
+/** GET /knowledge/unified 响应 data */
 export const unifiedKnowledgeListResultSchema = z.object({
   entries: z.array(unifiedKnowledgeEntrySchema),
   total: z.number(),
 });
-export interface UnifiedKnowledgeListResult {
-  entries: UnifiedKnowledgeEntry[];
-  total: number;
-}
+export type UnifiedKnowledgeListResult = z.infer<typeof unifiedKnowledgeListResultSchema>;
 
 /** POST /knowledge/unified 201 响应 data */
 export const createUnifiedEntryResultSchema = z.object({
@@ -213,27 +184,20 @@ export const createUnifiedEntryResultSchema = z.object({
 });
 export type CreateUnifiedEntryResult = z.infer<typeof createUnifiedEntryResultSchema>;
 
-/** GET /knowledge/resolutions 响应 data（手写：resolutions 为手写实体数组） */
+/** GET /knowledge/resolutions 响应 data */
 export const resolutionListResultSchema = z.object({
   resolutions: z.array(resolutionSchema),
   total: z.number(),
   byStatus: z.record(z.number()),
 });
-export interface ResolutionListResult {
-  resolutions: Resolution[];
-  total: number;
-  byStatus: Record<string, number>;
-}
+export type ResolutionListResult = z.infer<typeof resolutionListResultSchema>;
 
-/** GET /knowledge/search 响应 data（手写：results 为手写实体数组） */
+/** GET /knowledge/search 响应 data */
 export const knowledgeSearchListResultSchema = z.object({
   results: z.array(knowledgeSearchResultSchema),
   total: z.number(),
 });
-export interface KnowledgeSearchListResult {
-  results: KnowledgeSearchResult[];
-  total: number;
-}
+export type KnowledgeSearchListResult = z.infer<typeof knowledgeSearchListResultSchema>;
 
 /** GET /knowledge/resolution/density 响应 data */
 export const resolutionDensityScoreSchema = z.object({
@@ -308,20 +272,14 @@ export const upsertKnowledgeResultSchema = z.object({
 });
 export type UpsertKnowledgeResult = z.infer<typeof upsertKnowledgeResultSchema>;
 
-/** POST /knowledge/maintenance/run 响应 data（F1：去重/质量/过期/矛盾）。
- * 手写 interface（前端 maintenance.ts 按必填消费）；parity 测试见 __tests__ */
-export interface KnowledgeMaintenanceResult {
-  dedupMerged: number;
-  qualityArchived: number;
-  freshnessUpdated: number;
-  contradictionsResolved: number;
-}
+/** POST /knowledge/maintenance/run 响应 data（F1：去重/质量/过期/矛盾） */
 export const knowledgeMaintenanceResultSchema = z.object({
   dedupMerged: z.number(),
   qualityArchived: z.number(),
   freshnessUpdated: z.number(),
   contradictionsResolved: z.number(),
 });
+export type KnowledgeMaintenanceResult = z.infer<typeof knowledgeMaintenanceResultSchema>;
 
 // ── KnowledgeService 派生读（/knowledge-service 子路由）──
 
@@ -344,15 +302,12 @@ export const knowledgeServiceSearchResultSchema = z.object({
 });
 export type KnowledgeServiceSearchResult = z.infer<typeof knowledgeServiceSearchResultSchema>;
 
-/** GET /knowledge-service/entries 响应 data（手写：entries 为手写实体数组） */
+/** GET /knowledge-service/entries 响应 data */
 export const knowledgeEntryListResultSchema = z.object({
   entries: z.array(knowledgeEntryItemSchema),
   total: z.number(),
 });
-export interface KnowledgeEntryListResult {
-  entries: KnowledgeEntryItem[];
-  total: number;
-}
+export type KnowledgeEntryListResult = z.infer<typeof knowledgeEntryListResultSchema>;
 
 /** GET /knowledge-service/entries/stats 响应 data（stats 分桶 + healthScore ← HealthReport.score） */
 export const knowledgeEntryStatsResultSchema = z.record(z.unknown());
@@ -436,15 +391,12 @@ export const injectContextResultSchema = z.object({
 });
 export type InjectContextResult = z.infer<typeof injectContextResultSchema>;
 
-/** POST /knowledge-service/match-resolutions 响应 data（手写：resolutions 为手写实体数组） */
+/** POST /knowledge-service/match-resolutions 响应 data */
 export const matchResolutionsResultSchema = z.object({
   matched: z.boolean(),
   resolutions: z.array(resolutionSchema),
 });
-export interface MatchResolutionsResult {
-  matched: boolean;
-  resolutions: Resolution[];
-}
+export type MatchResolutionsResult = z.infer<typeof matchResolutionsResultSchema>;
 
 /** 各写端点的 `{ success }` / `{ success, id }` 响应 data */
 export const knowledgeSuccessResultSchema = z.object({ success: z.boolean() });

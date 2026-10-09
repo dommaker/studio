@@ -17,33 +17,24 @@ import { dataBodySchema } from './envelope.js';
 
 // ── 实体：TranscriptEntry（JSONL 一行 = 一步）──
 
-/** 手写 interface（前端 TranscriptViewer 按必填消费 workUnitId/step/createdAt；
- * z.infer 在本仓退化全可选）；parity 测试见 __tests__ */
-export interface TranscriptEntry {
-  workUnitId: string;
-  /** 本步会话号（WU 内可能因重建/续用切换，逐行记录） */
-  sessionId?: string;
-  /** 1 基步号（与 agent-loop recordResult 的 stepCount 同口径） */
-  step: number;
-  /** 本步 ACTION 结论（progress/complete/need_input/failed） */
-  action?: string;
-  /** 本步原文（raw CLI stdout；provider 无关，全文保留不截断） */
-  rawOutput?: string;
-  /** 归档时间 ISO 8601 */
-  createdAt: string;
-}
 export const transcriptEntrySchema = z.object({
   workUnitId: z.string(),
+  /** 本步会话号（WU 内可能因重建/续用切换，逐行记录） */
   sessionId: z.string().optional(),
+  /** 1 基步号（与 agent-loop recordResult 的 stepCount 同口径） */
   step: z.number(),
+  /** 本步 ACTION 结论（progress/complete/need_input/failed） */
   action: z.string().optional(),
+  /** 本步原文（raw CLI stdout；provider 无关，全文保留不截断） */
   rawOutput: z.string().optional(),
+  /** 归档时间 ISO 8601 */
   createdAt: z.string(),
 });
+export type TranscriptEntry = z.infer<typeof transcriptEntrySchema>;
 
 // ── 派生读形状 ──
 
-/** GET /:workUnitId 响应 data（手写：entries 为手写实体数组） */
+/** GET /:workUnitId 响应 data */
 export const transcriptResultSchema = z.object({
   workUnitId: z.string(),
   total: z.number(),
@@ -51,13 +42,7 @@ export const transcriptResultSchema = z.object({
   limit: z.number(),
   entries: z.array(transcriptEntrySchema),
 });
-export interface TranscriptResult {
-  workUnitId: string;
-  total: number;
-  offset: number;
-  limit: number;
-  entries: TranscriptEntry[];
-}
+export type TranscriptResult = z.infer<typeof transcriptResultSchema>;
 
 // ── 请求 ──
 
