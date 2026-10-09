@@ -15,12 +15,9 @@ import { logger, FileStore, type ChannelData } from '@dommaker/studio-shared';
 import { channelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { resumeWaitingWorkUnit } from '../workunit/index.js';
-import { postWuSystemMessage } from '../workunit/index.js';
 import { resolveMergeTarget } from './merge-target.js';
-import { detectMention, matchMentionAgent, stripMentionScope } from './mention-match.js';
-import { resolveReqIdForDispatch } from '../requirements/index.js';
-import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/index.js';
-import { STUDIO_ROLE_NAME } from '../../core/system-role.js';
+import { detectMention } from './mention-match.js';
+import { dispatchMentionMessage, dispatchNewTaskMessage } from './wu-dispatch.js';
 import {
   validateFileRefs,
   type FileRef,
@@ -225,214 +222,25 @@ export async function routeMessage(
     return message;
   }
 
-  // Priority 2: @mention → create WorkUnit
+  // Priority 2: @mention → create WorkUnit（建单路径已收口 wu-dispatch.ts）
   const mentionName = detectMention(content);
   if (mentionName) {
-    // B2：profile 列表 / 频道记录 / REQ 绑定三者互不依赖（REQ 绑定不依赖 profile
-    // 匹配结果，也不读 channel 记录），并行发出；归属解析依赖 reqId + channel 仍在其后。
-    const [allProfiles, channel, reqId] = await Promise.all([
-      resolvedFs.listProfiles({ status: 'active' }),
-      ctx?.channel !== undefined ? Promise.resolve(ctx.channel) : resolvedFs.getChannel(channelId),
-      // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
-      // best-effort：绑定失败不阻断 WorkUnit 创建（log + 不带 reqId 继续）。
-      resolveReqIdForDispatch({
-        explicitReqId: ctx?.reqId,
-        content,
-        channelId,
-        createdBy: 'mention',
-        fileStore: resolvedFs,
-      }).catch(err => {
-        logger.warn('[MessageRouting] REQ binding failed (non-blocking)', { error: String(err) });
-        return null;
-      }),
-    ]);
-    // mention 匹配（§9.5 成员界 / #632 系统角色不参与 / #496 中文连写最长前缀兜底）
-    // 与 scope 剥离口径均已收口 mention-match.ts 纯函数。
-    const { agent, prefixMatchName } = matchMentionAgent(allProfiles, mentionName, channel);
-    // #632：F5 @studio 转派分支（转派目标 = 频道 defaultProfileId 入口角色）已随
-    // defaultProfileId 退役删除——@studio 按未匹配 mention 走既有「转自动认领」提示。
-    const scope = stripMentionScope(content, prefixMatchName);
-    // B3a 工程归属链（决策 D2 + #285 决策 #249 §4）：Requirement→PMO gitRepo
-    // > 文件引用（kept refs 全同仓）> 频道默认工程 > 无归属挂起。
-    // #481：显式/频道默认的 workspaceId（机器指针）两级已退役，不再参与归属。
-    // 解析故障返回 null：按无归属继续但不挂起（保可用性，与退役前一致）。
-    const ownership = await resolveWorkspaceForWU({
-      reqId,
-      channelId,
-      fileRefs: filesMeta?.files,
-      fileStore: resolvedFs,
-      // #525 P2-2：上方已解析的 channel 透传，归属解析不再重复 getChannel
-      channel,
-    }).catch(err => {
-      logger.warn('[MessageRouting] Ownership resolution failed, continuing without attribution', {
-        error: String(err),
-      });
-      return null;
-    });
-    // ownership 非 null 时其字段为权威解析结果；解析故障（null）不挂起（保可用性）。
-    const parked = ownership?.source === 'none';
-    // #494（方案 c，票内预授权）：先落派发消息再建 WU——WU metadata.anchorMessageId 显式携带
-    // 派发消息 id（认领播报优先锚它，消 created 事件先于派发消息落库的 findAnchorMessage 竞态）；
-    // 建单后 linkWorkUnit 回填消息 ↔ WU 关联（同 createFromMessage 既有路径）。
-    const dispatchMessage = await channelMessageService.createHumanMessage(
-      channelId,
-      content,
-      undefined,
-      undefined,
-      filesMeta,
-    );
-    const workUnit = await wuService.create({
-      scope,
-      channelId,
-      type: 'task',
-      // B3a: 无归属 → 立即 NEED_INPUT 挂起（blocked），等人回复工程名/路径
-      status: parked ? 'blocked' : 'unassigned',
-      assigneeId: agent?.id ?? undefined,
-      reqId,
-      metadata: {
-        // #496: 前缀兜底命中时落解析后的成员名（展示/认领播报以角色正名为准）
-        mentionName: prefixMatchName ?? mentionName,
-        matched: !!agent,
-        creationMode: 'mention',
-        // #494: 认领播报的显式线程锚点（见上方时序说明）
-        anchorMessageId: dispatchMessage.id,
-        // P0 修复 6: traceId 贯穿（audit requestId → WU metadata → agent-loop 日志）
-        ...(ctx?.traceId ? { traceId: ctx.traceId } : {}),
-        // #285: @文件引用落档（仅在有有效引用时写字段；prompt-composer files 段消费）
-        ...(filesMeta?.files ? { fileRefs: filesMeta.files } : {}),
-        // B3a: 归属解析结果落档（来源区分供日志/审计）
-        ownershipSource: ownership?.source ?? 'fallback',
-        ...(ownership?.workspaceRoot ? { workspaceRoot: ownership.workspaceRoot } : {}),
-        // 2026-08 归因统一：创建期 PMO 归因戳 canonical key = pmoId（legacy 名 ownershipProjectId 废弃，
-        // 读取侧同级兼容，见 requirements/wu-pmo-attribution.ts）
-        ...(ownership?.projectId ? { pmoId: ownership.projectId } : {}),
-        ...(parked
-          ? {
-              waitingForInput: true,
-              waitingQuestion: OWNERSHIP_WAITING_QUESTION,
-              waitingSince: new Date().toISOString(),
-              waitingReason: 'ownership',
-            }
-          : {}),
-      },
-    });
-    logger.info('[MessageRouting] WorkUnit created from @mention', {
-      channelId,
-      workUnitId: workUnit.id,
-      mentionName,
-      matched: !!agent,
-      reqId,
-      ownershipSource: ownership?.source ?? 'fallback',
-      parked,
-      traceId: ctx?.traceId ?? undefined,
-    });
-    // #591：@mention 派单决策埋点（词表 dispatch；依据 = 匹配方式摘要，不落消息全文）
-    recordAgentDecision({
-      action: 'dispatch',
-      resource: 'workunit',
-      resourceId: workUnit.id,
-      actor: agent ? { id: agent.id, type: 'agent' } : undefined,
-      details: {
-        via: 'mention',
-        channelId,
-        mentionName: prefixMatchName ?? mentionName,
-        matched: !!agent,
-        ...(prefixMatchName ? { prefixFallback: true } : {}),
-        ...(parked ? { parked: true } : {}),
-      },
-      requestId: ctx?.traceId ?? undefined,
-    });
-    // #494: 回填派发消息 ↔ WU 关联（best-effort：失败仅缺 back-link，线程锚定已由 anchorMessageId 承载）。
-    // 返回值替换派发消息记录，保持 routeMessage 返回值的 workUnitId 契约不变。
-    const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id, channelId).catch(err => {
-      logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {
-        workUnitId: workUnit.id, messageId: dispatchMessage.id, error: String(err),
-      });
-      return dispatchMessage;
-    });
-    await reportDroppedRefs(message);
-    // B3a: 无归属挂起 → 频道发 Studio 系统消息提问（挂在派发消息线程，回复即触发解析）
-    // #464：milestone=true（atHuman 响铃 + 行动中心通知双写）——挂起提问是「需要人答」，
-    // 此前只上屏不响铃，非在线人看不到（票体补充评论并入项）。
-    if (parked) {
-      await postWuSystemMessage(
-        workUnit,
-        `任务「${scope.slice(0, 50)}」正在等待你的回复：${OWNERSHIP_WAITING_QUESTION}`,
-        { replyToId: message.id, fileStore: resolvedFs, milestone: true },
-      ).catch(err =>
-        logger.warn('[MessageRouting] Post ownership question failed (non-blocking)', {
-          workUnitId: workUnit.id,
-          error: String(err),
-        })
-      );
-    }
-    // #464: @mention 未匹配（角色不存在/非本频道成员/系统角色）→ 线程说明。
-    // 此前 WU 照建、matched=false 落档但频道零提示，用户以为已派给某人。
-    if (!agent) {
-      const unmatchedText = mentionName === STUDIO_ROLE_NAME
-        ? 'studio 是系统角色，不执行任务，本单已转自动认领（频道成员可认领）'
-        : `未找到角色 @${mentionName}（不存在或非本频道成员），本单已转自动认领（频道成员可认领）`;
-      await postWuSystemMessage(workUnit, unmatchedText, {
-        replyToId: message.id, fileStore: resolvedFs,
-      }).catch(err =>
-        logger.warn('[MessageRouting] Post unmatched-mention notice failed (non-blocking)', {
-          workUnitId: workUnit.id,
-          error: String(err),
-        })
-      );
-    }
-    return message;
+    return dispatchMentionMessage(channelId, content, mentionName, {
+      reqId: ctx?.reqId,
+      traceId: ctx?.traceId,
+      channel: ctx?.channel,
+    }, { fs: resolvedFs, wuService, filesMeta, reportDroppedRefs });
   }
 
   // Priority 3（#632，决策12 默认角色退役后）：无 @ 无 replyTo 消息归宿。
   // fail-closed 总原则：拿不准就不动——显式 intent 优先，缺省走合并窗口判定，
   // 歧义（窗口内 ≥2 个不同在途 WU）/ 无目标一律纯存储，不再有任何自动建单路径。
   if (ctx?.intent === 'new-task') {
-    // 发送前归属预览的「新任务」选择：建未指派 WU 走涌现认领（与 mention 并列的显式建单）。
-    // #494：同 mention 路径——先落派发消息再建 WU，anchorMessageId 显式传递消认领播报竞态
-    const dispatchMessage = await channelMessageService.createHumanMessage(
-      channelId,
-      content,
-      undefined,
-      undefined,
-      filesMeta,
-    );
-    const workUnit = await wuService.create({
-      scope: content,
-      channelId,
-      type: 'task',
-      status: 'unassigned',
-      assigneeId: undefined, // 涌现认领（agent-loop observe 未指派过滤）
-      metadata: {
-        creationMode: 'channel-new-task',
-        // #494: 认领播报的显式线程锚点
-        anchorMessageId: dispatchMessage.id,
-        // #519: traceId 贯穿（与 @mention 路径同写法）
-        ...(ctx?.traceId ? { traceId: ctx.traceId } : {}),
-        // #285: @文件引用落档（本路径不做归属解析，仅落档供 prompt-composer files 段消费）
-        ...(filesMeta?.files ? { fileRefs: filesMeta.files } : {}),
-      },
+    // 发送前归属预览的「新任务」选择：建未指派 WU 走涌现认领（与 mention 并列的显式建单，
+    // 同收口 wu-dispatch.ts；#494 先落派发消息再建 WU 骨架共享）
+    return dispatchNewTaskMessage(channelId, content, { traceId: ctx?.traceId }, {
+      fs: resolvedFs, wuService, filesMeta, reportDroppedRefs,
     });
-    logger.info('[MessageRouting] WorkUnit created by explicit new-task intent', {
-      channelId,
-      workUnitId: workUnit.id,
-    });
-    // #591：显式建单埋点（词表 dispatch，via=new-task；未指派无 actor）
-    recordAgentDecision({
-      action: 'dispatch',
-      resource: 'workunit',
-      resourceId: workUnit.id,
-      details: { via: 'new-task', channelId },
-      requestId: ctx?.traceId ?? undefined,
-    });
-    const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id, channelId).catch(err => {
-      logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {
-        workUnitId: workUnit.id, messageId: dispatchMessage.id, error: String(err),
-      });
-      return dispatchMessage;
-    });
-    await reportDroppedRefs(message);
-    return message;
   }
 
   if (ctx?.intent !== 'plain') {
