@@ -32,7 +32,7 @@
 
 ### 依赖关系
 
-- 上游：`modules/agents`（barrel：getSystemExecutor / dispatchMonitorAlerts（刀6 后归 agent-monitor）/ MonitorAlertSource）、`modules/workunit`、`modules/pmo`、`modules/channels`、`modules/skills`、`modules/knowledge`、`modules/requirements`、`modules/role-memory`、`modules/transcripts`、`modules/triggers`、`modules/workspaces`、`modules/monitoring`、`core/`（store/system-role/exec-async）、`utils/`、`@dommaker/studio-agent`、`@dommaker/studio-shared`
+- 上游：`modules/agents`（barrel：getSystemExecutor / MonitorAlertSource）、`modules/ops`（barrel：dispatchMonitorAlerts / loadCurrentWuContexts，#683 起 monitoring/agent-monitor 并入 ops）、`modules/workunit`、`modules/pmo`、`modules/channels`、`modules/skills`、`modules/knowledge`、`modules/requirements`、`modules/role-memory`、`modules/transcripts`、`modules/triggers`、`modules/workspaces`、`core/`（store/system-role/exec-async）、`utils/`、`@dommaker/studio-agent`、`@dommaker/studio-shared`
 - 下游：`bootstrap/`（agent-loop/bridges/handlers/lifecycle 装配）、`modules/workunit`（routes/service/merge-on-review-pass 动态 import）、`modules/events`（sse.routes）、`modules/distill`、`modules/role-memory`（动态）
 
 ### 注意事项

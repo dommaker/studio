@@ -27,7 +27,7 @@
 
 - `@dommaker/studio-shared` (FileStore) — jsonl 持久化
 - `@dommaker/studio-shared` (eventBus) — SSE pub/sub（#324：SSE 直订 eventBus，event-store 浅适配器已删除；背压 = res.write 返回 false 即断开慢客户端，断开时一并 clearInterval heartbeat 防 write-after-end）
-- **无业务模块依赖（#687 反向依赖修复）**：lock-events-bridge 归属调整迁 agent-monitor；KE-001 P5 Skill 建议经 eventBus 'session:summary' 由 skills 订阅接进来；EXECUTION_STREAM_SSE_TYPE 常量正本上移 studio-contract/sse-events.ts。本模块只依赖 studio-shared / studio-contract / core / utils
+- **无业务模块依赖（#687 反向依赖修复）**：lock-events-bridge 归属调整迁 agent-monitor（#683 起随并归入 ops）；KE-001 P5 Skill 建议经 eventBus 'session:summary' 由 skills 订阅接进来；EXECUTION_STREAM_SSE_TYPE 常量正本上移 studio-contract/sse-events.ts。本模块只依赖 studio-shared / studio-contract / core / utils
 
 ### 测试
 

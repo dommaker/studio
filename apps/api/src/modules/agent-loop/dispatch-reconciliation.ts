@@ -31,9 +31,9 @@ import { parseWuMetadata } from '../workunit/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
 import { AnalysisHandoff } from '../pmo/index.js';
 import { ReviewDispatcher } from './review-dispatcher.js';
-import { dispatchMonitorAlerts } from '../agent-monitor/index.js';
+import { dispatchMonitorAlerts } from '../ops/index.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
-import type { MonitorAlertSource } from '../agent-monitor/index.js';
+import type { MonitorAlertSource } from '../ops/index.js';
 import { getStore } from '../../core/store.js';
 
 

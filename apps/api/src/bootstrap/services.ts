@@ -4,7 +4,7 @@
 // #686：表驱动 + runSoftSteps 单循环，「失败只 log 不拒启」纪律固化在 soft-steps.ts
 // （monitor/auditor 两个裸 start 一并纳入软启动纪律）；新增服务 = CORE_SERVICES 加一行。
 import { startEvolutionScheduler } from '../modules/knowledge/index.js';
-import { monitorService } from '../modules/agent-monitor/index.js';
+import { monitorService } from '../modules/ops/index.js';
 import { auditorService } from '../modules/agent-auditor/index.js';
 import { runSoftSteps, type SoftStep } from './soft-steps.js';
 
@@ -23,7 +23,7 @@ const CORE_SERVICES: readonly SoftStep[] = [
   },
   {
     name: 'OpsService',
-    run: async () => (await import('../modules/agent-ops/index.js')).createOpsService().start(),
+    run: async () => (await import('../modules/ops/index.js')).createOpsService().start(),
   },
   { name: 'EvolutionScheduler', run: () => startEvolutionScheduler() },
 ];

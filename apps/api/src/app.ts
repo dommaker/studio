@@ -9,7 +9,6 @@ import { errorHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { auditLogger } from './middleware/audit-logger.js';
 import { optionalAuth } from './middleware/auth.js';
-import { getMetrics } from './monitoring/index.js';
 import { buildRouteTable } from './route-registry.js';
 import { mountApiDocs } from './openapi/index.js';
 import { isAllowedOrigin } from './cors-origin.js';
@@ -52,7 +51,7 @@ app.use(cookieParser());
 app.use(requestLogger);
 app.use(auditLogger());
 
-// 健康检查（免认证）——liveness：只证进程在服务，deploy/agent-ops 判活用
+// 健康检查（免认证）——liveness：只证进程在服务，deploy/ops 判活用
 app.get('/health', (req: any, res: any) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -71,6 +70,8 @@ app.get('/readyz', (req: any, res: any) => {
 // Prometheus 指标
 app.get('/metrics', async (req: any, res: any) => {
   try {
+    // #683：ops barrel 动态 import——静态引入会把整个 ops 模块图提前到 app.ts 加载期，破坏启动瘦身
+    const { getMetrics } = await import('./modules/ops/index.js');
     const metrics = await getMetrics();
     res.set('Content-Type', 'text/plain; version=0.0.4');
     res.send(metrics);

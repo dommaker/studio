@@ -209,7 +209,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     try {
       const status = await Promise.race([
         (async () => {
-          const { createOpsService } = await import('./modules/agent-ops/index.js');
+          const { createOpsService } = await import('./modules/ops/index.js');
           return await createOpsService().getStatus();
         })(),
         new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
@@ -243,8 +243,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Evolution routes (E1 约束进化, vision §6)
   const { default: evolutionRoutes } = await import('./modules/evolution/evolution.routes.js') as { default: Router };
 
-  // Monitoring routes (MVP-2 + MVP-6)
-  const { default: monitoringRoutes } = await import('./modules/monitoring/monitoring.routes.js') as { default: Router };
+  // Monitoring routes (MVP-2 + MVP-6)（#683 起归 ops 模块）
+  const { default: monitoringRoutes } = await import('./modules/ops/monitoring.routes.js') as { default: Router };
 
   // Project Discovery routes (AC-D1+D3: local project scanning)
   const { default: projectRoutes } = await import('./modules/projects/project.routes.js') as { default: Router };

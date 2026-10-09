@@ -12,8 +12,8 @@ vi.mock('../../modules/agent-loop/index.js', () => ({
 vi.mock('../../modules/events/workunit-events-bridge.js', () => ({
   initWorkunitEventsBridge: () => calls.push('workunit-events-bridge'),
 }));
-// #687：桥迁 agent-monitor——mock 整个 barrel，避免加载 monitor.service 等重依赖
-vi.mock('../../modules/agent-monitor/index.js', () => ({
+// #687/#683：桥归 ops——mock 整个 barrel，避免加载 monitor.service 等重依赖
+vi.mock('../../modules/ops/index.js', () => ({
   initLockEventsBridge: () => calls.push('lock-events-bridge'),
 }));
 vi.mock('../../modules/pmo/analysis-handoff.js', () => ({

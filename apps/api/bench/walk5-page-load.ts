@@ -18,7 +18,7 @@ import { performance } from 'node:perf_hooks';
 import { FileStore } from '@dommaker/studio-shared';
 import { setReadMetricsSink, runWithLoopLabel, type ReadMetricEvent } from '@dommaker/studio-shared/read-metrics';
 import { FileKnowledgeStore } from '@dommaker/harness';
-import { MonitoringService } from '../src/modules/monitoring/monitoring.service.js';
+import { MonitoringService } from '../src/modules/ops/monitoring.service.js';
 import { MtimeMemoKnowledgeStore } from '../src/modules/knowledge/knowledge-store-memo.js';
 import { scanKnowledgeEvents, computeOutcomeMetrics } from '../src/modules/knowledge/knowledge-metrics.js';
 

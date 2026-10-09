@@ -14,8 +14,9 @@ const modules = fs.readdirSync(MODULES_DIR).filter(d => fs.statSync(path.join(MO
 
 describe('模块 barrel 完整性', () => {
   // 模块计数随域合并递减：#682 通知域合一（notify-channels/outbound-notify 并入 notifications）37→35
-  it('35 个模块均有 index.ts', () => {
-    expect(modules.length).toBe(35);
+  // #683 监控/ops 四面合一（monitoring/agent-monitor/agent-ops 并入 ops）35→33
+  it('33 个模块均有 index.ts', () => {
+    expect(modules.length).toBe(33);
     for (const mod of modules) {
       expect(fs.existsSync(path.join(MODULES_DIR, mod, 'index.ts')), `${mod}/index.ts 缺失`).toBe(true);
     }
@@ -24,7 +25,7 @@ describe('模块 barrel 完整性', () => {
   it('全部 barrel 可加载且导出符号非 undefined（循环初始化显形）', async () => {
     // import.meta.glob：vite 不支持全动态模板 import，用 glob 静态枚举
     const barrels = import.meta.glob('../modules/*/index.ts');
-    expect(Object.keys(barrels).length).toBe(35);
+    expect(Object.keys(barrels).length).toBe(33);
     for (const mod of modules) {
       const load = barrels[`../modules/${mod}/index.ts`];
       const ns = await load();

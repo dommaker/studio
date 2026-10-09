@@ -4,7 +4,7 @@
 
 Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言门面、default-provider/default-triggers、session-summary）。REST API CRUD + 事件驱动自动挂载/运行/终止。
 
-P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 超级域五个子系统 + Triage 已拆分为顶层模块——决策循环 `modules/agent-loop`、健康监控 `modules/agent-monitor`（含 instance-timeout-scan）、日审 `modules/agent-auditor`、进程守护 `modules/agent-ops`、知识维护 `modules/agent-knowledge`、Triage 并入 `modules/triage`。
+P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 超级域五个子系统 + Triage 已拆分为顶层模块——决策循环 `modules/agent-loop`、健康监控 `modules/agent-monitor`（含 instance-timeout-scan）、日审 `modules/agent-auditor`、进程守护 `modules/agent-ops`、知识维护 `modules/agent-knowledge`、Triage 并入 `modules/triage`。其后 #683（2026-10-09）将 agent-monitor / agent-ops / monitoring / src/monitoring 四面合并为 `modules/ops`。
 
 ### 目录结构
 
@@ -25,7 +25,7 @@ P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 
 ### 依赖关系
 
 - 上游：`@dommaker/studio-shared`、`@dommaker/studio-agent`（AgentRunner/worktree）、`core/`（store/system-role）、`modules/workunit`（实例-WU 聚合、token 聚合）、`modules/triggers`（default-triggers）、`middleware/`、`utils/`
-- 下游：`route-registry.ts`（profile/instance/token-usage 三条路由线挂载）、`bootstrap/`（agent-loop/handlers/warmup 装配）、`modules/agent-loop`/`modules/agent-knowledge`（system-executor）、`modules/agent-monitor`（agent-instance 聚合）、`modules/channels`/`modules/knowledge`/`modules/distill`/`modules/role-memory`/`modules/skills`（system-executor/summarizeRoleStates 等，部分动态）
+- 下游：`route-registry.ts`（profile/instance/token-usage 三条路由线挂载）、`bootstrap/`（agent-loop/handlers/warmup 装配）、`modules/agent-loop`/`modules/agent-knowledge`（system-executor）、`modules/ops`（agent-instance 聚合，#683 起 monitor 并入 ops）、`modules/channels`/`modules/knowledge`/`modules/distill`/`modules/role-memory`/`modules/skills`（system-executor/summarizeRoleStates 等，部分动态）
 
 ### 注意事项
 

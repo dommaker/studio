@@ -91,8 +91,8 @@
 | agent-profile.service | src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
 | default-triggers | src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
 | eval-case-store | src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
-| monitoring.routes | src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
-| monitoring.service | src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
+| monitoring.routes | src/modules/ops/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
+| monitoring.service | src/modules/ops/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
 | manifest-loader | src/modules/skills/manifest-loader.ts | manifest-loader (AS-025 3.28c-5) |
 | skill-selector | src/modules/skills/skill-selector.ts | skill-selector (AS-025 3.28c-5) |
 | skill-store | src/modules/skills/skill-store.ts | SkillStore — File-based CRUD for Skill metadata |
@@ -254,10 +254,10 @@
 | task.tools | src/modules/mcp/task.tools.ts | MCP Tools — 任务管理（FileStore） |
 | tool-store | src/modules/mcp/tool-store.ts | MCP Tools 共享 FileStore 存取助手 |
 | workunit.tools | src/modules/mcp/workunit.tools.ts | MCP Tools — WorkUnit |
-| current-wu-context | src/modules/monitoring/current-wu-context.ts | 当前 WU 聚合上下文（2026-07 PMO-flow UX §6-1；#318 自 monitoring.service 提取为共享出口）： |
-| metrics-aggregate | src/modules/monitoring/metrics-aggregate.ts | D16 聚合核心纯函数（工单 30 自 metrics.service.ts 纯函数区抽出，纯搬运零逻辑变更）： |
-| metrics.service | src/modules/monitoring/metrics.service.ts | D16 监控指标聚合（B5）— 任务流健康 / 入口转化 / 人工干预 / 周期 / 角色 / 工程质量 / Token / 告警。 |
-| metrics.types | src/modules/monitoring/metrics.types.ts | D16 监控指标类型契约（工单 30 自 metrics.service.ts 类型区抽出，纯搬运零逻辑变更）： |
+| current-wu-context | src/modules/ops/current-wu-context.ts | 当前 WU 聚合上下文（2026-07 PMO-flow UX §6-1；#318 自 monitoring.service 提取为共享出口）： |
+| metrics-aggregate | src/modules/ops/metrics-aggregate.ts | D16 聚合核心纯函数（工单 30 自 metrics.service.ts 纯函数区抽出，纯搬运零逻辑变更）： |
+| metrics.service | src/modules/ops/metrics.service.ts | D16 监控指标聚合（B5）— 任务流健康 / 入口转化 / 人工干预 / 周期 / 角色 / 工程质量 / Token / 告警。 |
+| metrics.types | src/modules/ops/metrics.types.ts | D16 监控指标类型契约（工单 30 自 metrics.service.ts 类型区抽出，纯搬运零逻辑变更）： |
 | routes | src/modules/notifications/routes.ts | 通知 API 路由 |
 | clawbot-client | src/modules/notify-channels/clawbot-client.ts | #525 P2-6：ClawBot（iLink 协议）客户端 —— 扫码绑定 + 文本发送 |
 | config-store | src/modules/notify-channels/config-store.ts | #525 P2-6：/settings「通知渠道」配置存储 —— ~/.studio 数据区配置文件读写 |

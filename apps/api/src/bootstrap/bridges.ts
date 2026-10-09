@@ -18,9 +18,9 @@ const EVENT_SUBSCRIPTIONS: readonly SoftStep[] = [
   },
   {
     // #169: lock.* 事件（stale 回收/获锁超时）→ Monitor 告警全管线
-    // #687：桥归属 agent-monitor（消费 Monitor 能力即 Monitor 业务），events 不再反向依赖
+    // #687：桥归属 ops（消费 Monitor 能力即 Monitor 业务；#683 起随 monitor 并入 ops），events 不再反向依赖
     name: 'LockEventsBridge',
-    run: async () => (await import('../modules/agent-monitor/index.js')).initLockEventsBridge(),
+    run: async () => (await import('../modules/ops/index.js')).initLockEventsBridge(),
   },
   {
     // PMO 分析接力：analysis 确认 → 拆 task WU 派工

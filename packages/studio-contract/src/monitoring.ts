@@ -1,5 +1,5 @@
 /**
- * monitoring 域契约——正本以 apps/api/src/modules/monitoring/ 实测 wire 为准：
+ * monitoring 域契约——正本以 apps/api/src/modules/ops/ 实测 wire 为准（#683 起归 ops 模块）：
  * monitoring.service.ts（AgentSummary/MonitoringStats/FlywheelStats/OverheadStats）、
  * current-wu-context.ts（AgentCurrentWorkUnit/AgentPmoSummary）、
  * metrics.types.ts（D16 OverviewMetrics 九组 + #120 EfficiencyMetrics）。

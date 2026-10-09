@@ -19,7 +19,7 @@ vi.mock('../../modules/triggers/trigger-action.js', () => ({
     registry.set(name, fn);
   },
 }));
-vi.mock('../../modules/agent-monitor/index.js', () => ({
+vi.mock('../../modules/ops/index.js', () => ({
   scanStaleAgentInstances: spies.scanStaleAgentInstances,
 }));
 vi.mock('../../modules/evolution/evolution.service.js', () => ({

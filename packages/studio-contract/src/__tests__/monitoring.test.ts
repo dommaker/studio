@@ -1,6 +1,6 @@
 /**
  * monitoring 域契约测试：六端点实体 parity + 响应壳 + windowDays query。
- * 正本 = apps/api/src/modules/monitoring/monitoring.service.ts +
+ * 正本 = apps/api/src/modules/ops/monitoring.service.ts +
  * current-wu-context.ts + metrics.types.ts。
  */
 

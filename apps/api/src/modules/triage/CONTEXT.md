@@ -26,7 +26,7 @@
 
 **上游依赖**：modules/knowledge（knowledgeService，triage.service 诊断段）、core（store/proc-probes/exec-async）、modules/notifications（incident-notification 经公共面取 getNotificationService，#684 包下沉）
 **下游依赖**：
-- apps/api/src/modules/agents/monitor/*（monitor-alerts/monitor-system-probes 告警升级，走 barrel；P2-d 刀6 后归 modules/agent-monitor）
+- apps/api/src/modules/ops/*（monitor-alerts/monitor-system-probes 告警升级，走 barrel；P2-d 刀6 后归 modules/agent-monitor，#683 起并入 modules/ops）
 - apps/api/tests/b2-unit.test.ts（测试模块）
 
 ### 注意事项

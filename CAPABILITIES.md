@@ -30,6 +30,29 @@
 | pmo | apps/api/src/modules/pmo/ | 🆕 AS-016: 获取当前季度 |
 | skills | apps/api/src/modules/skills/ | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
+| types | packages/studio-agent/src/services/types.ts | Executor 公共类型 |
+| types | packages/studio-skill/src/types.ts | Skill 定义类型 |
+| current-wu-context | apps/api/src/modules/ops/current-wu-context.ts | 当前 WU 聚合上下文（2026-07 PMO-flow UX §6-1；#318 自 monitoring.service 提取为共享出口）： |
+| instance-timeout-scan | apps/api/src/modules/ops/instance-timeout-scan.ts | #179（#66 决议 3 scan 侧）agent-timeout-scan handler 本体。 |
+| lock-events-bridge | apps/api/src/modules/ops/lock-events-bridge.ts | lock.* 事件 → Monitor 告警桥（#169 / #64 决议 4；#687 自 events 模块迁入—— |
+| metrics-aggregate | apps/api/src/modules/ops/metrics-aggregate.ts | D16 聚合核心纯函数（工单 30 自 metrics.service.ts 纯函数区抽出，纯搬运零逻辑变更）： |
+| metrics.service | apps/api/src/modules/ops/metrics.service.ts | D16 监控指标聚合（B5）— 任务流健康 / 入口转化 / 人工干预 / 周期 / 角色 / 工程质量 / Token / 告警。 |
+| metrics.types | apps/api/src/modules/ops/metrics.types.ts | D16 监控指标类型契约（工单 30 自 metrics.service.ts 类型区抽出，纯搬运零逻辑变更）： |
+| monitor-alerts | apps/api/src/modules/ops/monitor-alerts.ts | Monitor Agent — 告警分发 / Triage 升级 / 事件写入 |
+| monitor-lifecycle | apps/api/src/modules/ops/monitor-lifecycle.ts | Monitor Agent — G31 数据生命周期：知识沉淀闸门 + TTL 清理 |
+| monitor-probes | apps/api/src/modules/ops/monitor-probes.ts | Monitor Agent — 任务/WorkUnit 级探测 |
+| monitor-reports | apps/api/src/modules/ops/monitor-reports.ts | Monitor Agent — 报告：轨迹评估 / 每日洞察 / 交互模式观察 |
+| monitor-system-probes | apps/api/src/modules/ops/monitor-system-probes.ts | Monitor Agent — 系统/知识级探测与自修复 |
+| monitor.service | apps/api/src/modules/ops/monitor.service.ts | Monitor Service - 健康监控 + NA Step 7 渐进告警 |
+| monitoring.routes | apps/api/src/modules/ops/monitoring.routes.ts | GET /overview — D16: 监控指标聚合（任务流健康/入口转化/人工干预北极星/端到端周期/ |
+| monitoring.service | apps/api/src/modules/ops/monitoring.service.ts | 平均封装开销比 = mean(injectedTokens / executionTokens)，即 studio 包装层 |
+| ops-rules | apps/api/src/modules/ops/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
+| ops.service | apps/api/src/modules/ops/ops.service.ts | Ops Service — 系统生命周期守护 |
+| prometheus-metrics | apps/api/src/modules/ops/prometheus-metrics.ts | agent-studio Prometheus 指标 |
+| system-health | apps/api/src/modules/ops/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
+| types | apps/api/src/modules/ops/types.ts | Monitor Agent 告警类型定义（P2-d 自 agents/types.ts 拆分，随 monitor 子系统归属） |
+| types | apps/api/src/modules/triage/types.ts | Triage Agent 类型定义（P2-d 自 agents/types.ts 拆分，随 triage 子系统归属） |
+| types | apps/web/src/components/pmo/types.ts | PMO 页面共享领域类型 — KR / OKR / Project |
 | error-class | apps/api/src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | library | apps/api/src/modules/library/ | GET /api/v1/library（#155 阅览室：跨项目 .studio/ 聚合只读）|
 | api | apps/web/src/api/ | Channel API — list + publish 发布 |
@@ -41,7 +64,6 @@
 | workspaces | apps/api/src/modules/workspaces/ | Local Workspace Registration — AS-020 P2-04 |
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
-| monitoring | apps/api/src/modules/monitoring/ | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | triggers | apps/api/src/modules/triggers/ | Cron Matcher — minimal cron expression evaluator (3.28c-4) |
 | workunit | apps/api/src/modules/workunit/ | WorkUnit API 路由 (AS-025 §3.28c-1, §5.16) |
 | anomaly-detector | packages/studio-shared/src/stats/anomaly-detector.ts | 计算数组的均值和标准差（总体标准差） |

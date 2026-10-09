@@ -14,7 +14,7 @@ import { execAsync } from '../../core/exec-async.js';
 import { getTriggerScheduler } from '../triggers/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { isProcessAlive } from './agent-loop-parsers.js';
-import { loadCurrentWuContexts, type CurrentWuContext } from '../monitoring/index.js';
+import { loadCurrentWuContexts, type CurrentWuContext } from '../ops/index.js';
 // #665（ADR 2026-08-24 落地）：agent.* SSE 负载与 studio-contract 同源
 import type { AgentHealthFailedPayload, AgentInstanceStatusChangedPayload } from '@dommaker/studio-contract';
 import type { AgentLoopHost } from './loop-host.js';

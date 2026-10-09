@@ -29,7 +29,7 @@
 下游依赖：
 - `apps/api/src/route-registry.ts`（深路径挂载三套路由：notifications / notify/send / notify-channels）
 - `apps/api/src/bootstrap/tunnel.ts`（discordNotifier 隧道 URL 通知）
-- 跨模块消费方（经本模块 index.ts 公共面）：action-center、workunit（wu-messenger/gate-escalation）、agent-auditor、agent-loop（daily-token-budget）、agent-monitor（monitor-alerts/monitor-reports）、agent-knowledge（knowledge-cold-start）、skills（skill-extraction）、pmo/delivery-notify、triage/incident-notification
+- 跨模块消费方（经本模块 index.ts 公共面）：action-center、workunit（wu-messenger/gate-escalation）、agent-auditor、agent-loop（daily-token-budget）、ops（monitor-alerts/monitor-reports，#683 起 monitor 并入 ops）、agent-knowledge（knowledge-cold-start）、skills（skill-extraction）、pmo/delivery-notify、triage/incident-notification
 
 ### 注意事项
 

@@ -5,7 +5,7 @@
  * - 每条必须带 reason（架构成因 + 治理去向），改动本文件须在 commit message 说明；
  * - 实际环与清单任一侧漂移即 CI 红：新增环拆依赖或补豁免，环清零后必须回收对应豁免（stale 也 fail）。
  *
- * 现状（2026-10-09 更新）：41 个模块中 21 个落在同一个 SCC——
+ * 现状（2026-10-09 #683 更新）：33 个模块中 21 个落在同一个 SCC——
  * 根因是「领域服务经对方 barrel（index.ts）互调」是本平台的主流协作形态
  * （WU 状态机贯穿 channels/pmo/requirements/knowledge/agents 各域），
  * 全部边均走公共面 barrel、无深路径；清零依赖 Phase 3 巨型文件拆分（#668-#672）
@@ -16,10 +16,13 @@
 // 均经 barrel 互取服务）。成员集精确匹配——任何新模块加入环簇或环簇合并/分裂都会撞门。
 // 2026-10-09 #682：通知域合一后 notifications 入簇（alert-notifier 频道 sink → channels barrel，
 // channels→workunit→notifications 回路本已存在）；入簇边 = 模块内 alert-notifier → ../channels/index.js。
+// 2026-10-09 #683：monitoring/agent-monitor/agent-ops 三面合并为 ops（agent-monitor、monitoring
+// 原本在簇，合并后 ops 继承全部跨模块边）；ops 继承 agent-ops 的 ops→auth 边（hashPassword）
+// 把 auth 拉入环簇（auth→channels 等回路本已存在）。
 const HUB_SCC = [
-  'agent-auditor', 'agent-knowledge', 'agent-loop', 'agent-monitor', 'agents',
-  'audit-logs', 'channels', 'evolution', 'harness', 'knowledge',
-  'mcp', 'monitoring', 'notifications', 'pmo', 'requirements',
+  'agent-auditor', 'agent-knowledge', 'agent-loop', 'agents',
+  'audit-logs', 'auth', 'channels', 'evolution', 'harness', 'knowledge',
+  'mcp', 'notifications', 'ops', 'pmo', 'requirements',
   'review-proposal', 'role-memory', 'skills', 'triage', 'triggers',
   'workunit',
 ];
@@ -57,10 +60,16 @@ export default {
       reason: 'prompt 装配读角色记忆 ↔ 记忆完成提取回读 loop 产出结构；待提取口下沉 contract/事件解耦。',
     },
     {
-      a: 'agent-monitor',
+      a: 'ops',
       b: 'workunit',
       // monitor 巡检读写 WU（12 边）；workunit/in-review-inbox 回读 monitor 状态（1 边）
-      reason: 'monitor 巡检 WU 实例超时 ↔ WU in-review 收件箱回读 monitor；单向化改由 monitor 订阅 WU 事件，随 monitor 域治理回收。',
+      reason: 'monitor 巡检 WU 实例超时 ↔ WU in-review 收件箱回读 monitor（#683：agent-monitor/monitoring/agent-ops 合并为 ops，原 agent-monitor↔workunit 豁免随之更名）；单向化改由 monitor 订阅 WU 事件，随 monitor 域治理回收。',
+    },
+    {
+      a: 'ops',
+      b: 'pmo',
+      // ops/current-wu-context 经 pmo barrel 解析 WU 归属 PMO；pmo/analysis-handoff 动态 import ops 告警出声
+      reason: '#683 合并新成对：监控聚合读 PMO 归属链（current-wu-context→pmo barrel）↔ PMO 分析接力回投 ops 告警管线（analysis-handoff 动态 import）；归属解析应下沉 contract/查询口解耦。',
     },
     {
       a: 'agents',

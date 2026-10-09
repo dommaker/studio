@@ -27,8 +27,8 @@ governance:
       - apps/api/src/modules/knowledge
       - apps/api/src/modules/library
       - apps/api/src/modules/mcp
-      - apps/api/src/modules/monitoring
       - apps/api/src/modules/notifications
+      - apps/api/src/modules/ops
       - apps/api/src/modules/pmo
       - apps/api/src/modules/projects
       - apps/api/src/modules/requirements

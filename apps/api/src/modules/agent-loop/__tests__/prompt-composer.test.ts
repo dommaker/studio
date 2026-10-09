@@ -60,7 +60,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';
 // 推导块的 2K 线常量之一（INJECT_TOKEN_BUDGET 走 vi.importActual，本文件把 knowledge-service 整体 mock 了）
-import { INJECTED_TOKEN_BUDGET } from '../../monitoring/monitoring.service.js';
+import { INJECTED_TOKEN_BUDGET } from '../../ops/monitoring.service.js';
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载
 const { composeStepPrompt, SECTION_QUOTAS, CONTRACT_TEMPLATES } = await import('../prompt-composer');
