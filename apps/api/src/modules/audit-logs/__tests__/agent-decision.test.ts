@@ -8,10 +8,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { mockLog } = vi.hoisted(() => ({ mockLog: vi.fn() }));
 
-vi.mock('@dommaker/studio-audit', () => ({
-  AuditService: vi.fn().mockImplementation(function () {
-    return { log: mockLog };
-  }),
+vi.mock('../audit-service.js', () => ({
+  getAuditService: () => ({ log: mockLog }),
 }));
 
 import { recordAgentDecision } from '../agent-decision.js';

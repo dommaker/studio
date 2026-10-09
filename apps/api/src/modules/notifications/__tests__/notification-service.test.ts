@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vites
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { FileStore } from '@dommaker/studio-shared';
-import { NotificationService } from '../notification-service';
+import { NotificationService } from '../notification-service.js';
 
 // vi.hoisted runs before vi.mock factory evaluation, ensuring tmpDir
 // is initialized before the module-level NOTIFICATIONS_JSONL constant.

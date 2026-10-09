@@ -8,7 +8,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { FileStore } from '@dommaker/studio-shared';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../../notifications/index.js';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 import { actionCenterRoutes } from '../routes.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';

@@ -19,9 +19,9 @@ import {
   GATE_POLICIES,
   isHarnessCheck,
   HarnessCheckConfig,
-} from '../types/gate.types.js';
+} from './types/gate.types.js';
 
-import { ChangeLevel, ChangeRecord } from '../types/change.types.js';
+import { ChangeLevel, ChangeRecord } from './types/change.types.js';
 import { changeHistoryService } from './change-history.service.js';
 import { logger } from '@dommaker/studio-shared';
 import type { Checkpoint, CheckpointContext, CheckpointValidator } from '@dommaker/harness';

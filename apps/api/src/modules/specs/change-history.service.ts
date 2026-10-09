@@ -5,7 +5,7 @@
  * AC-010: 变更历史记录完整
  * 
  * 负责：
- * 1. 存储变更记录（持久化）
+ * 1. 保存变更记录（进程内易失，见 historyStore 注释）
  * 2. 查询变更历史
  * 3. 变更统计
  */
@@ -13,12 +13,14 @@
 import {
   ChangeRecord,
   ChangeLevel,
-} from '../types/change.types.js';
+} from './types/change.types.js';
 
 import { logger } from '@dommaker/studio-shared';
 
 /**
- * 内存存储（临时，后续接入 Prisma）
+ * 内存存储（#684 决策：有意不落 FileStore——生产侧唯一写入口是 import 端点，
+ * analyze → validate 闭环在同进程内完成，export/import 端点即显式迁移路径；
+ * 历史库定位为易失工作区，重启清空可接受）。
  */
 const historyStore: Map<string, ChangeRecord[]> = new Map();
 

@@ -8,11 +8,8 @@ governance:
     # 新增模块/包时须同步补此清单，否则 sync-docs 模块面与 context_doc_sync 覆盖不到新目录
     required_dirs:
       - packages/studio-agent/src
-      - packages/studio-audit/src
-      - packages/studio-notification/src
       - packages/studio-shared/src
       - packages/studio-skill/src
-      - packages/studio-spec/src
       - apps/api/src/bootstrap
       - apps/api/src/modules/action-center
       - apps/api/src/modules/admin

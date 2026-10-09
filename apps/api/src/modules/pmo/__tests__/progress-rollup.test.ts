@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { eventBus, FileStore } from '@dommaker/studio-shared';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../../notifications/index.js';
 import { initPmoProgressRollup, syncProjectProgress, syncProjectProgressByReqId, parseWuMetaPmoId, waitForPmoProgressRollupSettled } from '../progress-rollup.js';
 import { projectService, PROJECT_STATUS, type ProjectData } from '../project.service.js';
 import { RequirementService } from '../../requirements/requirement.service.js';

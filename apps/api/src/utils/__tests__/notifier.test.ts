@@ -39,10 +39,8 @@ vi.mock('../../modules/channels/channel-message.service.js', () => ({
 }));
 
 // #468 行动中心 sink 经 NotificationService.createForAllUsers 持久化，此处只验证委托
-vi.mock('@dommaker/studio-notification', () => ({
-  NotificationService: vi.fn().mockImplementation(function () {
-    return { createForAllUsers: mockCreateForAllUsers };
-  }),
+vi.mock('../../modules/notifications/index.js', () => ({
+  getNotificationService: () => ({ createForAllUsers: mockCreateForAllUsers }),
 }));
 
 import { notifyAlert } from '../notifier.js';

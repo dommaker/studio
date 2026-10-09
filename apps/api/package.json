@@ -12,12 +12,9 @@
   "dependencies": {
     "@dommaker/harness": "^3.0.0",
     "@dommaker/studio-agent": "workspace:*",
-    "@dommaker/studio-audit": "workspace:*",
     "@dommaker/studio-contract": "workspace:*",
-    "@dommaker/studio-notification": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "@dommaker/studio-skill": "workspace:*",
-    "@dommaker/studio-spec": "workspace:*",
     "@types/compression": "^1.8.1",
     "@types/js-yaml": "^4.0.9",
     "bcryptjs": "^2.4.3",

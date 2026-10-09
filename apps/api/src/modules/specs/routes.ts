@@ -18,11 +18,9 @@ import {
   ERROR_CODES,
   type ChangeLevel,
 } from '@dommaker/studio-contract';
-import {
-  changeAnalyzerService,
-  changeHistoryService,
-  gateCheckerService,
-} from '@dommaker/studio-spec';
+import { changeAnalyzerService } from './change-analyzer.service.js';
+import { changeHistoryService } from './change-history.service.js';
+import { gateCheckerService } from './gate-checker.service.js';
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
 
 // P2-e 鉴权声明式统一：open（读 + analyze-change，registry 挂 auth）/ write（changes validate +

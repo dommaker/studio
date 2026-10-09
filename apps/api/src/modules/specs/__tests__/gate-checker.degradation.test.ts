@@ -13,8 +13,8 @@ vi.mock('@dommaker/harness', () => ({
   CheckpointValidator: undefined,
 }));
 
-import { gateCheckerService } from './gate-checker.service.js';
-import { changeHistoryService } from './change-history.service.js';
+import { gateCheckerService } from '../gate-checker.service.js';
+import { changeHistoryService } from '../change-history.service.js';
 import type { SpecContent, ChangeRecord } from '../types/change.types.js';
 
 describe('GateCheckerService harness 不可用降级', () => {

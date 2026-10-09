@@ -1,6 +1,6 @@
 /**
  * specs 域契约测试：请求/响应 schema 的接受-拒绝边界。
- * 正本 = packages/studio-spec types（AnalyzeChangeResult/ChangeRecord/GatePolicy 等）。
+ * 正本 = apps/api/src/modules/specs/types（AnalyzeChangeResult/ChangeRecord/GatePolicy 等）。
  * 实体均为后端产出、无前端消费方 → z.infer 直接使用，无手写 interface parity。
  */
 

@@ -2,7 +2,7 @@
 // 覆盖：三种 kind 同池共存、waitingSince 缺失回退 updatedAt、通知面按 userId 隔离。
 import { describe, it, expect, vi } from 'vitest';
 import { FileStore } from '@dommaker/studio-shared';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../../notifications/index.js';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 import { ActionCenterService } from '../action-center.service.js';
 

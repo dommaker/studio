@@ -1,8 +1,8 @@
 /**
- * specs 域契约——正本字段以 packages/studio-spec 的 types/change.types.ts
+ * specs 域契约——正本字段以 apps/api/src/modules/specs 的 types/change.types.ts
  * （AnalyzeChangeResult/ChangeRecord/SpecContent）与 types/gate.types.ts
- * （ValidateChangeResult/GatePolicy/CheckResult）、services/change-history.service.ts
- * （getStats）为准。studio-spec 引 harness/Node 依赖，契约包只重声明 wire 形状不 import。
+ * （ValidateChangeResult/GatePolicy/CheckResult）、change-history.service.ts
+ * （getStats）为准。specs 服务引 harness/Node 依赖，契约包只重声明 wire 形状不 import（消重归 #685）。
  *
  * wire 形状（defineRoute 统一壳后）：
  * - 全部 JSON 端点 `{ data: T }`（原已带壳，形状不变）

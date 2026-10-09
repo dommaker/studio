@@ -9,14 +9,10 @@
  *
  * fire-and-forget：失败只记日志，绝不阻断业务链路（对齐 claim-announce 出声先例）。
  */
-import { AuditService } from '@dommaker/studio-audit';
+import { getAuditService } from './audit-service.js';
 
 import { logger } from '../../utils/logger.js';
-import { createLazyService } from '../../utils/services.js';
-import { getStore } from '../../core/store.js';
 
-
-const getAuditService = createLazyService(() => new AuditService(getStore()));
 
 /** 决策主体（认领人/流转操作人/被指名 profile 等）；缺省视为 agent 自主决策 */
 export interface AuditActor {

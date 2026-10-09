@@ -2,9 +2,11 @@
  * 通知服务
  */
 
-import { FileStore, foldJsonlById, getDefaultFileStore, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
+import { FileStore, foldJsonlById, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import fs from 'node:fs';
+import { createLazyService } from '../../utils/services.js';
+import { getStore } from '../../core/store.js';
 
 /** 全用户 id 列表（auditor 先例：data/users/*.json 文件名，截顶 10；目录缺失返回空） */
 async function listUserIds(): Promise<string[]> {
@@ -226,5 +228,9 @@ export class NotificationService {
   }
 }
 
-// 单例实例（P2-b：默认实例经持有器获取，不再自行 new；测试请自行 new NotificationService(显式 root)）
-export const notificationService = new NotificationService(getDefaultFileStore());
+/**
+ * 进程级单例（#684 包下沉）：取代包时代的模块级 `notificationService` 实例——
+ * apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+ * 调用时才取 getStore()。测试请自行 new NotificationService(显式 store)。
+ */
+export const getNotificationService = createLazyService(() => new NotificationService(getStore()));

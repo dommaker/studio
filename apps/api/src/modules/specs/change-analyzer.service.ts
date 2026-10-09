@@ -21,7 +21,7 @@ import {
   CHANGE_TYPE_LEVELS,
   CHANGE_TYPE_WEIGHTS,
   AREA_WEIGHTS,
-} from '../types/change.types.js';
+} from './types/change.types.js';
 
 import { logger } from '@dommaker/studio-shared';
 

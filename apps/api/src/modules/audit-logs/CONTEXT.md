@@ -2,13 +2,14 @@
 
 ### 职责
 
-提供审计日志的查询与统计 API 端点，支持按用户、角色、公司、操作类型、资源、状态、时间范围等条件过滤，并支持分页查询和统计汇总。
+提供审计日志的记录、查询、统计与导出：服务层 `AuditService`（JSONL 存储，#684 自 packages/studio-audit 下沉并入本模块）+ 查询与统计 API 端点，支持按用户、角色、公司、操作类型、资源、状态、时间范围等条件过滤，并支持分页查询和统计汇总。
 
 ### 核心导出
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
+| `AuditService` / `AuditActions` / `AuditResources` / `getAuditService` | audit-service.ts | 核心审计服务（记录/查询/统计/导出，写 `~/.studio/logs/audit.jsonl`）；`getAuditService` 为进程级单例入口（#684 单例化：取代消费方各自 new 的四份实例，createLazyService 首次调用时才取 getStore()）；`AuditLogInput`/`AuditLogQuery`/`AuditLogStats` 类型同文件 |
 | `router` (默认导出) | routes.ts | Express 路由对象，包含 `GET /api/audit-logs`（查询日志）和 `GET /api/audit-logs/stats`（获取统计）两个端点。 |
 | `queryProposalDecisionRows` / `getProposalDecisionRowById` / `collectProposalDecisionRows` / `filterProposalDecisionRows` | proposal-source.ts | #591 A 类：review-proposal 8 种 kind 的聚合读面（零新写入，折叠归各 adapter store 正本），映射 audit 行形状（actorType=agent, action=propose, resource=kind, status=提案终态原值，evolution 含 stale）；details 含卡片作者（adapter.author），详情回查（getProposalDecisionRowById）带提案全文；已知 kind 未注册时 warn 留痕不静默缺源；evolution 随 #623 归位（自定义 store 包 EP-XXXX.json 读写，频道文本审核退役）；constraint 随 ADR-0033 子项 7 入词表（adapter 与 evolution 同机注册，EvolutionService 构造带出） |
 | `recordAgentDecision` / `AuditActor` | agent-decision.ts | #591 B 类：自主决策埋点统一入口（fire-and-forget，失败只记日志不阻断业务链） |
@@ -30,7 +31,7 @@ agent 自主决策埋点的 action/resource 词表：
 
 ### 依赖关系
 
-- **上游依赖**：`../../utils/logger.js`（日志）、`../../utils/pagination.js`（分页格式化）、`../../utils/services.js`（惰性服务工厂）、`@dommaker/studio-audit`（审计服务与枚举）、`@dommaker/studio-shared`（FileStore）、`express`。
+- **上游依赖**：`../../utils/logger.js`（日志）、`../../utils/pagination.js`（分页格式化）、`../../utils/services.js`（惰性服务工厂）、`@dommaker/studio-shared`（FileStore）、`express`。审计服务已随 #684 下沉为本模块 audit-service.ts（不再依赖 packages/studio-audit）。
 - **下游依赖**：`apps/api/src/route-registry.ts` 注册此模块的路由。
 
 ### 注意事项

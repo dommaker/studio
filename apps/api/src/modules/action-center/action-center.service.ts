@@ -7,7 +7,7 @@
  * - 事件持久（notifications）：NotificationService JSONL 持久面，墓碑=已读。
  */
 import { FileStore } from '@dommaker/studio-shared';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../notifications/index.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { MANUAL_GATE_TYPES } from '../workunit/index.js';
 import { parseWuMetadata, parseWuTitle } from '../workunit/index.js';

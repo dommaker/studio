@@ -11,6 +11,8 @@
 
 import { FileStore, logger, generateId } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { createLazyService } from '../../utils/services.js';
+import { getStore } from '../../core/store.js';
 
 // ========== 常量 ==========
 
@@ -369,3 +371,10 @@ export class AuditService {
     return data;
   }
 }
+
+/**
+ * 进程级单例（#684 包下沉 + 单例化）：取代消费方各自 new AuditService(getStore())
+ * 的四份实例。createLazyService 首次调用时才取 getStore()，遵守 core/store
+ * 「禁 import 期捕获」纪律。
+ */
+export const getAuditService = createLazyService(() => new AuditService(getStore()));

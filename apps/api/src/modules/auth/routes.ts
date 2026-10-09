@@ -10,7 +10,7 @@ import {
   refreshRateLimit,
 } from "../../middleware/rate-limit.js";
 import * as authService from "./service.js";
-import { AuditService } from "@dommaker/studio-audit"; // 🆕 SEC-010
+import { getAuditService } from "../audit-logs/index.js"; // 🆕 SEC-010
 import { logger } from "@dommaker/studio-shared";
 import { defineRoute, HttpError } from "../../core/http.js";
 import { ERROR_CODES } from "@dommaker/studio-contract";
@@ -20,11 +20,9 @@ import {
   loginBodySchema,
   refreshBodySchema,
 } from "@dommaker/studio-contract";
-import { getStore } from '../../core/store.js';
 
 
 const router = Router();
-const auditService = new AuditService(getStore()); // 🆕 SEC-010
 
 /**
  * GET /api/v1/auth/status
@@ -80,7 +78,7 @@ router.post("/register", authRateLimit, defineRoute(
       const result = await authService.register(body as authService.RegisterInput);
 
       // SEC-010: 记录注册成功
-      await auditService
+      await getAuditService()
         .log({
           userId: result.user!.id,
           action: "register",
@@ -96,7 +94,7 @@ router.post("/register", authRateLimit, defineRoute(
       const err = error as Error;
 
       // SEC-010: 记录注册失败
-      await auditService
+      await getAuditService()
         .log({
           action: "register",
           resource: "user",
@@ -129,7 +127,7 @@ router.post("/login", authRateLimit, defineRoute(
       const result = await authService.login(body as authService.LoginInput);
 
       // SEC-010: 记录登录成功
-      await auditService
+      await getAuditService()
         .log({
           userId: result.user!.id,
           sessionId: result.session.id,
@@ -148,7 +146,7 @@ router.post("/login", authRateLimit, defineRoute(
       const err = error as Error;
 
       // SEC-010: 记录登录失败
-      await auditService
+      await getAuditService()
         .log({
           ipAddress: String(ip),
           userAgent: ua,
@@ -178,7 +176,7 @@ router.post("/logout", requireAuth(), defineRoute({}, async (req) => {
   await authService.logout(authInfo.sessionId, authInfo.userId);
 
   // SEC-010: 记录登出
-  await auditService
+  await getAuditService()
     .log({
       userId: authInfo.userId,
       sessionId: authInfo.sessionId,

@@ -25,7 +25,7 @@ vi.mock('@dommaker/studio-shared/studio-dir', async () => {
   return { studioPath: (...segs: string[]) => nodePath.join(root, ...segs) };
 });
 
-import { NotificationService } from './notification-service';
+import { NotificationService } from '../notification-service.js';
 import { FileStore } from '@dommaker/studio-shared';
 
 let service: NotificationService;

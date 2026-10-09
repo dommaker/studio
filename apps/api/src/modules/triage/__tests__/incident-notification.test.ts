@@ -8,8 +8,8 @@ const { mockCreateForAllUsers, mockLogger } = vi.hoisted(() => ({
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock('@dommaker/studio-notification', () => ({
-  notificationService: { createForAllUsers: mockCreateForAllUsers },
+vi.mock('../../notifications/index.js', () => ({
+  getNotificationService: () => ({ createForAllUsers: mockCreateForAllUsers }),
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({

@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ChangeHistoryService } from './change-history.service.js';
+import { ChangeHistoryService } from '../change-history.service.js';
 import type { ChangeRecord, ChangeLevel } from '../types/change.types.js';
 
 const history = new ChangeHistoryService();

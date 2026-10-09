@@ -6,8 +6,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { gateCheckerService } from './gate-checker.service.js';
-import { changeHistoryService } from './change-history.service.js';
+import { gateCheckerService } from '../gate-checker.service.js';
+import { changeHistoryService } from '../change-history.service.js';
 import { isHarnessCheck } from '../types/gate.types.js';
 import type { SpecContent, ChangeRecord } from '../types/change.types.js';
 

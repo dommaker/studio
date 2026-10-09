@@ -20,7 +20,7 @@
  * （→ project.service → workunit.service）会成循环（同 merge-on-review-pass 头部依赖说明）。
  */
 import { FileStore, logger, type ChannelMessageData } from '@dommaker/studio-shared';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../notifications/index.js';
 import type { MessageMeta, MessageRecord } from '../channels/index.js';
 import { parseWuMetadata, parseWuTitle } from './wu-metadata.js';
 import type { WorkUnitData } from './workunit-crud.js';

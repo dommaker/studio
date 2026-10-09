@@ -21,7 +21,7 @@
  */
 import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../notifications/index.js';
 // #665（ADR 2026-08-24 落地）：notification.created SSE 负载与 studio-contract 同源
 import type { NotificationCreatedPayload } from '@dommaker/studio-contract';
 import { WorkUnitService } from './workunit-review.js';

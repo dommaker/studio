@@ -53,8 +53,8 @@ vi.mock('../../../middleware/auth.js', () => ({
   },
 }));
 
-vi.mock('@dommaker/studio-notification', () => ({
-  NotificationService: vi.fn().mockImplementation(function (this: unknown) { return service; }),
+vi.mock('../notification-service.js', () => ({
+  getNotificationService: () => service,
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({

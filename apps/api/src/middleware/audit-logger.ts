@@ -6,13 +6,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
 import { getAuthInfo } from './auth.js';
-import { AuditService, AuditLogInput } from '@dommaker/studio-audit';
+import { getAuditService, type AuditLogInput } from '../modules/audit-logs/index.js';
 
 import { logger } from '../utils/logger.js';
-import { getStore } from '../core/store.js';
 
-
-const auditService = new AuditService(getStore());
 
 /**
  * 获取客户端 IP
@@ -140,7 +137,7 @@ export async function recordAuditLog(
       requestId: ensureRequestId(req),
     };
     
-    await auditService.log(logInput);
+    await getAuditService().log(logInput);
   } catch (error) {
     logger.error({ error }, 'Audit log error');
   }

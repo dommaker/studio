@@ -23,7 +23,7 @@ vi.mock('../../requirements/pmo-branch-resolver', () => ({
 }));
 
 import { postWuSystemMessage } from '../wu-messenger.js';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../../notifications/index.js';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 let tmpDir: string;

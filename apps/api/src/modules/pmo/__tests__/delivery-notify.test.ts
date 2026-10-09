@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FileStore } from '@dommaker/studio-shared';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../../notifications/index.js';
 import { postProjectMilestone } from '../delivery-notify.js';
 
 let fileStore: FileStore;

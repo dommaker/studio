@@ -16,9 +16,9 @@ const mockAuditGetById = vi.hoisted(() => vi.fn());
 const mockQueryProposalRows = vi.hoisted(() => vi.fn());
 const mockGetProposalRowById = vi.hoisted(() => vi.fn());
 
-vi.mock('@dommaker/studio-audit', () => ({
-  AuditService: vi.fn().mockImplementation(function () {
-    return { query: mockAuditQuery, export: mockAuditExport, getById: mockAuditGetById };
+vi.mock('../audit-service.js', () => ({
+  getAuditService: () => ({
+    query: mockAuditQuery, export: mockAuditExport, getById: mockAuditGetById,
   }),
   AuditActions: { LOGIN: 'login' },
   AuditResources: { USER: 'user' },

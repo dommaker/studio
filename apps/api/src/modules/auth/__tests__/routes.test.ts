@@ -47,8 +47,8 @@ vi.mock('../service.js', () => ({
   generateEmailVerificationToken: vi.fn().mockResolvedValue('verification-token'),
 }));
 
-vi.mock('@dommaker/studio-audit', () => ({
-  AuditService: vi.fn().mockImplementation(function () { return { log: mockAuditLog }; }),
+vi.mock('../../audit-logs/index.js', () => ({
+  getAuditService: () => ({ log: mockAuditLog }),
 }));
 
 vi.mock('../../../core/database.js', () => ({ prisma: {} }));

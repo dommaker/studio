@@ -10,7 +10,7 @@
  * 全程 best-effort：任一面失败仅 warn，绝不阻断状态翻转/交付落档主路径。
  */
 import { FileStore, logger } from '@dommaker/studio-shared';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../notifications/index.js';
 import { ChannelMessageService } from '../channels/index.js';
 import { getStore } from '../../core/store.js';
 

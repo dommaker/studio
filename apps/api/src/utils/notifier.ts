@@ -17,7 +17,7 @@
  * utils/discord-notifier.ts 保留不动（可选渠道，后续由配置决定是否并入）。
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { NotificationService } from '@dommaker/studio-notification';
+import { getNotificationService } from '../modules/notifications/index.js';
 import { ChannelMessageService } from '../modules/channels/index.js';
 import { loadNotifyChannelsConfig, resolveWeComWebhookUrl } from '../modules/notify-channels/index.js';
 import { sendText } from '../modules/notify-channels/index.js';
@@ -63,7 +63,7 @@ async function persistAlertNotification(
   opts?: NotifyAlertOptions,
 ): Promise<void> {
   if (level === 'info') return;
-  await new NotificationService(getStore()).createForAllUsers({
+  await getNotificationService().createForAllUsers({
     type: 'monitor_alert',
     title,
     content: body,

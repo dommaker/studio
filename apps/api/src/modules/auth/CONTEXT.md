@@ -22,7 +22,7 @@
 **上游**
 - `../../middleware/auth.js`（requireAuth、getAuthInfo、optionalAuth、requireRole）
 - `../../middleware/rate-limit.js`（authRateLimit、refreshRateLimit）
-- `@dommaker/studio-audit`（AuditService 用于审计日志）
+- `../audit-logs/index.js`（getAuditService 单例，#684 包下沉后跨模块公共面）
 - `@dommaker/studio-shared`（FileStore、logger）
 - `jsonwebtoken`、`bcryptjs`、`node:crypto`、`node:path`、`node:os`
 

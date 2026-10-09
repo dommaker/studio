@@ -20,7 +20,7 @@ import { vi, describe, it, expect, beforeEach, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { FileStore } from '@dommaker/studio-shared';
-import { AuditService, AuditActions, AuditResources } from '../audit-service';
+import { AuditService, AuditActions, AuditResources } from '../audit-service.js';
 
 // vi.hoisted 在模块导入前执行，确保 tempDir 在 audit-service.ts 评估前就存在
 const { tempDir, SETUP_STUDIO_HOME } = vi.hoisted(() => {

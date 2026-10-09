@@ -13,7 +13,7 @@
 
 ### 依赖关系
 
-上游：`../workunit/workunit.service.js`（list 状态过滤）、`../workunit/workunit.types.js`（MANUAL_GATE_TYPES）、`../workunit/wu-metadata.js`（parseWuMetadata/parseWuTitle）、`@dommaker/studio-notification`。
+上游：`../workunit/workunit.service.js`（list 状态过滤）、`../workunit/workunit.types.js`（MANUAL_GATE_TYPES）、`../workunit/wu-metadata.js`（parseWuMetadata/parseWuTitle）、`../notifications/index.js`（NotificationService，#684 包下沉）。
 下游：前端 `apps/web/src/stores/notificationStore.ts`（行动中心唯一数据源）。
 
 ### 注意事项

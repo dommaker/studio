@@ -7,8 +7,8 @@
 // `{ data }` 壳；GET /export 附件下载 handler 自写 res 不进壳；500 code 由
 // 'INTERNAL_ERROR' 归一为 INTERNAL（message 由固定串变为实际错误消息）。
 import { Router } from 'express';
-import { AuditService, AuditActions, AuditResources } from '@dommaker/studio-audit';
-import type { AuditLogInput } from '@dommaker/studio-audit';
+import { AuditActions, AuditResources, getAuditService } from './audit-service.js';
+import type { AuditLogInput } from './audit-service.js';
 
 import { defineRoute, HttpError, paginated } from '../../core/http.js';
 import { ERROR_CODES } from '@dommaker/studio-contract';
@@ -20,17 +20,13 @@ import {
   auditLogIdParamsSchema,
 } from '@dommaker/studio-contract';
 import { parsePagination } from '../../utils/pagination.js';
-import { createLazyService } from '../../utils/services.js';
 import {
   queryProposalDecisionRows,
   getProposalDecisionRowById,
 } from './proposal-source.js';
-import { getStore } from '../../core/store.js';
 
 
 const router = Router();
-
-const getAuditService = createLazyService(() => new AuditService(getStore()));
 
 /** #591：合并操作轨 + 提案源行，统一按 createdAt 降序（list 分页与 export 共用） */
 function mergeDecisionRows<T extends { createdAt: string }>(...sources: T[][]): T[] {

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { AuditService, AuditLogInput } from '@dommaker/studio-audit';
+import { AuditService, AuditLogInput } from '../../src/modules/audit-logs/index.js';
 
 // ========== In-memory FileStore mock ==========
 // AuditService 调用 fileStore.appendJsonl(path, row) / fileStore.readJsonl(path)

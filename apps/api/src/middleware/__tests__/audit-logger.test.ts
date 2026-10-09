@@ -13,10 +13,8 @@ import { Request, Response } from 'express';
 // Mock log function — hoisted so vi.mock can capture it
 const mockAuditLogFn = vi.hoisted(() => vi.fn().mockResolvedValue({ id: 'log-1' }));
 
-vi.mock('@dommaker/studio-audit', () => ({
-  AuditService: vi.fn().mockImplementation(function () { return {
-    log: mockAuditLogFn,
-  }; }),
+vi.mock('../../modules/audit-logs/index.js', () => ({
+  getAuditService: () => ({ log: mockAuditLogFn }),
 }));
 
 vi.mock('../auth.js', () => ({

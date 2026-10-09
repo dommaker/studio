@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { ChangeAnalyzerService } from './change-analyzer.service.js';
+import { ChangeAnalyzerService } from '../change-analyzer.service.js';
 import type { SpecContent } from '../types/change.types.js';
 
 const analyzer = new ChangeAnalyzerService();

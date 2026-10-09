@@ -1,14 +1,12 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-10-08
+> 最后更新: 2026-10-09
 
 ---
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
 | src | packages/studio-agent/src/ | studio-agent 类型定义 |
-| audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
-| notification-service | packages/studio-notification/src/services/notification-service.ts | 通知服务 |
 | levels | packages/studio-shared/src/constants/levels.ts | 级别配置 - 全局统一的职级定义 |
 | src | packages/studio-shared/src/ | Studio Event Bus — 替代 Redis pub/sub（2026-05-08） |
 | auditor-types | packages/studio-shared/src/harness/auditor/auditor-types.ts | Auditor ↔ 其他角色协议定义（BP-013 + BP-014） |
@@ -18,8 +16,6 @@
 | types | packages/studio-shared/src/types/ | Goal 状态类型 — SQLite 不支持 enum，用 TypeScript 类型守卫约束 |
 | utils | packages/studio-shared/src/utils/ | Shared Logger - 统一日志接口 |
 | src | packages/studio-skill/src/ | SkillLoader — 按 trigger 加载 Skill，注入 Agent prompt |
-| services | packages/studio-spec/src/services/ | ChangeAnalyzerService 单元测试 |
-| types | packages/studio-spec/src/types/ | Spec 变更分级类型定义 |
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | auth | apps/api/src/modules/auth/ | POST /api/v1/auth/guest-session |
@@ -130,7 +126,6 @@
 | FileRefChip | apps/web/src/components/channel/FileRefChip.tsx | #285（决策 #249 §5）：agent 消息正文 inline-code 路径 token 染「文件 chip」。 |
 | NeedInputOptions | apps/web/src/components/channel/NeedInputOptions.tsx | #267（决策 #250 D3）: NEED_INPUT 结构化选项卡 — meta.options[] 全仓首发落地。 |
 | ProjectCandidatesSection | apps/web/src/components/settings/ProjectCandidatesSection.tsx | 工程候选管理 section（#266，决策 #258）：归属问答候选集排除清单管理。 |
-| notification-service.test | packages/studio-notification/src/services/notification-service.test.ts | NotificationService tests — #274 写路径归属校验 |
 | AssigneeLabel | apps/web/src/components/workunit/AssigneeLabel.tsx | 负责人展示标签（#290 清单 #24）——解析到角色名则渲染 @名字 并链到 /agents/:roleId； |
 | service | apps/api/src/modules/auth/service.ts | 认证服务 - Auth Service |
 | card | apps/api/src/modules/review-proposal/card.ts | review-proposal/card (#351) — 人审提案卡投放 #系统 频道（唯一正本） |
@@ -240,4 +235,11 @@
 | readiness | apps/api/src/bootstrap/readiness.ts | ── readiness 状态（2026-10-03 根因修复 B 批）── |
 | sse | apps/web/src/types/sse.ts | SSE 客户端类型（P3-a 自 api/sseHooks.ts 迁出——api 层不声明导出类型）。 |
 | soft-steps | apps/api/src/bootstrap/soft-steps.ts | ── 「失败只 log 不拒启」装配纪律的唯一固化点（#686）── |
+| audit-service | apps/api/src/modules/audit-logs/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
+| notification-service | apps/api/src/modules/notifications/notification-service.ts | 通知服务 |
+| change-analyzer.service | apps/api/src/modules/specs/change-analyzer.service.ts | 变更分析服务 |
+| change-history.service | apps/api/src/modules/specs/change-history.service.ts | 变更历史服务 |
+| gate-checker.service | apps/api/src/modules/specs/gate-checker.service.ts | 门禁检查服务 |
+| change.types | apps/api/src/modules/specs/types/change.types.ts | Spec 变更分级类型定义 |
+| gate.types | apps/api/src/modules/specs/types/gate.types.ts | 门禁类型定义 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |
