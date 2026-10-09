@@ -22,7 +22,7 @@ vi.mock('../../triage/index.js', () => ({
   triageService: { handleAlert: vi.fn(() => Promise.resolve()) },
 }));
 
-vi.mock('../../../utils/notifier.js', () => ({
+vi.mock('../../notifications/index.js', () => ({
   notifyAlert: vi.fn(() => Promise.resolve()),
 }));
 

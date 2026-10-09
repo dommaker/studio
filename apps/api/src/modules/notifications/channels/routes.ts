@@ -2,7 +2,7 @@
  * #525 P2-6：/api/v1/notify-channels —— /settings「通知渠道」配置区读写 API
  *
  * 这是 #434 删掉的死配置的「复活成真功能」版：配了必须真生效——
- * 消费方是 utils/notifier.ts 的 notifyAlert 告警/催办外推（#523 tier2）。
+ * 消费方是 ../alert-notifier.ts 的 notifyAlert 告警/催办外推（#523 tier2）。
  *
  * 冻结契约（前端并行开发，不得偏离）：
  *   GET  /                     → 双段状态（企微脱敏 URL + source；ClawBot 绑定态脱敏）
@@ -31,8 +31,8 @@ import {
 } from './config-store.js';
 import { getBotQrcode, getQrcodeStatus, sendText } from './clawbot-client.js';
 import { postWeComMarkdown } from './wecom-client.js';
-import { getErrorMessage } from '../../utils/errors.js';
-import { defineRoute, HttpError } from '../../core/http.js';
+import { getErrorMessage } from '../../../utils/errors.js';
+import { defineRoute, HttpError } from '../../../core/http.js';
 import {
   ERROR_CODES,
   putWecomBodySchema,

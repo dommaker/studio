@@ -50,7 +50,7 @@ const { mockNotifyAlert } = vi.hoisted(() => ({
   mockNotifyAlert: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../../../utils/notifier.js', () => ({
+vi.mock('../../notifications/index.js', () => ({
   notifyAlert: mockNotifyAlert,
 }));
 

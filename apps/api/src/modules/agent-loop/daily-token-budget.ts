@@ -21,7 +21,7 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { notifyAlert } from '../../utils/notifier.js';
+import { notifyAlert } from '../notifications/index.js';
 import { getStore } from '../../core/store.js';
 
 

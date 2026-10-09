@@ -14,7 +14,7 @@
  */
 
 import { Router } from 'express';
-import { notifyService, NotifyMessage } from './notify.service.js';
+import { notifyService, NotifyMessage } from './outbound-notify.service.js';
 import { defineRoute } from '../../core/http.js';
 import { notifySendBodySchema } from '@dommaker/studio-contract';
 

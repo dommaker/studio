@@ -10,7 +10,7 @@
 
 import { logger, ALERT_COOLDOWN_WARN_MS, ALERT_COOLDOWN_CRIT_MS, ALERT_COOLDOWN_GC_MS } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/index.js';
-import { notifyAlert } from '../../utils/notifier.js';
+import { notifyAlert } from '../notifications/index.js';
 import type { MonitorAlert } from './types.js';
 import { triageService } from '../triage/index.js';
 import { resolveStudioEventsFile, writeStudioEvent } from '@dommaker/studio-shared';

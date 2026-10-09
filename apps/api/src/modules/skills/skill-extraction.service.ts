@@ -194,7 +194,7 @@ export class SkillExtractionService {
 
       // Discord notification: Skill auto-publish
       try {
-        const { discordNotifier } = await import('../../utils/discord-notifier.js');
+        const { discordNotifier } = await import('../notifications/index.js');
         discordNotifier.sendText(
           'Skill auto-published',
           `**${proposal.name}** (${proposal.category})\nConfidence: ${(confidence * 100).toFixed(0)}%\nSource goals: ${proposal.sourceGoalIds.join(', ')}`

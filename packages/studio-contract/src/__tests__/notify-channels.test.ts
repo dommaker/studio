@@ -1,6 +1,6 @@
 /**
  * notify-channels 域契约测试：双段状态 parity + 绑定状态机 + 请求边界 + 响应壳。
- * 正本 = apps/api/src/modules/notify-channels/routes.ts（脱敏后形状）。
+ * 正本 = apps/api/src/modules/notifications/channels/routes.ts（脱敏后形状）。
  */
 
 import { describe, it, expect } from 'vitest';

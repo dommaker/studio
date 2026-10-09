@@ -18,7 +18,7 @@ const notifyTunnelUrl = async (url: string) => {
   logger.info('='.repeat(70));
   // Discord 通知（复用 discordNotifier）
   try {
-    const { discordNotifier } = await import('../utils/discord-notifier.js');
+    const { discordNotifier } = await import('../modules/notifications/index.js');
     await discordNotifier.sendText(
       '🔗 Tunnel URL 已更新',
       `新的 Interactions Endpoint URL:\n\`\`\`\n${url}/api/v1/discord/interactions\n\`\`\`\n请到 Discord Developer Portal 更新。`

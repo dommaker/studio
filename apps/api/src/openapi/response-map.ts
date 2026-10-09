@@ -151,7 +151,7 @@ import {
   overheadStatsResponseSchema,
   overviewMetricsResponseSchema,
   efficiencyMetricsResponseSchema,
-  // notifications / notify-channels / outbound-notify
+  // notifications 模块（#682 合一：站内通知 + 渠道配置 + 出站）
   notificationListResponseSchema,
   unreadCountResponseSchema,
   notificationReadResponseSchema,
@@ -430,7 +430,7 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/monitoring/overview': { response: overviewMetricsResponseSchema, summary: '总览指标' },
   'GET /api/v1/monitoring/efficiency': { response: efficiencyMetricsResponseSchema, summary: '效率指标' },
 
-  // ── notifications / notify-channels / outbound-notify ──
+  // ── notifications 模块（站内通知 / notify-channels / notify/send）──
   'GET /api/v1/notifications': { response: notificationListResponseSchema, summary: '通知列表' },
   'GET /api/v1/notifications/unread-count': { response: unreadCountResponseSchema, summary: '未读数' },
   'POST /api/v1/notifications/:id/read': { response: notificationReadResponseSchema, summary: '标记已读' },

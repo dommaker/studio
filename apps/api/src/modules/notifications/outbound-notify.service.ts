@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger.js';
-import { discordNotifier, DiscordMessageOptions } from '../../utils/discord-notifier.js';
+import { discordNotifier, DiscordMessageOptions } from './discord-notifier.js';
 
 export interface NotifyMessage {
   type: 'task-failed' | 'timeout' | 'crash' | 'zombie' | 'human-needed'

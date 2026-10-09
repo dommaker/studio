@@ -20,7 +20,7 @@ vi.mock('child_process', () => ({
     return proc;
   }),
 }));
-vi.mock('../../utils/discord-notifier.js', () => ({
+vi.mock('../../modules/notifications/index.js', () => ({
   discordNotifier: { sendText: state.sendText },
 }));
 

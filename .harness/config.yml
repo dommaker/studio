@@ -29,8 +29,6 @@ governance:
       - apps/api/src/modules/mcp
       - apps/api/src/modules/monitoring
       - apps/api/src/modules/notifications
-      - apps/api/src/modules/notify-channels
-      - apps/api/src/modules/outbound-notify
       - apps/api/src/modules/pmo
       - apps/api/src/modules/projects
       - apps/api/src/modules/requirements

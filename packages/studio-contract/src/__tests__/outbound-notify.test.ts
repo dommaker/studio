@@ -1,6 +1,6 @@
 /**
  * outbound-notify 域契约测试：NotifyMessage type 词表 + 请求边界 + 响应壳。
- * 正本 = apps/api/src/modules/outbound-notify/routes.ts + notify.service.ts。
+ * 正本 = apps/api/src/modules/notifications/outbound-notify.routes.ts + outbound-notify.service.ts。
  */
 
 import { describe, it, expect } from 'vitest';

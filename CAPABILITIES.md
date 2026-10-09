@@ -27,7 +27,6 @@
 | knowledge | apps/api/src/modules/knowledge/ | DecisionChainExtractor (G-004) — 从 Meeting 辩论 + Goal 执行中提取决策链 |
 | mcp | apps/api/src/modules/mcp/ | MCP Admin Routes — tool management, permissions, audit |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
-| outbound-notify | apps/api/src/modules/outbound-notify/ | NotifyService - 通知服务 |
 | pmo | apps/api/src/modules/pmo/ | 🆕 AS-016: 获取当前季度 |
 | skills | apps/api/src/modules/skills/ | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
@@ -167,7 +166,6 @@
 | routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理（挂载门面） |
 | routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
-| routes | apps/api/src/modules/outbound-notify/routes.ts | Notify API 路由 |
 | routes | apps/api/src/modules/pmo/routes.ts | 收集请求里的 gitRepo/gitRepos 候选（仅非空字符串；空串视为未传，与既有口径一致） |
 | routes | apps/api/src/modules/review-proposal/routes.ts | review-proposal/routes (#351) — 人审提案卡通用端点（ADR 决策 4） |
 | routes | apps/api/src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
@@ -189,16 +187,11 @@
 | routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理（挂载门面） |
 | routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
-| clawbot-client | apps/api/src/modules/notify-channels/clawbot-client.ts | #525 P2-6：ClawBot（iLink 协议）客户端 —— 扫码绑定 + 文本发送 |
-| config-store | apps/api/src/modules/notify-channels/config-store.ts | #525 P2-6：/settings「通知渠道」配置存储 —— ~/.studio 数据区配置文件读写 |
-| routes | apps/api/src/modules/notify-channels/routes.ts | #525 P2-6：/api/v1/notify-channels —— /settings「通知渠道」配置区读写 API |
-| routes | apps/api/src/modules/outbound-notify/routes.ts | Notify API 路由 |
 | routes | apps/api/src/modules/pmo/routes.ts | 收集请求里的 gitRepo/gitRepos 候选（仅非空字符串；空串视为未传，与既有口径一致） |
 | routes | apps/api/src/modules/review-proposal/routes.ts | review-proposal/routes (#351) — 人审提案卡通用端点（ADR 决策 4） |
 | routes | apps/api/src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
 | NotifyChannelsSection | apps/web/src/components/settings/NotifyChannelsSection.tsx | 通知渠道 section（#525 P2-6）：企业微信群机器人 webhook + ClawBot（个人微信）扫码绑定 + 浏览器通知总开关。 |
-| wecom-client | apps/api/src/modules/notify-channels/wecom-client.ts | 企业微信群机器人 markdown 发送唯一出口（#525 review 收口）： |
 | ChannelStreamBody | apps/web/src/components/channel/ChannelStreamBody.tsx | 频道消息流结构组件（#531，架构评审 2026-09-14 候选 3）：消费 useChannelStream 产物， |
 | ChannelMessageEnv | apps/web/src/components/channel/ChannelMessageEnv.tsx | 频道消息环境（#547，架构评审 2026-09-15 候选 B3，grilling 已决）： |
 | ApproveDialogShell | apps/web/src/components/ui/ApproveDialogShell.tsx | ApproveDialogShell — 审批弹窗公共壳（docs/plans/2026-09-web-ux-optional-fixes.md Step 3， |
@@ -242,4 +235,25 @@
 | gate-checker.service | apps/api/src/modules/specs/gate-checker.service.ts | 门禁检查服务 |
 | change.types | apps/api/src/modules/specs/types/change.types.ts | Spec 变更分级类型定义 |
 | gate.types | apps/api/src/modules/specs/types/gate.types.ts | 门禁类型定义 |
+| routes | apps/api/src/modules/action-center/routes.ts | 行动中心 API 路由（#468） |
+| routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
+| routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
+| routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
+| routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
+| routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015)（挂载门面） |
+| routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理（挂载门面） |
+| routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
+| alert-notifier | apps/api/src/modules/notifications/alert-notifier.ts | 告警通知出口（P0 观测性修复 4；#682 自 utils/notifier.ts 并入 notifications 模块）。 |
+| clawbot-client | apps/api/src/modules/notifications/channels/clawbot-client.ts | #525 P2-6：ClawBot（iLink 协议）客户端 —— 扫码绑定 + 文本发送 |
+| config-store | apps/api/src/modules/notifications/channels/config-store.ts | #525 P2-6：/settings「通知渠道」配置存储 —— ~/.studio 数据区配置文件读写 |
+| routes | apps/api/src/modules/notifications/channels/routes.ts | #525 P2-6：/api/v1/notify-channels —— /settings「通知渠道」配置区读写 API |
+| wecom-client | apps/api/src/modules/notifications/channels/wecom-client.ts | 企业微信群机器人 markdown 发送唯一出口（#525 review 收口）： |
+| discord-notifier | apps/api/src/modules/notifications/discord-notifier.ts | Discord 通知工具 |
+| outbound-notify.routes | apps/api/src/modules/notifications/outbound-notify.routes.ts | Notify API 路由 |
+| outbound-notify.service | apps/api/src/modules/notifications/outbound-notify.service.ts | NotifyService - 通知服务 |
+| routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
+| routes | apps/api/src/modules/pmo/routes.ts | 收集请求里的 gitRepo/gitRepos 候选（仅非空字符串；空串视为未传，与既有口径一致） |
+| routes | apps/api/src/modules/review-proposal/routes.ts | review-proposal/routes (#351) — 人审提案卡通用端点（ADR 决策 4） |
+| routes | apps/api/src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
+| routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

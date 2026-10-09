@@ -402,7 +402,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     try {
       const channel = process.env.DISCORD_DAILY_CHANNEL || null;
       if (channel) {
-        const { discordNotifier } = await import('../../utils/discord-notifier.js');
+        const { discordNotifier } = await import('../notifications/index.js');
         await discordNotifier.sendChannelMessage(channel, 'DailyReflection', content, {
           cardType: 'daily_reflection',
         });

@@ -67,7 +67,7 @@ export async function coldStartAll(): Promise<void> {
 
     // Discord notify
     try {
-      const { discordNotifier } = await import('../../utils/discord-notifier.js');
+      const { discordNotifier } = await import('../notifications/index.js');
       await discordNotifier.sendText(
         '📚 冷启动知识导入完成',
         `导入了 ${importedCount} 条知识 (${totalErrors} 个错误)\n来源: ${results.map(r => `${r.source.type}(${r.entries.length})`).join(', ')}`,

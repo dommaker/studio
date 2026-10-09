@@ -12,7 +12,7 @@
  *   tier1（in_review 30min / unassigned 15min）→ Web 铃铛（NotificationService 持久通知，
  *     全用户，带 wuId 直链）+ SSE `notification.created` 信封（前端铃铛即时失效 +
  *     触发浏览器原生通知，channel-message.service publishSSE 同款直发 eventBus）；
- *   tier2（两者均 4h）→ notifyAlert('warning')（notifier.ts 既有通路：企微 webhook
+ *   tier2（两者均 4h）→ notifyAlert('warning')（notifications/alert-notifier.ts 既有通路：企微 webhook
  *     未配置自动跳过 + 告警频道 + 行动中心通知）。
  * 行动中心常驻兜底（#468 stateItems）不被动；不自动确认、不改状态机，人闸语义不动。
  *
@@ -28,7 +28,7 @@ import { WorkUnitService } from './workunit-review.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { MANUAL_GATE_TYPES } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { notifyAlert } from '../../utils/notifier.js';
+import { notifyAlert } from '../notifications/index.js';
 import { getStore } from '../../core/store.js';
 
 

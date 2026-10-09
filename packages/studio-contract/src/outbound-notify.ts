@@ -1,6 +1,6 @@
 /**
- * outbound-notify 域契约——正本以 apps/api/src/modules/outbound-notify/
- * routes.ts 与 notify.service.ts（NotifyMessage）实测 wire 为准。
+ * outbound-notify 域契约——正本以 apps/api/src/modules/notifications/ 的
+ * outbound-notify.routes.ts 与 outbound-notify.service.ts（NotifyMessage）实测 wire 为准（#682 合一）。
  *
  * 单端点 POST /api/v1/notify/send（route-registry 挂 admin；DD-009 出站推送，
  * 供内部模块调用——无前端消费方，仅后端迁移）。

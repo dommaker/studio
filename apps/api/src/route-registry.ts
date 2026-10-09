@@ -135,7 +135,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
     import('./modules/pmo/routes.js'),
     import('./modules/specs/routes.js'),
-    import('./modules/outbound-notify/routes.js').then(m => m.default),
+    import('./modules/notifications/outbound-notify.routes.js').then(m => m.default),
     import('./modules/auth/routes.js').then(m => m.default),
     import('./modules/discord/routes.js').then(m => m.default),
     import('./modules/deploy/webhook.routes.js') as Promise<{ deployWebhookRoutes: Router }>,
@@ -250,7 +250,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   const { default: projectRoutes } = await import('./modules/projects/project.routes.js') as { default: Router };
 
   // #525 P2-6: 通知渠道配置（/settings「通知渠道」配置区，消费方 = notifyAlert 告警外推）
-  const { default: notifyChannelRoutes } = await import('./modules/notify-channels/routes.js') as { default: Router };
+  const { default: notifyChannelRoutes } = await import('./modules/notifications/channels/routes.js') as { default: Router };
 
   const auth = AUTH;
   const authNotGuest = AUTH_NOT_GUEST;

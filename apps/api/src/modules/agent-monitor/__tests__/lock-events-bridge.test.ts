@@ -23,7 +23,7 @@ const { eventsFile, tmpEventsDir, mockNotifyAlert } = vi.hoisted(() => {
 // 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
 afterAll(() => { fs.rmSync(tmpEventsDir, { recursive: true, force: true }); });
 
-vi.mock('../../../utils/notifier.js', () => ({
+vi.mock('../../notifications/index.js', () => ({
   notifyAlert: mockNotifyAlert,
 }));
 

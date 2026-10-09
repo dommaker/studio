@@ -40,7 +40,7 @@ pnpm start  # 启动生产服务
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 38 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 36 个），改动代码时同步更新
 
 <!-- PRESERVE:governance -->
 ## 治理契约
@@ -142,9 +142,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/library` | 阅览室（#155 T5）：跨项目 .studio/ 文档面的聚合只读层。缺省遍历全部有 gitRepo 的 PMO 项目，读各仓 .studio/ 下的 specs/、research/、CONTEXT.md + 仓根 docs/ad... |
 | `apps/api/src/modules/mcp` | MCP（Model Context Protocol）模块 — 将 Studio 系统能力暴露为 MCP tools，供 Agent 和 UI 共享调用。 |
 | `apps/api/src/modules/monitoring` | 负责聚合 Agent Network 的监控指标，包括 Agent 摘要、统计信息、飞轮指标（M1）和封装开销（M2），通过 HTTP 路由对外暴露。 |
-| `apps/api/src/modules/notifications` | 通知域：通知的创建、查询、标记已读（服务层 NotificationService，JSONL 持久化，#684 自 packages/studio-notification 下沉并入本模块）+ 对应 HTTP API 路由（获取通知... |
-| `apps/api/src/modules/notify-channels` | 通知渠道配置（#525 P2-6，决策 #516 项⑦⑧）：服务端配置存储 + 读写 API + ClawBot（iLink 协议）内嵌轻量直连。/settings「通知渠道」配置区的服务端支撑——#434 死配置的「复活成真功能」版... |
-| `apps/api/src/modules/outbound-notify` | 本模块提供基于 Discord 的通知发送服务，支持任务类通知类型（task-failed / timeout / crash / zombie / human-needed / user-intervention-needed）。内... |
+| `apps/api/src/modules/notifications` | 通知域（#682 合一：原 notifications + notify-channels + outbound-notify + utils/notifier + utils/discord-notifier 六个面并为单模块，ut... |
 | `apps/api/src/modules/pmo` | 项目管理办公室（PMO）：OKR 管理 + 项目 CRUD + 交付守卫。PMO 是链条脊椎：id = 分支名、需求文档挂载点、状态 = WU 汇总 + 证据台账、交付策略挂在项目上。统一编号 PMO-<n>。 |
 | `apps/api/src/modules/projects` | Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息并对外提供查询 API，供频道默认工程、WorkUnit 工程绑定等流程使用。 |
 | `apps/api/src/modules/requirements` | REQ 需求编号体系（vision §5.3）：一个需求（REQ-<序号>）= 一组 WorkUnit。负责 REQ 的创建、绑定解析与状态汇总，需求文档/SDD/产物以编号关联，UI 按编号串联全链路。 |

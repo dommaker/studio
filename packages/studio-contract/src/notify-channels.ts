@@ -1,5 +1,5 @@
 /**
- * notify-channels 域契约——正本以 apps/api/src/modules/notify-channels/
+ * notify-channels 域契约——正本以 apps/api/src/modules/notifications/channels/
  * routes.ts 实测 wire 为准（#525 P2-6，/settings「通知渠道」配置区服务端支撑；
  * route-registry 挂 admin）。
  *

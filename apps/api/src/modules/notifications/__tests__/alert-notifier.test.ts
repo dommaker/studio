@@ -32,19 +32,19 @@ vi.mock('@dommaker/studio-shared', () => ({
 }));
 
 // 频道 sink 经 ChannelMessageService（eventBus + SSE 发布），此处只验证委托
-vi.mock('../../modules/channels/channel-message.service.js', () => ({
+vi.mock('../../channels/channel-message.service.js', () => ({
   ChannelMessageService: vi.fn().mockImplementation(function () {
     return { createAgentMessage: mockCreateAgentMessage };
   }),
 }));
 
 // #468 行动中心 sink 经 NotificationService.createForAllUsers 持久化，此处只验证委托
-vi.mock('../../modules/notifications/index.js', () => ({
+vi.mock('../notification-service.js', () => ({
   getNotificationService: () => ({ createForAllUsers: mockCreateForAllUsers }),
 }));
 
-import { notifyAlert } from '../notifier.js';
-import { saveNotifyChannelsConfig } from '../../modules/notify-channels/config-store.js';
+import { notifyAlert } from '../alert-notifier.js';
+import { saveNotifyChannelsConfig } from '../channels/config-store.js';
 
 const ENV_KEYS = ['STUDIO_ALERT_CHANNEL_ID', 'WECOM_WEBHOOK_URL', 'STUDIO_HOME'] as const;
 

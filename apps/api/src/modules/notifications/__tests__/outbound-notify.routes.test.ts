@@ -9,7 +9,7 @@ import { Router } from 'express';
 
 const mockSend = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
-vi.mock('../notify.service.js', () => ({
+vi.mock('../outbound-notify.service.js', () => ({
   notifyService: { send: mockSend },
 }));
 
@@ -18,7 +18,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   return { ...actual, logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } };
 });
 
-import routes from '../routes.js';
+import routes from '../outbound-notify.routes.js';
 
 function getHandler(router: Router, method: string, path: string): Function {
   for (const layer of router.stack) {

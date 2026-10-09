@@ -18,7 +18,7 @@
 
 ### 依赖关系
 
-- 上游：`modules/agents`（barrel：getSystemExecutor，轻量 LLM 直调）、`modules/knowledge`（引擎本体）、`core/store`、`utils/discord-notifier`
+- 上游：`modules/agents`（barrel：getSystemExecutor，轻量 LLM 直调）、`modules/knowledge`（引擎本体）、`core/store`、`modules/notifications`（discordNotifier）
 - 下游：`bootstrap/warmup.ts`（冷启动导入）、`modules/knowledge`（maintenance.routes 每日维护触发 / knowledge-service 复用提取 prompt，均动态 import）、`modules/agent-monitor`（monitor-system-probes 知识健康检查，动态 import）
 
 ### 注意事项

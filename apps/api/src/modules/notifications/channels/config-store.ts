@@ -6,7 +6,7 @@
  * 记日志降级为空配置；写前 mkdir -p。
  *
  * env WECOM_WEBHOOK_URL 保留为部署级默认（resolveWeComWebhookUrl 中配置存储优先、env 兜底）。
- * 本文件是企微 webhook 与 ClawBot 凭据的唯一正本，notifier（告警 fan-out）与
+ * 本文件是企微 webhook 与 ClawBot 凭据的唯一正本，alert-notifier（告警 fan-out）与
  * /api/v1/notify-channels 路由共用。
  */
 import * as fs from 'node:fs';
