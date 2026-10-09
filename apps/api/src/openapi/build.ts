@@ -1,14 +1,15 @@
 /**
  * openapi/build.ts — OpenAPI 3.0.3 文档装配。
  *
- * 输入 = discover.ts 的路由发现结果；schema 经 contract 的 zodToOpenAPISchema 转换。
+ * 输入 = discover.ts 的路由发现结果；schema 经本目录 convert.ts 的 zodToOpenAPISchema 转换。
  * 成功响应 schema 的映射在 response-map.ts（contract 的 xxxResponseSchema 逐端点挂上）；
  * 未映射端点退化为通用 `{ data }` 壳并在 description 如实标注——映射覆盖面扩域时只动
  * response-map.ts，测试锁定「映射键 ⊆ 真实路由」防漂移。
  */
 
-import { zodToOpenAPISchema, errorBodySchema, type OpenAPISchema } from '@dommaker/studio-contract';
+import { errorBodySchema } from '@dommaker/studio-contract';
 import type { z } from 'zod';
+import { zodToOpenAPISchema, type OpenAPISchema } from './convert.js';
 import { RESPONSE_MAP } from './response-map.js';
 import { toOpenAPIPath, type DiscoveredRoute, type SkippedRoute } from './discover.js';
 
