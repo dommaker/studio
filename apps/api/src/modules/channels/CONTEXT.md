@@ -13,7 +13,10 @@ Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | channel-message.service.ts | `channelMessageService` / `ChannelMessageService` | 消息创建/更新/删除 + event/SSE 发布（系统消息唯一发布路径） |
 | channel.service.ts | `channelService` / `ChannelService` / `ChannelError` / `validateDefaultWorkspaceId()` | #532 频道记录读写收口：404 判定单点（getOrThrow）、写路径内部失效列表缓存（create/update/archive/restore/deleteWithFallback/updateMembers）、初始 agent 创建 |
-| message-routing.ts | `routeMessage()` / `detectMention()` / `DispatchContext` / `resolveMergeTarget()` / `getMergeWindowMs()` | 消息路由：replyTo 线程回复 → @mention 派单 → 合并窗口（#632 解耦：唯一在途并入 / 歧义守卫 fail-closed / 纯存储；intent=new-task 显式建单） |
+| message-routing.ts | `routeMessage()` / `DispatchContext` | 消息路由编排骨架：#281 文件引用校验/剔除面 → replyTo 线程回复（继承 + #327 降级放行 + F5 复活）→ @mention / intent 委托 wu-dispatch → 合并窗口并入（判定委托 merge-target）→ 纯存储 |
+| merge-target.ts | `resolveMergeTarget()` / `getMergeWindowMs()` / `MergeTargetResolution` | #632 合并目标三态判定（唯一并入 / 歧义守卫 fail-closed / 无目标纯存储；#495 在途状态集与窗口 env 覆盖）：发送前预览端点与 routeMessage 共用（预览 = 实际路由）；#688 自 message-routing.ts 拆出 |
+| mention-match.ts | `detectMention()` / `matchMentionAgent()` / `stripMentionScope()` | @mention 纯函数件（#688 拆出）：检测（Unicode 正则）、§9.5 成员界匹配 + members 空回退 + #632 系统角色排除 + #496 中文连写最长前缀兜底（等长歧义回退）、scope 剥离两种口径 |
+| wu-dispatch.ts | `dispatchMentionMessage()` / `dispatchNewTaskMessage()` / `WuDispatchDeps` | 两条建 WU 派发路径（#688 拆出）：@mention 派单（REQ 绑定 → B3a 归属解析 → 建单 → #591 埋点 → 挂起提问/#464 未匹配提示）与 #632 intent=new-task 涌现认领建单；共享 #494「先落派发消息再建 WU + anchorMessageId + linkWorkUnit 回填」私有骨架 |
 | channel.routes.ts | Express router | Channel API 端点（纯 HTTP 装配：参数 + 状态码；频道记录读写委托 channel.service） |
 | suggestions.ts | `deriveChannelSuggestions()` / `SUGGESTION_TIMING` | 情境引导片推导（status/action/prompt 三形态，fail-closed） |
 | routing.ts | `resolveStageRouting()` / `resolveOrNotice()` / `validateRouting()` / `routingFallbackText()` / `shouldEmitFallbackReminder()` / `buildMemberRemovalWarning()` | #466 频道级「阶段→角色」路由表（plan/implement/review）解析与 PATCH 校验单一事实源；#497 漂移收敛（冷却去重 + 移出 warning）；#477 `resolveOrNotice` 收口「解析→fallback 判定→出声文案」骨架（出声通道/时机留调用侧） |
