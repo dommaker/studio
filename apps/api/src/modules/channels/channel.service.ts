@@ -231,8 +231,8 @@ export class ChannelService {
       id: randomUUID(),
       name,
       description: description ?? null,
-      // 废弃字段停写（B4）：members 已是成员关系唯一事实源，此处恒写空数组，
-      // 读侧兜底（routing.ts / agent-loop members 空回退）与 migrate-members 保留至存量消化
+      // 废弃字段停写（B4）：members 是成员关系唯一事实源，此处恒写空数组
+      // （#696 验收后兼容链已退役：migrate-members / 读侧回退 / 双层解码全删）
       channels: '[]',
       provider: provider ?? null,
       status: 'active' as const,

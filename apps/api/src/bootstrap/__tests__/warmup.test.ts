@@ -16,7 +16,6 @@ const spies = vi.hoisted(() => ({
   fullScan: vi.fn(async () => {}),
   startPeriodicSnapshots: vi.fn(),
   coldStartAll: vi.fn(async () => {}),
-  migrateProfileChannelsToMembers: vi.fn(async () => {}),
   ensureLocalWorkspace: vi.fn(async () => {}),
 }));
 
@@ -45,9 +44,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   FileStore: class { archiveChannelMessages = spies.archiveChannelMessages; },
 }));
-vi.mock('../../modules/channels/index.js', () => ({
-  migrateProfileChannelsToMembers: spies.migrateProfileChannelsToMembers,
-}));
 vi.mock('../../modules/workspaces/index.js', () => ({
   ensureLocalWorkspace: spies.ensureLocalWorkspace,
 }));
@@ -73,9 +69,8 @@ describe('warmup 冷启动任务挂载', () => {
     warn.mockRestore();
   });
 
-  it('startPostRoutesWarmup：members 迁移 + 本地 workspace 注册被触达', async () => {
+  it('startPostRoutesWarmup：本地 workspace 注册被触达', async () => {
     expect(() => startPostRoutesWarmup()).not.toThrow();
-    await vi.waitFor(() => expect(spies.migrateProfileChannelsToMembers).toHaveBeenCalled());
     await vi.waitFor(() => expect(spies.ensureLocalWorkspace).toHaveBeenCalled());
   });
 });

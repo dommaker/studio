@@ -87,14 +87,6 @@ const WARMUP_TASKS: readonly SoftStep[] = [
 
 const POST_ROUTES_WARMUP: readonly SoftStep[] = [
   {
-    // §9.5: 迁移 profile.channels → channel.members（幂等，异步不阻塞启动）
-    name: 'members-migration',
-    run: async () => {
-      const { migrateProfileChannelsToMembers } = await import('../modules/channels/index.js');
-      migrateProfileChannelsToMembers().catch(err => logger.warn('[MembersMigration] failed', { error: String(err) }));
-    },
-  },
-  {
     // AS-020 P2-04: VPS 本地 Workspace 注册（异步，不阻塞启动）
     name: 'local-workspace',
     run: async () => {

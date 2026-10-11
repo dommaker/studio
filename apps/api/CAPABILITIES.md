@@ -184,7 +184,6 @@
 | current-pmo | src/modules/channels/current-pmo.ts | #272（决策 #251 Q1/Q6）：频道「当前 PMO」派生。 |
 | file-ref-vocabulary | src/modules/channels/file-ref-vocabulary.ts | #281（决策 #249 §1 / #257 D7）：@文件引用词表服务。 |
 | message-routing | src/modules/channels/message-routing.ts | Message routing logic for channel messages (AC-B1-B4). |
-| migrate-members | src/modules/channels/migrate-members.ts | §9.5 成员关系统一 — 迁移：把各 profile.channels 合并进对应 channel.members。 |
 | pmo-candidates | src/modules/channels/pmo-candidates.ts | #638：频道 PMO 候选补全派生（`#` 触发自动补全弹框的数据源）。 |
 | routing | src/modules/channels/routing.ts | #466: 频道级「阶段→角色」路由表 —— 单一解析/校验事实源。 |
 | suggestions | src/modules/channels/suggestions.ts | #443（spec #441 情境引导 02）：频道建议推导骨架 —— 只读状态说明（status 形态）端到端。 |

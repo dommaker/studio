@@ -7,5 +7,4 @@
 export { ensureDefaultChannels } from './channel-init.js';
 export { channelMessageService, ChannelMessageService } from './channel-message.service.js';
 export type { MessageMeta, MessageRecord } from './channel-message.service.js';
-export { migrateProfileChannelsToMembers } from './migrate-members.js';
 export { resolveOrNotice, resolveStageRouting, ROUTING_STAGE_LABELS } from './routing.js';

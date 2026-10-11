@@ -11,7 +11,7 @@ export interface AgentProfileData {
   id: string;
   name: string;
   description: string | null;
-  channels: string;        // JSON: Channel ID[] — @deprecated §9.5: channel.members 为成员关系唯一事实源；写侧已停（B4，2026-09-27），读兜底 + migrate-members 待存量消化后退役
+  channels: string;        // JSON: Channel ID[] — @deprecated §9.5: channel.members 为成员关系唯一事实源；写侧已停（B4，2026-09-27），读侧兼容链随 #696 验收后退役（2026-10-11），字段仅为历史数据残留保留
   status: string;          // active | inactive
   provider: string | null; // bound CLI: claude | kimi | codex | opencode | openclaw | null
   createdAt: string;       // ISO 8601
