@@ -53,6 +53,10 @@ jobs:
       # 先 sync 自愈再 check，最后 --check 验证收敛；check 若跑在 sync 前，幽灵会先撞 check，自愈永远轮不到（2026-08-08）。
       - name: Governance
         run: npx harness sync-docs --agents && npx harness check && npx harness sync-docs --check --agents
+      # required_dirs 漂移门（#694）：清单由 scripts/gen-required-dirs.mjs 自动发现生成，
+      # 新增模块/包未重跑生成器即红。
+      - name: Gate on stale required_dirs
+        run: node scripts/gen-required-dirs.mjs --check
       # 仓库级漏登门（harness#120 方案 A）：上一步 sync-docs 写入会给缺登记自动补行但不回提，
       # --check 因此永远查不到漏登。写入后 CAPABILITIES.md 有 diff = HEAD 文档过期，据此失败；
       # diff 新增行即缺登记文件名单。自愈顺序不变（写入仍在校验之前，2026-08-08 结论不回退）。

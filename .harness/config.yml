@@ -4,15 +4,21 @@ harness:
 governance:
   context_files:
     enabled: true
-    # 显式声明源码根（原依赖 harness apps/*/src/modules 启发式自动探测，2026-09-27 去 studio 化前置）：
-    # 新增模块/包时须同步补此清单，否则 sync-docs 模块面与 context_doc_sync 覆盖不到新目录
+    # 显式声明源码根（harness 3.0.0 只认字面路径，glob 按字面处理）。
+    # 本清单由 scripts/gen-required-dirs.mjs 自动发现生成（pnpm gen:required-dirs），勿手改——
+    # 新增模块/包后跑该命令；scripts/__tests__/gen-required-dirs.test.ts 与 CI 漂移门双重兜底。
+    # AUTO-GENERATED:required_dirs
     required_dirs:
       - packages/studio-agent/src
+      - packages/studio-contract/src
       - packages/studio-shared/src
       - packages/studio-skill/src
       - apps/api/src/bootstrap
       - apps/api/src/modules/action-center
       - apps/api/src/modules/admin
+      - apps/api/src/modules/agent-auditor
+      - apps/api/src/modules/agent-knowledge
+      - apps/api/src/modules/agent-loop
       - apps/api/src/modules/agents
       - apps/api/src/modules/audit-logs
       - apps/api/src/modules/auth
@@ -41,4 +47,4 @@ governance:
       - apps/api/src/modules/triggers
       - apps/api/src/modules/workspaces
       - apps/api/src/modules/workunit
-      - apps/web/src
+    # /AUTO-GENERATED:required_dirs

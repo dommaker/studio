@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-10-09
+> 最后更新: 2026-10-11
 
 ---
 
@@ -30,6 +30,117 @@
 | pmo | apps/api/src/modules/pmo/ | 🆕 AS-016: 获取当前季度 |
 | skills | apps/api/src/modules/skills/ | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
+| action-center | packages/studio-contract/src/action-center.ts | action-center 域契约——正本以 apps/api/src/modules/action-center/ |
+| admin | packages/studio-contract/src/admin.ts | admin 域契约（批次 6/7）——正本以 apps/api/src/modules/admin/ |
+| agent-profiles | packages/studio-contract/src/agent-profiles.ts | agent-profiles / agent-instances 域契约（批次 8/8）——实体类型与 studio-shared |
+| agents | packages/studio-contract/src/agents.ts | agents 域契约——§10.5 token-usage 面（/api/v1/agents 下唯一活面）。 |
+| audit-logs | packages/studio-contract/src/audit-logs.ts | audit-logs 域契约（批次 6/7）——正本以 apps/api/src/modules/audit-logs/ |
+| auth | packages/studio-contract/src/auth.ts | auth 域契约（批次 6/7；敏感域）——本文件 schema 即 wire 正本（#685 归一： |
+| channels | packages/studio-contract/src/channels.ts | channels 域契约——正本字段以 apps/api/src/modules/channels/channel.service.ts |
+| companies | packages/studio-contract/src/companies.ts | companies 域契约——正本字段以 apps/api/src/modules/companies/routes.ts 实际 wire 行为为准 |
+| cso | packages/studio-contract/src/cso.ts | cso 域契约（批次 6/7）——正本以 apps/api/src/modules/harness/cso.routes.ts |
+| deploy | packages/studio-contract/src/deploy.ts | deploy 域契约（批次 7/8）——**协议面例外，只做形状声明，路由保持原样**。 |
+| discord | packages/studio-contract/src/discord.ts | discord 域契约（批次 7/8）——**协议面例外，只做形状声明，路由保持原样**。 |
+| envelope | packages/studio-contract/src/envelope.ts | 统一响应壳（target-architecture.md §契约）： |
+| events | packages/studio-contract/src/events.ts | events 域契约——正本以 apps/api/src/modules/events/event.routes.ts 与 |
+| evolution | packages/studio-contract/src/evolution.ts | evolution 域契约——实体 EvolutionProposal 与 studio-shared file-store-types |
+| harness | packages/studio-contract/src/harness.ts | harness 域契约（批次 6/7）——正本以 apps/api/src/modules/harness/ |
+| iron-laws | packages/studio-contract/src/iron-laws.ts | iron-laws 域契约（批次 6/7）——正本以 apps/api/src/modules/harness/ |
+| knowledge | packages/studio-contract/src/knowledge.ts | knowledge 域契约——正本字段以 apps/api/src/modules/knowledge/ 实测 wire 为准： |
+| library | packages/studio-contract/src/library.ts | library 域契约——正本以 apps/api/src/modules/library/library.service.ts |
+| mcp | packages/studio-contract/src/mcp.ts | mcp 域契约（批次 7/8）——正本以 apps/api/src/modules/mcp/ 的 REST 管理面 |
+| monitoring | packages/studio-contract/src/monitoring.ts | monitoring 域契约——schema 即 wire 正本（#685 Phase 1：手写 interface 归一为 |
+| notifications | packages/studio-contract/src/notifications.ts | notifications 域契约——正本以 packages/studio-notification |
+| notify-channels | packages/studio-contract/src/notify-channels.ts | notify-channels 域契约——正本以 apps/api/src/modules/notifications/channels/ |
+| outbound-notify | packages/studio-contract/src/outbound-notify.ts | outbound-notify 域契约——正本以 apps/api/src/modules/notifications/ 的 |
+| pmo | packages/studio-contract/src/pmo.ts | pmo 域契约——正本字段以 apps/api/src/modules/pmo/project.service.ts（ProjectData）、 |
+| projects | packages/studio-contract/src/projects.ts | projects 域契约——正本字段以 apps/api/src/modules/projects/project-discovery.service.ts |
+| requirements | packages/studio-contract/src/requirements.ts | requirements 域契约——正本字段以 apps/api/src/modules/requirements/requirement.service.ts |
+| review-proposals | packages/studio-contract/src/review-proposals.ts | review-proposal 域契约——正本以 apps/api/src/modules/review-proposal/ |
+| skills | packages/studio-contract/src/skills.ts | skills 域契约——正本字段以 apps/api/src/modules/skills/skill-store.ts（SkillRecord）、 |
+| specs | packages/studio-contract/src/specs.ts | specs 域契约——字段正本在 apps/api/src/modules/specs 的 types/change.types.ts |
+| sse-events | packages/studio-contract/src/sse-events.ts | SSE 事件负载契约（#665，ADR 2026-08-24 D1/D2 落地）——/api/v1/events/stream |
+| transcripts | packages/studio-contract/src/transcripts.ts | transcripts 域契约——正本以 apps/api/src/modules/transcripts/ |
+| triggers | packages/studio-contract/src/triggers.ts | triggers 域契约——正本字段以 apps/api/src/modules/triggers/trigger.types.ts |
+| type-assert | packages/studio-contract/src/type-assert.ts | 编译期互锚工具（#685）：schema 推型与源类型互相 extends 才通过， |
+| workspaces | packages/studio-contract/src/workspaces.ts | workspaces 域契约——正本字段以 apps/api/src/modules/workspaces/local-workspace.ts |
+| workunit | packages/studio-contract/src/workunit.ts | workunit 域契约（首个迁移域，30+ 域的模板）——正本字段以 |
+| monitoring | packages/studio-shared/src/constants/monitoring.ts | 监控探针阈值（#181 决策 #62 D2/D3 + #167③）--api 探针与 Web 下钻口径同源（#209 smell 3）。 |
+| agent-loop | apps/api/src/bootstrap/agent-loop.ts | ── AS-026: AgentLoop per AgentProfile ── |
+| channels | apps/api/src/bootstrap/channels.ts | ── Channel 初始化（Goal 管线需要）── |
+| auditor-execution | apps/api/src/modules/agent-auditor/auditor-execution.ts | Auditor Agent — 建议执行 / 升级 / 闭环 |
+| auditor-reports | apps/api/src/modules/agent-auditor/auditor-reports.ts | Auditor Agent — 洞察与报告输出 |
+| auditor-rules | apps/api/src/modules/agent-auditor/auditor-rules.ts | Auditor Agent — 审计规则（检测 → 建议） |
+| auditor.service | apps/api/src/modules/agent-auditor/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
+| review-adapter | apps/api/src/modules/agent-auditor/review-adapter.ts | review-adapter (#356) — auditor_suggestion 提案卡 adapter（接线 review-proposal 正本） |
+| knowledge-cold-start | apps/api/src/modules/agent-knowledge/knowledge-cold-start.ts | Knowledge Agent — 冷启动子模块 |
+| knowledge-curator.service | apps/api/src/modules/agent-knowledge/knowledge-curator.service.ts | Knowledge Curator - 知识库冷启动与每日维护 |
+| knowledge-extraction | apps/api/src/modules/agent-knowledge/knowledge-extraction.ts | Knowledge Agent — 提取 prompt 单一来源 |
+| knowledge-maintenance | apps/api/src/modules/agent-knowledge/knowledge-maintenance.ts | Knowledge Agent — 语料分析（每日维护）子模块 |
+| agent-loop-events | apps/api/src/modules/agent-loop/agent-loop-events.ts | 非缓存执行 tokens（CLI usage input+output，不含 cache）。CLI 未回报 usage 时传 null —— |
+| agent-loop-guards | apps/api/src/modules/agent-loop/agent-loop-guards.ts | AgentLoop 守卫函数区（2026-08 工单 28 从 agent-loop.ts 原样抽出，行为不变）： |
+| agent-loop-parsers | apps/api/src/modules/agent-loop/agent-loop-parsers.ts | #467：解析 NEED_INPUT 后续的 RULING: JSON 行（plan 裁决轮契约，见 prompt-composer |
+| agent-loop-registry | apps/api/src/modules/agent-loop/agent-loop-registry.ts | #634: provider 变更重挂入口——同一 profile 的多次变更串行排队（上一环失败不阻塞后续）， |
+| agent-loop | apps/api/src/modules/agent-loop/agent-loop.ts | AgentLoop — observe→resolveTarget→agentStep→recordResult decision loop (AS-025) |
+| agent-loop.types | apps/api/src/modules/agent-loop/agent-loop.types.ts | AgentLoop 类型契约（2026-08 工单 28 从 agent-loop.ts 原样抽出，行为不变）： |
+| claim-fitness | apps/api/src/modules/agent-loop/claim-fitness.ts | 认领前适任判断（决策 14，docs/adr/2026-08-25-review-independence-trust-model.md 补充段）。 |
+| completion-gates | apps/api/src/modules/agent-loop/completion-gates.ts | 收口守卫链（2026-08 从 agent-loop.recordResult 抽出，行为一字不改）： |
+| completion-harvest | apps/api/src/modules/agent-loop/completion-harvest.ts | per-WU-type COMPLETE 收割注册表（#542，2026-09-15 架构评审候选 A2） |
+| context-overflow | apps/api/src/modules/agent-loop/context-overflow.ts | #96: CLI 上下文溢出纯反应式策略 —— 溢出错误识别 + 会话滚动摘要构建（纯函数，零服务依赖）。 |
+| daily-token-budget | apps/api/src/modules/agent-loop/daily-token-budget.ts | C3（2026-08-03 unattended-token-burn issue P2-2，决策记录 #4）：每日 token 预算熔断。 |
+| delegate-branch | apps/api/src/modules/agent-loop/delegate-branch.ts | A2A §4.1 DELEGATE 分支（2026-08 从 agent-loop.recordResult 抽出，行为一字不改）： |
+| dispatch-reconciliation | apps/api/src/modules/agent-loop/dispatch-reconciliation.ts | #183 派工/评审断链 5min 对账扫描（dispatch-reconciliation-scan handler 本体）。 |
+| execution-cwd | apps/api/src/modules/agent-loop/execution-cwd.ts | 执行目录解析段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| execution-step-events | apps/api/src/modules/agent-loop/execution-step-events.ts | 执行步事件（WU 过程可视化） |
+| executor | apps/api/src/modules/agent-loop/executor.ts | §9.6 Executor 接口 — AgentLoop 执行面抽象（P0） |
+| lease-heartbeat | apps/api/src/modules/agent-loop/lease-heartbeat.ts | #178（2026-08-16，#63 决议 1/2）WU 租约心跳。 |
+| loop-claim | apps/api/src/modules/agent-loop/loop-claim.ts | 认领段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| loop-host | apps/api/src/modules/agent-loop/loop-host.ts | AgentLoop 段间宿主契约（#668 agent-loop.ts 按职责切深模块）。 |
+| loop-lifecycle | apps/api/src/modules/agent-loop/loop-lifecycle.ts | 生命周期段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| loop-observe | apps/api/src/modules/agent-loop/loop-observe.ts | 观察段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| loop-record-result | apps/api/src/modules/agent-loop/loop-record-result.ts | 结果记录段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| loop-step | apps/api/src/modules/agent-loop/loop-step.ts | 步执行段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| prompt-composer | apps/api/src/modules/agent-loop/prompt-composer.ts | prompt/上下文组装编排（2026-08 从 agent-loop.agentStep 抽出；#671 按组装段拆分）： |
+| prompt-quota | apps/api/src/modules/agent-loop/prompt-quota.ts | prompt 注入段定额与截断共享件（#671 自 prompt-composer.ts 拆出）： |
+| prompt-section-contract | apps/api/src/modules/agent-loop/prompt-section-contract.ts | contract 段（#671 自 prompt-composer.ts 拆出）：`## 产出契约` 段模板正本 + 组装。 |
+| prompt-section-files | apps/api/src/modules/agent-loop/prompt-section-files.ts | files 段（#671 自 prompt-composer.ts 拆出）：`## 引用文件` 段组装。 |
+| prompt-section-handoff | apps/api/src/modules/agent-loop/prompt-section-handoff.ts | handoff 段（#671 自 prompt-composer.ts 拆出）：`## 前序进展` 段组装。 |
+| prompt-section-map | apps/api/src/modules/agent-loop/prompt-section-map.ts | map 段（#671 自 prompt-composer.ts 拆出）：`## PMO 地图` 段组装。 |
+| prompt-section-memory | apps/api/src/modules/agent-loop/prompt-section-memory.ts | memory 段（#671 自 prompt-composer.ts 拆出）：`## 角色记忆索引` 段组装。 |
+| prompt-section-persona | apps/api/src/modules/agent-loop/prompt-section-persona.ts | persona 段（#671 自 prompt-composer.ts 拆出）：`## 你的角色` 段组装。 |
+| prompt-section-roster | apps/api/src/modules/agent-loop/prompt-section-roster.ts | roster 段（#671 自 prompt-composer.ts 拆出）：`## 频道成员与委派` 段组装。 |
+| prompt-section-skill | apps/api/src/modules/agent-loop/prompt-section-skill.ts | skills 段（#671 自 prompt-composer.ts 拆出）：`## 本次任务 Skills` 段组装。 |
+| result-bookkeeping | apps/api/src/modules/agent-loop/result-bookkeeping.ts | recordResult 簿记段（#655 从 agent-loop.recordResult 抽出，行为一字不改）： |
+| review-contract | apps/api/src/modules/agent-loop/review-contract.ts | Review Contract — 审查结论（verdict）语义的单一来源 |
+| review-dispatcher | apps/api/src/modules/agent-loop/review-dispatcher.ts | ReviewDispatcher - AC-4.1 ~ AC-4.5: 状态机驱动的 review 系统代派 |
+| session-resume | apps/api/src/modules/agent-loop/session-resume.ts | #94 会话续用判定（会话号 per-WU 化）：纯函数，零服务依赖。 |
+| step-guards | apps/api/src/modules/agent-loop/step-guards.ts | 入口守卫链（#541，2026-09 从 agent-loop.agentStep 头部原样抽出，行为一字不改， |
+| step-retry-policy | apps/api/src/modules/agent-loop/step-retry-policy.ts | 步执行重试策略（#543，2026-09 架构评审 A3）：收编 agentStep 中段两段孪生重试骨架 —— |
+| wu-lease | apps/api/src/modules/agent-loop/wu-lease.ts | #209 smell 4（源自 #178 / #63 决议 1/2）：WU 租约追踪器。 |
+| wu-verification | apps/api/src/modules/agent-loop/wu-verification.ts | B3b-i（决策 D3 前半）WU 自动验证 —— 从 agent-loop 抽出的可复用实现（2026-07-30 F6-c 断链修复）。 |
+| review-adapter | apps/api/src/modules/evolution/review-adapter.ts | review-adapter (#623) — evolution 人审提案 adapter（接线 review-proposal 正本） |
+| review-adapter | apps/api/src/modules/knowledge/review-adapter.ts | review-adapter (#355) — knowledge 提案审批 adapter（接线 review-proposal 正本） |
+| review-adapter | apps/api/src/modules/role-memory/review-adapter.ts | review-adapter (#353) — role-memory 人审提案 adapter（接线 review-proposal 正本） |
+| review-adapter | apps/api/src/modules/skills/review-adapter.ts | review-adapter (#354) — skills 提案审批 adapter（接线 review-proposal 正本） |
+| auth | apps/web/src/api/auth.ts | Auth API - 认证系统（P3-a 自 api/index.ts 拆出） |
+| events | apps/web/src/api/events.ts | Events API — #180 事件检索（#60 决策 Q3a：GET /events 过滤 + 尾部倒读游标分页） |
+| evolution | apps/web/src/api/evolution.ts | Evolution proposal review API — #623 断点 3 遗留补丁（review-proposal 正本 kind='evolution'） |
+| harness | apps/web/src/api/harness.ts | Harness API — /harness/*（T-015 Harness 监控集成，admin 中间件） |
+| knowledge | apps/web/src/api/knowledge.ts | Knowledge API — 知识审核闭环 + 知识库浏览： |
+| library | apps/web/src/api/library.ts | Library API (#155 T5: 阅览室——跨项目 .studio/ 聚合只读层；无写路径) |
+| monitoring | apps/web/src/api/monitoring.ts | Monitoring API — Agent Network (MVP-2 + MVP-6) |
+| pmo | apps/web/src/api/pmo.ts | PMO API — /pmo/project（projectApi，P3-a 自 api/index.ts 归位）+ /pmo/okr（okrApi： |
+| projects | apps/web/src/api/projects.ts | Projects API — #266（决策 #258）：工程发现候选 + 归属候选排除清单管理 |
+| requirements | apps/web/src/api/requirements.ts | Requirement API — REQ 需求编号体系（vision §5.3） |
+| skills | apps/web/src/api/skills.ts | Skills API — #278（决策 #250 D2）：retract_confirm 卡退役决策 |
+| workspaces | apps/web/src/api/workspaces.ts | Workspace API — AS-020 P2/P7（P3-a 自 api/index.ts 拆出） |
+| workunit | apps/web/src/api/workunit.ts | 从 GET /events?type=workunit:tokens 的响应行中解析某个 WorkUnit 的 token 事件。 |
+| Sidebar | apps/web/src/components/Sidebar.tsx | Sidebar.tsx - 全局侧边栏组件（#693 自 SidebarNew.tsx 正名，New 后缀退役） |
+| AutocompletePopup | apps/web/src/components/channel/AutocompletePopup.tsx | AutocompletePopup（#691，docs/plans/2026-10-arch-simplification.md Phase 2-2）： |
+| FileRefChips | apps/web/src/components/channel/FileRefChips.tsx | FileRefChips（#691 自 ChannelInput 抽出）：#485 文件引用台账可视化——chip 可单独移除 |
+| MergePreviewBar | apps/web/src/components/channel/MergePreviewBar.tsx | MergePreviewBar（#691 自 ChannelInput 抽出）：#632 发送前归属预览条（复用 reply 预览条 |
+| channelAutocompleteGroups | apps/web/src/components/channel/channelAutocompleteGroups.tsx | channelAutocompleteGroups（#691 自 ChannelInput 抽出）：@/# 两弹框的候选分组构建器—— |
+| SettingsPage | apps/web/src/pages/SettingsPage.tsx | 设置页面 — #434 死配置清理 + #481「默认执行机器」退役后的活节（工程候选 / 通知渠道 #525 / 主题），全部组件内即时保存，无保存栏 |
 | types | packages/studio-agent/src/services/types.ts | Executor 公共类型 |
 | types | packages/studio-skill/src/types.ts | Skill 定义类型 |
 | current-wu-context | apps/api/src/modules/ops/current-wu-context.ts | 当前 WU 聚合上下文（2026-07 PMO-flow UX §6-1；#318 自 monitoring.service 提取为共享出口）： |
@@ -72,7 +183,6 @@
 | evolution | apps/api/src/modules/evolution/ | E1 约束进化：提案生效器（applier）。 |
 | webhook.routes | apps/api/src/modules/deploy/webhook.routes.ts | Deploy Webhook — GitHub push 事件触发的部署入口（触发式部署，替代每分钟轮询的主通道） |
 | pmo | apps/web/src/components/pmo/ | WU → 泳道。F6 铁律：分列只准看 deriveDisplayState 派生列（done 缺 L3 回「评审中」等人工确认）。 |
-| statusClasses | apps/web/src/components/channel/statusClasses.ts | 频道/agent 状态点样式映射（从 ChannelRail.tsx 拆出，供 ChannelRail 与 ChannelListPage 共用） |
 | dismissed | apps/web/src/components/setup/dismissed.ts | 角色配置引导弹框的会话级 dismiss 标记（sessionStorage key 与检查函数； |
 | useTheme | apps/web/src/contexts/useTheme.ts | 使用主题 Hook |
 | completion-extraction | apps/api/src/modules/role-memory/completion-extraction.ts | completion-extraction (#99) — WU 收尾批量提取钩子 |
@@ -86,7 +196,6 @@
 | MoreDropdown | apps/web/src/components/MoreDropdown.tsx | MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能） |
 | NotificationBell | apps/web/src/components/NotificationBell.tsx | Notification Bell — B2-003: 通知中心 |
 | PmoNumberBadge | apps/web/src/components/PmoNumberBadge.tsx | PMO 号显示组件 - GEN-005 |
-| SidebarNew | apps/web/src/components/SidebarNew.tsx | Sidebar.tsx - 侧边栏组件（最新设计） |
 | TopNav | apps/web/src/components/TopNav.tsx | TopNav.tsx - 顶部导航栏组件（L1 核心功能） |
 | TriageBanner | apps/web/src/components/TriageBanner.tsx | Triage Global Banner — B2-005: 页面顶部常驻告警横幅 |
 | AuthorAvatar | apps/web/src/components/channel/AuthorAvatar.tsx | AuthorAvatar — 频道消息作者头像：人类 = 品牌色 + 用户名首字（用户传了 avatar 图则用图）； |
@@ -125,7 +234,6 @@
 | NotFoundPage | apps/web/src/pages/NotFoundPage.tsx | 404 页面 - 路由表兜底（未匹配路径） |
 | PMOPage | apps/web/src/pages/PMOPage.tsx | PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33） |
 | ProjectDetailPage | apps/web/src/pages/ProjectDetailPage.tsx | Project 详情页 - GEN-005 + FL-013 |
-| Settings | apps/web/src/pages/Settings.tsx | 设置页面 - API 配置 + 通知 + 公司 + 主题语言 |
 | WorkUnitDetailPage | apps/web/src/pages/WorkUnitDetailPage.tsx | WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4） |
 | WorkUnitListPage | apps/web/src/pages/WorkUnitListPage.tsx | WorkUnitListPage |
 | WorkspacePage | apps/web/src/pages/WorkspacePage.tsx | WorkspacePage — AC Group 5: runtime list + create role dialog |
@@ -160,7 +268,6 @@
 | ReviewProposalCard | apps/web/src/components/channel/ReviewProposalCard.tsx | ReviewProposalCard — #352 人审提案卡合一壳（ADR 2026-08-25 决策 5） |
 | proposalCardConfigs | apps/web/src/components/channel/proposalCardConfigs.tsx | 人审提案卡配置（#352，ADR 2026-08-25 决策 5）：6 张提案卡坍缩为「条目清单 + 文案」纯数据配置。 |
 | ChannelActivityRail | apps/web/src/components/channel/ChannelActivityRail.tsx | #394 频道动态右栏（spec §4.1–4.3，#381 定稿变体 B）——300px REQ 链路卡栏： |
-| activityRail | apps/web/src/components/channel/activityRail.ts | 四站 stepper「讨论 → REQ → WU n/m → 交付」状态推导： |
 | CreateRoleModal | apps/web/src/components/monitoring/CreateRoleModal.tsx | 创建角色弹框（#397，redesign §6.4：弹框不跳页——上下文不丢） |
 | MonitorSection | apps/web/src/components/monitoring/MonitorSection.tsx | MonitorSection — #398 监控页区块容器（spec §7.5 文案定稿模式） |
 | RoleCard | apps/web/src/components/monitoring/RoleCard.tsx | AgentDashboard 信息全卡（#397，redesign-2026-08 §6 定稿变体 B）：四层构成自上而下层级递减—— |
@@ -195,7 +302,6 @@
 | ChannelRoutingEditor | apps/web/src/components/channel/ChannelRoutingEditor.tsx | ChannelRoutingEditor — #466：频道级「阶段→角色」路由表编辑（一屏三行下拉）。 |
 | PlanRulingCard | apps/web/src/components/channel/PlanRulingCard.tsx | PlanRulingCard — #467：裁决轮接力卡（plan 一脉会话内的一次性人闸） |
 | RoleSkillsModal | apps/web/src/components/monitoring/RoleSkillsModal.tsx | 角色技能编辑弹框（#462：role.skills 显式声明 → 注入索引候选，与 WU +skill 点名同权） |
-| joinChannel | apps/web/src/components/setup/joinChannel.ts | #465（首用路径断点）：一键加入 #研发——解析默认频道（按名字，同 cli/dev.ts 先例）、 |
 | icons | apps/web/src/components/ui/icons.tsx | #474 图标策略定稿：全去 emoji——导航/徽章统一用本文件的 stroke SVG 图标组件。 |
 | StaleSleepBadge | apps/web/src/components/workunit/StaleSleepBadge.tsx | #464：「已沉睡」徽标 —— 72h 认领陈旧守卫命中的 WU。 |
 | CommandPalette | apps/web/src/components/CommandPalette.tsx | CommandPalette — Cmd/Ctrl+K 全局搜索面板（批次 D-2 项 8，docs/plans/2026-09-ui-interaction-polish.md）。 |

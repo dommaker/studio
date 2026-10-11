@@ -45,6 +45,7 @@
     "tools:status": "./scripts/tools/status.sh",
     "typecheck": "node bin/tsc-gate.js --check",
     "gen:agents-md": "node scripts/gen-agents-md.mjs",
+    "gen:required-dirs": "node scripts/gen-required-dirs.mjs",
     "agents-md:sync": "npx harness sync-docs --agents && node scripts/gen-agents-md.mjs",
     "postinstall": "node -e \"const fs=require('fs'),{execSync}=require('child_process');if(fs.existsSync('scripts/harness-sync.js'))execSync('node scripts/harness-sync.js',{stdio:'inherit'})\"",
     "prepare": "node scripts/harness-sync.js"
