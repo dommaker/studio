@@ -287,10 +287,6 @@ export class FileStore {
     return this.entityStore.deleteProfile(id);
   }
 
-  migrateChannelsEncoding(opts?: { dryRun?: boolean }): Promise<{ scanned: number; rewritten: number }> {
-    return this.entityStore.migrateChannelsEncoding(opts);
-  }
-
   getState(agentId: string): Promise<RuntimeStateData | null> {
     return this.entityStore.getState(agentId);
   }

@@ -35,7 +35,7 @@ const BASELINE_PUBLIC_METHODS = [
   'getChannelVersion', 'getDataDir', 'getEvolutionProposal', 'getIndex', 'getMessageById',
   'getMessagesSince', 'getProfile', 'getRequirement', 'getState', 'listChannels',
   'listDocs', 'listEvolutionProposals', 'listJsonInDir', 'listMessageChannelIds',
-  'listProfiles', 'listRequirements', 'listStates', 'migrateChannelsEncoding',
+  'listProfiles', 'listRequirements', 'listStates',
   'queryAllMessages', 'queryMessages', 'queryMessagesPage', 'readChannelMessagesDelta',
   'readDoc', 'readDocWithMtime', 'readJson', 'readJsonl', 'readMessagesTail', 'readdir',
   'rebuildIndex', 'reconcileIndex', 'refreshWorkUnitLease', 'removeSnapshot',

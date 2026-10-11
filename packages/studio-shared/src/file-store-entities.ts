@@ -17,7 +17,6 @@ import path from 'node:path';
 import { isErrnoError } from './file-store-base';
 import type { FileStoreCore } from './file-store-core';
 import { statMtimeMs, collectNonNull, invalidateFileKey, invalidateRemovedPath } from './file-store-cache';
-import { stringifyChannels } from './channels-codec';
 import type {
   AgentProfileData,
   RuntimeStateData,
@@ -232,38 +231,6 @@ export class EntityStore {
 
   async deleteProfile(id: string): Promise<void> {
     await this.deleteDirEntity(this.profileStoreConfig, id);
-  }
-
-  /**
-   * F3 一次性迁移：把所有 profile.json 的 channels 字段归一化为单层 JSON 编码
-   * （修复历史双重编码 bug 的存量数据）。dryRun 时只统计不写盘。
-   * 无法读取/非字符串 channels 的 profile 跳过（交给清洗脚本判定去留）。
-   */
-  async migrateChannelsEncoding(opts?: { dryRun?: boolean }): Promise<{ scanned: number; rewritten: number }> {
-    const dir = this.agentsDir();
-    let scanned = 0;
-    let rewritten = 0;
-    let entries: fs.Dirent[];
-    try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    } catch (err: unknown) {
-      if (isErrnoError(err) && err.code === 'ENOENT') return { scanned, rewritten };
-      throw err;
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const profile = await this.ctx.io.readJson<AgentProfileData>(this.profilePath(entry.name));
-      if (!profile || typeof profile.channels !== 'string') continue;
-      scanned++;
-      const normalized = stringifyChannels(profile.channels);
-      if (normalized !== profile.channels) {
-        rewritten++;
-        if (!opts?.dryRun) {
-          await this.ctx.io.writeJson(this.profilePath(entry.name), { ...profile, channels: normalized });
-        }
-      }
-    }
-    return { scanned, rewritten };
   }
 
   // ═══════════════════════
