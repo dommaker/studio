@@ -1,13 +1,16 @@
 /**
- * check-module-cycles — 模块级循环依赖 CI 门（#666，docs/plans/2026-10-arch-deepening.md Phase 2）
+ * check-module-cycles — 模块级循环依赖 CI 门（#666，docs/plans/2026-10-arch-deepening.md Phase 2；
+ * #695 砍掉互耦对细粒度豁免层）
  *
  * 兑现 target-architecture.md「循环依赖显形，新增环即 CI 红」的承诺。
- * 复用 p2c-dep-analysis.mjs 的模块级 import 图，在 prod 桶边上做两层判定：
- *   1. SCC（强连通分量 size>1）：成员集须与豁免清单精确匹配——新模块入环簇 / 环簇合并即 fail；
- *   2. 互耦对（prod 双向直连）：逐对须豁免——SCC 豁免不掩盖簇内新增直连互耦。
+ * 复用 p2c-dep-analysis.mjs 的模块级 import 图，在 prod 桶边上做单层判定：
+ *   SCC（强连通分量 size>1）：成员集须与豁免清单精确匹配——新模块入环簇 / 环簇合并即 fail。
  * 反向同样 fail：豁免有、实际无 = 清单腐化（stale），逼豁免随清零同步回收。
  * 测试桶边不计入（跨模块深 import 白名单口径与 p2c-dep-analysis 报告一致）；
  * type-only import 算结构依赖（与 local/no-deep-module-import 口径一致）。
+ *
+ * #695：互耦对（prod 双向直连）逐对豁免层已删——逐对写 reason 边际价值低，
+ * 「不扩大」由 SCC 成员集精确匹配 + stale 自检兜住。互耦对统计仍见 p2c-dep-analysis 报告。
  *
  * 豁免清单：scripts/module-cycle-exemptions.mjs（逐条带 reason，改动须说明）。
  *
@@ -42,29 +45,15 @@ function sccsOf(modules, adj) {
   return findSCCs(modules, edgeView);
 }
 
-/** prod 双向直连互耦对，返回排序后的 'a<->b' 键列表 */
-function mutualPairKeys(adj) {
-  const keys = [];
-  for (const [a, tos] of adj) {
-    for (const b of tos) {
-      if (a < b && adj.get(b)?.has(a)) keys.push(`${a}<->${b}`);
-    }
-  }
-  return keys.sort();
-}
-
 /**
  * 比对实际环与豁免清单。
- * exemptions: { sccs: [{ modules: string[], reason }], mutualPairs: [{ a, b, reason }] }
- * 返回 { ok, violations: [{ kind, key, reason? }] }，
- * kind: new-scc | stale-scc | new-pair | stale-pair。
+ * exemptions: { sccs: [{ modules: string[], reason }] }
+ * 返回 { ok, violations: [{ kind, key }] }，kind: new-scc | stale-scc。
  */
 export function checkCycles(graph, exemptions) {
   const adj = prodAdjacency(graph);
   const actualSccs = sccsOf(graph.modules, adj).map(m => m.join(','));
   const exemptSccs = (exemptions.sccs ?? []).map(e => [...e.modules].sort().join(','));
-  const actualPairs = mutualPairKeys(adj);
-  const exemptPairs = (exemptions.mutualPairs ?? []).map(e => [e.a, e.b].sort().join('<->'));
 
   const violations = [];
   for (const key of actualSccs) {
@@ -73,20 +62,12 @@ export function checkCycles(graph, exemptions) {
   for (const key of exemptSccs) {
     if (!actualSccs.includes(key)) violations.push({ kind: 'stale-scc', key });
   }
-  for (const key of actualPairs) {
-    if (!exemptPairs.includes(key)) violations.push({ kind: 'new-pair', key });
-  }
-  for (const key of exemptPairs) {
-    if (!actualPairs.includes(key)) violations.push({ kind: 'stale-pair', key });
-  }
   return { ok: violations.length === 0, violations };
 }
 
 const KIND_LABEL = {
   'new-scc': '新增环簇（未豁免的 SCC）',
   'stale-scc': '豁免过期（SCC 已不存在，回收豁免）',
-  'new-pair': '新增互耦对（prod 双向直连未豁免）',
-  'stale-pair': '豁免过期（互耦对已不存在，回收豁免）',
 };
 
 export function formatViolations(violations) {

@@ -1,9 +1,9 @@
 /**
- * check-module-cycles — 循环依赖 CI 门单元测试（#666）
+ * check-module-cycles — 循环依赖 CI 门单元测试（#666；#695 砍掉互耦对细粒度层）
  *
  * 门禁语义：
  * - 只看 prod 桶边（测试跨模块 import 是白名单，不计入环判定）
- * - 两层判定：SCC（size>1，成员集精确匹配）+ 互耦对（prod 双向）
+ * - 单层判定：SCC（size>1，成员集精确匹配）
  * - 实际有、豁免无 → 新增环 → fail；豁免有、实际无 → 豁免过期 → fail（防清单腐化）
  */
 import { describe, it, expect } from 'vitest';
@@ -43,7 +43,7 @@ describe('prodAdjacency', () => {
     });
     const adj = prodAdjacency(buildModuleGraph(dir));
     expect(adj.size).toBe(0);
-    const { ok, violations } = checkCycles(buildModuleGraph(dir), { sccs: [], mutualPairs: [] });
+    const { ok, violations } = checkCycles(buildModuleGraph(dir), { sccs: [] });
     expect(ok).toBe(true);
     expect(violations).toEqual([]);
   });
@@ -60,33 +60,20 @@ describe('prodAdjacency', () => {
 });
 
 describe('checkCycles', () => {
-  it('无豁免时：环 → new-scc + new-pair 违规', () => {
+  it('无豁免时：环 → new-scc 违规', () => {
     const g = buildModuleGraph(cyclicFixture());
-    const { ok, violations } = checkCycles(g, { sccs: [], mutualPairs: [] });
+    const { ok, violations } = checkCycles(g, { sccs: [] });
     expect(ok).toBe(false);
-    const kinds = violations.map(v => `${v.kind}:${v.key}`);
-    expect(kinds).toContain('new-scc:alpha,beta');
-    expect(kinds).toContain('new-pair:alpha<->beta');
+    expect(violations.map(v => `${v.kind}:${v.key}`)).toEqual(['new-scc:alpha,beta']);
   });
 
   it('豁免精确匹配实际 → 通过', () => {
     const g = buildModuleGraph(cyclicFixture());
     const { ok, violations } = checkCycles(g, {
       sccs: [{ modules: ['alpha', 'beta'], reason: '测试豁免' }],
-      mutualPairs: [{ a: 'alpha', b: 'beta', reason: '测试豁免' }],
     });
     expect(ok).toBe(true);
     expect(violations).toEqual([]);
-  });
-
-  it('豁免缺互耦对 → new-pair 违规（SCC 豁免不掩盖直连互耦）', () => {
-    const g = buildModuleGraph(cyclicFixture());
-    const { ok, violations } = checkCycles(g, {
-      sccs: [{ modules: ['alpha', 'beta'], reason: 'x' }],
-      mutualPairs: [],
-    });
-    expect(ok).toBe(false);
-    expect(violations.map(v => v.kind)).toEqual(['new-pair']);
   });
 
   it('豁免有、实际无 → stale 违规（防清单腐化）', () => {
@@ -96,14 +83,9 @@ describe('checkCycles', () => {
         { modules: ['alpha', 'beta'], reason: 'x' },
         { modules: ['ghost'], reason: '已清零的环' },
       ],
-      mutualPairs: [
-        { a: 'alpha', b: 'beta', reason: 'x' },
-        { a: 'foo', b: 'bar', reason: '已清零' },
-      ],
     });
     expect(ok).toBe(false);
-    const kinds = violations.map(v => `${v.kind}:${v.key}`).sort();
-    expect(kinds).toEqual(['stale-pair:bar<->foo', 'stale-scc:ghost']);
+    expect(violations.map(v => `${v.kind}:${v.key}`)).toEqual(['stale-scc:ghost']);
   });
 
   it('SCC 成员集漂移（新模块加入环簇）→ new-scc + stale-scc', () => {
@@ -115,7 +97,6 @@ describe('checkCycles', () => {
     const g = buildModuleGraph(dir);
     const { ok, violations } = checkCycles(g, {
       sccs: [{ modules: ['alpha', 'beta'], reason: '旧两元环' }],
-      mutualPairs: [],
     });
     expect(ok).toBe(false);
     expect(violations.some(v => v.kind === 'new-scc' && v.key === 'alpha,beta,gamma')).toBe(true);
@@ -126,7 +107,7 @@ describe('checkCycles', () => {
 describe('formatViolations', () => {
   it('产出可读违规清单', () => {
     const g = buildModuleGraph(cyclicFixture());
-    const { violations } = checkCycles(g, { sccs: [], mutualPairs: [] });
+    const { violations } = checkCycles(g, { sccs: [] });
     const text = formatViolations(violations);
     expect(text).toContain('alpha');
     expect(text).toContain('beta');
