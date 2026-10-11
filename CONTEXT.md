@@ -87,7 +87,7 @@ _Avoid_: 全量扫描工程当候选、把候选集当权限边界
 _Avoid_: 用 defaultWorkspaceId 表达工程归属、重新引入「执行机器」类配置面
 
 **频道工作区**:
-频道域的唯一页面形态（#377 map charting 决议，2026-08-28）：三栏 = 左频道列表 / 中会话流 / 右「频道动态」。旧频道列表页（max-w-lg 居中）删除，`/` 与 `/channels` 重定向进工作区并记住最近访问频道。风格 = Slack/Discord 式三栏骨架 + Linear 式克制密度。改版实施前的现状描述见 `apps/web/src/CONTEXT.md`。
+频道域的唯一页面形态（#377 map charting 决议，2026-08-28）：三栏 = 左频道列表 / 中会话流 / 右「频道动态」。旧频道列表页（max-w-lg 居中）删除，`/` 与 `/channels` 重定向进工作区并记住最近访问频道。风格 = Slack/Discord 式三栏骨架 + Linear 式克制密度。改版实施前的现状描述见 `apps/web/docs/CONTEXT.md`。
 _Avoid_: 频道列表页与工作区双形态并存
 
 **频道动态**:

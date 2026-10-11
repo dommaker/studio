@@ -62,7 +62,7 @@ interface WorkUnitState {
   /**
    * #318：SSE 负载驱动行更新（对齐批 3 模式，替代 eventTick 整页重拉）。
    * status_changed 直替已有行（insertIfMissing: false——未知行不插入，防跨页重复，
-   * 即使新进过滤集亦然：服务端过滤 + 分页下无法判定页内归属，取舍 c 见 CONTEXT.md 批 4）；
+   * 即使新进过滤集亦然：服务端过滤 + 分页下无法判定页内归属，取舍 c 见 apps/web/docs/CONTEXT.md 批 4）；
    * created 插头部（insertIfMissing: true）。与当前 status/type 过滤不符的行就地移除/不插入。
    * 取舍 a：total 本地 ±1 近似维护，页边界不追齐——本页无轮询兜底，自愈靠 SSE 重连 refetch
    * 与操作触发的 loadWorkUnits（docs/plans/2026-08-24-wu-events-payload-consumers.md）。
