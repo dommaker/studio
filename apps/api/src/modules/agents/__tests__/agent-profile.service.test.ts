@@ -114,14 +114,14 @@ describe('AgentProfile CRUD', () => {
     expect(onDisk!.channels).toBe('["ch-1"]');
   });
 
-  it('update normalizes double-encoded channels input', async () => {
+  it('update 对双重编码的 channels 输入落 []（#696：双层解码容错已退役）', async () => {
     const created = await service.create({ name: 'test-normalize-update' });
     testProfileIds.push(created.id);
 
     const updated = await service.update(created.id, {
       channels: JSON.stringify(JSON.stringify(['ch-2'])) as unknown as string[],
     });
-    expect(updated.channels).toBe('["ch-2"]');
+    expect(updated.channels).toBe('[]');
   });
 
   it('delete', async () => {
