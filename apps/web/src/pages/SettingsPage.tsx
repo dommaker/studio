@@ -3,7 +3,7 @@ import { ProjectCandidatesSection } from '../components/settings/ProjectCandidat
 import { NotifyChannelsSection } from '../components/settings/NotifyChannelsSection';
 import { ThemeSettings } from '../components/settings/ThemeSettings';
 
-export function Settings() {
+export function SettingsPage() {
   return (
     <div className="h-full flex flex-col u-page-bg">
       <div className="u-page-head">
@@ -30,4 +30,4 @@ export function Settings() {
   );
 }
 
-export default Settings;
+export default SettingsPage;

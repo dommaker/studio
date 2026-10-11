@@ -1,7 +1,7 @@
 // unreadStore — 频道未读面共享 store（#413）：SSE channel.message_sent 增量 + 「正在看」语义。
 // 关键契约：① active 频道（正在查看）不涨未读；② setActiveChannel 进频道即清零（打开即读，
 // 对齐 notificationStore.markChannelRead 先例）；③ 计数存 store 而非 hook 实例私有 state，
-// 断点跨越（<768 内联 ChannelRail ↔ SidebarNew 挂载实例切换）计数不丢。
+// 断点跨越（<768 内联 ChannelRail ↔ Sidebar 挂载实例切换）计数不丢。
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const { mockListMessages } = vi.hoisted(() => ({ mockListMessages: vi.fn() }));

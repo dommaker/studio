@@ -1,5 +1,5 @@
 // ChannelDetailPage 窄屏降级（#395，spec §4.6）— JS 断点行为：
-// <768 左栏卸载（并入全局 Sidebar，SidebarNew.test.tsx 覆盖并入侧）；
+// <768 左栏卸载（并入全局 Sidebar，Sidebar.test.tsx 覆盖并入侧）；
 // <1024 右栏卸载 → 顶栏「频道动态」入口开覆盖抽屉（可开可关，点 REQ/WU 联动详情抽屉并收起覆盖层）；
 // ≥1024 宽屏三栏行为不变（matchMedia 缺失时回落宽屏，与存量测试同口径）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

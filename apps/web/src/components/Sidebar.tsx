@@ -1,4 +1,4 @@
-// Sidebar.tsx - 侧边栏组件（最新设计）
+// Sidebar.tsx - 全局侧边栏组件（#693 自 SidebarNew.tsx 正名，New 后缀退役）
 // #393 菜单精简（spec §2）：主项仅 4 个（频道/PMO/任务/角色，#473 统一「角色」不叫 Agent）；
 // 知识库/阅览室/监控/设置/审计日志收进顶部 header「更多」下拉（MoreDropdown），本组件不再有「更多」组
 // #395（spec §4.6）：<768 频道左栏（ChannelRail）并入本 sidebar——频道路由下渲染于主导航之下，

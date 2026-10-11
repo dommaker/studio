@@ -6,7 +6,7 @@ const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({
 const CommandPalette = lazy(() => import('./components/CommandPalette').then(m => ({ default: m.CommandPalette })));
 
 // 路由级代码分割 - 懒加载页面组件
-const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then(m => ({ default: m.AuditLogsPage })));
 const PMOPage = lazy(() => import('./pages/PMOPage').then(m => ({ default: m.PMOPage })));
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
@@ -30,7 +30,7 @@ const PageLoader = () => (
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TopNav } from './components/TopNav';
-import { Sidebar } from './components/SidebarNew';
+import { Sidebar } from './components/Sidebar';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
 import { SseProvider } from './api/sse';
@@ -200,7 +200,7 @@ export default function App() {
             />
             {/* #474：双路由合并——/pmo/project/:id 为项目详情唯一入口 */}
             <Route path="/goals" element={<Navigate to="/workunits" replace />} />
-            <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
+            <Route path="/settings" element={<Suspense fallback={<PageLoader />}><SettingsPage /></Suspense>} />
             <Route path="/audit-logs" element={<Suspense fallback={<PageLoader />}><AuditLogsPage /></Suspense>} />
             <Route path="/channels" element={<Suspense fallback={<PageLoader />}><ChannelHomeRedirect /></Suspense>} />
             <Route path="/channels/:id" element={<Suspense fallback={<PageLoader />}><ChannelDetailPage /></Suspense>} />

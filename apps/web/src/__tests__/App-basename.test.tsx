@@ -53,7 +53,7 @@ vi.mock('../contexts/ThemeContext', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock('../components/TopNav', () => ({ TopNav: () => null }));
-vi.mock('../components/SidebarNew', () => ({ Sidebar: () => null }));
+vi.mock('../components/Sidebar', () => ({ Sidebar: () => null }));
 vi.mock('../components/TriageBanner', () => ({ TriageBanner: () => null }));
 vi.mock('../components/setup/StudioRoleSetupModal', () => ({ StudioRoleSetupModal: () => null }));
 vi.mock('../components/setup/FirstRoleSetupModal', () => ({ FirstRoleSetupModal: () => null }));

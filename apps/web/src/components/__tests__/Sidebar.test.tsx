@@ -18,7 +18,7 @@ vi.mock('../channel/ChannelRail', () => ({
   },
 }));
 
-import { Sidebar } from '../SidebarNew';
+import { Sidebar } from '../Sidebar';
 import { useNotificationStore } from '../../stores/notificationStore';
 import { mockMatchMedia, uninstallMatchMedia } from '../../test/mockMatchMedia';
 
