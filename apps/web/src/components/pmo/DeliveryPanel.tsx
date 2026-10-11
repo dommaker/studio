@@ -14,7 +14,7 @@ import { formatFullTime } from '../../utils/datetime';
 import { toast } from '../../utils/toast';
 import { AnalysisApproveDialog } from './AnalysisApproveDialog';
 import { IconCheck, IconRefresh, IconClock } from '../ui/icons';
-import { buildAnalysisConfirmPrefill, type AnalysisConfirmPrefill } from './mapUtils';
+import { buildAnalysisConfirmPrefill, type AnalysisConfirmPrefill } from '../../utils/mapUtils';
 import { EVIDENCE_LAYER_LABELS } from './pipelineUtils';
 import { DELIVERY_POLICY_LABELS } from './projectDisplay';
 

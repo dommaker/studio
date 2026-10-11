@@ -1,9 +1,20 @@
 // #394 频道动态右栏（spec §4.2）纯函数：四站 stepper 推导 / 消息摘要投影（#416）/ 动态条目构建 / REQ 归属分流
 // 数据源只读现成面：messages 经 projectActivityMessages 投影后进入、channelReqs、waitingWus、/requirements/:id/chain
-import type { ChannelMessage } from '../../api/channel';
-import type { Requirement, RequirementChainWorkUnit } from '../../api/requirements';
-import { parseMeta } from '../../utils/messageMeta';
-import type { NeedInputTodo } from './ChannelNeedInputChip';
+import type { ChannelMessage } from '../api/channel';
+import type { Requirement, RequirementChainWorkUnit } from '../api/requirements';
+import { parseMeta } from './messageMeta';
+
+/** NEED_INPUT 待办条目（#279 决策 #250 D4；正本自 ChannelNeedInputChip 随本文件迁 utils） */
+export interface NeedInputTodo {
+  wuId: string;
+  /** metadata.waitingQuestion（agent 提问原文）；缺省回落 scope */
+  question?: string;
+  /** WU scope（question 缺失时的兜底摘要） */
+  scope?: string;
+  /** #533：当前提问消息 id（后端 action-center 唯一派生点，stateItems.messageId 透传）——
+   *  回复区/提升/定位的唯一锚点；缺省 → 各消费方 fail-closed（前端不再从已加载消息反推） */
+  messageId?: string;
+}
 
 export type StepKey = 'discuss' | 'req' | 'wu' | 'deliver';
 export type StepState = 'done' | 'current' | 'upcoming';

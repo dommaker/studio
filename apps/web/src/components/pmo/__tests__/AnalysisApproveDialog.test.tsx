@@ -16,7 +16,7 @@ vi.mock('../../../api/channel', () => ({
 }));
 
 import { AnalysisApproveDialog, ANALYSIS_REJECT_REASON } from '../AnalysisApproveDialog';
-import type { AnalysisConfirmPrefill } from '../mapUtils';
+import type { AnalysisConfirmPrefill } from '../../../utils/mapUtils';
 
 const PREFILL: AnalysisConfirmPrefill = {
   destination: '三仓特性联动上线',

@@ -38,7 +38,7 @@ import {
   type NextActionCandidate,
   type PmoMap,
   type FogItem,
-} from '../components/pmo/mapUtils';
+} from '../utils/mapUtils';
 import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
 import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';

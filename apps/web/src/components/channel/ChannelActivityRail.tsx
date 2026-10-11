@@ -23,7 +23,7 @@ import {
   fmtRelTime,
   type ActivityRowData,
   type ChannelActivityItem,
-} from './activityRail';
+} from '../../utils/activityRail';
 
 interface Props {
   channelId: string;

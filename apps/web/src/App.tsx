@@ -41,7 +41,7 @@ import { usePmoDataStoreSync } from './hooks/usePmoDataStoreSync';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
 import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
-import { joinDefaultChannel } from './components/setup/joinChannel';
+import { joinDefaultChannel } from './utils/joinChannel';
 import { isStudioRoleSetupDismissed, isFirstRoleSetupDismissed } from './components/setup/dismissed';
 import { isSystemRole } from './utils/systemRole';
 import './styles/theme.css';

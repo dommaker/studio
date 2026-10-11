@@ -13,7 +13,7 @@ import { useChannelList, type ChannelListItem } from '../../hooks/useChannelList
 import { useRosterStore } from '../../stores/rosterStore';
 import { useUnreadStore } from '../../stores/unreadStore';
 import { useRosterStoreSync } from '../../hooks/useRosterStoreSync';
-import { agentDotClass } from './statusClasses';
+import { agentDotClass } from '../../utils/statusClasses';
 import { CreateChannelForm } from './CreateChannelForm';
 import { SkeletonText } from '../ui';
 

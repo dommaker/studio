@@ -15,10 +15,10 @@
 import { useEffect, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
 import { ApproveDialogShell, Button, Select } from '../ui';
-import { resolveChannelResponders } from './channelResponders';
+import { resolveChannelResponders } from '../../utils/channelResponders';
 import { isSystemRole } from '../../utils/systemRole';
 import type { ReviewConfirmPayload } from '../../api/workunit';
-import type { AnalysisConfirmPrefill } from './mapUtils';
+import type { AnalysisConfirmPrefill } from '../../utils/mapUtils';
 
 interface AnalysisApproveDialogProps {
   /** 结构化预填（buildAnalysisConfirmPrefill 产物；全空 = agent 无产出，空手评或直接通过） */

@@ -7,7 +7,7 @@ import { useRosterStore } from '../../stores/rosterStore';
 import { toast } from '../../utils/toast';
 import { Select, Modal } from '../ui';
 import { IconAlertTriangle } from '../ui/icons';
-import { resolveChannelResponders } from './channelResponders';
+import { resolveChannelResponders } from '../../utils/channelResponders';
 import { isSystemRole } from '../../utils/systemRole';
 
 interface PublishProjectDialogProps {

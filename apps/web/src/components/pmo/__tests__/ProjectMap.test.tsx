@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ProjectMap, NextActionCard } from '../ProjectMap';
-import type { PmoMap } from '../mapUtils';
+import type { PmoMap } from '../../../utils/mapUtils';
 
 const map: PmoMap = {
   destination: '把订单系统拆成前后台两条线',

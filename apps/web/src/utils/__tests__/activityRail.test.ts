@@ -9,8 +9,8 @@ import {
   fmtRelTime,
   type ChannelActivityItem,
 } from '../activityRail';
-import type { Requirement, RequirementChainWorkUnit } from '../../../api/requirements';
-import type { ChannelMessage } from '../../../api/channel';
+import type { Requirement, RequirementChainWorkUnit } from '../../api/requirements';
+import type { ChannelMessage } from '../../api/channel';
 
 function req(over: Partial<Requirement> = {}): Requirement {
   return {

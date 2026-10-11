@@ -16,7 +16,7 @@ import type { WorkUnit } from '../../api/workunit';
 import { AnalysisApproveDialog } from '../pmo/AnalysisApproveDialog';
 import { DecisionApproveDialog } from '../pmo/DecisionApproveDialog';
 import { SpecApproveDialog } from '../pmo/SpecApproveDialog';
-import { buildAnalysisConfirmPrefill, buildDecisionConfirmPrefill, buildSpecConfirmPrefill } from '../pmo/mapUtils';
+import { buildAnalysisConfirmPrefill, buildDecisionConfirmPrefill, buildSpecConfirmPrefill } from '../../utils/mapUtils';
 import { createGateWriter, type GateUpdateSink } from '../../utils/gateWriter';
 import { errorMessage } from '../../utils/errorMessage';
 import { toast } from '../../utils/toast';

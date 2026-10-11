@@ -2,8 +2,8 @@
 // 加成员（channel.members 是成员关系唯一事实源）、写穿 channelDataStore（照
 // ChannelMemberManager.handleAdd 先例：以调用完成时刻 store 最新值为基合并，不用响应覆盖）。
 // best-effort：任何一步失败返回 null 不抛出，由引导步内联报错。
-import { channelApi } from '../../api/channel';
-import { useChannelDataStore } from '../../stores/channelDataStore';
+import { channelApi } from '../api/channel';
+import { useChannelDataStore } from '../stores/channelDataStore';
 
 const DEFAULT_CHANNEL_NAME = '#研发';
 

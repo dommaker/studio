@@ -6,7 +6,7 @@ const { mockList, mockUpdateMembers } = vi.hoisted(() => ({
   mockUpdateMembers: vi.fn(),
 }));
 
-vi.mock('../../../api/channel', () => ({
+vi.mock('../../api/channel', () => ({
   channelApi: {
     list: mockList,
     updateMembers: mockUpdateMembers,
@@ -14,7 +14,7 @@ vi.mock('../../../api/channel', () => ({
 }));
 
 import { joinDefaultChannel } from '../joinChannel';
-import { useChannelDataStore } from '../../../stores/channelDataStore';
+import { useChannelDataStore } from '../../stores/channelDataStore';
 
 describe('joinDefaultChannel（#465 一键加入 #研发）', () => {
   beforeEach(() => {

@@ -26,7 +26,7 @@ import { TreeTokenEntry } from '../components/workunit/TreeTokenChart';
 import { WuGateActions } from '../components/workunit/WuGateActions';
 import { BackButton, SkeletonText, SkeletonCard } from '../components/ui';
 import { MetaStrip } from '../components/ui/MetaStrip';
-import { parseBlockedBy } from '../components/pmo/mapUtils';
+import { parseBlockedBy } from '../utils/mapUtils';
 import { buildLifecycle } from '../utils/wuLifecycle';
 import { formatShortTime } from '../utils/datetime';
 import { parseWuMeta } from '../utils/wuMeta';

@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { resolveChannelResponders } from '../channelResponders';
-import type { AgentProfile, Channel } from '../../../api/channel';
+import type { AgentProfile, Channel } from '../../api/channel';
 
 const AGENTS: AgentProfile[] = [
   { id: 'p1', name: 'dev', description: null, status: 'active' },

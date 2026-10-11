@@ -3,7 +3,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SpecApproveDialog, SPEC_REJECT_REASON } from '../SpecApproveDialog';
-import type { SpecTaskFormItem } from '../mapUtils';
+import type { SpecTaskFormItem } from '../../../utils/mapUtils';
 
 const PREFILL: SpecTaskFormItem[] = [
   { title: '实现存储层', ac: ['单测覆盖'], blockedBy: ['wu-9'], leg: 'dommaker/studio' },

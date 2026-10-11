@@ -11,7 +11,7 @@ import {
   buildTaskDepRows,
   type PmoMap,
   type NextActionCandidate,
-} from './mapUtils';
+} from '../../utils/mapUtils';
 import { formatTimelineTime } from './pipelineUtils';
 import { IconTarget, IconHelpCircle, IconScroll, IconLink } from '../ui/icons';
 

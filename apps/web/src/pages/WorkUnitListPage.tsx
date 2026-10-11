@@ -7,7 +7,7 @@ import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
 import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
 import { WuGateActions } from '../components/workunit/WuGateActions';
 import type { WorkUnit } from '../api/workunit';
-import { parseBlockedBy } from '../components/pmo/mapUtils';
+import { parseBlockedBy } from '../utils/mapUtils';
 import { Select, Button, SkeletonText } from '../components/ui';
 import { IconClipboard } from '../components/ui/icons';
 import { formatShortTime } from '../utils/datetime';
