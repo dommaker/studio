@@ -57,7 +57,8 @@ export const channelApi = {
 
   listMessages: (channelId: string, params?: { before?: string; limit?: number }) =>
     // 响应里的 total 后端 2026-09 起恒 0（默认跳过节流扫描，?includeTotal=true 才实算）且前端无消费方；
-    // messages 用本地 ChannelMessage——meta 收窄 object（REST 出口 shapeMessageData 单点解析）
+    // messages 覆盖为本地 ChannelMessage（契约形状 + degraded/pending 本地标记；#693 起契约 meta 已收窄
+    // 为 object，此处 Omit 只为挂本地标记，不再是 meta 补丁）
     api.get<{ data: Omit<ChannelMessagesResult, 'messages'> & { messages: ChannelMessage[] } }>(
       `/channels/${channelId}/messages`,
       { params }

@@ -82,9 +82,13 @@ describe('channelSchema', () => {
 });
 
 describe('channelMessageSchema', () => {
-  it('接受 REST 出口形状（meta object）与 SSE/存量形态（meta string）', () => {
+  it('接受 REST/SSE 出口形状（meta 恒 object，shapeMessageData 单点解析）', () => {
     expect(channelMessageSchema.parse(messageRow)).toEqual(messageRow);
-    expect(channelMessageSchema.parse({ ...messageRow, meta: '{"a":1}' }).meta).toBe('{"a":1}');
+    expect(channelMessageSchema.parse({ ...messageRow, meta: { a: 1 } }).meta).toEqual({ a: 1 });
+  });
+
+  it('meta string 形态拒绝（#693 收窄：string 为存量兼容位，无活写入方）', () => {
+    expect(channelMessageSchema.safeParse({ ...messageRow, meta: '{"a":1}' }).success).toBe(false);
   });
 });
 

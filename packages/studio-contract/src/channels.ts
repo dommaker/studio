@@ -46,7 +46,8 @@ export type Channel = z.infer<typeof channelSchema>;
 
 /**
  * 频道消息 wire 形状（ChannelMessageData；REST 出口 meta 已 JSON.parse 为 object）。
- * meta 双型：REST 恒 object；string 为 SSE 原始/存量形态，前端消费侧双型兼容。
+ * meta 恒 object（#693 收窄）：后端 REST/SSE 出口全走 shapeMessageData 单点解析，
+ * string 形态是存储层 JSON 串的存量兼容位，无活写入方，契约不再声明。
  */
 export const channelMessageSchema = z.object({
   id: z.string(),
@@ -58,7 +59,7 @@ export const channelMessageSchema = z.object({
   /** Markdown */
   content: z.string(),
   replyToId: z.string().nullable(),
-  meta: z.union([z.record(z.unknown()), z.string()]),
+  meta: z.record(z.unknown()),
   /** ISO 8601（路由层 Date 序列化回 string） */
   createdAt: z.string(),
 });
