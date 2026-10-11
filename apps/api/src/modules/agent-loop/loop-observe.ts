@@ -19,7 +19,7 @@ export class LoopObserver {
 
   /**
    * §9.5: 加载全部频道的 members（channelId → member profile ids）。
-   * 每次 observe 调用一次；读取失败按空表处理（全量走 profile.channels 回退，不致停摆）。
+   * 每次 observe 调用一次；读取失败按空表处理（map miss 放行不裁决，不致停摆）。
    */
   private async loadChannelMembers(): Promise<Map<string, string[]>> {
     const map = new Map<string, string[]>();
@@ -28,7 +28,7 @@ export class LoopObserver {
       for (const ch of channels) {
         map.set(ch.id, parseChannels(ch.members));
       }
-    } catch { /* non-blocking — 回退到 profile.channels 口径 */ }
+    } catch { /* non-blocking — map miss 放行不裁决 */ }
     return map;
   }
 
@@ -69,13 +69,9 @@ export class LoopObserver {
         if (s.assigneeId !== host.role.id) return false;
       } else if (s.channelId) {
         const members = channelMembers.get(s.channelId);
-        if (members && members.length > 0) {
-          // members 非空 → 唯一事实源：仅频道成员可见
-          if (!members.includes(host.role.id)) return false;
-        } else if (host.myChannels.length > 0 && !host.myChannels.includes(s.channelId)) {
-          // 过渡期回退：频道无 members（历史数据未回填）时沿用旧 profile.channels 口径
-          return false;
-        }
+        // §9.5（#696 严格口径）：频道配置读得到 → members 唯一事实源
+        // （空 = 无成员不可见）；读不到（加载失败/频道已删，map miss）→ 放行不裁决。
+        if (members && !members.includes(host.role.id)) return false;
       }
       // F4（reviewer 解锚，决策 5）：评审 WU 排除实现者 —— metadata.excludeAssignee
       // 命中的 profile 不可见（自评兜底场景 dispatcher 不设该字段，此处自然放行）

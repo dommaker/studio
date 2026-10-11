@@ -58,7 +58,7 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
       .then(([chRes, agentsRes]) => {
         if (cancelled) return;
         const active = (agentsRes.data?.data || []).filter(p => p.status === 'active' && !isSystemRole(p));
-        setCandidates(resolveChannelResponders(chRes.data?.data, channelId, active));
+        setCandidates(resolveChannelResponders(chRes.data?.data, active));
       })
       .catch(() => { if (!cancelled) setCandidates([]); });
     return () => { cancelled = true; };

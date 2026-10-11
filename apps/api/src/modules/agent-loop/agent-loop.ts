@@ -23,7 +23,7 @@
 // 本文件 = 门面：构造接线 + runLoop 主循环编排 + 全部对外/测试 seam 的薄委托；
 // 导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
 // 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
-import { logger, parseChannels, type FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { logger, type FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
 import type { MessageMeta } from '../channels/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -52,7 +52,6 @@ export class AgentLoop implements AgentLoopHost {
   instance: RuntimeInstanceRow | null = null;
   readonly acceptedTypes: string[] = [];
   alive = false;
-  readonly myChannels: string[] = [];
   triggerId: string | null = null;
   loopPromise: Promise<void> | null = null;
   /** #634: stop() 的 terminated 落盘写句柄——waitForStop 连带等待，
@@ -94,8 +93,6 @@ export class AgentLoop implements AgentLoopHost {
     this.workUnitService = new WorkUnitService(this.fileStore);
     // 决策 9: acceptedTypes 取 profile 显式字段（description 关键词解析已退役）
     this.acceptedTypes = role.acceptedTypes ?? [];
-    // W-4 fix + F3: parse channels from role.channels JSON（容错历史双重编码值）
-    this.myChannels = parseChannels(role.channels);
     // §9.6: 执行面走 Executor 接口。远程节点方向已放弃（origin/master bdaf0dd3：生产无
     // nodeId profile、无 WS 客户端活路径），统一 LocalExecutor；profile.nodeId 字段已随之删除。
     this.executor = new LocalExecutor();

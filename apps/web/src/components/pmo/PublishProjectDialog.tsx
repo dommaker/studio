@@ -55,7 +55,7 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
   const channelOptions = rosterChannels.length > 0 ? rosterChannels : channels;
 
   // 弹窗打开/切换频道时解析「谁会响应」：与 AgentLoop.observe 同一口径（resolveChannelResponders）——
-  // channel.members 非空 → 仅成员；为空（历史频道未回填）→ 回退 profile.channels（空 = 全频道可见）
+  // channel.members 唯一事实源（空 = 无成员）
   useEffect(() => {
     if (!open || !selectedChannelId) return;
     let cancelled = false;
@@ -64,7 +64,7 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
         if (cancelled) return;
         const active = (res.data?.data || []).filter(p => p.status === 'active' && !isSystemRole(p));
         const ch = channelOptions.find(c => c.id === selectedChannelId);
-        setChannelAgents(resolveChannelResponders(ch, selectedChannelId, active));
+        setChannelAgents(resolveChannelResponders(ch, active));
       })
       .catch(() => { if (!cancelled) setChannelAgents([]); })
       .finally(() => { if (!cancelled) setAgentsLoading(false); });

@@ -21,7 +21,6 @@ export interface AgentLoopHost {
   readonly workUnitService: WorkUnitService;
   readonly executor: Executor;
   readonly acceptedTypes: string[];
-  readonly myChannels: string[];
   /** #178（#63 决议 1/2，#209 smell 4 迁出）：租约/fencing 三件套 */
   readonly wuLease: WuLeaseTracker;
   /** B5：observe 回复检测的增量水位（channelId → messages.jsonl 字节偏移） */

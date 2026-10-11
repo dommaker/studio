@@ -109,7 +109,7 @@ beforeEach(async () => {
   await fileStore.createChannel({
     id: channelId, name: '#stop-lease-test', type: 'rnd',
     defaultWorkspaceId: null, defaultPath: null,
-    discordChannelId: null, discordWebhookUrl: null, members: '[]',
+    discordChannelId: null, discordWebhookUrl: null, members: JSON.stringify([mockRole.id]),
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   });
 });

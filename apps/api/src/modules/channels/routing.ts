@@ -10,8 +10,8 @@
  *  - 配置了且角色 active 且为频道成员 → profileId=该角色（指名即硬约束）；
  *  - 配置了但角色被移出频道/inactive/已删除 → profileId=null + fallback 原因，
  *    由调用方回池涌现并发频道提醒（文案由 routingFallbackText 统一）。
- *  - 成员判定：channel.members 唯一事实源；members 空（历史频道未回填）回退
- *    profile.channels 过渡口径（agent-loop loadChannelMembers 同款）。
+ *  - 成员判定：channel.members 唯一事实源（空 = 无成员；#696 起 profile.channels
+ *    过渡口径已随存量验收退役）。
  *
  * 消费方：publish 建 plan 单（plan 档）、analysis-handoff TASK 拆派工与
  * workunit feature 展开（implement 档）、review-dispatcher 建评审单（review 档）。
@@ -55,11 +55,8 @@ export async function resolveStageRouting(
   if (profile.status !== 'active') {
     return { profileId: null, fallback: 'inactive', profileName: profile.name };
   }
-  // 成员边界：members 非空 = 唯一事实源；空（历史频道）回退 profile.channels
-  const members = parseChannels(channel.members);
-  const isMember = members.length > 0
-    ? members.includes(profile.id)
-    : parseChannels(profile.channels).includes(channelId);
+  // 成员边界：channel.members 唯一事实源（空 = 无成员）
+  const isMember = parseChannels(channel.members).includes(profile.id);
   if (!isMember) {
     return { profileId: null, fallback: 'not-member', profileName: profile.name };
   }

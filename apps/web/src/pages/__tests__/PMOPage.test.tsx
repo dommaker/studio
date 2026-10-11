@@ -126,8 +126,7 @@ describe('AC-6: PMO publish button', () => {
     await waitFor(() => expect(screen.getByText(/会响应的 Agent（1）：dev/)).toBeTruthy());
   });
 
-  it('dialog falls back to profile.channels when members empty; warns when nobody responds', async () => {
-    // 历史频道 members 未回填 → 回退 profile.channels 口径（dev channels=[] 全频道可见）
+  it('members 为空 → 无响应者（#696 严格口径，不再回退 profile.channels），warns 无人认领', async () => {
     mockChannelList.mockResolvedValue({ data: { data: [{ id: 'ch-1', name: '#general', type: 'rnd', members: '[]' }] } });
 
     renderPMO();
@@ -135,7 +134,7 @@ describe('AC-6: PMO publish button', () => {
     fireEvent.click(screen.getAllByText('发起讨论')[0]);
     fireEvent.click(await screen.findByRole('button', { name: '目标频道' }));
     fireEvent.click(screen.getByRole('option', { name: '#general' }));
-    await waitFor(() => expect(screen.getByText(/会响应的 Agent（1）：dev/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/无人认领/)).toBeTruthy());
   });
 
   it('dialog warns when channel has no responder', async () => {

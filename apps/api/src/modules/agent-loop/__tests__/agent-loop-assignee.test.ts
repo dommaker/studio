@@ -62,11 +62,22 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
   let wuService: WorkUnitService;
   let agentLoop: AgentLoop;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-assignee-'));
     fileStore = new FileStore(testDir);
     wuService = new WorkUnitService(fileStore);
+    // §9.5（#696 严格口径）：频道作用域只看 channel.members——种子两个频道配置，
+    // MY_CHANNEL 成员 = 本 profile；OTHER_CHANNEL 成员 = 其他 profile
+    const ts = new Date().toISOString();
+    for (const [id, members] of [[MY_CHANNEL, [SELF_ROLE_ID]], [OTHER_CHANNEL, [OTHER_ROLE_ID]]] as const) {
+      await fileStore.createChannel({
+        id, name: `#${id}`, type: 'rnd',
+        defaultWorkspaceId: null, defaultPath: null,
+        discordChannelId: null, discordWebhookUrl: null,
+        members: JSON.stringify(members), createdAt: ts, updatedAt: ts,
+      });
+    }
     // 不 start()：避免后台 runLoop 并发认领造成断言抖动；直接注入 instance
     // （myActive 作用域 = assigneeId === instance.id，与运行中的 loop 一致）。
     agentLoop = new AgentLoop(mockRole, fileStore);
