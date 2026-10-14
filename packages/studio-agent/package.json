@@ -15,8 +15,6 @@
     "@dommaker/harness": "^3.0.0",
     "@dommaker/studio-shared": "workspace:*",
     "@dommaker/studio-skill": "workspace:*",
-    "ajv": "^8.12.0",
-    "ajv-formats": "^3.0.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
