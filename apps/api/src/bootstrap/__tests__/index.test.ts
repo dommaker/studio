@@ -57,6 +57,9 @@ vi.mock('../tunnel.js', () => ({
 vi.mock('../readiness.js', () => ({
   markReady: () => calls.push('markReady'),
 }));
+vi.mock('../module-sinks.js', () => ({
+  registerModuleSinks: () => calls.push('registerModuleSinks'),
+}));
 vi.mock('../../app.js', () => ({
   app: { fake: true },
   registerRoutes: vi.fn(async () => { calls.push('registerRoutes'); }),
@@ -90,6 +93,7 @@ describe('bootstrap 装配', () => {
     await bootstrap();
     expect(calls).toEqual([
       'initConfig',
+      'registerModuleSinks',
       'runDataMigrations',
       'reconcileWorkUnitIndex',
       'seedBuiltinSkillsStep',
@@ -115,7 +119,7 @@ describe('bootstrap 装配', () => {
   it('数据区迁移失败 = 拒启：exit(1)，后续步骤不执行', async () => {
     state.migrationsError = new Error('MigrationError: boom');
     await bootstrap();
-    expect(calls).toEqual(['initConfig', 'runDataMigrations']);
+    expect(calls).toEqual(['initConfig', 'registerModuleSinks', 'runDataMigrations']);
     expect(processExitSpy).toHaveBeenCalledWith(1);
     expect(runDataMigrations).toHaveBeenCalledOnce();
   });

@@ -23,9 +23,11 @@
 // 2026-10-09 #683：monitoring/agent-monitor/agent-ops 三面合并为 ops（agent-monitor、monitoring
 // 原本在簇，合并后 ops 继承全部跨模块边）；ops 继承 agent-ops 的 ops→auth 边（hashPassword）
 // 把 auth 拉入环簇（auth→channels 等回路本已存在）。
+// 2026-10-16 Phase 5 第一刀 #1：auth→audit-logs 改装配期 DI（auth/audit-sink.ts，
+// bootstrap/module-sinks.ts 注入实现），auth 的出簇边清零退出 SCC（21→20）。
 const HUB_SCC = [
   'agent-auditor', 'agent-knowledge', 'agent-loop', 'agents',
-  'audit-logs', 'auth', 'channels', 'evolution', 'harness', 'knowledge',
+  'audit-logs', 'channels', 'evolution', 'harness', 'knowledge',
   'mcp', 'notifications', 'ops', 'pmo', 'requirements',
   'review-proposal', 'role-memory', 'skills', 'triage', 'triggers',
   'workunit',

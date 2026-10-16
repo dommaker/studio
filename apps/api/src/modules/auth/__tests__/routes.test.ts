@@ -47,10 +47,6 @@ vi.mock('../service.js', () => ({
   generateEmailVerificationToken: vi.fn().mockResolvedValue('verification-token'),
 }));
 
-vi.mock('../../audit-logs/index.js', () => ({
-  getAuditService: () => ({ log: mockAuditLog }),
-}));
-
 vi.mock('../../../core/database.js', () => ({ prisma: {} }));
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
@@ -66,6 +62,7 @@ vi.mock('@dommaker/studio-shared', () => ({
 // ── Imports after mocks ───────────────────────────────────────────────
 import * as authService from '../service.js';
 import routes from '../routes.js';
+import { registerAuthAuditSink } from '../audit-sink.js';
 // auth middleware imports use the same mock paths as routes.ts
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -137,6 +134,8 @@ describe('auth routes', () => {
     vi.clearAllMocks();
     mockGetAuthInfo.mockReturnValue({ sessionId: 's1', userId: 'u1' });
     mockAuditLog.mockResolvedValue({ id: 'log-1' });
+    // Phase 5 SCC 第一刀 #1：audit 实现经装配注入（取代原 audit-logs barrel mock）
+    registerAuthAuditSink(mockAuditLog);
   });
 
   describe('POST /guest-session', () => {

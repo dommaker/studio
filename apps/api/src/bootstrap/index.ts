@@ -22,6 +22,7 @@ import { registerScanHandlers } from './handlers.js';
 import { createHttpServer, installErrorHandlers, listen, registerShutdown } from './lifecycle.js';
 import { startTunnelIfEnabled } from './tunnel.js';
 import { markReady } from './readiness.js';
+import { registerModuleSinks } from './module-sinks.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 export async function bootstrap(): Promise<void> {
@@ -29,6 +30,8 @@ export async function bootstrap(): Promise<void> {
   // P2-b：钉定进程级 FileStore（core/store.ts）——必须先于一切消费（迁移/路由/service），
   // 此后 apps/api 与 packages 共享同一实例；消费方一律函数内 getStore()，禁 import 期捕获。
   initStore();
+  // Phase 5 SCC 第一刀：装配期注入跨模块 sink（auth 审计 → audit-logs），须在路由流量前完成
+  registerModuleSinks();
   try {
     await runDataMigrations();
     await reconcileWorkUnitIndex();

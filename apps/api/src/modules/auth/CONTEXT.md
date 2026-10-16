@@ -22,7 +22,7 @@
 **上游**
 - `../../middleware/auth.js`（requireAuth、getAuthInfo、optionalAuth、requireRole）
 - `../../middleware/rate-limit.js`（authRateLimit、refreshRateLimit）
-- `../audit-logs/index.js`（getAuditService 单例，#684 包下沉后跨模块公共面）
+- `./audit-sink.ts`（SEC-010 审计出口缝，Phase 5 SCC 第一刀 #1，2026-10-16）：`AuthAuditEntry`/`AuthAuditSink` 接口 + `registerAuthAuditSink(fn|null)` 注册口 + `logAuthAudit(entry)` 调用入口，实现由 bootstrap/module-sinks.ts 装配期注入（audit-logs 的 AuditService.log）；auth 不再 import audit-logs。**未注册语义：warn 一次 + 丢弃（no-op）**——审计失败在 routes.ts 本就降级 logger.error 不阻断请求，注册缺失按同级口径
 - `@dommaker/studio-shared`（FileStore、logger）
 - `jsonwebtoken`、`bcryptjs`、`node:crypto`、`node:path`、`node:os`
 

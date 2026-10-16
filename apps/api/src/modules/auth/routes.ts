@@ -10,7 +10,7 @@ import {
   refreshRateLimit,
 } from "../../middleware/rate-limit.js";
 import * as authService from "./service.js";
-import { getAuditService } from "../audit-logs/index.js"; // 🆕 SEC-010
+import { logAuthAudit } from "./audit-sink.js"; // 🆕 SEC-010（Phase 5 #1：audit 实现经装配注入）
 
 import { logger } from "@dommaker/studio-shared/node";
 import { defineRoute, HttpError } from "../../core/http.js";
@@ -79,15 +79,14 @@ router.post("/register", authRateLimit, defineRoute(
       const result = await authService.register(body as authService.RegisterInput);
 
       // SEC-010: 记录注册成功
-      await getAuditService()
-        .log({
-          userId: result.user!.id,
-          action: "register",
-          resource: "user",
-          resourceId: result.user!.id,
-          details: { email: result.user!.email },
-          status: "success",
-        })
+      await logAuthAudit({
+        userId: result.user!.id,
+        action: "register",
+        resource: "user",
+        resourceId: result.user!.id,
+        details: { email: result.user!.email },
+        status: "success",
+      })
         .catch((err) => logger.error("Audit log error", { error: String(err) }));
 
       return result;
@@ -95,14 +94,13 @@ router.post("/register", authRateLimit, defineRoute(
       const err = error as Error;
 
       // SEC-010: 记录注册失败
-      await getAuditService()
-        .log({
-          action: "register",
-          resource: "user",
-          details: { email: body.email },
-          status: "failure",
-          errorMessage: err.message,
-        })
+      await logAuthAudit({
+        action: "register",
+        resource: "user",
+        details: { email: body.email },
+        status: "failure",
+        errorMessage: err.message,
+      })
         .catch((e) => logger.error("Audit log error", { error: String(e) }));
 
       if (err.message === "邮箱已被注册") {
@@ -128,18 +126,17 @@ router.post("/login", authRateLimit, defineRoute(
       const result = await authService.login(body as authService.LoginInput);
 
       // SEC-010: 记录登录成功
-      await getAuditService()
-        .log({
-          userId: result.user!.id,
-          sessionId: result.session.id,
-          ipAddress: String(ip),
-          userAgent: ua,
-          action: "login",
-          resource: "session",
-          resourceId: result.session.id,
-          details: { email: result.user!.email, role: result.user!.role },
-          status: "success",
-        })
+      await logAuthAudit({
+        userId: result.user!.id,
+        sessionId: result.session.id,
+        ipAddress: String(ip),
+        userAgent: ua,
+        action: "login",
+        resource: "session",
+        resourceId: result.session.id,
+        details: { email: result.user!.email, role: result.user!.role },
+        status: "success",
+      })
         .catch((err) => logger.error("Audit log error", { error: String(err) }));
 
       return result;
@@ -147,16 +144,15 @@ router.post("/login", authRateLimit, defineRoute(
       const err = error as Error;
 
       // SEC-010: 记录登录失败
-      await getAuditService()
-        .log({
-          ipAddress: String(ip),
-          userAgent: ua,
-          action: "login",
-          resource: "session",
-          details: { email: body.email },
-          status: "failure",
-          errorMessage: err.message,
-        })
+      await logAuthAudit({
+        ipAddress: String(ip),
+        userAgent: ua,
+        action: "login",
+        resource: "session",
+        details: { email: body.email },
+        status: "failure",
+        errorMessage: err.message,
+      })
         .catch((e) => logger.error("Audit log error", { error: String(e) }));
 
       if (err.message === "邮箱或密码错误") {
@@ -177,15 +173,14 @@ router.post("/logout", requireAuth(), defineRoute({}, async (req) => {
   await authService.logout(authInfo.sessionId, authInfo.userId);
 
   // SEC-010: 记录登出
-  await getAuditService()
-    .log({
-      userId: authInfo.userId,
-      sessionId: authInfo.sessionId,
-      action: "logout",
-      resource: "session",
-      resourceId: authInfo.sessionId,
-      status: "success",
-    })
+  await logAuthAudit({
+    userId: authInfo.userId,
+    sessionId: authInfo.sessionId,
+    action: "logout",
+    resource: "session",
+    resourceId: authInfo.sessionId,
+    status: "success",
+  })
     .catch((err) => logger.error("Audit log error", { error: String(err) }));
 
   return { success: true };
