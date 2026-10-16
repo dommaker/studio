@@ -15,8 +15,8 @@
 import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fsSync from 'fs';
-import { logger, getErrorMessage } from '@dommaker/studio-shared';
-import { execSh, classifyCliFailure } from '@dommaker/studio-shared/node';
+import { getErrorMessage } from '@dommaker/studio-shared';
+import { logger, execSh, classifyCliFailure } from '@dommaker/studio-shared/node';
 
 import { resolveWorkspace, propagateHarnessConfig } from './worktree-resolver.js';
 import {

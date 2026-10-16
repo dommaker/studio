@@ -11,7 +11,7 @@
  * 决策 11: 路由层不认识 skill——`+skill名` token 保留在 scope 原文，
  * 由 agent-loop step 时经 parseSkillHintsFromScope 解析（skill-selector.ts）。
  */
-import { logger, FileStore, type ChannelData } from '@dommaker/studio-shared';
+import { FileStore, type ChannelData } from '@dommaker/studio-shared';
 import { getChannelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { resumeWaitingWorkUnit } from '../workunit/index.js';
@@ -27,6 +27,7 @@ import {
 import { writeStudioEvent } from '@dommaker/studio-shared';
 import { recordAgentDecision } from '../audit-logs/index.js';
 import { getStore } from '../../core/store.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * #534：派发上下文袋——routeMessage 的第 4 参（原 fs? + options? 两参合并为单一 ctx?）。

@@ -16,6 +16,11 @@ afterAll(() => {
 });
 
 // NOTIFICATIONS_JSONL 在被测模块加载时求值，临时目录必须先于加载创建
+// '/node' 用窄 mock（只给 logger）：importOriginal 会加载真 node.ts → config 顶层
+// loadConfigEnv 调 studioDir()，撞上下面这个窄 studio-dir mock
+vi.mock('@dommaker/studio-shared/node', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
 vi.mock('@dommaker/studio-shared/studio-dir', async () => {
   const nodeFs = await import('node:fs');
   const nodeOs = await import('node:os');

@@ -7,10 +7,11 @@
  * 本模块订阅接进来：同一 patternType 30d 内出现 ≥3 次且无同模式 Skill → 建 proposal 草稿。
  */
 
-import { eventBus, logger } from '@dommaker/studio-shared';
+import { eventBus } from '@dommaker/studio-shared';
 // #342：窗口读口（尾部倒读 + 窗口外早停），与 session-summary-generator 同口径
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { skillStore } from './skill-store.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** #342：事件读窗口 30d——session 跨度 ≪ 窗口；建议本就按 30d 过滤 */
 const EVENTS_WINDOW_MS = 30 * 86_400_000;

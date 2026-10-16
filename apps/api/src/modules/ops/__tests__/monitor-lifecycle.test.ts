@@ -39,6 +39,11 @@ vi.mock('fs', async (importOriginal) => {
   return { ...actual, unlinkSync: mockUnlinkSync };
 });
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: mockLogger };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return { ...actual, logger: mockLogger };

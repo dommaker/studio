@@ -4,10 +4,10 @@
  * 直接调用 Discord API 发送消息（支持按钮）
  */
 
-import { logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface DiscordMessageOptions {
   title: string;

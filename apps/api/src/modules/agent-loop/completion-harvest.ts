@@ -14,13 +14,13 @@
  * 本模块只做调度与落档形状组装，不新增解析契约。
  */
 
-import { logger } from '@dommaker/studio-shared';
 import type { WorkUnitMetadata } from '../workunit/index.js';
 import {
   parseReviewReport, parseTaskBreakdown, parseOpportunities, parseDecisionConclusion,
 } from './agent-loop-parsers.js';
 import { parseMapOpening } from '../pmo/index.js';
 import { parseSpecTasks } from '../pmo/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface CompletionHarvestContext {
   wuId: string;

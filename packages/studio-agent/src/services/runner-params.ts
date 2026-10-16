@@ -13,8 +13,8 @@
  */
 
 import * as fs from 'fs/promises';
-import { logger } from '@dommaker/studio-shared';
-import { execSh, resolveProviderDefinition, buildHealthProbeCommand, getSupportedFlags } from '@dommaker/studio-shared/node';
+
+import { logger, execSh, resolveProviderDefinition, buildHealthProbeCommand, getSupportedFlags } from '@dommaker/studio-shared/node';
 import { buildSpawnArgs, type Provider, type SpawnParams } from '../cli-adapter.js';
 import { kimiCodeHomePath, kimiCodeHomeReady } from './provider-hooks.js';
 
@@ -86,7 +86,6 @@ export async function checkPrerequisites(config: Pick<ExecutorConfig, 'repoDir' 
 
   return checks;
 }
-
 
 // ========================================
 // Prompt building

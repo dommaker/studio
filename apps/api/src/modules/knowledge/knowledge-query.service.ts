@@ -4,12 +4,12 @@
  * 聚合五种知识类型的查询 + 格式化，供 Agent context injection 使用。
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { preferenceObserver } from './producers/preference-observer.js';
 import { ruleScanner } from './producers/rule-scanner.js';
 import { getEnvSnapper } from './producers/env-snapper.js';
 import { decisionChainExtractor } from './producers/decision-chain-extractor.js';
 import { patternMiner } from './producers/pattern-miner.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export type KnowledgeType =
   | 'preference'

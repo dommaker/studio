@@ -8,8 +8,9 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { logger } from '@dommaker/studio-shared';
+
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { logger } from '@dommaker/studio-shared/node';
 
 export function projectExcludeConfigPath(): string {
   return studioPath('projects-exclude.json');

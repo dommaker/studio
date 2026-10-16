@@ -9,7 +9,7 @@
  * 附带 outcome 落账两件套（recordExecutionOutcome / recordOutcomeEvent，#90 单一正本）。
  * 全部共享状态经 AgentLoopHost 读写；本类零自有状态。
  */
-import { logger, parseStreamEvents, extractCliSessionId } from '@dommaker/studio-shared';
+import { parseStreamEvents, extractCliSessionId } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';
 import { randomUUID } from 'crypto';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
@@ -37,6 +37,7 @@ import { runStepRetry, resetUnestablishedSessionBookkeeping, MAX_SESSIONS_PER_WU
 import { appendTranscriptStep, transcriptPath } from '../../transcripts/index.js';
 import { resolveExecutionWorkspaceRoot, resolveParentWorktreePath } from '../execution-cwd.js';
 import type { AgentLoopHost } from './loop-host.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** #171（#54 决议 A1，数值来自 #68 实测）：三层超时 ——
  *  步墙钟 1800s 仅作兜底天花板（健康步时长 p99=693s × 2.6 安全系数；

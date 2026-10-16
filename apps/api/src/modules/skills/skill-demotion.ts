@@ -26,11 +26,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const SKILLS_DIR = process.env.SKILLS_DIR || studioPath('skills');
 const DEFAULT_STORE_FILE = studioPath('data', 'skills', 'demotion-proposals.json');

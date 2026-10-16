@@ -23,8 +23,9 @@ import {
 
 import { ChangeLevel, ChangeRecord } from './types/change.types.js';
 import { changeHistoryService } from './change-history.service.js';
-import { logger } from '@dommaker/studio-shared';
+
 import type { Checkpoint, CheckpointContext, CheckpointValidator } from '@dommaker/harness';
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * Harness CheckpointValidator（动态导入）

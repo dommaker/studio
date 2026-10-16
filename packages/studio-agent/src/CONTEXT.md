@@ -17,8 +17,8 @@
 ### 依赖关系
 
 **上游（本目录依赖）**:
-- `@dommaker/studio-shared`（核心库：logger, eventBus, FileStore, parseStreamEvents, resolveProviderDefinition, buildArgsFromTemplate 等）
-- `@dommaker/studio-shared/node`（execSh, resolveSessionId, readSessionIdFile, resolveVpsWorkspace）
+- `@dommaker/studio-shared`（核心库：eventBus, FileStore, parseStreamEvents, resolveProviderDefinition, buildArgsFromTemplate 等）
+- `@dommaker/studio-shared/node`（execSh, resolveSessionId, readSessionIdFile, resolveVpsWorkspace, logger——P2.5 起 logger 是 pino 正本，经 /node 出口，测试 mock logger 也挂这个子路径）
 - `@dommaker/studio-shared/harness`（parseSessionMetrics、extractProviderUsage）
 - `ajv`、`ajv-formats`、`uuid`（package.json 声明保留但 src 已无 import——原 AgentRegistry 的依赖，随 2026-10 架构精简刀2 成死依赖，待连 lockfile 一起剪）
 

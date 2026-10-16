@@ -11,10 +11,10 @@
  *   只查不建、零副作用；读取失败记日志返回 null，绝不抛出
  *   （与 current-pmo「各来源独立容错、派生绝不抛出」同原则）。
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 // P2-c 拆环：projectService 转闭包内动态 import（requirements→pmo 静态边清零）
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** PMO 工程的最小形状（查询本身不读字段，仅作泛型约束） */
 export interface ProjectLike {

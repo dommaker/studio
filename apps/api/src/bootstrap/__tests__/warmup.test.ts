@@ -3,7 +3,6 @@
  * startWarmupTasks / startPostRoutesWarmup 同步返回不抛错，各任务模块被触达。
  */
 import { describe, it, expect, vi } from 'vitest';
-import { logger } from '@dommaker/studio-shared';
 
 const spies = vi.hoisted(() => ({
   verifyConsumptionChain: vi.fn(async () => {}),
@@ -49,6 +48,7 @@ vi.mock('../../modules/workspaces/index.js', () => ({
 }));
 
 import { startWarmupTasks, startPostRoutesWarmup } from '../warmup.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 describe('warmup 冷启动任务挂载', () => {
   it('startWarmupTasks：同步返回，各异步任务被触达（fire-and-forget）', async () => {

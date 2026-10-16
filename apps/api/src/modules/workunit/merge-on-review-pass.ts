@@ -38,8 +38,8 @@
  * agent-loop（避免 workunit.service → 本模块 → agent-loop 的重依赖链与循环）；
  * 频道系统消息走 wu-messenger 统一出口（eventBus + SSE）。
  */
-import { logger, type FileStore } from '@dommaker/studio-shared';
-import { execSh } from '@dommaker/studio-shared/node';
+import { type FileStore } from '@dommaker/studio-shared';
+import { logger, execSh } from '@dommaker/studio-shared/node';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { ensurePmoIntegrationWorktree } from '@dommaker/studio-agent';
 import type { WorkUnitService } from './workunit-review.js';

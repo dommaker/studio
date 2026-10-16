@@ -9,6 +9,8 @@
 export * from './vps-workspace';
 export * from './config/index';
 export * from './providers';
+// pino 正本：显式导出覆盖下方 './utils/index' 星号导出的 console 版 logger
+export { logger } from './utils/logger-node';
 export * from './capability-probe';
 export * from './model-probe';
 export * from './utils/index';

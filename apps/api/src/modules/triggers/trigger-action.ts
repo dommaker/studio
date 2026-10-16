@@ -1,11 +1,11 @@
 // Trigger Action — execute trigger actions (3.28c-4, AS-026 extended)
 // Supports: CREATE WorkUnit, EXECUTE handler, UPDATE entity
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import type { TriggerAction, TriggerExecuteHandler } from './trigger.types.js';
 import { WorkUnitService } from '../workunit/index.js';
 import type { WorkUnitMetadata } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** Handler registry for EXECUTE actions */
 const executeHandlers = new Map<string, TriggerExecuteHandler>();

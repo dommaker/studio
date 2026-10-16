@@ -9,7 +9,7 @@
  * （频道系统消息唯一出口，经 host seam 供 claim/step 段共用）。
  * 全部共享状态经 AgentLoopHost 读写；本类零自有状态。
  */
-import { logger, withAttestation } from '@dommaker/studio-shared';
+import { withAttestation } from '@dommaker/studio-shared';
 import {
   mergedWuView, withBlockedCta, postWuSystemMessage,
   type WorkUnitData, type WorkUnitMetadata,
@@ -23,6 +23,7 @@ import { handleDelegateBranch } from '../delegate-branch.js';
 import { resolveExecutionCwd } from '../execution-cwd.js';
 import type { StepResult, Target } from '../agent-loop.types.js';
 import type { AgentLoopHost } from './loop-host.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 步骤数上限：超限强制 in_review 交人工。review WU 单独放宽——
  *  评审职责是读不是写，无提交守卫豁免后正常 ≤5 步收口；阈值仅是防死循环的安全阀 */

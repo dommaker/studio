@@ -21,11 +21,11 @@
  * 以 metadata.workspaceRoot 字符串形式进入 WU，agent-loop 直接作为执行根目录
  * （与 task.parameters.workspaceRoot 消费方式兼容，不经 workspace 记录解析）。
  */
-import { logger, FileStore, stripTrailingSlashes, type ChannelData } from '@dommaker/studio-shared';
+import { FileStore, stripTrailingSlashes, type ChannelData } from '@dommaker/studio-shared';
 // P2-c 拆环：projectService 转闭包内动态 import（requirements→pmo 静态边清零）
 import type { RequirementWithProject } from './requirement.service.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 无归属挂起时的提问文案（message-routing 建 WU 时写入 metadata.waitingQuestion） */
 export const OWNERSHIP_WAITING_QUESTION = '这个任务要修改哪个工程？请回复工程名或路径';

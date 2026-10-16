@@ -12,13 +12,14 @@
  * 通道返回落地产物 id；返回 null / 抛错 → DistillService 回落知识条目（产物不丢）。
  */
 import path from 'node:path';
-import { logger, type FileStore } from '@dommaker/studio-shared';
+import { type FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/index.js';
 import { submitSkillProposal } from '../skills/index.js';
 import { type MemoryKind } from '../role-memory/index.js';
 import { submitMemoryProposal } from '../role-memory/index.js';
 import { ensureStudioProfile } from '../agents/index.js';
 import type { DistillLanding } from './distill-service.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** companies 目录取第一家可用公司 id（skill 记录必填 companyId；无公司 → null，调用方回落）。
  *  P2-e：目录清单/读取走 FileStore seam（readdir + readJson），替代裸 fs 直读数据区。

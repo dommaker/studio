@@ -52,6 +52,11 @@ vi.mock('../../audit-logs/index.js', () => ({
 }));
 
 vi.mock('../../../core/database.js', () => ({ prisma: {} }));
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
   FileStore: vi.fn(),

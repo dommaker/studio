@@ -26,6 +26,11 @@ const { entries, sharedStore } = vi.hoisted(() => {
 
 vi.mock('../knowledge-singletons.js', () => ({ sharedStore }));
 vi.mock('../skills/skill-store.js', () => ({ skillStore: {} }));
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
   FileStore: class {},

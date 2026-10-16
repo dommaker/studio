@@ -24,7 +24,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import yaml from 'js-yaml';
 import { getEffectiveConstraints, type KnowledgeEntry } from '@dommaker/harness';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import {
   getReviewProposalAdapter,
@@ -34,6 +34,7 @@ import {
 } from '../review-proposal/index.js';
 import { submitProposal } from '../review-proposal/index.js';
 import { resolveHarnessBin, runCmd } from './applier.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 约束提案载荷（行形态：{ kind:'proposal', ... } 落 constraint-proposals.jsonl） */
 export interface ConstraintProposal {

@@ -37,7 +37,7 @@
  * #617 拆除：审计对象 custom 纯文本约束已随 ADR-0029 灭绝，无可审对象。
  */
 import { randomUUID } from 'node:crypto';
-import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
+import { eventBus, FileStore } from '@dommaker/studio-shared';
 import type { KnowledgeStore, KnowledgeEntry, SourceRef } from '@dommaker/harness';
 import { evaluateDistillThreshold, EXITED_MATURITY } from './distill-threshold.js';
 import { DistillRunsStore, type DistillRun, type DistillRunLandings } from './distill-runs.js';
@@ -61,6 +61,7 @@ import {
 import { writeStudioEvent } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import type { WorkUnitData } from '../workunit/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export type { DistillRun } from './distill-runs.js';
 export type { GcCandidate } from './gc-candidates.js';

@@ -1,5 +1,5 @@
 // Triage Service — incident response: diagnose → classify → act → resolve/escalate
-import { logger, eventBus, FileStore, resolveStudioLogFile } from '@dommaker/studio-shared';
+import { eventBus, FileStore, resolveStudioLogFile } from '@dommaker/studio-shared';
 import { classifySystemError } from './error-class.js';
 import { knowledgeService } from '../knowledge/index.js';
 import type { SystemTriageResult } from './error-class.js';
@@ -11,7 +11,7 @@ import { countProcessesByCmdline, listZombieProcesses, readDiskUsage, readMemory
 import { execAsync } from '../../core/exec-async.js';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
 const MAX_FIX_ATTEMPTS = 3;

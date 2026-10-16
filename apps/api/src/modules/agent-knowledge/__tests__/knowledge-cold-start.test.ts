@@ -44,6 +44,11 @@ afterAll(() => {
   for (const d of [tmpHome, tmpProject]) fs.rmSync(d, { recursive: true, force: true });
 });
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: mockLogger };
+});
+
 vi.mock('@dommaker/studio-shared', () => ({ resolveStudioLogFile: (f) => "/tmp/studio-test-dir/" + f, resolveStudioLogsDir: () => "/tmp/studio-test-dir", isTestEnv: () => true, testTmpRoot: () => "/tmp/studio-test-dir", stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), FileStore: class {}, logger: mockLogger }));
 
 vi.mock('@dommaker/harness', () => ({

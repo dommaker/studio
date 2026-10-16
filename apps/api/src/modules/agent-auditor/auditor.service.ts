@@ -10,7 +10,7 @@
  *   - auditor-reports.ts       洞察与报告输出（会话行为趋势/7 日趋势/tier 成功率/#系统 推送）
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/index.js';
 import * as rules from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
@@ -19,7 +19,7 @@ import * as reports from './auditor-reports.js';
 import { createLazyService } from '../../utils/services.js';
 import { registerAuditorReviewAdapter } from './review-adapter.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
 

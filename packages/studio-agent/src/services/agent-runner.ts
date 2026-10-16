@@ -22,7 +22,7 @@ import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, type StreamEvent } from '@dommaker/studio-shared';
+import { type StreamEvent } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 import { executeLightweightSession } from './runner-lightweight.js';
@@ -32,6 +32,7 @@ import { executeLightweightSession } from './runner-lightweight.js';
 export type { ExecutorConfig, AgentTask, ExecutionResult, PrerequisiteCheck } from './types.js';
 
 import type { ExecutorConfig, AgentTask, ExecutionResult } from './types.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 // ─── Stream-json output event ───
 

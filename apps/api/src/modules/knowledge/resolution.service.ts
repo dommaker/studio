@@ -11,7 +11,7 @@
  * Storage: ~/.studio/knowledge/resolution-{id}.md (frontmatter + body)
  */
 
-import { logger, generateId, isActionableMaturity, matchResolutionPatterns } from '@dommaker/studio-shared';
+import { generateId, isActionableMaturity, matchResolutionPatterns } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync } from './knowledge-singletons.js';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -20,7 +20,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import type { Resolution, CreateResolutionInput, MatchResolutionInput, MatchResolutionResult } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const KNOWLEDGE_DIR = studioPath('knowledge');
 // #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量

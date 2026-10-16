@@ -36,7 +36,7 @@
  *   计时基准取 metadata.blockedAt（回退 waitingSince/updatedAt），复用同一 30 分钟
  *   阈值 + 一次性 waitingReminded 标记，消息带统一 CTA（blocked-cta 模板）。
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from './workunit-review.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import type { WorkUnitData } from './workunit-crud.js';
@@ -49,7 +49,7 @@ import { RequirementService } from '../requirements/index.js';
 // P2-c 拆环：projectService 转函数内动态 import（workunit→pmo 静态边清零）
 import type { MessageMeta } from '../channels/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 提醒阈值（毫秒）。默认 30 分钟，可用 STUDIO_INPUT_REMINDER_MINUTES 覆盖 */
 export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): number {

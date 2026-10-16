@@ -9,12 +9,12 @@
  * 与 wu.type 零交集，rule 段对真实 WU 恒空，已废。
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { getEffectiveConstraints } from '@dommaker/harness';
 import { sharedStore } from '../knowledge-singletons.js';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import path from 'path';
 import * as os from 'os';
+import { logger } from '@dommaker/studio-shared/node';
 
 interface ScannedRule {
   name: string;

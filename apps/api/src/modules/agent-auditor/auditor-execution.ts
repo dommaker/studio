@@ -14,13 +14,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '../notifications/index.js';
 import { skillStore } from '../skills/index.js';
 import { classifyError } from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
 import { recordAgentDecision } from '../audit-logs/index.js';
 import { randomUUID } from 'node:crypto';
+import { logger } from '@dommaker/studio-shared/node';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
 

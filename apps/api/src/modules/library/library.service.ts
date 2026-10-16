@@ -19,10 +19,10 @@
 import * as path from 'node:path';
 import {
   FileStore,
-  logger,
   listLegacySddDocs,
   readLegacySddDoc,
 } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 import { legacySddDir } from '@dommaker/studio-shared/studio-dir';
 import { projectService, type ProjectData } from '../pmo/index.js';
 import { getStore } from '../../core/store.js';

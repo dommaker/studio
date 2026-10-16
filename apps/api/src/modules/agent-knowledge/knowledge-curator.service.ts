@@ -10,12 +10,12 @@
  * 注意：knowledge-service.ts 有自己独立的门禁实现 ingestConversationEntry，与本门面无关。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import * as coldStart from './knowledge-cold-start.js';
 import * as maintenance from './knowledge-maintenance.js';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * R3 单一 prompt 来源 + E1 文件覆盖 getter：实现迁至 knowledge-extraction.ts，

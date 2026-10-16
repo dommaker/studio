@@ -5,14 +5,12 @@
  * 提取完整推理链：背景→候选方案→选择理由→权衡。
  */
 
-import { logger } from '@dommaker/studio-shared';
 // P2-c 拆环：getSystemExecutor 转函数内动态 import（knowledge→agents 静态边清零）
 import { randomUUID } from 'crypto';
 import { sharedStore } from '../knowledge-singletons.js';
 import type { KnowledgeEntry } from '@dommaker/harness';
 import { getStore } from '../../../core/store.js';
-
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const EXTRACT_SYSTEM_PROMPT = `你是一个决策分析师。从以下讨论记录中提取决策链。
 

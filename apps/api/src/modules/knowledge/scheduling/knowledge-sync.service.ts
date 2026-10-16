@@ -9,7 +9,6 @@
  *   3. Heal:     过期知识 → 标记 freshness、触发重分析
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { sharedStore, sharedLifecycle } from '../knowledge-singletons.js';
 import { upsertKnowledge } from '../knowledge-design-doc.js';
 import type { KnowledgeSource } from '../knowledge-design-doc.js';
@@ -18,6 +17,7 @@ import { knowledgeService } from '../knowledge-service.js';
 // 本方法跑在 monitor 周期轮（monitor-system-probes）与 internal 路由上，sync 子进程
 // × scope 文件数串行阻塞事件循环（#374 纪律：轮询路径禁 sync exec，唯一出口 core/exec-async）
 import { execFileAsync } from '../../../core/exec-async.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 // ── Scope Registry ──
 // scope → associated source files (glob patterns). When any of these files change, the scope is stale.

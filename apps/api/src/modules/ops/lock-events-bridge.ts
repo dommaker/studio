@@ -12,8 +12,9 @@
  *      通知出口）。两事件均 warning 级，不设 critical（#64 决议 4）。
  */
 
-import { eventBus, logger } from '@dommaker/studio-shared';
+import { eventBus } from '@dommaker/studio-shared';
 import { dispatchMonitorAlerts, emitMonitorEvent } from './monitor-alerts.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const FORWARDED_EVENTS = ['lock.stale_reclaimed', 'lock.acquire_timeout'] as const;
 

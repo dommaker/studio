@@ -4,11 +4,11 @@
  * Both `studio run` CLI and `/studio run` Discord slash command
  * reuse this logic to submit a requirement to #研发 and create a WorkUnit.
  */
-import { logger } from '@dommaker/studio-shared';
+
 import { getChannelMessageService } from '../channels/index.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const workUnitService = new WorkUnitService();
 

@@ -11,13 +11,14 @@
  * 可测试性：fileStore/role/建单全部经 deps 注入，单测用纯 ctx 对象驱动，无需 vi.mock 模块工厂。
  */
 
-import { logger, FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import {
   checkDelegation, effectiveParentCollab, resolveMaxDepth,
   type CollabMeta,
 } from '../workunit/index.js';
 import type { WorkUnitData, WorkUnitService } from '../workunit/index.js';
 import type { StepResult } from './agent-loop.types.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** DELEGATE 分支输入。仅在 action === 'delegate' 且 result.delegate 存在时由 recordResult 调用。 */
 export interface DelegateBranchCtx {

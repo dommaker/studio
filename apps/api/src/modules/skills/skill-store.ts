@@ -11,9 +11,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { logger } from '@dommaker/studio-shared';
+
 import { studioDir, studioPath } from '@dommaker/studio-shared/studio-dir';
 import { generateManifest } from './manifest-generator.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 // ── Types ──
 

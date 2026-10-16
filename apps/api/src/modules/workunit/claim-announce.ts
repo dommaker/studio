@@ -7,7 +7,7 @@
  * 「『认领方名』已认领任务，开始执行」（不过发言层新鲜度检查、不带里程碑 meta）；
  * 发声 best-effort——失败只记日志，绝不阻断认领后的执行/响应。
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitService } from './workunit-review.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
@@ -15,7 +15,7 @@ import { parseWuMetadata } from './wu-metadata.js';
 import { recordAgentDecision } from '../audit-logs/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface ClaimAndAnnounceDeps {
   wuService: WorkUnitService;

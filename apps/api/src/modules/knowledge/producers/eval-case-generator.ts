@@ -5,11 +5,10 @@
  * 飞轮：失败 → eval case → harness 改进 → 回归验证 → 标记饱和。
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { getChannelMessageService } from '../../channels/index.js';
 import { listEvalCases, createEvalCase, updateEvalCase } from './eval-case-store.js';
 import { getStore } from '../../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
 

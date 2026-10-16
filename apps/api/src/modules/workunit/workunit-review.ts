@@ -9,13 +9,14 @@
  * waitForReviewPassSettled（#228 测试可观测性）与 ManualVerifyResult。
  */
 
-import { logger, withAttestation, deriveDisplayState, createSettledTracker, type AttestationEntry, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { withAttestation, deriveDisplayState, createSettledTracker, type AttestationEntry, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from './merge-on-review-pass.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
 import { snapshotToData, type WorkUnitData } from './workunit-crud.js';
 import { WorkUnitLifecycleService } from './workunit-lifecycle.js';
 import { type AuditActor } from '../audit-logs/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * #228 测试可观测性（纯增量，不改变行为）：登记 reviewPassed 的 best-effort

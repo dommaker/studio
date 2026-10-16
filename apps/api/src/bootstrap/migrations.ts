@@ -1,8 +1,9 @@
 // ── 数据区迁移 + 启动对账 ──
 // P2-a：自 apps/api/src/index.ts 拆出。迁移失败 = 拒启（抛 MigrationError 由
 // bootstrap 装配层 catch → process.exit(1)）；对账失败只 log 不阻断。
-import { logger } from '@dommaker/studio-shared';
+
 import { studioDir as resolveStudioDir } from '@dommaker/studio-shared/studio-dir';
+import { logger } from '@dommaker/studio-shared/node';
 
 export async function runDataMigrations(): Promise<void> {
   // FileStore 自动建目录，无需 DB 连接

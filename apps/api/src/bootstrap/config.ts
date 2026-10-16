@@ -4,9 +4,10 @@
 // PORT/HOST 解析——原文件即此口径，保持零漂移）。
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '@dommaker/studio-shared';
+
 import { studioDir as resolveStudioDir, warnIfNonProdUsesProdRoot } from '@dommaker/studio-shared/studio-dir';
 import { resolveListenHost } from '../cli/listen-host.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 let PORT: string | number = 3001;
 let HOST = '127.0.0.1';

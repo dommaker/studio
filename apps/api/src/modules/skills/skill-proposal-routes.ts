@@ -23,12 +23,12 @@ import {
   ERROR_CODES,
 } from '@dommaker/studio-contract';
 import { getSkillExtractionService } from './skill-extraction.service.js';
-import { logger } from '@dommaker/studio-shared';
+
 import { getChannelMessageService } from '../channels/index.js';
 import { skillStore } from './skill-store.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 // P2-e 鉴权声明式统一：open（GET 列表）/ write（scan/extract/retract，registry 挂 authNotGuest）拆 router。
 const openRoutes = Router();

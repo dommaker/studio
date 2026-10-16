@@ -42,10 +42,10 @@ import { createRequire } from 'node:module';
 import yaml from 'js-yaml';
 import { CONSTRAINTS, getEffectiveConstraints } from '@dommaker/harness';
 import {
-  logger,
   resolvePromptOverridesDir,
   type EvolutionProposalData,
 } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 import type { EvolutionPaths } from './signals.js';
 import { scheduleVectorDbSync, UNIFIED_KNOWLEDGE_DIR } from '../knowledge/index.js';
 

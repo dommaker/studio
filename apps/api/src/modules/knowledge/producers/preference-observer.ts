@@ -1,3 +1,4 @@
+import { logger } from '@dommaker/studio-shared/node';
 /**
  * PreferenceObserver (G-001) — 从 MCP traces + Channel 消息中推断用户偏好
  *
@@ -5,8 +6,6 @@
  * 增量 EMA 更新，不阻塞主流程。
  * 冷启动：无历史数据时 confidence=0.3，积累 50+ 交互后提升到 0.7+
  */
-
-import { logger } from '@dommaker/studio-shared';
 
 interface PreferenceData {
   favoriteTools: string;         // JSON: Array<{ name: string; count: number }>

@@ -14,9 +14,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '@dommaker/studio-shared';
+
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * 生命周期的实例级状态（由 MonitorService 实例持有并传入，保持 per-instance 语义）。

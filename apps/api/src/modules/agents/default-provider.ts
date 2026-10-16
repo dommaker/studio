@@ -12,9 +12,10 @@
  * （不含 studio —— studio 的 provider 由 StudioRoleSetupModal 引导用户显式选择，
  * 系统身份模型档位是用户决策，不自动打戳）。幂等：provider 非空不动。
  */
-import { logger, type FileStore } from '@dommaker/studio-shared';
+import { type FileStore } from '@dommaker/studio-shared';
 import { scanAllProviders, scanAllProvidersAsync, type DetectedRuntime } from '../../daemon/cli-scanner.js';
 import { isSystemRole } from '../../core/system-role.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 选默认 provider：扫描结果第一个（注册表顺序）。扫不到返回 null。 */
 export function resolveDefaultProvider(

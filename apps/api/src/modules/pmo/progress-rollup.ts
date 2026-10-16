@@ -58,7 +58,7 @@
  *   - 直调路径（syncProjectProgress 导出：routes 读取纠偏 / 测试）恒回源，语义 =
  *     现状全量读。已知接受项：WU delete 无事件，memo 靠冷启动/复核/直调回源自愈。
  */
-import { eventBus, FileStore, logger, createSettledTracker, deriveDisplayState } from '@dommaker/studio-shared';
+import { eventBus, FileStore, createSettledTracker, deriveDisplayState } from '@dommaker/studio-shared';
 import { RequirementService, TERMINAL_WORKUNIT_STATUSES } from '../requirements/index.js';
 import { projectService, resolveDeliveries, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type ProjectData } from './project.service.js';
 import {
@@ -74,7 +74,7 @@ import { parseSpecTasks } from './spec-materialization.js';
 import { postProjectMilestone } from './delivery-notify.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 // 兼容现有引用方（原定义已移至 evidence-summary.ts 共享口径）
 export { parseWuMetaPmoId };

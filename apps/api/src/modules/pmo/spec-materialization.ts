@@ -26,7 +26,7 @@
  * 同 PMO 的物化按 projectId 串行化（无 pmoId 按 WU id）。
  */
 
-import { logger, type FileStore } from '@dommaker/studio-shared';
+import { type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { ChannelMessageService } from '../channels/index.js';
@@ -35,11 +35,11 @@ import { createKeyedEnqueue } from './keyed-enqueue.js';
 import { getStore } from '../../core/store.js';
 import { WuStatusChangedSubscription } from './wu-status-subscription.js';
 
-
 /** 物化任务条数上限（照 MAP_OPENING_FOG_MAX 先例防刷屏）
  *  P2-c：SPEC_TASKS_MAX / SpecTaskSpec / parseSpecTasks / serializeSpecTasks 正本下沉
  *  @dommaker/studio-shared spec-tasks-codec.ts（跨域 wire 契约），此处转介保持 pmo 公共面不变 */
 import { parseSpecTasks } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 export { SPEC_TASKS_MAX, parseSpecTasks, serializeSpecTasks, type SpecTaskSpec } from '@dommaker/studio-shared';
 
 export class SpecMaterialization {

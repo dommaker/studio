@@ -17,6 +17,11 @@ vi.mock('../../../modules/auth/service.js', () => ({
 const mockReadJson = vi.hoisted(() => vi.fn());
 const mockWriteJson = vi.hoisted(() => vi.fn());
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', () => ({
   FileStore: vi.fn().mockImplementation(function () { return {
     readJson: mockReadJson,

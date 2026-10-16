@@ -4,10 +4,10 @@
 
 import { randomUUID } from 'crypto';
 import path from 'node:path';
-import { FileStore, logger, isTestEnv, resolveStudioLogsDir } from '@dommaker/studio-shared';
+import { FileStore, isTestEnv, resolveStudioLogsDir } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const PERMS_PATH = studioPath('mcp-permissions.json');
 // P0 修复 5：测试（VITEST / NODE_ENV=test）改写到 os.tmpdir()/studio-test-logs，生产路径不变

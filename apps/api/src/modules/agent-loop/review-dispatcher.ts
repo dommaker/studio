@@ -20,7 +20,7 @@
  *   （/review/diff 管理端点链路）已于 2026-08-06 整体删除——端点零真实调用方
  */
 
-import { eventBus, logger, parseChannels, deriveDisplayState, createSettledTracker, type FileStore, type AgentProfileData, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { eventBus, parseChannels, deriveDisplayState, createSettledTracker, type FileStore, type AgentProfileData, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { MANUAL_GATE_TYPES } from '../workunit/index.js';
 import { readCollab } from '../workunit/index.js';
@@ -30,7 +30,7 @@ import { resolveOrNotice } from '../channels/index.js';
 import { isSystemRole } from '../../core/system-role.js';
 import type { ParsedReviewReport } from './review-contract.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * P7（2026-09-16 perf 实测）：自动评审总开关，默认开。无凭证/fake-provider 环境

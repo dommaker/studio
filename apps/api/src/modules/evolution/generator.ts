@@ -35,10 +35,10 @@ import {
 import {
   FileStore,
   formatEvolutionId,
-  logger,
   type EvolutionProposalData,
   type EvolutionTargetType,
 } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 import { loadWindowSignals, type EvolutionPaths, type WindowSignals } from './signals.js';
 import { loadIncidentLedger } from './incident-ledger.js';
 

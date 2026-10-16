@@ -14,8 +14,7 @@ import {
   ChangeRecord,
   ChangeLevel,
 } from './types/change.types.js';
-
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * 内存存储（#684 决策：有意不落 FileStore——生产侧唯一写入口是 import 端点，

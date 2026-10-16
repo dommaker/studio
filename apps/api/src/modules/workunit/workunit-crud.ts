@@ -13,7 +13,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger, eventBus, FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { eventBus, FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import type { ChannelMessageService } from '../channels/index.js'; // P2-c 拆环：值引用转 getMessageService 动态 import（类型边保留）
 // P2-c 拆环：resolveOrNotice/ROUTING_STAGE_LABELS 转方法内动态 import（workunit→channels 静态值边清零）
 import { postWuSystemMessage } from './wu-messenger.js';
@@ -22,7 +22,7 @@ import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
 import { parseWuPmoId } from '../requirements/index.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface CreateWorkUnitInput {
   type?: string;

@@ -24,7 +24,7 @@
  * （照 plan-ruling / decision-resolution 链式排队）。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { resumeWaitingWorkUnit } from '../workunit/index.js';
@@ -32,7 +32,7 @@ import { postWuSystemMessage } from '../workunit/index.js';
 import { projectService, type PmoMap } from './project.service.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 载荷校验失败（路由转 400） */
 export class PlanDirectionError extends Error {}

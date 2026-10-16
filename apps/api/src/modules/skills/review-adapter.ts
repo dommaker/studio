@@ -19,7 +19,7 @@
  */
 import fs from 'node:fs';
 import * as path from 'node:path';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import {
   createJsonlReviewAdapter,
@@ -28,7 +28,7 @@ import {
 } from '../review-proposal/index.js';
 import type { ReviewProposalBase } from '../review-proposal/index.js';
 import { skillStore } from './skill-store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** skill 提案载荷（行形态：{ kind:'proposal', ... } 落 skill-proposals.jsonl） */
 export interface SkillReviewProposal extends ReviewProposalBase {

@@ -7,7 +7,7 @@
 import { Router as ExpressRouter, type Router } from 'express';
 import { requireAuth, requireNotGuest, requireAdmin, requireLocalhost } from './middleware/auth.js';
 import { mcpRateLimit } from './middleware/rate-limit.js';
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface RouteEntry {
   path: string;

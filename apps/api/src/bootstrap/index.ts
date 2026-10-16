@@ -8,7 +8,7 @@
 //     两口径分离，详见 performance-baseline.md §6.1），核心服务/agent loop/channels
 //     等后台初始化在 listen 之后继续；
 //   - 优雅关闭的逆序清理由 lifecycle.registerShutdown 承载。
-import { logger, bootstrapHarness } from '@dommaker/studio-shared';
+import { bootstrapHarness } from '@dommaker/studio-shared';
 import { app, registerRoutes } from '../app.js';
 import { initStore } from '../core/store.js';
 import { initConfig, getPort, getHost } from './config.js';
@@ -22,6 +22,7 @@ import { registerScanHandlers } from './handlers.js';
 import { createHttpServer, installErrorHandlers, listen, registerShutdown } from './lifecycle.js';
 import { startTunnelIfEnabled } from './tunnel.js';
 import { markReady } from './readiness.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export async function bootstrap(): Promise<void> {
   initConfig();

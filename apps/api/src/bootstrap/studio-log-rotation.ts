@@ -20,10 +20,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { randomUUID } from 'node:crypto';
-import { logger } from '@dommaker/studio-shared';
+
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { getStudioEventTime } from '@dommaker/studio-shared';
 import { isTestEnv, resolveStudioLogsDir } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

@@ -23,12 +23,12 @@
  * requirements 可达位置），此处 re-export 保持既有引用面不变。
  */
 import { execFile } from 'node:child_process';
-import { logger, FileStore, stripTrailingSlashes } from '@dommaker/studio-shared';
+import { FileStore, stripTrailingSlashes } from '@dommaker/studio-shared';
 // P2-c 拆环：projectService 转闭包内动态 import（channels→pmo 静态边清零）
 import { resolveWorkspaceRoot as defaultResolveWorkspaceRoot } from '../workspaces/index.js';
 import { listChannelReqPmoProjects, type ChannelReqPmoLink, type ProjectLike } from '../requirements/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export { listChannelReqPmoProjects };
 export type { ChannelReqPmoLink, ProjectLike };

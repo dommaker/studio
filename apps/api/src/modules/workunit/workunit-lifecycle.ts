@@ -7,7 +7,7 @@
  * 查询在 workunit-query.ts（基类），评审验收在 workunit-review.ts（子类）。
  */
 
-import { logger, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveValidTransitions, WORKUNIT_CLOSED_EVENT_TYPE, type WorkUnitMetadata, type CloseWorkUnitOptions } from './workunit.types.js';
 import { snapshotToData, type WorkUnitData } from './workunit-crud.js';
@@ -15,6 +15,7 @@ import { WorkUnitQueryService } from './workunit-query.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
 import { recordAgentDecision, type AuditActor } from '../audit-logs/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export class WorkUnitLifecycleService extends WorkUnitQueryService {
 

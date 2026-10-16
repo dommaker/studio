@@ -6,7 +6,8 @@
  * 同 #101/#143 降级口径，业务链路绝不被通知阻断（由调用方落 card-failed 墓碑）。
  * 卡片内容（content/cardData/cardType）归业务方 adapter.renderCardContent，本文件只管投放。
  */
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 审核闭环：提案卡投放的目标频道（ensureDefaultChannels 启动播种） */
 const SYSTEM_CHANNEL_NAME = '#系统';

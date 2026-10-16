@@ -35,6 +35,11 @@ vi.mock('express', () => {
   return { Router, default: { Router } };
 });
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   // 路由文件现引入 middleware/auth.js（鉴权收紧），其模块加载链会 new FileStore()

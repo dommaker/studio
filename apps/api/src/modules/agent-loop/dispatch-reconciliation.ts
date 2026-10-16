@@ -24,7 +24,7 @@
  * 挂 5min 触发器（default-triggers.ts `dispatch-reconciliation`，timeout-scan 同类）；
  * 从 apps/api/src/bootstrap/handlers.ts 注册 handler，便于服务级测试。
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/index.js';
 import { MANUAL_GATE_TYPES } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
@@ -35,7 +35,7 @@ import { dispatchMonitorAlerts } from '../ops/index.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
 import type { MonitorAlertSource } from '../ops/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 对账宽限：哨兵落档 / 转入 in_review ≥10min 才参与对账（避开在飞 spawn/建单） */
 export const RECONCILE_GRACE_MS = 10 * 60 * 1000;

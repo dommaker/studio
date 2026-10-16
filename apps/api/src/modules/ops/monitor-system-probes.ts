@@ -15,7 +15,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { execAsync } from '../../core/exec-async.js';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { logger } from '@dommaker/studio-shared';
+
 import type { TriageIncidentInput } from '../triage/index.js';
 import { getTriageService } from '../triage/index.js';
 import { KnowledgeAudit } from '@dommaker/harness';
@@ -24,6 +24,7 @@ import { knowledgeSync } from '../knowledge/index.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
 import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../../core/proc-probes.js';
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 // #611: knowledge:consumption 连续 N 天为 0 → 消费链路疑似断裂（probe 去假绿后此告警才可信）
 const CONSUMPTION_SILENCE_DAYS = 3;

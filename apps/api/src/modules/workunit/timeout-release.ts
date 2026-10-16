@@ -13,14 +13,14 @@
  * 频道系统消息走 wu-messenger 统一出口（eventBus + SSE，挂 anchor 线程）。
  */
 import fs from 'node:fs';
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from './workunit-review.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { withBlockedCta } from './blocked-cta.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 同一 WU 的超时释放上限：达到后转 blocked，等待人工介入 */
 export const MAX_TIMEOUT_RELEASES = 3;

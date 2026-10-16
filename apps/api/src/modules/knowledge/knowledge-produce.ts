@@ -8,7 +8,6 @@
  * 门面方法为薄封装。
  */
 
-import { logger } from '@dommaker/studio-shared';
 // P2-c 拆环：getSystemExecutor/StudioRoleNotConfiguredError 改函数内动态 import（见 extractFromConversationImpl）
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
@@ -27,6 +26,7 @@ import { writeTrendData } from './trend-data.js';
 import { buildConversationTranscript, ingestConversationEntry } from './producers/conversation-extractor.js';
 import { submitKnowledgeProposal } from './review-adapter.js';
 import { recordConsumptionImpl } from './knowledge-track.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export async function extractFromExecutionImpl(deps: KnowledgeServiceDeps, result: ExtractionResult): Promise<void> {
   // Extract knowledge patterns from execution diff/task

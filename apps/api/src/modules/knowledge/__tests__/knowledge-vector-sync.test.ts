@@ -21,6 +21,13 @@ function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnTyp
     // 模块加载期即调用，partial mock 必须提供
     resolveStudioLogFile: (name: string) => `/tmp/test-studio-logs/${name}`,
   }));
+  vi.doMock('@dommaker/studio-shared/node', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+    return {
+      ...actual,
+      logger: { info: loggerInfo ?? vi.fn(), warn: loggerWarn ?? vi.fn(), error: loggerError ?? vi.fn(), debug: loggerDebug ?? vi.fn() },
+    };
+  });
   vi.doMock('@dommaker/harness', () => ({
     FileKnowledgeStore: class { list() { return []; } },
     KnowledgeIngest: class { ingestEntry() { return { status: 'accepted', entry: { id: 'x' } }; } },

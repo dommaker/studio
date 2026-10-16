@@ -18,6 +18,11 @@ import crypto from 'crypto';
 // Mock FileStore — auth.ts 在模块级 `new FileStore()`，实例方法统一走 hoisted mock
 const mockReadJson = vi.hoisted(() => vi.fn());
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {

@@ -21,10 +21,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { parseStudioEventPayload } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** per-WU 累计行：全部数值字段为「该 WU 所有 token 事件的 Σ（仅计有限数字）」 */
 export interface TokenLedgerRow {
@@ -55,7 +55,6 @@ export interface TokenLedger {
 
 /** 账本文件名（与事件文件同目录，随测试隔离/STUDIO_EVENTS_FILE 自动跟随） */
 export const TOKEN_LEDGER_FILE_NAME = 'token-ledger.json';
-
 
 export function resolveTokenLedgerFile(eventsFile: string): string {
   return path.join(path.dirname(eventsFile), TOKEN_LEDGER_FILE_NAME);

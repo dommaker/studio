@@ -11,9 +11,10 @@
  */
 
 import type { KnowledgeIngest, KnowledgeSubsystem } from '@dommaker/harness';
-import { logger } from '@dommaker/studio-shared';
+
 import { validateKnowledgeForm } from '../knowledge-form-gate.js';
 import { writeTrendData } from '../trend-data.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** R3: 会话提取 transcript 上限（字符）。提取输入独立度量，不占 2K 注入红线，但仍控制单次调用规模。 */
 const CONVERSATION_TRANSCRIPT_MAX_CHARS = 12_000;

@@ -4,8 +4,9 @@
  * mountSoftSteps：同步返回、加载/挂载失败只 warn 不产生未处理拒绝。
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { logger } from '@dommaker/studio-shared';
+
 import { runSoftSteps, mountSoftSteps } from '../soft-steps.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 afterEach(() => {
   vi.restoreAllMocks();

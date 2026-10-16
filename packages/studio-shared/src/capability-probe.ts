@@ -19,7 +19,7 @@
 
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { logger } from './utils/logger';
+import { logger } from './utils/logger-node';
 import { resolveProviderDefinition } from './providers';
 
 /**

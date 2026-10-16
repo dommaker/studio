@@ -14,8 +14,8 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
-import { logger, getErrorMessage } from '@dommaker/studio-shared';
-import { execSh } from '@dommaker/studio-shared/node';
+import { getErrorMessage } from '@dommaker/studio-shared';
+import { logger, execSh } from '@dommaker/studio-shared/node';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 import type { AgentTask } from './types.js';

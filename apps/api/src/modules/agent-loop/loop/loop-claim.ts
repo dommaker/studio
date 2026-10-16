@@ -5,7 +5,7 @@
  * blockIfAllMembersUnfit 全员不适任转 blocked 人工）。
  * 全部共享状态经 AgentLoopHost 读写；本类零自有状态。
  */
-import { parseChannels, logger } from '@dommaker/studio-shared';
+import { parseChannels } from '@dommaker/studio-shared';
 import {
   claimWorkUnitAndAnnounce, parseWuMetadata, withBlockedCta,
   type WorkUnitData,
@@ -15,6 +15,7 @@ import { writeStudioEvent } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../../utils/errors.js';
 import { judgeClaimFitness, parseUnfitRoles } from '../claim-fitness.js';
 import type { AgentLoopHost } from './loop-host.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export class LoopClaim {
   constructor(private readonly host: AgentLoopHost) {}

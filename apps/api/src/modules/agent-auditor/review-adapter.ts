@@ -19,7 +19,7 @@
  * 装配收敛（P2.2）：register/get/submit 样板收进正本 createJsonlReviewAdapter 工厂，
  * 本文件只留域差异（卡渲染 + onApprove 建工单 + findAuditorCardMessageId）。
  */
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import {
   createJsonlReviewAdapter,
   type ApproveOutcome,
@@ -29,7 +29,7 @@ import type { ReviewProposalBase, ReviewProposalRecord } from '../review-proposa
 import { parseMessageMeta } from '../../utils/message-meta.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import type { Suggestion } from './auditor-rules.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 审核闭环：提案卡投放的目标频道（同旧 pushConfirmationCards / 正本 card.ts 口径） */
 const SYSTEM_CHANNEL_NAME = '#系统';

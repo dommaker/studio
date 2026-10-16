@@ -15,7 +15,6 @@
  * （日预算用量/告警）有生产默认实现，单测整体注入伪实现，无需 vi.mock 模块工厂。
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { PLAN_STEP_LIMIT } from '../workunit/index.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
 import type { StepResult } from './agent-loop.types.js';
@@ -24,6 +23,7 @@ import {
   tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage,
   notifyBudgetTripped, type DailyTokenUsage,
 } from './daily-token-budget.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 守卫链输入：wu + 已解析的 metadata（agentStep 入口 parseWuMetadata 的同一对象） */
 export interface StepGuardCtx {

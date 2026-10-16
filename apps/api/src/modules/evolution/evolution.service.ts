@@ -15,10 +15,10 @@
 import {
   eventBus,
   FileStore,
-  logger,
   type EvolutionProposalData,
   type EvolutionProposalFilter,
 } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 import { applyProposal, type ApplyResult } from './applier.js';
 import {
   EVOLUTION_PROPOSAL_TTL_MS,

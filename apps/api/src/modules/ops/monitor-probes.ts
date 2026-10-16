@@ -8,7 +8,7 @@
  */
 
 import * as fs from 'fs';
-import { logger } from '@dommaker/studio-shared';
+
 import type { FileStore, WorkUnitSnapshot } from '@dommaker/studio-shared';
 import {
   POOL_STAGNATION_WARN_MS,
@@ -27,6 +27,7 @@ import { snapshotToData } from '../workunit/index.js';
 import { DECISION_SPEC_TYPES } from '../workunit/index.js';
 import { getStudioEventTime, parseStudioEventPayload } from '@dommaker/studio-shared';
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const FAILURE_THRESHOLD = 3;
 

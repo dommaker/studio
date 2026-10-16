@@ -5,9 +5,10 @@
 // 也消除 vitest 对同模块并发动态 import 的 mock 竞态（测试可复现：一链拿 mock 一链拿真模块）。
 // #686：表驱动 + mountSoftSteps 单循环，加载/挂载失败只 warn（纪律固化在 soft-steps.ts）；
 // 新增冷启动任务 = 表里加一行。
-import { logger } from '@dommaker/studio-shared';
+
 import { getStore } from '../core/store.js';
 import { mountSoftSteps, type SoftStep } from './soft-steps.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const WARMUP_TASKS: readonly SoftStep[] = [
   {

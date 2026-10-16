@@ -13,7 +13,7 @@
  * 事件订阅语义与 ReviewDispatcher / AnalysisHandoff 一致（eventBus 进程内，best-effort）。
  */
 
-import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
+import { eventBus, FileStore } from '@dommaker/studio-shared';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
@@ -25,7 +25,7 @@ import { registerMemoryReviewAdapter, submitMemoryProposal } from './review-adap
 // P2-c 拆环：agents 引用（getSystemExecutor/StudioRoleNotConfiguredError/token 预算三件套）
 // 全部转函数内动态 import，role-memory→agents 静态边清零。
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * 角色记忆提取 prompt（单一来源，适配 appendDraft 产出）：只收 execution-knowledge /

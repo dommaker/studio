@@ -2,9 +2,9 @@
  * MCP Tool Registry — dynamic registration, health, rate limiting
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { preferenceObserver } from '../knowledge/index.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 export type ToolRiskLevel = 'low' | 'medium' | 'high';
 

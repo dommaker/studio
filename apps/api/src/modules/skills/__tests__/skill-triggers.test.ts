@@ -18,6 +18,11 @@ process.env.SKILLS_DIR = testSkillsDir;
 afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
 // importOriginal：skill-selector 还依赖 normalizeToStage，不能整包替换
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return { ...orig, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };

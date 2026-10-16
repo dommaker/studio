@@ -14,7 +14,8 @@
  * `+skill名` 显式点名在 step 时从 scope 解析（parseSkillHintsFromScope），路由层不认识 skill。
  */
 import type { SkillEntry } from './manifest-loader.js';
-import { logger, normalizeToStage } from '@dommaker/studio-shared';
+import { normalizeToStage } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 判断是否为 hub-service skill（consumers 含 loop）——不参与 WU/角色匹配 */
 function isLoopConsumer(skill: SkillEntry): boolean {

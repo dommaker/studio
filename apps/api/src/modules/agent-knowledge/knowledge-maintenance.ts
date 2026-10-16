@@ -10,13 +10,14 @@
  */
 
 import type { MaturityLevel } from '@dommaker/harness';
-import { logger } from '@dommaker/studio-shared';
+
 import { getSystemExecutor } from '../agents/index.js';
 import { sharedStore } from '../knowledge/index.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as os from 'os';
 import * as path from 'path';
+import { logger } from '@dommaker/studio-shared/node';
 
 const execAsync = promisify(exec);
 

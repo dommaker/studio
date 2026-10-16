@@ -14,7 +14,7 @@
  */
 
 import { Router } from 'express';
-import { logger } from '@dommaker/studio-shared';
+
 import {
   readKnowledgeFileBodySchema,
   knowledgeFileQuerySchema,
@@ -23,6 +23,7 @@ import {
 import * as os from 'os';
 import { requireNotGuest } from '../../../middleware/auth.js';
 import { defineRoute, HttpError } from '../../../core/http.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export const filesRoutes = Router();
 

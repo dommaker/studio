@@ -19,13 +19,13 @@
  * 后者被 workunit.service 静态依赖；静态引入 pmo-branch-resolver
  * （→ project.service → workunit.service）会成循环（同 merge-on-review-pass 头部依赖说明）。
  */
-import { FileStore, logger, type ChannelMessageData } from '@dommaker/studio-shared';
+import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { NotificationService } from '../notifications/index.js';
 import type { MessageMeta, MessageRecord } from '../channels/index.js';
 import { parseWuMetadata, parseWuTitle } from './wu-metadata.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface PostWuSystemMessageOptions {
   /** 消息署名（默认 'Studio'；agent-loop 回帖传本 loop 的 role.name） */

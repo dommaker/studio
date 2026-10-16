@@ -19,7 +19,6 @@
  * （macrotask），请求/SSE 得以穿插；提取结果与 checkpoint 语义不变。
  */
 
-import { logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
@@ -27,6 +26,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 // 不经 shell 数组参数防注入）。错误语义：任何失败 reject → commitExists=false /
 // getNewCommits=[]（超时/非零退出/ENOENT 同口径，与原 execFileSync try/catch 一致）
 import { execFileAsync } from '../../core/exec-async.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const CHECKPOINT_FILE = studioPath('session-checkpoint.json');
 const REPO_DIR = process.env.REPO_DIR || process.cwd();

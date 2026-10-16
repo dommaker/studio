@@ -1,3 +1,4 @@
+import { logger } from '@dommaker/studio-shared/node';
 /**
  * Knowledge Evolution Scheduler
  *
@@ -9,8 +10,6 @@
  * meso evolution（项目级模式识别）两个定时任务随知识进化引擎一并摘除——
  * 两者的读写目标只有 ~/.studio/data/documents。
  */
-
-import { logger } from '@dommaker/studio-shared';
 
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000;    // 24 小时
 const PATTERN_INTERVAL_MS = 24 * 60 * 60 * 1000;   // 每天模式挖掘

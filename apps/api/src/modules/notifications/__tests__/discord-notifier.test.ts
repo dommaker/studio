@@ -11,6 +11,11 @@ import * as os from 'node:os';
 
 const SECRET = 'SECRET_BOT_TOKEN_FOR_TEST';
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {
@@ -24,7 +29,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 import { DiscordNotifier } from '../discord-notifier.js';
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 describe('DiscordNotifier 凭证安全', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discord-notifier-'));

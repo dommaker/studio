@@ -20,12 +20,12 @@ import {
   eventBus,
   FileStore,
   formatRequirementId,
-  logger,
   deriveDisplayState,
   type RequirementData,
   type RequirementStatus,
   type WorkUnitSnapshot,
 } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 import type { ProjectData } from '../pmo/index.js';
 // P2-c 拆环：projectService 值引用转闭包内动态 import（requirements→pmo 静态值边清零，类型边保留）
 import { parseWuPmoId } from './wu-pmo-attribution.js';

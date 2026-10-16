@@ -4,7 +4,7 @@
  * 启动时 + 每 24h 自动拍摄环境快照，diff 变更并维护已知限制清单。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -12,7 +12,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { countProcessesByCmdline } from '../../../core/proc-probes.js'; // P2-c 拆环：零依赖原语自 agents 下沉 core，knowledge→agents 此边清零
 import { getStore } from '../../../core/store.js';
 import { createLazyService } from '../../../utils/services.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 interface SnapshotData {
   hostname: string;

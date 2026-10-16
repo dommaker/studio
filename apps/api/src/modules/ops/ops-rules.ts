@@ -7,8 +7,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '@dommaker/studio-shared';
+
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface OpsRules {
   version: number;

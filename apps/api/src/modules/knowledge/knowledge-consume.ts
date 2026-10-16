@@ -12,7 +12,7 @@
  */
 
 import { estimateTokens } from '@dommaker/harness';
-import { logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
+import { normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
 import type {
@@ -30,6 +30,7 @@ import {
   resolveKnowledgeEntryId,
   keywordHitsToSemantic,
 } from './knowledge-semantic-search.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 // ── Stop words for keyword extraction ──
 

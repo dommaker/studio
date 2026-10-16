@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { logger } from '@dommaker/studio-shared';
+
 import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/index.js';
 import { skillStore } from '../skills/index.js';
@@ -20,6 +20,7 @@ import { WorkUnitService } from '../workunit/index.js';
 import { resolveStudioEventsFile, getStudioEventTime } from '@dommaker/studio-shared';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readJsonl 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** D18 事件入口统一：事件文件 = ~/.studio/logs/studio-events.jsonl（测试期隔离）。保留函数名兼容既有调用方/测试。 */
 export function studioEventsJsonl(): string {

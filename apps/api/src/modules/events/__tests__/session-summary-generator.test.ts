@@ -8,6 +8,11 @@ const mockAppendJsonl = vi.hoisted(() => vi.fn());
 // #342：读口切到窗口读（studio-events-tail.readStudioEventsSince），打桩随之迁移
 const mockReadStudioEventsSince = vi.hoisted(() => vi.fn());
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   // #361：utils 薄壳转发的实现住共享包 —— 必须 spread actual（否则 re-export 出的

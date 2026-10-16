@@ -30,7 +30,7 @@
  * AnalysisHandoff 一致（eventBus 进程内，best-effort）。
  */
 
-import { logger, type FileStore } from '@dommaker/studio-shared';
+import { type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { ChannelMessageService } from '../channels/index.js';
@@ -39,10 +39,10 @@ import { createKeyedEnqueue } from './keyed-enqueue.js';
 import { getStore } from '../../core/store.js';
 import { WuStatusChangedSubscription } from './wu-status-subscription.js';
 
-
 /** 开图 fog 条数上限（照 ANALYSIS_TASKS_MAX 先例防刷屏）
  *  P2-c：正本下沉 @dommaker/studio-shared constants/map-opening.ts（三域共用防互耦），此处转介 */
 import { MAP_OPENING_FOG_MAX } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 export { MAP_OPENING_FOG_MAX };
 
 /**

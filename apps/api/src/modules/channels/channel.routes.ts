@@ -20,7 +20,7 @@ import {
   channelMessageParamsSchema,
   ERROR_CODES,
 } from '@dommaker/studio-contract';
-import { logger } from '@dommaker/studio-shared';
+
 import { getChannelService, ChannelError, validateDefaultWorkspaceId } from './channel.service.js';
 import { saveChannelImage, resolveChannelImage, ATTACHMENT_BODY_LIMIT } from './attachments.js';
 import { routeMessage } from './message-routing.js';
@@ -39,7 +39,7 @@ import { validateRouting, buildMemberRemovalWarning } from './routing.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 // P2-e 鉴权声明式统一：read（GET 读，registry 挂 requireAuth）/ write（registry 挂 authNotGuest）拆 router，
 // 路由内不再挂鉴权。唯一例外 = 附件 GET（channelAttachmentRoutes，文件尾部）：<img> 的 ?token= 需
@@ -347,8 +347,6 @@ writeRoutes.post('/:id/messages/:messageId/convert-to-task/suggest', defineRoute
     }
   },
 ));
-
-
 
 /** <img>/EventSource 无法带 Authorization 头：?token= → header 后走 requireAuth（optionalAuth 同款先例） */
 function tokenQueryToHeader(req: import('express').Request, _res: import('express').Response, next: import('express').NextFunction) {

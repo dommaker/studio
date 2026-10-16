@@ -8,7 +8,7 @@
  */
 
 import { getToolSchemas, executeTool } from './tools.js';
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 // ─── MCP 协议类型 ───
 

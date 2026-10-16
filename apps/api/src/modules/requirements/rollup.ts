@@ -21,8 +21,9 @@
  *   - 已知接受项（同 #410）：WU delete 无事件，memo 可能留住已删非终态 WU 导致
  *     该 req 不再自动汇总；直调 svc.maybeRollUpToDone（无快照参）恒回源可纠偏。
  */
-import { eventBus, logger, createSettledTracker } from '@dommaker/studio-shared';
+import { eventBus, createSettledTracker } from '@dommaker/studio-shared';
 import { RequirementService, type ReqRollupSnapshot } from './requirement.service.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** status_changed / created 事件负载中 rollup 消费的最小字段集（snapshotToData 全量数据的子集） */
 interface WuRollupEventData {

@@ -1,12 +1,12 @@
 // OKR Service - PMO 模块核心服务
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { studioDir } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
 import { projectService } from './project.service.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 // ─── 路径常量 ───
 const STUDIO_DIR = studioDir();

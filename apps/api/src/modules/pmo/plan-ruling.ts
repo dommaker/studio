@@ -26,7 +26,7 @@
  * （只服务存量在飞 decision 单）。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { resumeWaitingWorkUnit } from '../workunit/index.js';
@@ -35,7 +35,7 @@ import { projectService, type PmoMap } from './project.service.js';
 import { MAP_OPENING_FOG_MAX } from './map-opening.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 载荷校验失败（路由转 400） */
 export class PlanRulingError extends Error {}

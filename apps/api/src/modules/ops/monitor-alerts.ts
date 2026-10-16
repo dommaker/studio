@@ -8,12 +8,13 @@
  *   - H3: 告警写入 KnowledgeBus pattern
  */
 
-import { logger, ALERT_COOLDOWN_WARN_MS, ALERT_COOLDOWN_CRIT_MS, ALERT_COOLDOWN_GC_MS } from '@dommaker/studio-shared';
+import { ALERT_COOLDOWN_WARN_MS, ALERT_COOLDOWN_CRIT_MS, ALERT_COOLDOWN_GC_MS } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/index.js';
 import { notifyAlert } from '../notifications/index.js';
 import type { MonitorAlert } from './types.js';
 import { getTriageService } from '../triage/index.js';
 import { resolveStudioEventsFile, writeStudioEvent } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 // ── 告警指纹冷却去重（#220，#218 决议）──
 // 进程内存态，不落盘：FileStore 故障本身是告警条件之一，落盘 = 循环依赖。

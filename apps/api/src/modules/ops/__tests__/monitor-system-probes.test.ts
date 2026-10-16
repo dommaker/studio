@@ -62,6 +62,11 @@ afterAll(() => {
   for (const d of [tmpWorktrees, tmpRepo]) fs.rmSync(d, { recursive: true, force: true });
 });
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: mockLogger };
+});
+
 vi.mock('@dommaker/studio-shared', () => ({ stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), FileStore: class {}, logger: mockLogger }));
 
 vi.mock('@dommaker/harness', () => ({

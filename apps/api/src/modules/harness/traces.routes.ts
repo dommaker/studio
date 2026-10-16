@@ -20,7 +20,7 @@
  */
 
 import { Router } from 'express';
-import { logger } from '@dommaker/studio-shared';
+
 import { defineRoute, HttpError } from '../../core/http.js';
 import {
   tracesQuerySchema,
@@ -29,6 +29,7 @@ import {
 } from '@dommaker/studio-contract';
 import type { ExecutionTrace, TraceFilter } from '@dommaker/harness';
 import { getCollector, getAnalyzer } from './runtime.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export const tracesRoutes = Router();
 

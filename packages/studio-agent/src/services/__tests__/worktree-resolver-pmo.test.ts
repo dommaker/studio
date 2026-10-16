@@ -22,13 +22,12 @@ vi.mock('fs', async (importOriginal) => {
   return { ...actual, existsSync: mockExistsSync };
 });
 
-vi.mock('@dommaker/studio-shared/node', () => ({ execSh: mockExecSh }));
+vi.mock('@dommaker/studio-shared/node', () => ({ execSh: mockExecSh, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {
     ...actual,
-    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     FileStore: class { readJson = vi.fn(); },
   };
 });

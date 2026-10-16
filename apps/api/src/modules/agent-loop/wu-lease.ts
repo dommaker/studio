@@ -10,10 +10,11 @@
  * 心跳本体在 lease-heartbeat.ts（同族模块）。#635：deps 增 heartbeatIntervalMs 测试 seam
  * （生产 undefined = 30s 缺省）；AgentLoop.stop() 不再调 stop()——租约收尾移到 runLoop 退出点。
  */
-import { logger, type FileStore } from '@dommaker/studio-shared';
+import { type FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitData } from '../workunit/index.js';
 import { startLeaseHeartbeat } from './lease-heartbeat.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface WuLeaseDeps {
   fileStore: FileStore;

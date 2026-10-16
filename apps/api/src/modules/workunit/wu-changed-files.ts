@@ -14,10 +14,11 @@
  *
  * 读取失败/无数据 → 空数组，绝不抛出（#249/#251：派生绝不抛出）。
  */
-import { logger } from '@dommaker/studio-shared';
+
 import { parseStudioEventPayload } from '@dommaker/studio-shared';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** #335：本模块语义即"只查近期事件"（归档后自然查不到 → chip 降级）；窗口对齐 #173 热文件保留期 */
 const EVENTS_WINDOW_MS = 30 * 24 * 3600_000;

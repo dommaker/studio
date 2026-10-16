@@ -5,7 +5,7 @@
  * Aggregates same-session events → session:summary with filesChanged, toolsUsed, patternType.
  */
 
-import { eventBus, logger } from '@dommaker/studio-shared';
+import { eventBus } from '@dommaker/studio-shared';
 import * as os from 'os';
 import * as path from 'path';
 // #342：窗口读口（尾部倒读 + 窗口外早停）——两个事件读点切到此读口；
@@ -13,7 +13,7 @@ import * as path from 'path';
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** #342：事件读窗口 30d——session 跨度 ≪ 窗口 */
 const EVENTS_WINDOW_MS = 30 * 86_400_000;

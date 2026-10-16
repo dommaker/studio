@@ -7,8 +7,8 @@
  * selfTerminateOnHeartbeatFailure（#179 心跳连败自裁）。
  * 全部共享状态经 AgentLoopHost 读写；本类零自有状态。
  */
-import { eventBus, logger, type RuntimeStateData } from '@dommaker/studio-shared';
-import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
+import { eventBus, type RuntimeStateData } from '@dommaker/studio-shared';
+import { logger, resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
 import { execAsync } from '../../../core/exec-async.js';
 import { getTriggerScheduler } from '../../triggers/index.js';

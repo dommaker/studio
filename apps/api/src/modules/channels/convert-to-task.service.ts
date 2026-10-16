@@ -5,14 +5,14 @@
  * and LLM-based suggestions for task creation (AC-E2，走 SystemExecutor /
  * studio 角色绑定的 CLI；角色未配置或调用失败时 suggest 返回空建议，非阻断).
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/index.js';
 import type { WorkUnitData } from '../workunit/index.js';
 import { ChannelMessageService, getChannelMessageService } from './channel-message.service.js';
 import { resolveReqIdForDispatch } from '../requirements/index.js';
 // P2-c 拆环：getSystemExecutor 转函数内动态 import（channels→agents 静态边清零）
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface ConvertInput {
   title?: string;

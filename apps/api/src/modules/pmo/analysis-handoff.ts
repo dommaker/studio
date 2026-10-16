@@ -22,7 +22,7 @@
  * 事件订阅语义与 ReviewDispatcher 一致（eventBus 进程内，best-effort）。
  */
 
-import { logger, type FileStore } from '@dommaker/studio-shared';
+import { type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { ChannelMessageService } from '../channels/index.js';
@@ -30,7 +30,7 @@ import { resolveStageRouting, resolveOrNotice } from '../channels/index.js';
 import { WuStatusChangedSubscription } from './wu-status-subscription.js';
 // P2-c 拆环：dispatchMonitorAlerts 转方法内动态 import（pmo→agents 静态边清零）
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export class AnalysisHandoff {
   /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled（共享骨架 P2.1） */

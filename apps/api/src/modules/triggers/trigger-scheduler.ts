@@ -1,7 +1,7 @@
 // Trigger Scheduler — periodic cron checker + EVENT subscriber (3.28c-4, AS-026 extended)
 // SCHEDULE triggers: checked every 60s tick
 // EVENT triggers: subscribe to EventBus, fire on matching events
-import { logger, type StudioEventBus } from '@dommaker/studio-shared';
+import { type StudioEventBus } from '@dommaker/studio-shared';
 import { CronMatcher } from './cron-matcher.js';
 import { TriggerStore } from './trigger-store.js';
 import {
@@ -18,6 +18,7 @@ import { writeStudioEvent } from '@dommaker/studio-shared';
 import { recordAgentDecision } from '../audit-logs/index.js';
 import { randomUUID } from 'node:crypto';
 import type { TriggerConfig, TriggerState, TriggerLogEntry } from './trigger.types.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const TICK_INTERVAL_MS = 60_000; // 1 minute
 

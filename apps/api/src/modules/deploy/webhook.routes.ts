@@ -11,7 +11,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import fs from 'node:fs';
 import { spawn } from 'child_process';
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 export const deployWebhookRoutes = Router();
 

@@ -20,7 +20,7 @@
 
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { logger } from './utils/logger';
+import { logger } from './utils/logger-node';
 import { resolveProviderDefinition, type ProviderDefinition } from './providers';
 
 /** execFile 的 promisify 形态（调用期才取值，理由同 capability-probe） */

@@ -1,9 +1,9 @@
+import { logger } from '@dommaker/studio-shared/node';
 // ── 「失败只 log 不拒启」装配纪律的唯一固化点（#686）──
 // listen 前移（ff546ba9）后，listen 后各初始化步一律失败只 warn 不拒启——
 // 否则 throw 经 bootstrap catch 落到 process.exit(1)，发生在端口可服务之后
 // （deploy 判绿后进程死亡、回滚不触发）。bridges/services/handlers/warmup
 // 四处装配表共用本模块的单循环，新增步骤只需在对应表里加一行。
-import { logger } from '@dommaker/studio-shared';
 
 export interface SoftStep {
   /** warn 日志前缀用名 */

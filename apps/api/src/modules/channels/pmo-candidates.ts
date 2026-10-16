@@ -14,10 +14,11 @@
  * 各来源独立容错（与 current-pmo「派生绝不抛出」同原则）：
  * REQ 列表读取失败记日志降级——返回已得结果（仅 current 或 []），绝不抛出。
  */
-import { logger } from '@dommaker/studio-shared';
+
 // P2-c 拆环：projectService 转闭包内动态 import（channels→pmo 静态边清零）
 import type { CurrentPmoDeps, CurrentPmoProject } from './current-pmo.js';
 import { listChannelReqPmoProjects } from '../requirements/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** `#` 自动补全弹框的候选项形状（前端 channelApi ChannelPmoCandidate 同构） */
 export interface ChannelPmoCandidate {

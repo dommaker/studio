@@ -2,13 +2,13 @@
 // 与 channel-message.service 同款 seam：频道记录的读（404 判定单点）与写
 // （写路径内部即失效 channels 列表缓存，调用方不再感知 clearCache）。
 import { randomUUID } from 'crypto';
-import { logger, FileStore, type ChannelData } from '@dommaker/studio-shared';
+import { FileStore, type ChannelData } from '@dommaker/studio-shared';
 import { clearCache } from '../../middleware/api-cache.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { getWorkspaceRecord } from '../workspaces/index.js';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 缓存失效键 = 路由挂载点（route-registry `/api/v1/channels`，与现状 req.baseUrl 一致） */
 const CHANNELS_BASE_PATH = '/api/v1/channels';

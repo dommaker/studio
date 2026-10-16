@@ -10,11 +10,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { eventBus, FileStore, logger } from '@dommaker/studio-shared';
+import { eventBus, FileStore } from '@dommaker/studio-shared';
 import { RequirementService, deriveTitle, TERMINAL_WORKUNIT_STATUSES, type RequirementWithProject } from '../requirement.service.js';
 import type { ProjectData } from '../../pmo/project.service.js';
 import { initRequirementRollup } from '../rollup.js';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 let tmpDir: string;
 let fileStore: FileStore;

@@ -22,8 +22,7 @@ import {
   CHANGE_TYPE_WEIGHTS,
   AREA_WEIGHTS,
 } from './types/change.types.js';
-
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * 审批流程映射

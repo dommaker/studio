@@ -11,10 +11,11 @@
 
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { eventBus, logger } from '@dommaker/studio-shared';
+import { eventBus } from '@dommaker/studio-shared';
 import { executionEventBodySchema } from '@dommaker/studio-contract';
 import { defineRoute } from '../../core/http.js';
 import { requireLocalhost } from '../../middleware/auth.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const router = Router();
 

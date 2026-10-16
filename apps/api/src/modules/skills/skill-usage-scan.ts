@@ -16,9 +16,10 @@
  * 宽口径说明：agent 在文本中提及路径而未真读也算命中（罕见，接受）；数据积累后
  * 如需收紧另议。
  */
-import { eventBus, logger, writeStudioEvent } from '@dommaker/studio-shared';
+import { eventBus, writeStudioEvent } from '@dommaker/studio-shared';
 import { readTranscript } from '../transcripts/index.js';
 import type { WorkUnitData } from '../workunit/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * skill 全文路径痕迹：匹配 `skills/<name>/SKILL.md`（绝对/相对路径均可命中）。

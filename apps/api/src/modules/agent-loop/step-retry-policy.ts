@@ -18,12 +18,13 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger } from '@dommaker/studio-shared';
+
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
 import type { StepResult } from './agent-loop.types.js';
 import { RESUME_FAILURE_RE } from './session-resume.js';
 import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限（#95 由 2 放宽到 5）。
  *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；

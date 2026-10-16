@@ -16,7 +16,7 @@
  */
 import fs from 'node:fs';
 import * as path from 'node:path';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { postReviewProposalCard } from '../review-proposal/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import {
@@ -42,7 +42,7 @@ import {
   type MemoryKind,
 } from './role-memory.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** kind → 人类可读标签（不暴露 execution-knowledge / preference 等内部分类词） */
 const KIND_LABELS: Record<MemoryKind, string> = {

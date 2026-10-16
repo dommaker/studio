@@ -57,6 +57,11 @@ vi.mock('../notification-service.js', () => ({
   getNotificationService: () => service,
 }));
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', () => ({
   FileStore: vi.fn().mockImplementation(function (this: unknown) { return {}; }),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },

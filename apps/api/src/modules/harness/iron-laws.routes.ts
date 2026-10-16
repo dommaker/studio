@@ -8,7 +8,7 @@
 // 404 IRON_LAW_NOT_FOUND 机器串保留；500 code IRON_LAW(S)_*_ERROR 归一 INTERNAL
 // （message 由固定串变为实际错误消息）。
 import { Router } from 'express';
-import { logger } from '@dommaker/studio-shared';
+
 import { getAllConstraints, getConstraint, checkConstraint, checkConstraints, ConstraintViolationError } from '@dommaker/harness';
 import type { ConstraintContext } from '@dommaker/harness';
 import { defineRoute, HttpError } from '../../core/http.js';
@@ -18,6 +18,7 @@ import {
   ironLawCheckAllBodySchema,
 } from '@dommaker/studio-contract';
 import { sanitizeConstraintContext, downgradeAnnotation, degradedChecksOf, violationAsPartialView, VIOLATION_PARTIAL_VIEW } from './sanitize-context.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const router = Router();
 

@@ -20,7 +20,7 @@
 import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery } from '@dommaker/harness';
 import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
 import { KnowledgeInjector } from './knowledge-injector.js';
-import { logger, eventBus } from '@dommaker/studio-shared';
+import { eventBus } from '@dommaker/studio-shared';
 import { wrapWithSegmentSpan } from '@dommaker/studio-shared/read-metrics';
 // #665（ADR 2026-08-24 落地）：knowledge.entry_changed SSE 负载与 studio-contract 同源
 // （import type 编译期擦除，不入运行时依赖图，与本文件头依赖纪律不冲突）
@@ -33,7 +33,7 @@ import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { MtimeMemoKnowledgeStore } from './knowledge-store-memo.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 // #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
 

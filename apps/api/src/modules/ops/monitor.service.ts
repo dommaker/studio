@@ -17,7 +17,7 @@
  *   - monitor-lifecycle.ts     G31 知识沉淀闸门 + 数据 TTL 清理
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
 import type { MonitorAlert } from './types.js';
 import * as probes from './monitor-probes.js';
@@ -27,6 +27,7 @@ import * as reports from './monitor-reports.js';
 import * as lifecycle from './monitor-lifecycle.js';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 

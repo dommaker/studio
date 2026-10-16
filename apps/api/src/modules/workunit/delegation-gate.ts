@@ -17,12 +17,13 @@
  */
 import * as os from 'os';
 import * as path from 'path';
-import { FileStore, logger, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
+import { FileStore, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { syncTokenLedger } from './token-ledger.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 协作元数据（WorkUnitMetadata.collab 的具象类型） */
 export type CollabMeta = NonNullable<WorkUnitMetadata['collab']>;

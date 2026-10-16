@@ -15,12 +15,13 @@ import { Router, Request, Response } from 'express';
 import { mcpServer, type MCPRequestContext } from './server.js';
 import { getToolSchemas, executeTool } from './tools.js';
 import { toolRegistry } from './tool-registry.js';
-import { logger } from '@dommaker/studio-shared';
+
 import { mcpToolCallBodySchema, mcpToolNameParamsSchema } from '@dommaker/studio-contract';
 import { defineRoute } from '../../core/http.js';
 import { requireAuth, requireAdmin, requireLocalhost } from '../../middleware/auth.js';
 import { mcpRateLimit } from '../../middleware/rate-limit.js';
 import adminRoutes from './admin.routes.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const router = Router();
 

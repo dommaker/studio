@@ -13,7 +13,7 @@
  *
  * 从 apps/api/src/index.ts 内联 handler 抽出，便于服务级测试。
  */
-import { logger, type FileStore } from '@dommaker/studio-shared';
+import { type FileStore } from '@dommaker/studio-shared';
 import { AgentInstanceService, INSTANCE_ALIVE_TIMEOUT_MS } from '../agents/index.js';
 import { dispatchMonitorAlerts, filterCooldownAlerts } from './monitor-alerts.js';
 import { pidStartMatchesInstance, MAX_TIMEOUT_RELEASES } from '../workunit/index.js';
@@ -21,6 +21,7 @@ import { WorkUnitService, type WorkUnitMetadata } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
 import { withBlockedCta } from '../workunit/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 实例心跳超时阈值（与在线判定同一 5min 窗口，单源 INSTANCE_ALIVE_TIMEOUT_MS） */
 export const AGENT_TIMEOUT_MS = INSTANCE_ALIVE_TIMEOUT_MS;

@@ -1,9 +1,8 @@
 // Seed default channels on startup (B1-001)
 import { randomUUID } from 'crypto';
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
-
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const DEFAULT_CHANNELS: Array<{ name: string; type: string }> = [
   { name: '#研发', type: 'rnd' },

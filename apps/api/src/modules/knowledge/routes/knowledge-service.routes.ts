@@ -32,11 +32,12 @@ import {
   ERROR_CODES,
 } from '@dommaker/studio-contract';
 import { knowledgeService } from '../knowledge-service.js';
-import { eventBus, logger } from '@dommaker/studio-shared';
+import { eventBus } from '@dommaker/studio-shared';
 import { requireNotGuest } from '../../../middleware/auth.js';
 import { parsePagination } from '../../../utils/pagination.js';
 import { defineRoute, HttpError } from '../../../core/http.js';
 import type { KnowledgeEntry } from '@dommaker/harness';
+import { logger } from '@dommaker/studio-shared/node';
 
 export const knowledgeServiceRoutes = Router();
 

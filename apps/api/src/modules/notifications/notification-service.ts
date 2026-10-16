@@ -2,11 +2,12 @@
  * 通知服务
  */
 
-import { FileStore, foldJsonlById, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
+import { FileStore, foldJsonlById, generateId as sharedGenerateId } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import fs from 'node:fs';
 import { createLazyService } from '../../utils/services.js';
 import { getStore } from '../../core/store.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 全用户 id 列表（auditor 先例：data/users/*.json 文件名，截顶 10；目录缺失返回空） */
 async function listUserIds(): Promise<string[]> {

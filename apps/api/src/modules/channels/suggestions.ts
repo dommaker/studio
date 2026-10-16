@@ -19,13 +19,13 @@
  * 顶层容错：任何一步失败 → 空结果 + warn + degraded=true（#490：失败被吞 ≠ 无建议，
  * 标志透出给前端做可观测区分，fail-closed 语义不变），派生绝不抛出（同 current-pmo 原则）。
  */
-import { logger, parseChannels, deriveDisplayState, FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { parseChannels, deriveDisplayState, FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 // P2-c 拆环：summarizeRoleStates 转函数内动态 import（channels→agents 静态边清零）
 import { MANUAL_GATE_TYPES } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { summarizeBlockReason } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * 宽限期阈值集中配置（#441 决议：断链/无接管判定带宽限期，阈值集中一处，

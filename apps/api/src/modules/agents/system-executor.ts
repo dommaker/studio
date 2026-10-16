@@ -13,13 +13,12 @@
 import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
-import { FileStore, logger } from '@dommaker/studio-shared';
-import { execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
+import { FileStore } from '@dommaker/studio-shared';
+import { logger, execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
 import { isSystemRole } from '../../core/system-role.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
-
 
 export interface SystemExecutorOptions {
   /** 系统提示词（注入 CLI prompt 的 system 部分，通过 stdin prefix） */

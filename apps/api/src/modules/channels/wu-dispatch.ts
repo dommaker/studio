@@ -11,13 +11,14 @@
  * 事件先于派发消息落库的 findAnchorMessage 竞态）；建单后 linkWorkUnit 回填
  * 消息 ↔ WU 关联（best-effort，同 createFromMessage 既有路径）。
  */
-import { logger, type ChannelData, type FileStore } from '@dommaker/studio-shared';
+import { type ChannelData, type FileStore } from '@dommaker/studio-shared';
 import { getChannelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService, postWuSystemMessage, type WorkUnitData } from '../workunit/index.js';
 import { matchMentionAgent, stripMentionScope } from './mention-match.js';
 import { resolveReqIdForDispatch, OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/index.js';
 import { STUDIO_ROLE_NAME } from '../../core/system-role.js';
 import { recordAgentDecision } from '../audit-logs/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 type CreateWuInput = Parameters<WorkUnitService['create']>[0];
 

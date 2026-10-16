@@ -19,7 +19,7 @@
  * 注意：标记写走 updateMetadata(touchUpdatedAt:false)——催办标记是簿记不是状态迁移，
  * 推进 updatedAt 会重置计时锚让 tier2 永远迟到（#221 认领陈旧守卫同款纪律）。
  */
-import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
+import { eventBus, FileStore } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import { NotificationService } from '../notifications/index.js';
 // #665（ADR 2026-08-24 落地）：notification.created SSE 负载与 studio-contract 同源
@@ -30,7 +30,7 @@ import { MANUAL_GATE_TYPES } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { notifyAlert } from '../notifications/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** tier1 人闸催办阈值：in_review 超 30 分钟 → Web 铃铛提醒 */
 const GATE_REMINDER_THRESHOLD_MS = 30 * 60_000;

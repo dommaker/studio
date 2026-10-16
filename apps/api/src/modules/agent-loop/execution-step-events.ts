@@ -33,7 +33,7 @@
  * 完整 transcript 需要时按 claude projects 文件回放（见 apps/api/src/modules/agents/CONTEXT.md），不在这里复制。
  */
 
-import { parseStreamLine, extractToolCalls, extractUsage, eventBus, logger, type StreamEvent, type StreamContentBlock } from '@dommaker/studio-shared';
+import { parseStreamLine, extractToolCalls, extractUsage, eventBus, type StreamEvent, type StreamContentBlock } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 // #665（ADR 2026-08-24 落地）：SSE 负载类型与 studio-contract 同源——
 // ExecutionStepEvent/ExecutionStreamChunk 的 zod schema 是运行时正本（sse-events.ts），
@@ -47,6 +47,7 @@ import type {
 import { writeStudioEvent } from '@dommaker/studio-shared';
 // #687：常量正本上移 studio-contract（事件词表同源），此处 re-export 保持既有 import 路径不变
 import { EXECUTION_STREAM_SSE_TYPE } from '@dommaker/studio-contract';
+import { logger } from '@dommaker/studio-shared/node';
 export { EXECUTION_STREAM_SSE_TYPE };
 
 export type { ExecutionStepToolCall, ExecutionStreamChunk, ExecutionStreamChunkKind };

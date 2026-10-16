@@ -11,8 +11,9 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { logger } from '@dommaker/studio-shared';
+
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** ClawBot（iLink）绑定凭据：confirmed 轮询落盘，bot_token 长期有效（过期 errcode=-14 需重新扫码） */
 export interface ClawBotConfig {

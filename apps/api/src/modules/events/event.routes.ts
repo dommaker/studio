@@ -19,7 +19,7 @@
  */
 
 import { Router } from 'express';
-import { logger } from '@dommaker/studio-shared';
+
 import { generateSessionSummary } from './session-summary-generator.js';
 import {
   writeStudioEvent,
@@ -37,6 +37,7 @@ import {
   listStudioEventsQuerySchema,
   agentEventBatchBodySchema,
 } from '@dommaker/studio-contract';
+import { logger } from '@dommaker/studio-shared/node';
 
 // P2-e 鉴权声明式统一：open（GET /，registry 挂 auth）/ write（POST /、/agent-events，registry 挂
 // authNotGuest）拆 router，路由内不再挂鉴权。

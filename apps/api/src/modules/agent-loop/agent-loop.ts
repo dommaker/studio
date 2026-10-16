@@ -23,7 +23,7 @@
 // 本文件 = 门面：构造接线 + runLoop 主循环编排 + 全部对外/测试 seam 的薄委托；
 // 导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
 // 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
-import { logger, type FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { type FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
 import type { MessageMeta } from '../channels/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -38,6 +38,7 @@ import { LoopObserver } from './loop/loop-observe.js';
 import { LoopClaim } from './loop/loop-claim.js';
 import { StepRunner } from './loop/loop-step.js';
 import { ResultRecorder } from './loop/loop-record-result.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 // 类型契约已抽到 ./agent-loop.types.js（工单 28，行为不变）；
 // StepResult re-export 保留——completion-gates 等生产消费方经本门面取类型（#544）

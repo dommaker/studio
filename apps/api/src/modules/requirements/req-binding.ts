@@ -7,8 +7,9 @@
  * 本函数不做 best-effort 兜底 —— 调用方负责 try/catch（log + 不带 reqId 继续），
  * 保证 WorkUnit 创建不被 REQ 绑定失败阻断。
  */
-import { formatRequirementId, logger, type FileStore } from '@dommaker/studio-shared';
+import { formatRequirementId, type FileStore } from '@dommaker/studio-shared';
 import { RequirementService, type RequirementServiceDeps } from './requirement.service.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 消息文本中的 #REQ-XXXX token（大小写不敏感，序号至少 1 位） */
 const REQ_TOKEN_RE = /#REQ-(\d+)/i;

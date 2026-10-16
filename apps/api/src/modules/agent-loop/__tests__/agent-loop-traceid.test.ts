@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
@@ -30,6 +30,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 }));
 
 import { AgentLoop } from '../agent-loop';
+import { logger } from '@dommaker/studio-shared/node';
 
 const mockRole = {
   id: 'role-trace',

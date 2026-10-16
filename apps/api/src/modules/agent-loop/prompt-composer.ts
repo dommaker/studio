@@ -18,7 +18,7 @@
  * knowledge-service 模块，同一模块 ID 解析到同一绝对路径，mock 照常生效）。
  */
 
-import { FileStore, logger, type AgentProfileData } from '@dommaker/studio-shared';
+import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';
 import { knowledgeService } from '../knowledge/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
@@ -35,6 +35,7 @@ import { buildMemorySection } from './prompt-sections/prompt-section-memory.js';
 import { buildFilesSection } from './prompt-sections/prompt-section-files.js';
 import { buildContractSection } from './prompt-sections/prompt-section-contract.js';
 import { buildHandoffSection, WAITING_QUESTION_REPLAY_MAX_CHARS } from './prompt-sections/prompt-section-handoff.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 // #671：拆分前公共面 re-export——定额表 / 段模板 / 段常量原经本文件导出，拆后出口不变
 export { SECTION_QUOTAS } from './prompt-quota.js';

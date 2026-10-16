@@ -16,14 +16,14 @@
  *
  * discord-notifier.ts（可选渠道）在同模块，不经 notifyAlert fan-out。
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { getNotificationService } from './notification-service.js';
 import { ChannelMessageService } from '../channels/index.js';
 import { loadNotifyChannelsConfig, resolveWeComWebhookUrl } from './channels/config-store.js';
 import { sendText } from './channels/clawbot-client.js';
 import { postWeComMarkdown } from './channels/wecom-client.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export type AlertLevel = 'info' | 'warning' | 'critical';
 

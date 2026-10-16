@@ -8,6 +8,11 @@ import {
 import type { TriggerAction } from '../trigger.types';
 
 // Mock logger
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return {
@@ -43,7 +48,7 @@ describe('Trigger EXECUTE action', () => {
   });
 
   it('warns and skips when handler not registered', async () => {
-    const { logger } = await import('@dommaker/studio-shared');
+    const { logger } = await import('@dommaker/studio-shared/node');
     const action: TriggerAction = {
       type: 'EXECUTE',
       target: 'non-existent-handler',

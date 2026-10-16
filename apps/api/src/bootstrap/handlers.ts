@@ -3,9 +3,10 @@
 // 2026-10-03 根因修复（C 批）：listen 前移（ff546ba9）后本步 throw 会经 bootstrap
 // catch 落到 process.exit(1)，发生在端口可服务之后——「失败只 log 不拒启」，
 // #686 起纪律固化在 soft-steps.ts。表驱动：新增扫描 handler = SCAN_HANDLERS 加一行。
-import { logger } from '@dommaker/studio-shared';
+
 import { getStore } from '../core/store.js';
 import { runSoftSteps } from './soft-steps.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 type ScanHandler = readonly [string, () => Promise<void>];
 

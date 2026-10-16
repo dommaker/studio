@@ -5,7 +5,7 @@
  * severity 进 content 首行（前端横幅 critical 突破判定据此解析）；有 wuId 时带 WU 直链。
  */
 import { getNotificationService } from '../notifications/index.js';
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface IncidentNotificationInfo {
   incidentId: string;

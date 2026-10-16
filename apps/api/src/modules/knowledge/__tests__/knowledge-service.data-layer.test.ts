@@ -18,6 +18,11 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 // Mock external dependencies — keep the real module (knowledge-service.ts
 // instantiates the real FileStore at module top-level), silence only the logger.
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {

@@ -12,9 +12,10 @@
 import { Router } from 'express';
 import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
-import { logger } from '@dommaker/studio-shared';
+
 import { checkConstraints } from '@dommaker/harness';
 import { defineRoute } from '../../core/http.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const router = Router();
 

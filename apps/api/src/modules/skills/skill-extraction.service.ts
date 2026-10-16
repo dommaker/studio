@@ -7,14 +7,14 @@
  *
  * Migrated from Prisma Skill/SkillProposal to file-based stores (D-005).
  */
-import { logger, FileStore, writeStudioEvent } from '@dommaker/studio-shared';
+import { FileStore, writeStudioEvent } from '@dommaker/studio-shared';
 import { randomUUID } from 'crypto';
 // P2-c 拆环：getSystemExecutor 转函数内动态 import（skills→agents 静态边清零）
 import { skillStore } from './skill-store.js';
 import { getSkillReviewAdapter, submitSkillProposal } from './review-adapter.js';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface ExtractedSkillProposal {
   id: string;

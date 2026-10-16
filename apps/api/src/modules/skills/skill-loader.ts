@@ -15,8 +15,9 @@
  * 大类默认不动（其余 knowledge:* 维持 noise）。
  */
 
-import { logger, writeStudioEvent } from '@dommaker/studio-shared';
+import { writeStudioEvent } from '@dommaker/studio-shared';
 import { skillLoader } from '@dommaker/studio-skill';
+import { logger } from '@dommaker/studio-shared/node';
 
 // ── Types ──
 

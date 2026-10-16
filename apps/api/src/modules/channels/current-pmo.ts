@@ -9,12 +9,12 @@
  * （复用 file-ref-vocabulary 的 reposOfProject，与候选集口径一致）。
  * 各来源独立容错：单步读取失败记日志并顺延/回退，派生绝不抛出。
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 // P2-c 拆环：projectService 转闭包内动态 import（channels→pmo 静态边清零）
 import { reposOfProject, type ProjectLike } from './file-ref-vocabulary.js';
 import { deriveChannelReqPmo } from '../requirements/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 顶栏当前 PMO chip 的呈现形状（多仓 PMO 只显名称，gitRepos 走 tooltip） */
 export interface ChannelCurrentPmo {

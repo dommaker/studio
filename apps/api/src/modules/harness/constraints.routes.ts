@@ -39,7 +39,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import { buildConstraintsUsageReport, ConstraintViolationError } from '@dommaker/harness';
-import { logger } from '@dommaker/studio-shared';
+
 import { defineRoute, HttpError } from '../../core/http.js';
 import {
   constraintIdParamsSchema,
@@ -55,6 +55,7 @@ import {
 import { resolveHarnessBin, runCmd } from '../evolution/index.js';
 import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge/index.js';
 import { formatConstraintStats } from '../evolution/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export const constraintsRoutes = Router();
 

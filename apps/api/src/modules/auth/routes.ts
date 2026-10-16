@@ -11,7 +11,8 @@ import {
 } from "../../middleware/rate-limit.js";
 import * as authService from "./service.js";
 import { getAuditService } from "../audit-logs/index.js"; // 🆕 SEC-010
-import { logger } from "@dommaker/studio-shared";
+
+import { logger } from "@dommaker/studio-shared/node";
 import { defineRoute, HttpError } from "../../core/http.js";
 import { ERROR_CODES } from "@dommaker/studio-contract";
 import {

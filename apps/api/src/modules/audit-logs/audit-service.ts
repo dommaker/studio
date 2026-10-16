@@ -9,10 +9,11 @@
  * - 统计分析（操作频率、错误率等）
  */
 
-import { FileStore, logger, generateId } from '@dommaker/studio-shared';
+import { FileStore, generateId } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { createLazyService } from '../../utils/services.js';
 import { getStore } from '../../core/store.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 // ========== 常量 ==========
 

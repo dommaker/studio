@@ -5,7 +5,6 @@
  * 滑动窗口 N=3 挖掘工具序列模式，每日运行。
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { skillStore } from '../../skills/index.js';
 import { sharedStore } from '../knowledge-singletons.js';
 import { listInteractionPatterns, parsePatternContent } from './pattern-entry.js';
@@ -17,7 +16,7 @@ import {
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readFileSync 全量读
 import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 import { getStore } from '../../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 // D18: tool:call trace 读自统一事件文件（~/.studio/logs/studio-events.jsonl，测试期隔离）
 

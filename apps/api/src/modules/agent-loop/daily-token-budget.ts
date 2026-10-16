@@ -20,17 +20,15 @@
  * 靠进程重启/跨天重扫收敛（对 2M 量级的熔断足够）。
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { notifyAlert } from '../notifications/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 默认每日预算：2M token（billed 口径）——决策记录 #4 与用户确认的阈值 */
 export const DEFAULT_DAILY_TOKEN_BUDGET = 2_000_000;
 
 /** 熔断留痕事件类型（notified 持久化标记 + 事后审计） */
 export const BUDGET_TRIPPED_EVENT = 'studio:budget-tripped';
-
 
 /**
  * 熔断守卫开关：默认仅生产/开发进程启用；测试环境（NODE_ENV=test / VITEST）默认关闭
