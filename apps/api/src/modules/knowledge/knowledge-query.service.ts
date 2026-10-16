@@ -5,11 +5,11 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { preferenceObserver } from './preference-observer.js';
-import { ruleScanner } from './rule-scanner.js';
-import { envSnapper } from './env-snapper.js';
-import { decisionChainExtractor } from './decision-chain-extractor.js';
-import { patternMiner } from './pattern-miner.js';
+import { preferenceObserver } from './producers/preference-observer.js';
+import { ruleScanner } from './producers/rule-scanner.js';
+import { envSnapper } from './producers/env-snapper.js';
+import { decisionChainExtractor } from './producers/decision-chain-extractor.js';
+import { patternMiner } from './producers/pattern-miner.js';
 
 export type KnowledgeType =
   | 'preference'

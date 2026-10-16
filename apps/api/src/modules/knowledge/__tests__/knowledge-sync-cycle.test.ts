@@ -46,7 +46,7 @@ vi.mock('../knowledge-service.js', () => ({
   knowledgeService: { recordPattern },
 }));
 
-import { knowledgeSync } from '../knowledge-sync.service.js';
+import { knowledgeSync } from '../scheduling/knowledge-sync.service.js';
 
 function git(dir: string, args: string): string {
   return execSync(`git ${args}`, {

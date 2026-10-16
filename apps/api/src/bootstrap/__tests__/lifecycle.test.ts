@@ -18,7 +18,7 @@ vi.mock('@dommaker/studio-agent', () => ({
 vi.mock('../tunnel.js', () => ({
   stopTunnel: () => calls.push('stopTunnel'),
 }));
-vi.mock('../../modules/knowledge/evolution-scheduler.js', () => ({
+vi.mock('../../modules/knowledge/scheduling/evolution-scheduler.js', () => ({
   startEvolutionScheduler: vi.fn(),
   stopEvolutionScheduler: () => calls.push('stopEvolutionScheduler'),
 }));

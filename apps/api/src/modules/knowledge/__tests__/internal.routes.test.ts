@@ -37,7 +37,7 @@ beforeAll(async () => {
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
 
-  const { internalRoutes } = await import('../internal.routes.js');
+  const { internalRoutes } = await import('../routes/internal.routes.js');
   const app = express();
   app.use(express.json());
   app.use('/api/knowledge', internalRoutes);

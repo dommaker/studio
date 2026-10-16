@@ -15,9 +15,9 @@
 
 import { Router } from 'express';
 import { listResolutionsQuerySchema, knowledgeSearchQuerySchema } from '@dommaker/studio-contract';
-import { resolutionService } from './resolution.service.js';
-import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
-import { defineRoute } from '../../core/http.js';
+import { resolutionService } from '../resolution.service.js';
+import { apiCache, CACHE_CONFIG } from '../../../middleware/api-cache.js';
+import { defineRoute } from '../../../core/http.js';
 
 export const searchRoutes = Router();
 
@@ -110,8 +110,8 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), defineRoute({ query: k
 
   // Search interaction patterns (KnowledgeStore)
   if (searchTypes.includes('pattern')) {
-    const { sharedStore } = await import('./knowledge-singletons.js');
-    const { listInteractionPatterns, parsePatternContent } = await import('./pattern-entry.js');
+    const { sharedStore } = await import('../knowledge-singletons.js');
+    const { listInteractionPatterns, parsePatternContent } = await import('../producers/pattern-entry.js');
     const patterns = listInteractionPatterns(sharedStore, ['active'])
       .filter((e) => {
         const d = parsePatternContent(e.content);
@@ -137,7 +137,7 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), defineRoute({ query: k
   // AS-019: Search KnowledgeStore entries (file-based knowledge)
   if (searchTypes.includes('knowledge') || searchTypes.includes('store')) {
     try {
-      const { knowledgeService } = await import('./knowledge-service.js');
+      const { knowledgeService } = await import('../knowledge-service.js');
       const kbResults = await knowledgeService.search(String(q), { mode: 'keyword', limit: takeLimit });
       for (const r of kbResults) {
         results.push({
@@ -151,7 +151,7 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), defineRoute({ query: k
       // knowledge:search_hit 埋点保持（monitor-reports 知识指标消费；#343 前
       // 由 KnowledgeBus.search 内联发射，现统一在唯一消费入口补齐）
       if (kbResults.length > 0) {
-        const { appendKnowledgeEvent } = await import('./knowledge-singletons.js');
+        const { appendKnowledgeEvent } = await import('../knowledge-singletons.js');
         const avgScore = kbResults.reduce((s, r) => s + r.score, 0) / kbResults.length;
         appendKnowledgeEvent('knowledge:search_hit', {
           query: String(q).slice(0, 200),
@@ -178,7 +178,7 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), defineRoute({ query: k
  * Knowledge density score (0-100) based on coverage, verification, breadth
  */
 searchRoutes.get('/resolution/density', defineRoute({}, async () => {
-  const { resolutionService } = await import('./resolution.service.js');
+  const { resolutionService } = await import('../resolution.service.js');
   return resolutionService.getDensityScore();
 }));
 
@@ -187,6 +187,6 @@ searchRoutes.get('/resolution/density', defineRoute({}, async () => {
  * Cross-session causality stats: goal-linked vs unlinked resolutions
  */
 searchRoutes.get('/resolution/cross-session', defineRoute({}, async () => {
-  const { resolutionService } = await import('./resolution.service.js');
+  const { resolutionService } = await import('../resolution.service.js');
   return resolutionService.getCrossSessionStats();
 }));

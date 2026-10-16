@@ -13,7 +13,7 @@ const testHome = fs.mkdtempSync(path.join(os.tmpdir(), 'knowledge-stats-route-')
 process.env.STUDIO_HOME = testHome;
 afterAll(() => { fs.rmSync(testHome, { recursive: true, force: true }); });
 
-const { knowledgeServiceRoutes } = await import('../knowledge-service.routes.js');
+const { knowledgeServiceRoutes } = await import('../routes/knowledge-service.routes.js');
 
 describe('GET /knowledge-service/entries/stats（防遮蔽 + healthScore 回归）', () => {
   let server: Server;

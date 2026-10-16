@@ -36,8 +36,8 @@ vi.mock('../../agents/system-executor.js', () => ({
 }));
 
 // ── Imports after mocks ───────────────────────────────────────────────
-import { entriesRoutes } from '../entries.routes.js';
-import { knowledgeServiceRoutes } from '../knowledge-service.routes.js';
+import { entriesRoutes } from '../routes/entries.routes.js';
+import { knowledgeServiceRoutes } from '../routes/knowledge-service.routes.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────
 function createReq(query: Record<string, unknown> = {}, params: Record<string, string> = {}) {

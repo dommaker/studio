@@ -132,7 +132,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   ] = await Promise.all([
     import('./modules/audit-logs/routes.js').then(m => m.default),
     import('./modules/notifications/routes.js') as Promise<{ notificationRoutes: Router }>,
-    import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
+    import('./modules/knowledge/routes/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
     import('./modules/pmo/routes.js'),
     import('./modules/specs/routes.js'),
     import('./modules/notifications/outbound-notify.routes.js').then(m => m.default),
@@ -154,7 +154,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   const { default: companyRoutes } = await import('./modules/companies/routes.js') as { default: Router };
 
   // KnowledgeService HTTP API + SSE
-  const { knowledgeServiceRoutes, initKnowledgeEventBridge } = await import('./modules/knowledge/knowledge-service.routes.js') as { knowledgeServiceRoutes: Router; initKnowledgeEventBridge: () => void };
+  const { knowledgeServiceRoutes, initKnowledgeEventBridge } = await import('./modules/knowledge/routes/knowledge-service.routes.js') as { knowledgeServiceRoutes: Router; initKnowledgeEventBridge: () => void };
   initKnowledgeEventBridge();
 
   // MCP routes (§12.9: 系统能力 MCP 化)

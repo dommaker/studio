@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { parsePatternContent, listInteractionPatterns } from '../pattern-entry.js';
+import { parsePatternContent, listInteractionPatterns } from '../producers/pattern-entry.js';
 
 describe('parsePatternContent', () => {
   it('合法 JSON object → 解析结果', () => {
@@ -86,7 +86,7 @@ describe('listInteractionPatterns + PatternMiner 混合数据防回归', () => {
     expect(activeToolUsage.map(e => e.id).sort()).toEqual(['pat-pe-corrupt', 'pat-pe-good']);
 
     // PatternMiner.getActivePatterns：损坏条目跳过，不抛错
-    const { PatternMiner } = await import('../pattern-miner.js');
+    const { PatternMiner } = await import('../producers/pattern-miner.js');
     const miner = new PatternMiner();
     const active = await miner.getActivePatterns();
     expect(active.map(p => p.id)).toEqual(['pat-pe-good']);

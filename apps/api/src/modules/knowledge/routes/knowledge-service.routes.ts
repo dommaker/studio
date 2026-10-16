@@ -31,11 +31,11 @@ import {
   mergeKnowledgeBodySchema,
   ERROR_CODES,
 } from '@dommaker/studio-contract';
-import { knowledgeService } from './knowledge-service.js';
+import { knowledgeService } from '../knowledge-service.js';
 import { eventBus, logger } from '@dommaker/studio-shared';
-import { requireNotGuest } from '../../middleware/auth.js';
-import { parsePagination } from '../../utils/pagination.js';
-import { defineRoute, HttpError } from '../../core/http.js';
+import { requireNotGuest } from '../../../middleware/auth.js';
+import { parsePagination } from '../../../utils/pagination.js';
+import { defineRoute, HttpError } from '../../../core/http.js';
 import type { KnowledgeEntry } from '@dommaker/harness';
 
 export const knowledgeServiceRoutes = Router();
@@ -176,7 +176,7 @@ knowledgeServiceRoutes.post('/inject-context', defineRoute({ body: injectContext
 }));
 
 knowledgeServiceRoutes.post('/match-resolutions', defineRoute({ body: matchResolutionsBodySchema }, async (_req, _res, { body }) => {
-  const { resolutionService } = await import('./resolution.service.js');
+  const { resolutionService } = await import('../resolution.service.js');
   return resolutionService.matchResolutions({ errorMessage: body.problem });
 }));
 

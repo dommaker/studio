@@ -31,8 +31,8 @@ vi.mock('@dommaker/studio-shared', () => ({
   FileStore: class {},
 }));
 
-import { ruleScanner } from '../rule-scanner.js';
-import { PatternMiner } from '../pattern-miner.js';
+import { ruleScanner } from '../producers/rule-scanner.js';
+import { PatternMiner } from '../producers/pattern-miner.js';
 
 function tagCounts(tags: string[]): Record<string, number> {
   return tags.reduce((acc: Record<string, number>, t) => {

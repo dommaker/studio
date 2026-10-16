@@ -35,7 +35,7 @@ beforeAll(async () => {
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
 
-  const { entriesRoutes } = await import('../entries.routes.js');
+  const { entriesRoutes } = await import('../routes/entries.routes.js');
   const { requireAuth } = await import('../../../middleware/auth.js');
   const app = express();
   app.use(express.json());

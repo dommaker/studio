@@ -14,7 +14,7 @@ import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { filesRoutes } from '../files.routes.js';
+import { filesRoutes } from '../routes/files.routes.js';
 
 let tmpDir: string;
 let kbDir: string;

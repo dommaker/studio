@@ -56,7 +56,7 @@ beforeAll(async () => {
   sharedIngest = singletons.sharedIngest;
   sharedStore = singletons.sharedStore;
 
-  const routes = (await import('../knowledge-service.routes.js')).knowledgeServiceRoutes;
+  const routes = (await import('../routes/knowledge-service.routes.js')).knowledgeServiceRoutes;
   const { requireAuth } = await import('../../../middleware/auth.js');
   knowledgeServiceRoutes = routes;
   const app = express();

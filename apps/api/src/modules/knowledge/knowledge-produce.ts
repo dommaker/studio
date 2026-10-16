@@ -24,7 +24,7 @@ import type {
 } from './knowledge-types.js';
 import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
 import { writeTrendData } from './trend-data.js';
-import { buildConversationTranscript, ingestConversationEntry } from './conversation-extractor.js';
+import { buildConversationTranscript, ingestConversationEntry } from './producers/conversation-extractor.js';
 import { submitKnowledgeProposal } from './review-adapter.js';
 import { recordConsumptionImpl } from './knowledge-track.js';
 

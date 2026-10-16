@@ -6,9 +6,9 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { channelMessageService } from '../channels/index.js';
+import { channelMessageService } from '../../channels/index.js';
 import { listEvalCases, createEvalCase, updateEvalCase } from './eval-case-store.js';
-import { getStore } from '../../core/store.js';
+import { getStore } from '../../../core/store.js';
 
 
 const SYSTEM_CHANNEL_NAME = '#系统';

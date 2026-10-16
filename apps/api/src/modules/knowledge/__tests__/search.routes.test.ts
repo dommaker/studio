@@ -30,7 +30,7 @@ beforeAll(async () => {
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
 
-  const { searchRoutes } = await import('../search.routes.js');
+  const { searchRoutes } = await import('../routes/search.routes.js');
   const app = express();
   app.use(express.json());
   app.use('/api/v1/knowledge', searchRoutes);

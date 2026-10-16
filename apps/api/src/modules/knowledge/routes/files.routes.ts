@@ -21,8 +21,8 @@ import {
   ERROR_CODES,
 } from '@dommaker/studio-contract';
 import * as os from 'os';
-import { requireNotGuest } from '../../middleware/auth.js';
-import { defineRoute, HttpError } from '../../core/http.js';
+import { requireNotGuest } from '../../../middleware/auth.js';
+import { defineRoute, HttpError } from '../../../core/http.js';
 
 export const filesRoutes = Router();
 

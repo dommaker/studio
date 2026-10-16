@@ -46,7 +46,7 @@ vi.mock('../knowledge-service.js', () => ({
   knowledgeService: { recordPattern: vi.fn().mockResolvedValue(undefined) },
 }));
 
-import { knowledgeSync } from '../knowledge-sync.service.js';
+import { knowledgeSync } from '../scheduling/knowledge-sync.service.js';
 
 const SCOPE = 'r5-watched-scope';
 const WATCHED_FILE = 'src/watched.ts';

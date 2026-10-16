@@ -36,7 +36,7 @@ vi.mock('../../knowledge/resolution.service.js', () => ({
   resolutionService: { matchResolutions: mockMatch, createResolution: mockCreateResolution },
 }));
 
-vi.mock('../../knowledge/eval-case-generator.js', () => ({
+vi.mock('../../knowledge/producers/eval-case-generator.js', () => ({
   evalCaseGenerator: { generateFromFailures: mockGenEval },
 }));
 

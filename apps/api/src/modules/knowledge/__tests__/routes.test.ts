@@ -78,7 +78,7 @@ beforeAll(async () => {
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
 
-  const mod = await import('../routes.js');
+  const mod = await import('../routes/routes.js');
   knowledgeRoutes = mod.knowledgeRoutes;
   knowledgeInternalRoutes = mod.knowledgeInternalRoutes;
 

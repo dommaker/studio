@@ -48,7 +48,7 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: { getStats: () => ({ total: 5, pattern: 2, fix: 1 }) },
 }));
 
-vi.mock('../../knowledge/preference-observer.js', () => ({
+vi.mock('../../knowledge/producers/preference-observer.js', () => ({
   preferenceObserver: { updateFromPatternReport: mockUpdatePref },
 }));
 

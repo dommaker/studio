@@ -31,7 +31,7 @@ afterEach(() => {
 describe('PreferenceObserver (G-001)', () => {
   it('推断回复风格 — 短消息 → concise', async () => {
     const { preferenceObserver } = await import(
-      '../../apps/api/src/modules/knowledge/preference-observer.js'
+      '../../apps/api/src/modules/knowledge/producers/preference-observer.js'
     );
 
     // Test response style inference via direct method logic
@@ -215,7 +215,7 @@ LOG_LEVEL=debug
 
   it('影响范围推断 — agent 文件 → agent + executor', async () => {
     const { ruleScanner } = await import(
-      '../../apps/api/src/modules/knowledge/rule-scanner.js'
+      '../../apps/api/src/modules/knowledge/producers/rule-scanner.js'
     );
 
     // inferAffects is private, test via file path patterns
@@ -295,7 +295,7 @@ describe('EnvSnapper (G-003)', () => {
 
   it('默认已知限制包含 SQLite 和 Discord', async () => {
     const { envSnapper } = await import(
-      '../../apps/api/src/modules/knowledge/env-snapper.js'
+      '../../apps/api/src/modules/knowledge/producers/env-snapper.js'
     );
 
     // getDefaultLimitations is private, but we can verify the service exists
@@ -315,7 +315,7 @@ describe('EnvSnapper (G-003)', () => {
 describe('DecisionChainExtractor (G-004)', () => {
   it('架构变更检测 — schema.prisma → true', async () => {
     const { decisionChainExtractor } = await import(
-      '../../apps/api/src/modules/knowledge/decision-chain-extractor.js'
+      '../../apps/api/src/modules/knowledge/producers/decision-chain-extractor.js'
     );
 
     expect(decisionChainExtractor).toBeDefined();

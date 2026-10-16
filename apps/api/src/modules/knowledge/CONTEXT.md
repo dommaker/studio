@@ -1,6 +1,6 @@
 # apps/api/src/modules/knowledge
 
-> Updated: 2026-10-08（#669 knowledge-service.ts 1228 行沿六能力边界拆深模块：门面 365 行 + produce/consume/track/lifecycle/measure 五实现模块，类型正本归位 knowledge-types，死副本清除；前次：KnowledgeInjector 收口为本地 knowledge-injector.ts）
+> Updated: 2026-10-16（P1.5 平铺归位：7 条 routes 收 `routes/`、9 个 producer 收 `producers/`、2 个调度件收 `scheduling/`，纯移动零行为变更；前次：#669 knowledge-service.ts 1228 行沿六能力边界拆深模块）
 
 ### 职责
 
@@ -28,10 +28,10 @@
 | `knowledge-track` | `knowledge-track.ts` | Track 实现体（#669 刀2）：recordConsumption/recordOutcome/recordSkillExecution impl |
 | `knowledge-lifecycle` | `knowledge-lifecycle.ts` | Lifecycle 实现体（#669 刀2）：promote/demote/decay/merge/graduateConstraint impl |
 | `knowledge-measure` | `knowledge-measure.ts` | Measure 实现体（#669 刀2）：getFlywheelMetrics/getHealthReport/getAuditReport/getAnalystAccuracy/getStats impl（实算内核在 knowledge-metrics 纯函数） |
-| `conversation-extractor` | `conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门（knowledge-service.ts 拆出；提案卡 #355 起归 review-adapter）。总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`（默认开，P7/P8 批次 2026-09-16）：整体跳过 LLM 提取——无凭证/fake-provider 环境豁免真实 CLI 空转 |
+| `conversation-extractor` | `producers/conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门（knowledge-service.ts 拆出；提案卡 #355 起归 review-adapter）。总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`（默认开，P7/P8 批次 2026-09-16）：整体跳过 LLM 提取——无凭证/fake-provider 环境豁免真实 CLI 空转 |
 | `review-adapter` | `review-adapter.ts` | #355：knowledge 人审提案 adapter（kind='knowledge'），接线 review-proposal 正本——聚合卡渲染（knowledge_proposal 旧文案，cardData 旧形状 + proposalId）+ onApprove 逐条目 promote / onReject 逐条目 demote；存取物化 <dataDir>/knowledge-proposals.jsonl；knowledge-service.ts 模块加载即注册 |
 | `knowledge-metrics` | `knowledge-metrics.ts` | R1/M1 事件流度量纯函数：computeOutcomeMetrics（hitRate/improvement）+ scanKnowledgeEvents（审计计数）（knowledge-service.ts 拆出） |
-| `knowledgeRoutes` | `routes.ts` | REST API 挂载门面（挂载下方 6 个子路由，含 /unified 统一浏览） |
+| `knowledgeRoutes` | `routes/routes.ts` | REST API 挂载门面（挂载同目录 6 个子路由，含 /unified 统一浏览） |
 | `ImproverScheduler` | `improver-scheduler.service.ts` | 自文档化调度器（每小时刷新 stale CONTEXT.md + 生成架构文档） |
 
 ### 目录结构
@@ -54,27 +54,32 @@ knowledge/
 ├── knowledge-metrics.ts       # Measure 纯函数内核：飞轮度量/健康/审计 + 度量类型（工单 29 拆出）
 ├── trend-data.ts              # trends 数据层 writeTrendData（工单 29 拆出）
 ├── knowledge-form-gate.ts     # 知识形态门禁 validateKnowledgeForm（工单 29 拆出）
-├── conversation-extractor.ts  # R3 会话提取管道（工单 29 拆出；提案卡 #355 起归 review-adapter）
 ├── review-adapter.ts          # #355：knowledge 提案审批 adapter（kind='knowledge'，接线 review-proposal 正本）
 ├── knowledge-semantic-search.ts # mcp-local-rag 语义检索支撑：探测/CLI/降级映射（工单 29 拆出）
-├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
-├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测（2026-10-03 D 批起 detectStaleness 为 async——git log 走 core/exec-async，monitor 轮/路由路径不再 sync 阻塞）
 ├── resolution.service.ts      # 解法库（独立子系统）；#361 起错误匹配核心（regex 回退子串）下沉 studio-shared/resolutions.ts，本模块是该共享核心的唯一生产消费方（#587 后）
-├── evolution-scheduler.ts     # 周期任务调度（G-005 模式挖掘 + eval spring cleaning）
 ├── improver-scheduler.service.ts # 自文档化调度器（refreshStaleContext + runArchDocs）
-├── preference-observer.ts     # Producer: 用户偏好
-├── rule-scanner.ts            # Producer: 业务规则
-├── env-snapper.ts             # Producer: 环境快照
-├── pattern-miner.ts           # Producer: 交互模式（读口走 pattern-entry 口径）
-├── pattern-entry.ts           # 交互模式条目统一口径：listInteractionPatterns（types:['pattern'] 判别）+ parsePatternContent（安全解析）
-├── decision-chain-extractor.ts # Producer: 决策链
-├── eval-case-generator.ts     # Producer: 评估用例
-├── routes.ts                  # API 路由门面（挂载子路由，导出 knowledgeRoutes/knowledgeInternalRoutes 不变）
-├── files.routes.ts            # 子路由：文件浏览（/requirements /read-file /file）
-├── entries.routes.ts          # 子路由：知识条目（/export /ask /gaps /unified）
-├── search.routes.ts           # 子路由：检索与解法指标（/resolutions /search /resolution/*）
-└── internal.routes.ts         # 子路由：内部端点（/sync-status /upsert，无 auth）
+├── producers/                 # Producer 层（2026-10-16 P1.5 归位）
+│   ├── preference-observer.ts # Producer: 用户偏好
+│   ├── rule-scanner.ts        # Producer: 业务规则
+│   ├── env-snapper.ts         # Producer: 环境快照
+│   ├── pattern-miner.ts       # Producer: 交互模式（读口走 pattern-entry 口径）
+│   ├── pattern-entry.ts       # 交互模式条目统一口径：listInteractionPatterns（types:['pattern'] 判别）+ parsePatternContent（安全解析）
+│   ├── decision-chain-extractor.ts # Producer: 决策链
+│   ├── conversation-extractor.ts # R3 会话提取管道
+│   ├── eval-case-generator.ts # Producer: 评估用例
+│   └── eval-case-store.ts     # EvalCaseStore（评估用例持久化）
+├── scheduling/                # 周期调度（2026-10-16 P1.5 归位）
+│   ├── evolution-scheduler.ts # 周期任务调度（G-005 模式挖掘 + eval spring cleaning）
+│   └── knowledge-sync.service.ts # 自动同步 + 新鲜度检测（detectStaleness async——git log 走 core/exec-async）
+├── routes/                    # HTTP 路由层（2026-10-16 P1.5 归位）
+│   ├── routes.ts              # API 路由门面（挂载子路由，导出 knowledgeRoutes/knowledgeInternalRoutes 不变）
+│   ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
+│   ├── maintenance.routes.ts  # 子路由：维护操作
+│   ├── files.routes.ts        # 子路由：文件浏览（/requirements /read-file /file）
+│   ├── entries.routes.ts      # 子路由：知识条目（/export /ask /gaps /unified）
+│   ├── search.routes.ts       # 子路由：检索与解法指标（/resolutions /search /resolution/*）
+│   └── internal.routes.ts     # 子路由：内部端点（/sync-status /upsert，无 auth）
 ```
 
 ### 依赖关系

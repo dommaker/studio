@@ -6,8 +6,8 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { skillStore } from '../skills/index.js';
-import { sharedStore } from './knowledge-singletons.js';
+import { skillStore } from '../../skills/index.js';
+import { sharedStore } from '../knowledge-singletons.js';
 import { listInteractionPatterns, parsePatternContent } from './pattern-entry.js';
 import {
   resolveStudioEventsFile,
@@ -15,8 +15,8 @@ import {
   getStudioEventTime,
 } from '@dommaker/studio-shared';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readFileSync 全量读
-import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
-import { getStore } from '../../core/store.js';
+import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
+import { getStore } from '../../../core/store.js';
 
 
 // D18: tool:call trace 读自统一事件文件（~/.studio/logs/studio-events.jsonl，测试期隔离）
@@ -124,7 +124,7 @@ export class PatternMiner {
           .slice(0, 3);
 
         if (activePatterns.length > 0) {
-          const { channelMessageService } = await import('../channels/index.js');
+          const { channelMessageService } = await import('../../channels/index.js');
           const sysChannels = await getStore().listChannels({ name: '#系统' });
           const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {

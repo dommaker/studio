@@ -9,17 +9,17 @@ import { describe, it, expect, vi } from 'vitest';
 
 describe('EvolutionScheduler', () => {
   it('startEvolutionScheduler does not throw', async () => {
-    const { startEvolutionScheduler } = await import('../evolution-scheduler.js');
+    const { startEvolutionScheduler } = await import('../scheduling/evolution-scheduler.js');
     expect(() => startEvolutionScheduler()).not.toThrow();
   });
 
   it('stopEvolutionScheduler does not throw', async () => {
-    const { stopEvolutionScheduler } = await import('../evolution-scheduler.js');
+    const { stopEvolutionScheduler } = await import('../scheduling/evolution-scheduler.js');
     expect(() => stopEvolutionScheduler()).not.toThrow();
   });
 
   it('stop is idempotent (no error when called without start)', async () => {
-    const { stopEvolutionScheduler } = await import('../evolution-scheduler.js');
+    const { stopEvolutionScheduler } = await import('../scheduling/evolution-scheduler.js');
     expect(() => {
       stopEvolutionScheduler();
       stopEvolutionScheduler(); // double stop
@@ -27,7 +27,7 @@ describe('EvolutionScheduler', () => {
   });
 
   it('start → stop → start cycle works', async () => {
-    const { startEvolutionScheduler, stopEvolutionScheduler } = await import('../evolution-scheduler.js');
+    const { startEvolutionScheduler, stopEvolutionScheduler } = await import('../scheduling/evolution-scheduler.js');
     expect(() => {
       startEvolutionScheduler();
       stopEvolutionScheduler();

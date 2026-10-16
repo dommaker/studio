@@ -19,10 +19,10 @@
 
 import { Router } from 'express';
 import { upsertKnowledgeBodySchema } from '@dommaker/studio-contract';
-import { upsertKnowledge } from './knowledge-design-doc.js';
-import type { KnowledgeSource } from './knowledge-design-doc.js';
-import { knowledgeSync } from './knowledge-sync.service.js';
-import { defineRoute } from '../../core/http.js';
+import { upsertKnowledge } from '../knowledge-design-doc.js';
+import type { KnowledgeSource } from '../knowledge-design-doc.js';
+import { knowledgeSync } from '../scheduling/knowledge-sync.service.js';
+import { defineRoute } from '../../../core/http.js';
 
 export const internalRoutes = Router();
 

@@ -26,11 +26,11 @@ import {
   unifiedKnowledgeQuerySchema,
   createUnifiedEntryBodySchema,
 } from '@dommaker/studio-contract';
-import { sharedStore, publishKnowledgeEntryChanged } from './knowledge-singletons.js';
+import { sharedStore, publishKnowledgeEntryChanged } from '../knowledge-singletons.js';
 // P2-c 拆环：getSystemExecutor 转函数内动态 import（knowledge→agents 静态边清零）
-import { requireNotGuest } from '../../middleware/auth.js';
-import { parsePagination } from '../../utils/pagination.js';
-import { defineRoute } from '../../core/http.js';
+import { requireNotGuest } from '../../../middleware/auth.js';
+import { parsePagination } from '../../../utils/pagination.js';
+import { defineRoute } from '../../../core/http.js';
 
 export const entriesRoutes = Router();
 
@@ -45,7 +45,7 @@ export const entriesRoutes = Router();
  * 附件下载（md/json）：handler 自写 res 不进 `{ data }` 壳（specs export 先例）
  */
 entriesRoutes.get('/export', defineRoute({ query: knowledgeExportQuerySchema }, async (req, res, { query }) => {
-  const { sharedStore } = await import('./knowledge-singletons.js');
+  const { sharedStore } = await import('../knowledge-singletons.js');
   const format = query.format === 'json' ? 'json' : 'md';
   const types = query.types ? query.types.split(',').filter(Boolean) : undefined;
   const { limit } = parsePagination(req);
@@ -109,7 +109,7 @@ entriesRoutes.post('/ask', requireNotGuest(), defineRoute(
     const systemPrompt = '你是知识库问答助手。根据提供的知识条目回答用户问题。回答必须基于知识条目内容，不要编造。引用时标注来源编号如 [1] [2]。';
     const userPrompt = `知识条目：\n${context}\n\n---\n\n用户问题：${question}`;
 
-    const answer = (await (await import('../agents/index.js')).getSystemExecutor().run(userPrompt, { systemPrompt, eventSource: 'knowledge-qa' })).output;
+    const answer = (await (await import('../../agents/index.js')).getSystemExecutor().run(userPrompt, { systemPrompt, eventSource: 'knowledge-qa' })).output;
 
     // 4. Return answer + source references
     const sources = entries.map((e: any) => ({
@@ -136,7 +136,7 @@ entriesRoutes.get('/gaps/:type', defineRoute(
   async (req, _res, { params, query }) => {
     const { type } = params;
 
-    const { knowledgeQuery } = await import('./knowledge-query.service.js');
+    const { knowledgeQuery } = await import('../knowledge-query.service.js');
     const data = await knowledgeQuery.query({
       type: type as any,
       topic: query.topic,
@@ -153,17 +153,17 @@ entriesRoutes.get('/gaps/:type', defineRoute(
  * 获取所有五种知识类型的统计概览
  */
 entriesRoutes.get('/gaps', defineRoute({}, async () => {
-  const { knowledgeQuery } = await import('./knowledge-query.service.js');
+  const { knowledgeQuery } = await import('../knowledge-query.service.js');
   return knowledgeQuery.getStats();
 }));
 
 // ── AS-022: Unified Knowledge API ─────────────────────────
 
 // Lazy-load UnifiedQuery to avoid circular deps
-let _uq: InstanceType<typeof import('./engine/unified-query.js').UnifiedQuery> | null = null;
+let _uq: InstanceType<typeof import('../engine/unified-query.js').UnifiedQuery> | null = null;
 async function getUnifiedQuery() {
   if (!_uq) {
-    const { UnifiedQuery } = await import('./engine/unified-query.js');
+    const { UnifiedQuery } = await import('../engine/unified-query.js');
     _uq = new UnifiedQuery();
   }
   return _uq;
@@ -200,7 +200,7 @@ entriesRoutes.post('/unified', requireNotGuest(), defineRoute(
   async (req, _res, { body }) => {
     const { type, title, content, consumptionMode, applicableAgents, tags } = body;
 
-    const { sharedStore } = await import('./knowledge-singletons.js');
+    const { sharedStore } = await import('../knowledge-singletons.js');
     const id = `manual-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const now = new Date().toISOString();
     // #93：人工创建本身就是出处凭证——不 stamp 的话 hasSourceReferences 闸门会永远拦住该条目

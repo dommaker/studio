@@ -17,7 +17,7 @@ vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: { list: mockList },
 }));
 
-import { DecisionChainExtractor } from '../decision-chain-extractor.js';
+import { DecisionChainExtractor } from '../producers/decision-chain-extractor.js';
 
 const baseEntry = {
   maturity: 'draft',

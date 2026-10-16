@@ -52,11 +52,11 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: {},
 }));
 
-vi.mock('../../knowledge/knowledge-sync.service.js', () => ({
+vi.mock('../../knowledge/scheduling/knowledge-sync.service.js', () => ({
   knowledgeSync: {},
 }));
 
-vi.mock('../../knowledge/preference-observer.js', () => ({
+vi.mock('../../knowledge/producers/preference-observer.js', () => ({
   preferenceObserver: { record: vi.fn() },
 }));
 

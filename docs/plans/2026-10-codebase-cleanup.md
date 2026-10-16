@@ -23,7 +23,7 @@
 - [x] **P1.2 api utils 按受众搬家**（bootstrap/cli 6 个归位 + `token-ledger.ts` → modules/workunit/；errors/pagination/studio-events-tail/logger/services 真横切留下）
 - [x] **P1.3 system-role 门面三轨归一**（删 `modules/agents/system-role.ts` re-export 壳，消费方与 agents barrel 统一直引 `core/system-role.ts`）
 - [x] **P1.4 `getErrorMessage` 下沉 studio-shared**（消 studio-agent 手写拷贝；api 侧 errors.ts 留 re-export 薄壳）
-- [ ] **P1.5 巨型模块内子目录化**：`modules/knowledge/`（38 文件平铺）按 routes/ + 域分目录；`modules/agent-loop/`（42 文件）抽 `prompt-sections/`（11 个 prompt-section-*）与 `loop/` 子目录。
+- [ ] **P1.5 巨型模块内子目录化**：~~`modules/knowledge/`（38 文件平铺）按 routes/ + 域分目录~~（已完成：routes/ 7 + producers/ 9 + scheduling/ 2）；`modules/agent-loop/` 抽 `prompt-sections/` 与 `loop/` 子目录（未开始；实际 prompt-section-* 为 8 个文件，计划初稿写 11 个，以代码事实为准）。
 - [ ] P1 完成后跑 `pnpm agents-md:sync` 重建模块索引，同步受影响目录 CONTEXT.md。
 
 ## Phase 2 — 重复逻辑收敛

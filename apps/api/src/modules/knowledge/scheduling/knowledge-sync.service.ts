@@ -10,14 +10,14 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { sharedStore, sharedLifecycle } from './knowledge-singletons.js';
-import { upsertKnowledge } from './knowledge-design-doc.js';
-import type { KnowledgeSource } from './knowledge-design-doc.js';
-import { knowledgeService } from './knowledge-service.js';
+import { sharedStore, sharedLifecycle } from '../knowledge-singletons.js';
+import { upsertKnowledge } from '../knowledge-design-doc.js';
+import type { KnowledgeSource } from '../knowledge-design-doc.js';
+import { knowledgeService } from '../knowledge-service.js';
 // 2026-10-03（D 批）：staleness 检测的 git log 从 execFileSync 换 execFileAsync——
 // 本方法跑在 monitor 周期轮（monitor-system-probes）与 internal 路由上，sync 子进程
 // × scope 文件数串行阻塞事件循环（#374 纪律：轮询路径禁 sync exec，唯一出口 core/exec-async）
-import { execFileAsync } from '../../core/exec-async.js';
+import { execFileAsync } from '../../../core/exec-async.js';
 
 // ── Scope Registry ──
 // scope → associated source files (glob patterns). When any of these files change, the scope is stale.
@@ -53,28 +53,28 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
   'knowledge-circuit': {
     // R5: 原 harness/src/knowledge/{lifecycle,ingest}.ts 已移除（npm 依赖，见上方说明）；
     // knowledge-singletons.ts 为 R4 后共享单例/向量同步/质量门所在地。
-    files: ['apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/ops/monitor.service.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/scheduling/knowledge-sync.service.ts', 'apps/api/src/modules/ops/monitor.service.ts'],
     title: 'Knowledge Circuit Self-Check',
     knowledgeType: 'architecture',
   },
   'knowledge-sync': {
-    files: ['apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/knowledge/routes.ts', 'apps/api/src/modules/ops/monitor.service.ts'],
+    files: ['apps/api/src/modules/knowledge/scheduling/knowledge-sync.service.ts', 'apps/api/src/modules/knowledge/routes/routes.ts', 'apps/api/src/modules/ops/monitor.service.ts'],
     title: 'KnowledgeSync Service',
     knowledgeType: 'architecture',
   },
   'knowledge-types': {
-    files: ['apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/scheduling/knowledge-sync.service.ts'],
     title: 'Knowledge Types: Pattern vs Document',
     knowledgeType: 'architecture',
   },
   'knowledgestore-bp': {
-    files: ['apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/ops/monitor.service.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/scheduling/knowledge-sync.service.ts', 'apps/api/src/modules/ops/monitor.service.ts'],
     title: 'KnowledgeStore Breakpoint Fixes',
     knowledgeType: 'architecture',
   },
   'knowledge-engine-flywheel': {
     files: [
-      'apps/api/src/modules/knowledge/*.ts',
+      'apps/api/src/modules/knowledge/**/*.ts',
       'apps/api/src/modules/ops/monitor.service.ts',
       'apps/api/src/modules/agent-auditor/auditor.service.ts',
       // R5: agent-event-listener.ts 已随 pipeline-removal 删除（fb13e2b）；

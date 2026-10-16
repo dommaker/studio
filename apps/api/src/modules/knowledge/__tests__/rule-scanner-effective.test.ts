@@ -21,7 +21,7 @@ vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: { list: vi.fn().mockReturnValue([]), save: vi.fn() },
 }));
 
-import { ruleScanner } from '../rule-scanner.js';
+import { ruleScanner } from '../producers/rule-scanner.js';
 import { sharedStore } from '../knowledge-singletons.js';
 
 describe('RuleScanner.scanHarnessConstraints — 生效集公共 API', () => {

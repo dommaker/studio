@@ -76,7 +76,7 @@ vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedIngest: vi.fn(
   sharedLifecycle: { tryPromote: mockTryPromote, runDecayCycle: mockRunDecayCycle },
 }));
 
-vi.mock('../../knowledge/knowledge-sync.service.js', () => ({
+vi.mock('../../knowledge/scheduling/knowledge-sync.service.js', () => ({
   knowledgeSync: { runSyncCycle: mockRunSyncCycle },
 }));
 

@@ -13,7 +13,7 @@ vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: { list: vi.fn().mockReturnValue([]) },
 }));
 
-import { ruleScanner } from '../rule-scanner.js';
+import { ruleScanner } from '../producers/rule-scanner.js';
 
 describe('RuleScanner.scanHarnessConstraints', () => {
   it('按 severity（error/warning）前缀扫描生效集，不含已废弃的三层命名', () => {

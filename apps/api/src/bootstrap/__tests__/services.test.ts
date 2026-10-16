@@ -28,7 +28,7 @@ vi.mock('../../modules/requirements/rollup.js', () => ({
 vi.mock('../../modules/pmo/progress-rollup.js', () => ({
   initPmoProgressRollup: () => calls.push('pmo-rollup'),
 }));
-vi.mock('../../modules/knowledge/evolution-scheduler.js', () => ({
+vi.mock('../../modules/knowledge/scheduling/evolution-scheduler.js', () => ({
   startEvolutionScheduler: () => calls.push('evolution-scheduler'),
   stopEvolutionScheduler: vi.fn(),
 }));

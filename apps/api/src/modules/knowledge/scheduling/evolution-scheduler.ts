@@ -20,7 +20,7 @@ let evalCleanTimer: NodeJS.Timeout | null = null;
 
 async function runPatternMining(): Promise<void> {
   try {
-    const { patternMiner } = await import('./pattern-miner.js');
+    const { patternMiner } = await import('../producers/pattern-miner.js');
     const count = await patternMiner.analyzeDaily();
     if (count > 0) {
       logger.info('Interaction pattern mining completed', { patterns: count });
@@ -45,7 +45,7 @@ export function startEvolutionScheduler(): void {
   // Better-Harness: 每天 eval spring cleaning（标记饱和 eval cases）
   evalCleanTimer = setInterval(async () => {
     try {
-      const { evalCaseGenerator } = await import('./eval-case-generator.js');
+      const { evalCaseGenerator } = await import('../producers/eval-case-generator.js');
       const marked = await evalCaseGenerator.markSaturatedEvals();
       if (marked > 0) {
         logger.info('Eval spring cleaning completed', { marked });

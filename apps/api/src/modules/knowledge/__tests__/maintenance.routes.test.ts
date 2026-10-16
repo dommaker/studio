@@ -18,7 +18,7 @@ vi.mock('../../agent-knowledge/index.js', () => ({
   knowledgeCurator: { runDailyMaintenance: mockRunDailyMaintenance },
 }));
 
-import { maintenanceRoutes } from '../maintenance.routes.js';
+import { maintenanceRoutes } from '../routes/maintenance.routes.js';
 
 describe('POST /maintenance/run（F1 手动触发）', () => {
   let server: Server;
