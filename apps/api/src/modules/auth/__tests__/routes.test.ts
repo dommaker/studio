@@ -55,6 +55,7 @@ vi.mock('../../../core/database.js', () => ({ prisma: {} }));
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
   FileStore: vi.fn(),
+  getErrorMessage: (e: unknown) => (e instanceof Error ? e.message : 'Unknown error'),
 }));
 
 // ── Imports after mocks ───────────────────────────────────────────────

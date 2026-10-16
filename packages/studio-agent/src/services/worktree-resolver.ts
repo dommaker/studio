@@ -14,7 +14,7 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
-import { logger } from '@dommaker/studio-shared';
+import { logger, getErrorMessage } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
@@ -78,7 +78,7 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
       try {
         await execSh(`git branch -D "${resolvedBranch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
         await execSh(`git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
-      } catch (e2) { throw new Error(`Worktree creation failed after cleanup: ${e2 instanceof Error ? e2.message : String(e2)}`); }
+      } catch (e2) { throw new Error(`Worktree creation failed after cleanup: ${getErrorMessage(e2)}`); }
     } else { throw e; }
   }
   logger.info('[WorktreeResolver] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });

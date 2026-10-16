@@ -9,3 +9,4 @@ export { resolvePromptOverridesDir, readPromptOverride, renderWithOverride } fro
 export { createSettledTracker } from './settled-tracker';
 export type { SettledTracker } from './settled-tracker';
 export { stripTrailingSlashes } from './repo-path';
+export { getErrorMessage } from './get-error-message';

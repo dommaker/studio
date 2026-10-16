@@ -15,7 +15,7 @@
 import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fsSync from 'fs';
-import { logger } from '@dommaker/studio-shared';
+import { logger, getErrorMessage } from '@dommaker/studio-shared';
 import { execSh, classifyCliFailure } from '@dommaker/studio-shared/node';
 
 import { resolveWorkspace, propagateHarnessConfig } from './worktree-resolver.js';
@@ -63,7 +63,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       repoDir: config.repoDir,
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     return { success: false, worktree: '', outputFiles: [], error: errorMessage, logFile: '', sessionCount: 0 };
   }
 
@@ -183,7 +183,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         usage: streamUsage, // M2: 透出 CLI usage，供 agent-loop 记录 workunit:tokens
       };
     } catch (execErr) {
-      const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
+      const errMsg = getErrorMessage(execErr);
       const stdoutText = String((execErr as { stdout?: unknown })?.stdout ?? '').slice(0, 2000);
 
       await emitSessionEnd(sessionId, task.executionId, 1, sessionExtras);
@@ -206,7 +206,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       runningProcesses.delete(task.executionId);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     return { success: false, worktree, outputFiles: [], error: errorMessage, logFile, sessionCount: 0 };
   }
 }
