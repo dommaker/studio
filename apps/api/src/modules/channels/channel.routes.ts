@@ -21,7 +21,7 @@ import {
   ERROR_CODES,
 } from '@dommaker/studio-contract';
 import { logger } from '@dommaker/studio-shared';
-import { channelService, ChannelError, validateDefaultWorkspaceId } from './channel.service.js';
+import { getChannelService, ChannelError, validateDefaultWorkspaceId } from './channel.service.js';
 import { saveChannelImage, resolveChannelImage, ATTACHMENT_BODY_LIMIT } from './attachments.js';
 import { routeMessage } from './message-routing.js';
 import { resolveMergeTarget } from './merge-target.js';
@@ -38,6 +38,7 @@ import { getErrorMessage } from '../../utils/errors.js';
 import { validateRouting, buildMemberRemovalWarning } from './routing.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 
 // P2-e 鉴权声明式统一：read（GET 读，registry 挂 requireAuth）/ write（registry 挂 authNotGuest）拆 router，
@@ -46,7 +47,7 @@ import { getStore } from '../../core/store.js';
 // 该单条鉴权保留路由内（registry 先挂 attachment 小 router 再挂 read router，姿态注释见 entry）。
 const readRoutes = Router();
 const writeRoutes = Router();
-const convertToTaskService = new ConvertToTaskService(getStore());
+const getConvertToTaskService = createLazyService(() => new ConvertToTaskService(getStore()));
 const projectDiscoveryService = new ProjectDiscoveryService();
 
 /** ChannelError（status 自带 400/404/409）→ HttpError；其余错误原样上抛交 defineRoute 兜底 */
@@ -72,7 +73,7 @@ async function translating<T>(p: Promise<T>): Promise<T> {
 // GET /api/v1/channels — list all non-archived channels
 // 2026-09-14：读侧与写侧对称补 requireAuth（P2-e 起挂载上移至 route-registry）
 readRoutes.get('/', apiCache(CACHE_CONFIG.medium), defineRoute({}, async () => {
-  return channelService.listVisibleChannels();
+  return getChannelService().listVisibleChannels();
 }));
 
 // POST /api/v1/channels — create a new channel (B2-007)
@@ -80,7 +81,7 @@ readRoutes.get('/', apiCache(CACHE_CONFIG.medium), defineRoute({}, async () => {
 // #272（决策 #251 Q7）：创建表单可选「默认工程」（本地 repo 路径，可留空）
 writeRoutes.post('/', defineRoute({ body: createChannelBodySchema }, { status: 201 }, async (_req, _res, { body }) => {
   const defaultPathValue = typeof body.defaultPath === 'string' && body.defaultPath.trim() ? body.defaultPath.trim() : null;
-  return translating(channelService.create({
+  return translating(getChannelService().create({
     name: body.name,
     type: body.type,
     defaultPath: defaultPathValue,
@@ -94,14 +95,14 @@ writeRoutes.post('/', defineRoute({ body: createChannelBodySchema }, { status: 2
 // B8（2026-09-16 channel 性能审计）：去掉 prisma 时代遗留的 `_count.ChannelMessage`
 // （全仓无消费方，每请求 O(热文件行数) 全量计数纯浪费；计数方法已随 B4 清扫删除）
 readRoutes.get('/:id', defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
-  return translating(channelService.getOrThrow(params.id));
+  return translating(getChannelService().getOrThrow(params.id));
 }));
 
 // GET /api/v1/channels/:id/current-pmo — #272（决策 #251 Q6）：顶栏「当前 PMO」chip
 // 派生概念不落库：最近挂接 REQ 所属 PMO → 杂务 PMO 反推 → null（见 current-pmo.ts）。
 // B7：派生链为 N+1 全量读取，挂短 TTL apiCache（5s 档，同 GET / 列表先例）。
 readRoutes.get('/:id/current-pmo', apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
-  await translating(channelService.getOrThrow(params.id));
+  await translating(getChannelService().getOrThrow(params.id));
   return deriveChannelCurrentPmo(params.id);
 }));
 
@@ -109,7 +110,7 @@ readRoutes.get('/:id/current-pmo', apiCache(CACHE_CONFIG.short), defineRoute({ p
 // 当前 PMO 置顶 + 挂接 REQ 所属 PMO（seq 降序去重，pmoNumber 为空过滤）；派生不落库，
 // 与 current-pmo 同为 N+1 全量读取挂短 TTL apiCache；派生内部容错绝不抛出（无来源 → []）。
 readRoutes.get('/:id/pmo-candidates', apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
-  await translating(channelService.getOrThrow(params.id));
+  await translating(getChannelService().getOrThrow(params.id));
   return deriveChannelPmoCandidates(params.id);
 }));
 
@@ -118,7 +119,7 @@ readRoutes.get('/:id/pmo-candidates', apiCache(CACHE_CONFIG.short), defineRoute(
 // 只读状态说明形态（自动评审在途）；action/prompt 形态见 #444/#445/#446（见 suggestions.ts）。
 // B2：前端每条 agent 消息都重拉、每次全量 WU 派生，挂短 TTL apiCache（5s 档，同 current-pmo 先例）。
 readRoutes.get('/:id/suggestions', apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
-  await translating(channelService.getOrThrow(params.id));
+  await translating(getChannelService().getOrThrow(params.id));
   return deriveChannelSuggestions(params.id, { fileStore: getStore() });
 }));
 
@@ -126,7 +127,7 @@ readRoutes.get('/:id/suggestions', apiCache(CACHE_CONFIG.short), defineRoute({ p
 // 与 routeMessage 无地址路径共用 resolveMergeTarget 判定，保证「预览所见 = 实际路由」：
 // unique 附 workUnit{id,title}（标题 = WU scope）；ambiguous 不暴露并入目标。
 readRoutes.get('/:id/merge-target', defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
-  await translating(channelService.getOrThrow(params.id));
+  await translating(getChannelService().getOrThrow(params.id));
   const wuService = new WorkUnitService(getStore());
   const resolution = await resolveMergeTarget(params.id, getStore(), wuService);
   if (resolution.kind !== 'unique') {
@@ -167,7 +168,7 @@ readRoutes.get('/:id/messages', defineRoute(
 // 各仓 git ls-files + 内存缓存（见 file-ref-vocabulary.ts）。
 // B7：挂短 TTL apiCache（5s 档）——词表进程缓存之外再挡一层 HTTP 级重复派生。
 readRoutes.get('/:id/file-vocabulary', apiCache(CACHE_CONFIG.short), defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
-  await translating(channelService.getOrThrow(params.id));
+  await translating(getChannelService().getOrThrow(params.id));
   try {
     return await getChannelFileVocabulary(params.id);
   } catch (e: unknown) {
@@ -183,7 +184,7 @@ writeRoutes.post('/:id/messages', defineRoute(
   async (req, _res, { params, body }) => {
     const channelId = params.id;
 
-    const channel = await translating(channelService.getOrThrow(channelId));
+    const channel = await translating(getChannelService().getOrThrow(channelId));
 
     // P0 修复 6 + #519: traceId — 复用 audit 中间件落在 req 上的 requestId（同一次 HTTP 请求同值），
     // 没有则新建（如单测直连路由）；三条派单路径建出/关联的 WU 统一写入 metadata.traceId。
@@ -217,7 +218,7 @@ writeRoutes.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), def
   { params: channelIdParamsSchema, body: uploadAttachmentBodySchema },
   { status: 201 },
   async (_req, _res, { params, body }) => {
-    await translating(channelService.getOrThrow(params.id));
+    await translating(getChannelService().getOrThrow(params.id));
     const result = await saveChannelImage(params.id, body);
     if (!result.ok) {
       // 领域校验自带状态码（400 白名单/base64、413 超 5MB）；413 无标准码词表，用业务自定义码
@@ -231,19 +232,19 @@ writeRoutes.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), def
 
 // DELETE /api/v1/channels/:id — delete channel (B2-012: Goal fallback to #研发)
 writeRoutes.delete('/:id', defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
-  const { fallbackChannelId } = await translating(channelService.deleteWithFallback(params.id));
+  const { fallbackChannelId } = await translating(getChannelService().deleteWithFallback(params.id));
   return { deleted: true, fallbackChannelId };
 }));
 
 // PUT /api/v1/channels/:id/archive — archive a channel (B1-011)
 writeRoutes.put('/:id/archive', defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
-  const newName = await translating(channelService.archive(params.id));
+  const newName = await translating(getChannelService().archive(params.id));
   return { archived: true, newName };
 }));
 
 // PUT /api/v1/channels/:id/restore — restore an archived channel (B1-011)
 writeRoutes.put('/:id/restore', defineRoute({ params: channelIdParamsSchema }, async (_req, _res, { params }) => {
-  const name = await translating(channelService.restore(params.id));
+  const name = await translating(getChannelService().restore(params.id));
   return { restored: true, name };
 }));
 
@@ -277,7 +278,7 @@ writeRoutes.patch('/:id', defineRoute(
         data.routing = validated.value;
       }
     }
-    return translating(channelService.update(params.id, data as Partial<import('@dommaker/studio-shared').ChannelData>));
+    return translating(getChannelService().update(params.id, data as Partial<import('@dommaker/studio-shared').ChannelData>));
   },
 ));
 
@@ -285,13 +286,13 @@ writeRoutes.patch('/:id', defineRoute(
 writeRoutes.patch('/:id/members', defineRoute(
   { params: channelIdParamsSchema, body: updateChannelMembersBodySchema },
   async (_req, _res, { params, body }) => {
-    const members = await translating(channelService.updateMembers(params.id, { add: body.add, remove: body.remove }));
+    const members = await translating(getChannelService().updateMembers(params.id, { add: body.add, remove: body.remove }));
     // #497: 移出被指名角色（routing 档/入口角色）→ 响应附 warning 提示漂移（不阻断，
     // 与现有校验严格度对齐——指名静默退化为涌现前给人一次知情机会）
     const removed = body.remove ?? [];
     let warning: string | undefined;
     if (removed.length > 0) {
-      const channel = await translating(channelService.getOrThrow(params.id));
+      const channel = await translating(getChannelService().getOrThrow(params.id));
       warning = buildMemberRemovalWarning(channel, removed);
     }
     return { members, ...(warning ? { warning } : {}) };
@@ -309,7 +310,7 @@ writeRoutes.post('/:id/messages/:messageId/convert-to-task', defineRoute(
     ],
   },
   async (_req, _res, { params, body }) => {
-    return convertToTaskService.convert(params.id, params.messageId, body);
+    return getConvertToTaskService().convert(params.id, params.messageId, body);
   },
 ));
 
@@ -333,7 +334,7 @@ writeRoutes.post('/:id/messages/:messageId/convert-to-task/suggest', defineRoute
       const agents = allProfiles.map(p => ({ id: p.id, name: p.name, description: p.description ?? undefined }));
 
       // 4. Get LLM suggestion
-      return await convertToTaskService.suggest(
+      return await getConvertToTaskService().suggest(
         message.content,
         agents,
         projects.map(p => ({ name: p.name, path: p.path })),

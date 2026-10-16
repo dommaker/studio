@@ -27,18 +27,19 @@ import { AgentProfileService, listRolePresets, type CreateAgentProfileInput, typ
 import { parsePagination } from '../../utils/pagination.js';
 import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 
 // P2-e 鉴权声明式统一：open（GET 读）/ write（registry 挂 authNotGuest）拆 router，路由内不再挂鉴权。
 const openRoutes = Router();
 const writeRoutes = Router();
-const service = new AgentProfileService(getStore());
+const getService = createLazyService(() => new AgentProfileService(getStore()));
 
 /** GET / — list AgentProfiles */
 openRoutes.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (req, _res, { query }) => {
   const { page, limit } = parsePagination(req);
 
-  const result = await service.list({
+  const result = await getService().list({
     status: query.status,
     channelId: query.channelId,
     page,
@@ -59,7 +60,7 @@ writeRoutes.post('/', defineRoute(
   },
   async (_req, _res, { body }) => {
     // z.infer 全字段退化可选（仓 strict:false），路由边界收回 service 必填入参
-    return service.create(body as CreateAgentProfileInput);
+    return getService().create(body as CreateAgentProfileInput);
   },
 ));
 
@@ -69,7 +70,7 @@ openRoutes.get('/presets', defineRoute({}, async () => listRolePresets()));
 
 /** GET /:id — get AgentProfile by id */
 openRoutes.get('/:id', defineRoute({ params: agentProfileIdParamsSchema }, async (_req, _res, { params }) => {
-  const profile = await service.getById(params.id);
+  const profile = await getService().getById(params.id);
   if (!profile) {
     throw new HttpError(404, 'NOT_FOUND', `AgentProfile ${params.id} not found`);
   }
@@ -88,7 +89,7 @@ writeRoutes.patch('/:id', defineRoute(
     ],
   },
   async (_req, _res, { params, body }) => {
-    return service.update(params.id, body as UpdateAgentProfileInput);
+    return getService().update(params.id, body as UpdateAgentProfileInput);
   },
 ));
 
@@ -103,7 +104,7 @@ writeRoutes.delete('/:id', defineRoute(
     ],
   },
   async (_req, _res, { params }) => {
-    await service.delete(params.id);
+    await getService().delete(params.id);
   },
 ));
 

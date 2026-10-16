@@ -15,6 +15,12 @@
  *    建实例并按根缓存，env 变根 → 新实例——与历史「改 env 后新构造」逐点等价
  *    （vitest setup 钉隔离根 / 38 个动态 env 测试依赖）。
  *
+ * service 级先例（P2.4，2026-10-16）：modules 下持 store 的服务单例一律
+ * `export const getXxxService = createLazyService(() => new XxxService())`
+ * （utils/services.ts），消费方 getXxxService().method()——勿回退模块级
+ * `export const xxx = new XxxService()`。唯二例外是注释自证的测试 mock 锚点
+ * （mcp/tool-store.ts fileStore、agent-loop/agent-loop-events.ts metricsFileStore）。
+ *
  * 时序：bootstrap() 在 initConfig() 之后、runDataMigrations() 之前调 initStore() 钉定，
  * 并经 setDefaultFileStore 同步钉定 packages 持有器——生产态 apps/api 与 packages
  * 共享同一实例。

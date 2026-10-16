@@ -11,9 +11,10 @@ import { logger } from '../../utils/logger.js';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { WorkUnitService } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 const router = express.Router();
-const workUnitService = new WorkUnitService(getStore());
+const getWorkUnitService = createLazyService(() => new WorkUnitService(getStore()));
 
 // Discord 斜杠命令名（/studio …）；与角色域的 studio 系统角色无关，仅命令注册名
 const STUDIO_COMMAND_NAME = 'studio';
@@ -317,7 +318,7 @@ async function closeWorkUnit(wuId: string, reason: string): Promise<{ closed: bo
   const snap = (await getStore().getIndex({ id: wuId }))[0];
   if (!snap) return { closed: false };
   try {
-    await workUnitService.close(wuId, { reason, closedBy: 'human-command' });
+    await getWorkUnitService().close(wuId, { reason, closedBy: 'human-command' });
     return { closed: true };
   } catch (err) {
     logger.warn({ workUnitId: wuId, error: String(err) }, '[Discord] close workUnit failed');
@@ -331,8 +332,8 @@ async function closeWorkUnit(wuId: string, reason: string): Promise<{ closed: bo
  * （#554：patch 基于锁内最新 metadata 并入，既有键保留——旧实现整写覆盖摧毁它们）。
  */
 async function resetForRetry(wuId: string, retryMeta: Record<string, unknown>): Promise<void> {
-  await workUnitService.unclaim(wuId);
-  await workUnitService.updateMetadata(wuId, { resumeAfterRetry: true, ...retryMeta });
+  await getWorkUnitService().unclaim(wuId);
+  await getWorkUnitService().updateMetadata(wuId, { resumeAfterRetry: true, ...retryMeta });
 }
 
 export default router;
