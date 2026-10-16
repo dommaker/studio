@@ -1,6 +1,6 @@
 # apps/api/src/modules/agent-loop
 
-> Updated: 2026-10-17（Phase 3 后端刀1：`agentStep` 四段纯平移拆分，执行顺序与导出面不变）
+> Updated: 2026-10-17（Phase 3 后端刀1/刀3：`agentStep` 四段与 `recordResult` 三阶段纯平移拆分，执行顺序与导出面不变）
 
 ### 职责
 
@@ -14,7 +14,8 @@
 - `loop/loop-claim.ts` — 认领段：claimAndAnnounce（#175 认领即发声，#445 委托 workunit/claim-announce）+ 决策 14 适任判断链（ensureClaimFit → recordClaimUnfit → blockIfAllMembersUnfit）
 - `loop/loop-step.ts` — 步执行编排门面：agentStep 串起 step-guards / 频道版本锚点与下述四段；#90 outcome 落账两件套留本文件
 - `loop/loop-step-worktree.ts` / `loop-step-session.ts` / `loop-step-prompt.ts` / `loop-step-execution.ts` — worktree 与 PMO 分支基线解析、会话续用判定与签发、prompt 组装及 hint 消费增量、Executor 执行与重试/记账/事件/收割四段；2026-10-17 纯平移，行为由既有 agent-loop 测试网锁定
-- `loop/loop-record-result.ts` — 结果记录段：recordResult（#178 fencing → completion-gates → delegate 分支 → §4.2 新鲜度 → result-bookkeeping 簿记 → F6-c 强制收口补验 → 原子写 → 状态迁移与频道通知）+ postToDiscussionSpace（频道系统消息唯一出口，经 host seam 供 claim/step 段共用）
+- `loop/loop-record-result.ts` — 结果记录编排门面：recordResult 串起 skipped/fencing、合并视图、completion-gates 与下述三阶段；listUnfinishedChildren + postToDiscussionSpace（频道系统消息唯一出口，经 host seam 供 claim/step 段共用）留本文件
+- `loop/loop-record-reply.ts` / `loop-record-persistence.ts` / `loop-record-events.ts` — DELEGATE 与 §4.2 回帖规则、result-bookkeeping 簿记 + F6-c 补验 + 单次原子写、写后通知/失败事件/状态迁移三阶段；2026-10-17 纯平移，行为由既有 agent-loop 测试网锁定
 - `execution-cwd.ts` — 执行目录解析三规则（#481 workspaceRoot 唯一来源 / B3b-i 父 worktree 继承 / 收口守卫 git cwd），deps 注入纯函数（`__tests__/execution-cwd.test.ts` 直测）
 - `agent-loop.types.ts` — 类型契约（纯类型零运行时）
 - `agent-loop-registry.ts` — profileId→running AgentLoop 注册表（profile 生命周期事件驱动挂载/卸载；#634 provider 变更重挂）
