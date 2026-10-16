@@ -350,4 +350,3 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
   );
 }
 
-export default DeliveryPanel;

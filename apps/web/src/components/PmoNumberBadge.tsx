@@ -66,4 +66,3 @@ export function PmoNumberLink({
   );
 }
 
-export default PmoNumberBadge;

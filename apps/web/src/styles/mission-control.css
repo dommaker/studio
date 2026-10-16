@@ -560,9 +560,6 @@ button.mc-quote {
 button.mc-quote:hover { background: var(--bg-hover); }
 button.mc-quote:active { background: var(--bg-active); }
 
-/* E1（2026-09 页面重设计）：.mc-wait-badge 已删——消息头「等待回复」badge 去除，
-   待办信号唯一位 = 顶栏 chip；流内识别靠内嵌回复区（行动点本体） */
-
 /* 消息卡片族（任务状态卡） */
 .mc-card {
   background: var(--bg-elevated);

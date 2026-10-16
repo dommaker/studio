@@ -277,4 +277,3 @@ export function LibraryPage() {
   );
 }
 
-export default LibraryPage;

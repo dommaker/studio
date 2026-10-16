@@ -167,4 +167,3 @@ export function LibraryDocPage() {
   );
 }
 
-export default LibraryDocPage;

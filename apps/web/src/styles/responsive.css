@@ -227,22 +227,12 @@
   display: block;
 }
 
-.hide-tablet {
-  display: block;
-}
-
 .hide-desktop {
   display: none;
 }
 
 @media (width < 40rem) {
   .hide-mobile {
-    display: none !important;
-  }
-}
-
-@media (min-width: 640px) and (max-width: 1023px) {
-  .hide-tablet {
     display: none !important;
   }
 }

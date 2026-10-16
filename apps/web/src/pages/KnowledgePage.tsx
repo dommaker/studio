@@ -536,4 +536,3 @@ export function KnowledgePage() {
   );
 }
 
-export default KnowledgePage;

@@ -33,7 +33,6 @@
 .u-ok { color: var(--success); }
 .u-ok-bg { background: var(--success); color: var(--bg-primary); }
 .u-ok-dim { background: var(--success-dim); color: var(--success); }
-.u-ok-border { border-color: var(--success-border); }
 .u-err { color: var(--error); }
 .u-err-bg { background: var(--error); color: var(--bg-primary); }
 .u-err-dim { background: var(--error-dim); color: var(--error); }
