@@ -13,9 +13,9 @@
 - [x] **P0.5 删 `studio-shared/src/stats/anomaly-detector.ts` + 测试**，`percentile` 提取为 `stats/percentile.ts` 并接线两处本地拷贝（c02d4a49）
 - [x] **P0.6 前端死代码清扫**（72504533；`usePersistentStreamUI` 复查确认仍被 `useChannelStream.ts` 使用，保留未删——计划初稿此项与实际不符，以代码事实为准）
 - [x] **P0.7 小收敛**（c02d4a49）
-- [ ] **P0.8 删 `scripts/visual/` 整目录**（用户已批）+ 移除 root devDeps `pixelmatch`/`pngjs`/`@types/pngjs`。
-- [ ] **P0.9 git rm `playwright-report/index.html`**（549KB 误提交产物，.gitignore 已声明勿提交）。
-- [ ] **P0.10 删 `@xyflow/react` 依赖**（源码零 import）+ `apps/web/vite.config.ts:63` manualChunks 对应条目。
+- [x] **P0.8 删 `scripts/visual/` 整目录** + 移除 root devDeps `pixelmatch`/`pngjs`/`@types/pngjs`（锁文件随 P0.10 一并同步）
+- [x] **P0.9 git rm `playwright-report/index.html`**（549KB 误提交产物；实际 .gitignore 并未声明该目录——计划描述偏差，本批补 `playwright-report/` 入 .gitignore）
+- [x] **P0.10 删 `@xyflow/react` 依赖**（源码零 import）+ `apps/web/vite.config.ts` manualChunks 对应条目
 
 ## Phase 1 — 目录结构归位（纯移动，逐批验证）
 
