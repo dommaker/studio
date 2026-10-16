@@ -125,7 +125,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/agent-auditor` | Auditor Agent（P2-d 刀4 自 modules/agents/auditor 提升为顶层模块）：24h 日审跨任务审计——错误归类/技能建议/知识健康 → 低风险自动应用 / 人审确认卡片 / Resolution /... |
 | `apps/api/src/modules/agent-knowledge` | 知识维护 Agent（P2-d 刀7 自 modules/agents/knowledge 提升为顶层模块）：知识库冷启动导入 + 每日维护。命名 agent-knowledge 以区别于顶层 knowledge 模块（知识引擎：Pr... |
 | `apps/api/src/modules/agent-loop` | 决策循环与 WU 执行链（P2-d 刀5 自 modules/agents/loop 提升为顶层模块）：AgentLoop 循环编排（observe → 过滤 → claim → agentStep → recordResult →... |
-| `apps/api/src/modules/agents` | Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言门面、default-provid... |
+| `apps/api/src/modules/agents` | Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言——正本在 core/system... |
 | `apps/api/src/modules/audit-logs` | 提供审计日志的记录、查询、统计与导出：服务层 AuditService（JSONL 存储，#684 自 packages/studio-audit 下沉并入本模块）+ 查询与统计 API 端点，支持按用户、角色、公司、操作类型、资源、... |
 | `apps/api/src/modules/auth` | 负责 API 用户认证与会话管理，包括注册、登录、Guest Session 创建、认证状态查询及 JWT 令牌管理。同时集成 OAuth 认证流程（参见 oauth.routes.ts 与 oauth.service.ts）和邮件验... |
 | `apps/api/src/modules/channels` | Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线程 / @mention 派单 / #632 合并窗口（解耦 + 歧义守卫））、情境引导建议推导、@文件引用词表、「当前 PMO」派生。 |

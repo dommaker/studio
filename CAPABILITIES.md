@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-10-11
+> 最后更新: 2026-10-16
 
 ---
 
@@ -30,6 +30,25 @@
 | pmo | apps/api/src/modules/pmo/ | 🆕 AS-016: 获取当前季度 |
 | skills | apps/api/src/modules/skills/ | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
+| cloudflared | apps/api/src/bootstrap/cloudflared.ts | cloudflared — 隧道启停判定（#571 冲突 5 冻结结论：外联隧道默认关） |
+| listen-error | apps/api/src/bootstrap/listen-error.ts | listen-error — server.listen 错误处理（#573 端口双口径收口） |
+| runtime-paths | apps/api/src/bootstrap/runtime-paths.ts | runtime-paths — KNOWLEDGE_DIR / TUNNEL_URL_FILE 归数据根（#571） |
+| studio-events-rotation | apps/api/src/bootstrap/studio-events-rotation.ts | #173（#60 决策 Q3b / spec 批次 C4）：事件保留轮转。 |
+| studio-log-rotation | apps/api/src/bootstrap/studio-log-rotation.ts | #213：泛化 jsonl 保留轮转 + 遗留日志一次性归档清理。 |
+| loop-claim | apps/api/src/modules/agent-loop/loop/loop-claim.ts | 认领段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| loop-host | apps/api/src/modules/agent-loop/loop/loop-host.ts | AgentLoop 段间宿主契约（#668 agent-loop.ts 按职责切深模块）。 |
+| loop-lifecycle | apps/api/src/modules/agent-loop/loop/loop-lifecycle.ts | 生命周期段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| loop-observe | apps/api/src/modules/agent-loop/loop/loop-observe.ts | 观察段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| loop-record-result | apps/api/src/modules/agent-loop/loop/loop-record-result.ts | 结果记录段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| loop-step | apps/api/src/modules/agent-loop/loop/loop-step.ts | 步执行段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
+| prompt-section-contract | apps/api/src/modules/agent-loop/prompt-sections/prompt-section-contract.ts | contract 段（#671 自 prompt-composer.ts 拆出）：`## 产出契约` 段模板正本 + 组装。 |
+| prompt-section-files | apps/api/src/modules/agent-loop/prompt-sections/prompt-section-files.ts | files 段（#671 自 prompt-composer.ts 拆出）：`## 引用文件` 段组装。 |
+| prompt-section-handoff | apps/api/src/modules/agent-loop/prompt-sections/prompt-section-handoff.ts | handoff 段（#671 自 prompt-composer.ts 拆出）：`## 前序进展` 段组装。 |
+| prompt-section-map | apps/api/src/modules/agent-loop/prompt-sections/prompt-section-map.ts | map 段（#671 自 prompt-composer.ts 拆出）：`## PMO 地图` 段组装。 |
+| prompt-section-memory | apps/api/src/modules/agent-loop/prompt-sections/prompt-section-memory.ts | memory 段（#671 自 prompt-composer.ts 拆出）：`## 角色记忆索引` 段组装。 |
+| prompt-section-persona | apps/api/src/modules/agent-loop/prompt-sections/prompt-section-persona.ts | persona 段（#671 自 prompt-composer.ts 拆出）：`## 你的角色` 段组装。 |
+| prompt-section-roster | apps/api/src/modules/agent-loop/prompt-sections/prompt-section-roster.ts | roster 段（#671 自 prompt-composer.ts 拆出）：`## 频道成员与委派` 段组装。 |
+| prompt-section-skill | apps/api/src/modules/agent-loop/prompt-sections/prompt-section-skill.ts | skills 段（#671 自 prompt-composer.ts 拆出）：`## 本次任务 Skills` 段组装。 |
 | action-center | packages/studio-contract/src/action-center.ts | action-center 域契约——正本以 apps/api/src/modules/action-center/ |
 | admin | packages/studio-contract/src/admin.ts | admin 域契约（批次 6/7）——正本以 apps/api/src/modules/admin/ |
 | agent-profiles | packages/studio-contract/src/agent-profiles.ts | agent-profiles / agent-instances 域契约（批次 8/8）——实体类型与 studio-shared |
@@ -94,22 +113,8 @@
 | execution-step-events | apps/api/src/modules/agent-loop/execution-step-events.ts | 执行步事件（WU 过程可视化） |
 | executor | apps/api/src/modules/agent-loop/executor.ts | §9.6 Executor 接口 — AgentLoop 执行面抽象（P0） |
 | lease-heartbeat | apps/api/src/modules/agent-loop/lease-heartbeat.ts | #178（2026-08-16，#63 决议 1/2）WU 租约心跳。 |
-| loop-claim | apps/api/src/modules/agent-loop/loop-claim.ts | 认领段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
-| loop-host | apps/api/src/modules/agent-loop/loop-host.ts | AgentLoop 段间宿主契约（#668 agent-loop.ts 按职责切深模块）。 |
-| loop-lifecycle | apps/api/src/modules/agent-loop/loop-lifecycle.ts | 生命周期段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
-| loop-observe | apps/api/src/modules/agent-loop/loop-observe.ts | 观察段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
-| loop-record-result | apps/api/src/modules/agent-loop/loop-record-result.ts | 结果记录段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
-| loop-step | apps/api/src/modules/agent-loop/loop-step.ts | 步执行段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
 | prompt-composer | apps/api/src/modules/agent-loop/prompt-composer.ts | prompt/上下文组装编排（2026-08 从 agent-loop.agentStep 抽出；#671 按组装段拆分）： |
 | prompt-quota | apps/api/src/modules/agent-loop/prompt-quota.ts | prompt 注入段定额与截断共享件（#671 自 prompt-composer.ts 拆出）： |
-| prompt-section-contract | apps/api/src/modules/agent-loop/prompt-section-contract.ts | contract 段（#671 自 prompt-composer.ts 拆出）：`## 产出契约` 段模板正本 + 组装。 |
-| prompt-section-files | apps/api/src/modules/agent-loop/prompt-section-files.ts | files 段（#671 自 prompt-composer.ts 拆出）：`## 引用文件` 段组装。 |
-| prompt-section-handoff | apps/api/src/modules/agent-loop/prompt-section-handoff.ts | handoff 段（#671 自 prompt-composer.ts 拆出）：`## 前序进展` 段组装。 |
-| prompt-section-map | apps/api/src/modules/agent-loop/prompt-section-map.ts | map 段（#671 自 prompt-composer.ts 拆出）：`## PMO 地图` 段组装。 |
-| prompt-section-memory | apps/api/src/modules/agent-loop/prompt-section-memory.ts | memory 段（#671 自 prompt-composer.ts 拆出）：`## 角色记忆索引` 段组装。 |
-| prompt-section-persona | apps/api/src/modules/agent-loop/prompt-section-persona.ts | persona 段（#671 自 prompt-composer.ts 拆出）：`## 你的角色` 段组装。 |
-| prompt-section-roster | apps/api/src/modules/agent-loop/prompt-section-roster.ts | roster 段（#671 自 prompt-composer.ts 拆出）：`## 频道成员与委派` 段组装。 |
-| prompt-section-skill | apps/api/src/modules/agent-loop/prompt-section-skill.ts | skills 段（#671 自 prompt-composer.ts 拆出）：`## 本次任务 Skills` 段组装。 |
 | result-bookkeeping | apps/api/src/modules/agent-loop/result-bookkeeping.ts | recordResult 簿记段（#655 从 agent-loop.recordResult 抽出，行为一字不改）： |
 | review-contract | apps/api/src/modules/agent-loop/review-contract.ts | Review Contract — 审查结论（verdict）语义的单一来源 |
 | review-dispatcher | apps/api/src/modules/agent-loop/review-dispatcher.ts | ReviewDispatcher - AC-4.1 ~ AC-4.5: 状态机驱动的 review 系统代派 |
@@ -125,7 +130,6 @@
 | auth | apps/web/src/api/auth.ts | Auth API - 认证系统（P3-a 自 api/index.ts 拆出） |
 | events | apps/web/src/api/events.ts | Events API — #180 事件检索（#60 决策 Q3a：GET /events 过滤 + 尾部倒读游标分页） |
 | evolution | apps/web/src/api/evolution.ts | Evolution proposal review API — #623 断点 3 遗留补丁（review-proposal 正本 kind='evolution'） |
-| harness | apps/web/src/api/harness.ts | Harness API — /harness/*（T-015 Harness 监控集成，admin 中间件） |
 | knowledge | apps/web/src/api/knowledge.ts | Knowledge API — 知识审核闭环 + 知识库浏览： |
 | library | apps/web/src/api/library.ts | Library API (#155 T5: 阅览室——跨项目 .studio/ 聚合只读层；无写路径) |
 | monitoring | apps/web/src/api/monitoring.ts | Monitoring API — Agent Network (MVP-2 + MVP-6) |
@@ -160,7 +164,6 @@
 | ops-rules | apps/api/src/modules/ops/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | ops.service | apps/api/src/modules/ops/ops.service.ts | Ops Service — 系统生命周期守护 |
 | prometheus-metrics | apps/api/src/modules/ops/prometheus-metrics.ts | agent-studio Prometheus 指标 |
-| system-health | apps/api/src/modules/ops/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
 | types | apps/api/src/modules/ops/types.ts | Monitor Agent 告警类型定义（P2-d 自 agents/types.ts 拆分，随 monitor 子系统归属） |
 | types | apps/api/src/modules/triage/types.ts | Triage Agent 类型定义（P2-d 自 agents/types.ts 拆分，随 triage 子系统归属） |
 | types | apps/web/src/components/pmo/types.ts | PMO 页面共享领域类型 — KR / OKR / Project |
@@ -177,7 +180,6 @@
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
 | triggers | apps/api/src/modules/triggers/ | Cron Matcher — minimal cron expression evaluator (3.28c-4) |
 | workunit | apps/api/src/modules/workunit/ | WorkUnit API 路由 (AS-025 §3.28c-1, §5.16) |
-| anomaly-detector | packages/studio-shared/src/stats/anomaly-detector.ts | 计算数组的均值和标准差（总体标准差） |
 | projects | apps/api/src/modules/projects/ | AC-D1+D3: Project Discovery Service |
 | requirements | apps/api/src/modules/requirements/ | REQ 绑定解析（vision §5.3）— @mention 派发 / convert-to-task 共用。 |
 | evolution | apps/api/src/modules/evolution/ | E1 约束进化：提案生效器（applier）。 |
@@ -292,7 +294,6 @@
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
 | routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015)（挂载门面） |
-| routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理（挂载门面） |
 | routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
 | routes | apps/api/src/modules/pmo/routes.ts | 收集请求里的 gitRepo/gitRepos 候选（仅非空字符串；空串视为未传，与既有口径一致） |
@@ -312,7 +313,6 @@
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
 | routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015)（挂载门面） |
-| routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理（挂载门面） |
 | routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
 | routes | apps/api/src/modules/pmo/routes.ts | 收集请求里的 gitRepo/gitRepos 候选（仅非空字符串；空串视为未传，与既有口径一致） |
@@ -369,7 +369,6 @@
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
 | routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015)（挂载门面） |
-| routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理（挂载门面） |
 | routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
 | alert-notifier | apps/api/src/modules/notifications/alert-notifier.ts | 告警通知出口（P0 观测性修复 4；#682 自 utils/notifier.ts 并入 notifications 模块）。 |
 | clawbot-client | apps/api/src/modules/notifications/channels/clawbot-client.ts | #525 P2-6：ClawBot（iLink 协议）客户端 —— 扫码绑定 + 文本发送 |
