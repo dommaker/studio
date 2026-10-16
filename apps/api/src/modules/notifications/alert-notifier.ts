@@ -2,7 +2,8 @@
  * 告警通知出口（P0 观测性修复 4；#682 自 utils/notifier.ts 并入 notifications 模块）。
  *
  * notifyAlert 统一入口，内部 fan-out 到三个 sink（各自 try/catch，互不影响）：
- *   1. 频道 sink — 经 ChannelMessageService 以 agentName:'Studio' 发系统消息到告警频道
+ *   1. 频道 sink — 经装配注入的 AlertChannelPoster（bootstrap/module-sinks.ts 注
+ *      channels 的 ChannelMessageService，以 agentName:'Studio' 发系统消息到告警频道
  *      （eventBus + SSE 发布，频道页实时可见）。
  *      目标频道解析顺序：env STUDIO_ALERT_CHANNEL_ID → 按名字找「系统」/system 频道
  *      → 都没有则跳过并 logger.warn。
@@ -18,7 +19,6 @@
  */
 import { FileStore } from '@dommaker/studio-shared';
 import { getNotificationService } from './notification-service.js';
-import { ChannelMessageService } from '../channels/index.js';
 import { loadNotifyChannelsConfig, resolveWeComWebhookUrl } from './channels/config-store.js';
 import { sendText } from './channels/clawbot-client.js';
 import { postWeComMarkdown } from './channels/wecom-client.js';
@@ -26,6 +26,30 @@ import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 export type AlertLevel = 'info' | 'warning' | 'critical';
+
+/**
+ * 频道 sink 出口缝（Phase 5 SCC 第一刀 #2：消除 notifications→channels 模块边）。
+ * 依赖倒置：接口与注册口在调用方（本模块），bootstrap 装配期把 channels 的
+ * ChannelMessageService.createAgentMessage 注进来（bootstrap/module-sinks.ts）。
+ * 未注册语义：warn 一次 + 跳过该 sink（与「无可用告警频道」同级口径，fire-and-forget 不抛）。
+ */
+export interface AlertChannelPost {
+  channelId: string;
+  content: string;
+  /** warning/critical 带响铃（meta.atHuman）；info 只实时上屏 */
+  atHuman: boolean;
+}
+
+export type AlertChannelPoster = (post: AlertChannelPost) => Promise<unknown>;
+
+let channelPoster: AlertChannelPoster | null = null;
+let posterWarned = false;
+
+/** 装配期注入实现；测试可传 null 复位到未注册态 */
+export function registerAlertChannelPoster(fn: AlertChannelPoster | null): void {
+  channelPoster = fn;
+  posterWarned = false;
+}
 
 export interface NotifyAlertOptions {
   /** 关联 WU——通知获得 /workunits/:id 直链（行动中心点击直达，#468/#464） */
@@ -83,13 +107,20 @@ async function postToAlertChannel(level: AlertLevel, title: string, body: string
     return false;
   }
 
-  await new ChannelMessageService(fs).createAgentMessage(
+  if (!channelPoster) {
+    if (!posterWarned) {
+      posterWarned = true;
+      logger.warn('[Notifier] AlertChannelPoster 未注册（bootstrap 装配期应注入 channels 实现），跳过频道 sink');
+    }
+    return false;
+  }
+
+  await channelPoster({
     channelId,
-    'Studio',
-    `${formatLevelTag(level)} **${title}**\n\n${body}`,
+    content: `${formatLevelTag(level)} **${title}**\n\n${body}`,
     // warning/critical 带 atHuman（NotificationBell 响铃）；info 只实时上屏不打扰
-    level === 'info' ? undefined : { meta: { atHuman: true } },
-  );
+    atHuman: level !== 'info',
+  });
   return true;
 }
 

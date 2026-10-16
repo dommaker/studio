@@ -13,8 +13,8 @@
 export { NotificationService, getNotificationService } from './notification-service.js';
 export type { CreateNotificationInput } from './notification-service.js';
 // 告警统一出口（workunit/agent-loop/ops 外推）
-export { notifyAlert } from './alert-notifier.js';
-export type { AlertLevel, NotifyAlertOptions } from './alert-notifier.js';
+export { notifyAlert, registerAlertChannelPoster } from './alert-notifier.js';
+export type { AlertChannelPost, AlertChannelPoster, AlertLevel, NotifyAlertOptions } from './alert-notifier.js';
 // Discord 出站（bootstrap/agent-knowledge/skills/ops 直发）
 export { DiscordNotifier, discordNotifier, sendDiscordNotification } from './discord-notifier.js';
 export type { DiscordMessageOptions } from './discord-notifier.js';

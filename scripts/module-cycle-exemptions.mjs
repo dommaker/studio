@@ -25,10 +25,12 @@
 // 把 auth 拉入环簇（auth→channels 等回路本已存在）。
 // 2026-10-16 Phase 5 第一刀 #1：auth→audit-logs 改装配期 DI（auth/audit-sink.ts，
 // bootstrap/module-sinks.ts 注入实现），auth 的出簇边清零退出 SCC（21→20）。
+// 2026-10-16 Phase 5 第一刀 #2：notifications→channels 同手法（alert-notifier 的
+// AlertChannelPoster 注册口 + 装配注入），notifications 出簇边清零退出 SCC（20→19）。
 const HUB_SCC = [
   'agent-auditor', 'agent-knowledge', 'agent-loop', 'agents',
   'audit-logs', 'channels', 'evolution', 'harness', 'knowledge',
-  'mcp', 'notifications', 'ops', 'pmo', 'requirements',
+  'mcp', 'ops', 'pmo', 'requirements',
   'review-proposal', 'role-memory', 'skills', 'triage', 'triggers',
   'workunit',
 ];

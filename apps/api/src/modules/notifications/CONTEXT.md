@@ -24,7 +24,7 @@
 上游依赖：
 - `@dommaker/studio-shared`（FileStore, logger, foldJsonlById）
 - `../../utils/services.js`（createLazyService）、`../../core/store.js`（getStore）
-- `../channels/index.js`（alert-notifier 的频道 sink 经 ChannelMessageService；单向，channels 不回依赖本模块）
+- `../channels/index.js`——**无**（Phase 5 SCC 第一刀 #2，2026-10-16）：alert-notifier 频道 sink 改走装配期注入的 `AlertChannelPoster`（注册口在本模块，bootstrap/module-sinks.ts 注 channels 的 createAgentMessage 实现），notifications→channels 模块边消除。**未注册语义：warn 一次 + 跳过该 sink**（与「无可用告警频道」同级口径）
 
 下游依赖：
 - `apps/api/src/route-registry.ts`（深路径挂载三套路由：notifications / notify/send / notify-channels）

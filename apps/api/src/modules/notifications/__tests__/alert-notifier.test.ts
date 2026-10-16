@@ -36,19 +36,12 @@ vi.mock('@dommaker/studio-shared', () => ({
   }),
 }));
 
-// 频道 sink 经 ChannelMessageService（eventBus + SSE 发布），此处只验证委托
-vi.mock('../../channels/channel-message.service.js', () => ({
-  ChannelMessageService: vi.fn().mockImplementation(function () {
-    return { createAgentMessage: mockCreateAgentMessage };
-  }),
-}));
-
 // #468 行动中心 sink 经 NotificationService.createForAllUsers 持久化，此处只验证委托
 vi.mock('../notification-service.js', () => ({
   getNotificationService: () => ({ createForAllUsers: mockCreateForAllUsers }),
 }));
 
-import { notifyAlert } from '../alert-notifier.js';
+import { notifyAlert, registerAlertChannelPoster } from '../alert-notifier.js';
 import { saveNotifyChannelsConfig } from '../channels/config-store.js';
 
 const ENV_KEYS = ['STUDIO_ALERT_CHANNEL_ID', 'WECOM_WEBHOOK_URL', 'STUDIO_HOME'] as const;
@@ -68,6 +61,10 @@ describe('notifier (P0 修复 4)', () => {
       envBackup[k] = process.env[k];
       delete process.env[k];
     }
+    // Phase 5 SCC 第一刀 #2：频道 poster 经装配注入（取代原 ChannelMessageService mock）
+    registerAlertChannelPoster((post) =>
+      mockCreateAgentMessage(post.channelId, 'Studio', post.content, post.atHuman ? { meta: { atHuman: true } } : undefined),
+    );
     // #525 P2-6：配置存储隔离到临时 STUDIO_HOME（默认空配置）
     tmpStudioHome = fs.mkdtempSync(path.join(os.tmpdir(), 'notifier-cfg-'));
     process.env.STUDIO_HOME = tmpStudioHome;
@@ -122,6 +119,16 @@ describe('notifier (P0 修复 4)', () => {
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining('No alert channel found'),
       );
+    });
+
+    it('poster 未注册 → 跳过频道 sink 并 warn 一次，不抛错', async () => {
+      registerAlertChannelPoster(null);
+      process.env.STUDIO_ALERT_CHANNEL_ID = 'ch-alert-1';
+
+      await expect(notifyAlert('warning', 't', 'b')).resolves.toBeUndefined();
+
+      expect(mockCreateAgentMessage).not.toHaveBeenCalled();
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('未注册'));
     });
   });
 
