@@ -30,7 +30,7 @@
 
 - [x] **P2.1 pmo 三件套订阅样板**（be30350d：抽 `subscribeWuStatusChanged` 骨架 `wu-status-subscription.ts`，过滤条件差异以注入参数保留；decision-resolution 第四处形态不同未纳入）
 - [x] **P2.2 review-adapter ×3 收敛**（401f8560：`createJsonlReviewAdapter` 工厂落 review-proposal/jsonl-adapter.ts；签名扩 cardType/storeNamespace/author 参；distill 第四份形态不同未纳入）
-- [ ] **P2.3 totalPages 收敛**：6 处手搓 `Math.ceil(total/limit)` → core/http.ts 给 paginated() 配 `makePagination(page,limit,total)`。
+- [x] **P2.3 totalPages 收敛**（44481edd：core/http.ts 增 `makePagination`，6 处收敛；助手刻意纯委托不做除零保护——skills 域 limit=0 现状输出 Infinity/NaN 不改）
 - [ ] **P2.4 17 处模块级 service 单例改 `createLazyService`**：`export const x = new XService()` 在 import 期捕获 getStore()，正是 core/store.ts 头注明令禁止的模式（eslint 只挡了 FileStore 无参构造，漏了 service 级）。逐个确认构造副作用后统一。
 - [ ] **P2.5 logger 双轨统一**：api 侧 pino（24 文件）vs shared console 版（studio-agent 6 文件）→ pino 实现下沉 shared，api 侧留薄壳；运行时可观测性收敛。
 - [ ] **P2.6 LLM 动态 import 归一**：knowledge/entries.routes.ts:112、skills/skill-extraction.service.ts:245、channels/convert-to-task.service.ts:143 三处 `await import('../agents/index.js')` 查因（疑似循环规避残留）后改静态。
