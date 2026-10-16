@@ -20,7 +20,7 @@
 ## Phase 1 — 目录结构归位（纯移动，逐批验证）
 
 - [x] **P1.1 studio-shared `file-store-*` 收进 `src/file-store/` 子目录**（纯移动；`file-store-cached.ts`/`file-store-cache.ts` 命名混淆已消，后者改名 cache-primitives）
-- [ ] **P1.2 api utils 按受众搬家**：只服务 bootstrap/cli 的 6 个（cloudflared/listen-error/listen-host/runtime-paths/studio-events-rotation/studio-log-rotation）→ 并入对应目录；`token-ledger.ts` → modules/workunit/（消费者全在该域）；真横切（errors/pagination/studio-events-tail/logger/services）留下。
+- [x] **P1.2 api utils 按受众搬家**（bootstrap/cli 6 个归位 + `token-ledger.ts` → modules/workunit/；errors/pagination/studio-events-tail/logger/services 真横切留下）
 - [ ] **P1.3 system-role 门面三轨归一**：删 `modules/agents/system-role.ts` re-export 壳，channels/agent-loop/agents 三处统一直引 `core/system-role.ts`。
 - [ ] **P1.4 `getErrorMessage` 下沉 studio-shared**：消 studio-agent 4 份手写拷贝（runner-lightweight.ts×3、worktree-resolver.ts:81）。
 - [ ] **P1.5 巨型模块内子目录化**：`modules/knowledge/`（38 文件平铺）按 routes/ + 域分目录；`modules/agent-loop/`（42 文件）抽 `prompt-sections/`（11 个 prompt-section-*）与 `loop/` 子目录。

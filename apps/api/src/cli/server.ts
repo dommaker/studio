@@ -7,10 +7,10 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { STUDIO_DIR } from './shared.js';
 import { ensureDataDirs, ensureDaemonSecrets } from './bootstrap.js';
-import { defaultKnowledgeDir } from '../utils/runtime-paths.js';
+import { defaultKnowledgeDir } from '../bootstrap/runtime-paths.js';
 import { scanAllProviders, KNOWN_PROVIDERS, type DetectedRuntime } from '../daemon/cli-scanner.js';
 import { resolvePort, explicitPortFromEnv } from './port-probe.js';
-import { resolveListenHost } from '../utils/listen-host.js';
+import { resolveListenHost } from './listen-host.js';
 
 // ESM 形态（esbuild bundle / tsc ESNext）无 CJS __dirname，与 app.ts 同法自取
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

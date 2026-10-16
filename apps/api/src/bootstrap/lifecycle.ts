@@ -8,7 +8,7 @@ import { logger } from '@dommaker/studio-shared';
 import { stopEvolutionScheduler } from '../modules/knowledge/index.js';
 import { monitorService } from '../modules/ops/index.js';
 import { auditorService } from '../modules/agent-auditor/index.js';
-import { handleServerListenError } from '../utils/listen-error.js';
+import { handleServerListenError } from './listen-error.js';
 import { stopTunnel } from './tunnel.js';
 
 export function createHttpServer(app: Express): Server {

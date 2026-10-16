@@ -19,12 +19,17 @@
 - `handlers.ts` — `registerScanHandlers()`（SCAN_HANDLERS 表 5 个周期扫描 handler + evolution-scan（与 review-proposal adapter 注册共用单次 evolution import）；2026-10-03 C 批起失败只 warn 不拒启——listen 前移后本步 throw 会落 bootstrap catch → exit(1)，发生在端口可服务之后；#686 起纪律经 runSoftSteps 固化）
 - `readiness.ts` — 进程级 readiness 状态（`markReady()/isReady()/readyTimestamp()`，`resetReadiness()` 供测试）：listen 前移后「端口可服务 ≠ 全量就绪」，bootstrap 初始化链尾 markReady()，`app.ts` 的 `/readyz` 据此 200/503；deploy 健康检查以 /readyz 为准（/health 仅 liveness）
 - `tunnel.ts` — `startTunnelIfEnabled()` / `stopTunnel()`（cloudflared 守护，#571 默认关）
+- `cloudflared.ts` — `isCloudflaredEnabled()`（#571 冲突 5：仅 CLOUDFLARED_ENABLED=true 拉起隧道；2026-10-16 批次 F 自 utils/ 归位，唯一消费方 tunnel.ts）
+- `runtime-paths.ts` — `defaultKnowledgeDir()` / `tunnelUrlFile()`（#571：KNOWLEDGE_DIR/TUNNEL_URL_FILE 归数据根；批次 F 自 utils/ 归位，消费方 = 根 index.ts + cli/server.ts + cli/run-web.ts + tunnel.ts）
+- `studio-events-rotation.ts` — `rotateStudioEvents()`（#173 事件保留轮转：信号热 30 天→月 gzip 冷包，噪声 7 天滚删；批次 F 自 utils/ 归位，warmup 动态 import）
+- `studio-log-rotation.ts` — `rotateJsonlLog()` / `rotateStudioLogFiles()` / `archiveLegacyStudioLogs()`（#213 泛化 jsonl 保留轮转 + 遗留归档清理；批次 F 自 utils/ 归位，warmup 动态 import + triage 测试直引）
+- `listen-error.ts` — `handleServerListenError()`（#573 EADDRINUSE 竞态拒启；批次 F 自 utils/ 归位，唯一消费方 lifecycle.ts）
 - `lifecycle.ts` — `createHttpServer()` / `installErrorHandlers()` / `listen()`（#573 EADDRINUSE 拒启）/ `registerShutdown()`（优雅关闭逆序清理）
 
 ### 依赖关系
 
 - 上游：`../app.js`（app + registerRoutes）、`@dommaker/studio-shared`（logger/FileStore/migrations/bootstrapHarness）、各业务模块（动态 import 为主，与原 index.ts 同）
-- 下游：`apps/api/src/index.ts`（唯一调用方）
+- 下游：`apps/api/src/index.ts`（唯一 bootstrap() 调用方）；`cli/server.ts` / `cli/run-web.ts`（直引 `runtime-paths.js`/`listen-host` 经 `../cli/` 反向——批次 F 起启动口径件跨 cli/bootstrap 两目录互引，均属启动链）
 
 ### 注意事项
 

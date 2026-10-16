@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '@dommaker/studio-shared';
 import { studioDir as resolveStudioDir, warnIfNonProdUsesProdRoot } from '@dommaker/studio-shared/studio-dir';
-import { resolveListenHost } from '../utils/listen-host.js';
+import { resolveListenHost } from '../cli/listen-host.js';
 
 let PORT: string | number = 3001;
 let HOST = '127.0.0.1';

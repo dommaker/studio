@@ -324,16 +324,16 @@
 | wu-dependencies | src/modules/workunit/wu-dependencies.ts | #109（T3，#106 子票）WU 接单依赖（blockedBy）解析与可认领判定。 |
 | wu-messenger | src/modules/workunit/wu-messenger.ts | WU 频道系统消息统一出口（wu-messenger）。 |
 | wu-metadata | src/modules/workunit/wu-metadata.ts | WU metadata 访问器（2026-08-06 Card 8）：WorkUnitMetadata 的容错解析 / 会话簿记清理 / |
-| cloudflared | src/utils/cloudflared.ts | cloudflared — 隧道启停判定（#571 冲突 5 冻结结论：外联隧道默认关） |
+| cloudflared | src/bootstrap/cloudflared.ts | cloudflared — 隧道启停判定（#571 冲突 5 冻结结论：外联隧道默认关） |
 | frontend-dist | src/utils/frontend-dist.ts | frontend-dist — 前端产物存在性检查与构建分支（#571 冲突 8 冻结结论） |
-| listen-error | src/utils/listen-error.ts | listen-error — server.listen 错误处理（#573 端口双口径收口） |
-| listen-host | src/utils/listen-host.ts | 监听地址解析（2026-08-25 安全收口） |
+| listen-error | src/bootstrap/listen-error.ts | listen-error — server.listen 错误处理（#573 端口双口径收口） |
+| listen-host | src/cli/listen-host.ts | 监听地址解析（2026-08-25 安全收口） |
 | message-meta | src/utils/message-meta.ts | 消息 meta object×string 双型解析（#264 人审卡片全灭修复定下的口径）。 |
 | notifier | src/utils/notifier.ts | 告警通知出口（P0 观测性修复 4）。 |
-| runtime-paths | src/utils/runtime-paths.ts | runtime-paths — KNOWLEDGE_DIR / TUNNEL_URL_FILE 归数据根（#571） |
-| studio-events-rotation | src/utils/studio-events-rotation.ts | #173（#60 决策 Q3b / spec 批次 C4）：事件保留轮转。 |
+| runtime-paths | src/bootstrap/runtime-paths.ts | runtime-paths — KNOWLEDGE_DIR / TUNNEL_URL_FILE 归数据根（#571） |
+| studio-events-rotation | src/bootstrap/studio-events-rotation.ts | #173（#60 决策 Q3b / spec 批次 C4）：事件保留轮转。 |
 | studio-events-tail | src/utils/studio-events-tail.ts | #180（#60 决策 Q3a）：studio-events.jsonl 尾部倒读 + 游标分页。 |
 | studio-events | src/utils/studio-events.ts | 薄壳转发（#361）：D18 事件唯一写口实现下沉 @dommaker/studio-shared/src/studio-events.ts。 |
 | studio-log-path | src/utils/studio-log-path.ts | 薄壳转发（#361）：实现下沉 @dommaker/studio-shared/src/log-path.ts， |
-| studio-log-rotation | src/utils/studio-log-rotation.ts | #213：泛化 jsonl 保留轮转 + 遗留日志一次性归档清理。 |
-| token-ledger | src/utils/token-ledger.ts | #320 token 账本（token ledger）— workunit:tokens 事件流的写侧累计派生索引。 |
+| studio-log-rotation | src/bootstrap/studio-log-rotation.ts | #213：泛化 jsonl 保留轮转 + 遗留日志一次性归档清理。 |
+| token-ledger | src/modules/workunit/token-ledger.ts | #320 token 账本（token ledger）— workunit:tokens 事件流的写侧累计派生索引。 |

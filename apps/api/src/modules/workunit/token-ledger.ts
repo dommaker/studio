@@ -23,7 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { parseStudioEventPayload } from '@dommaker/studio-shared';
-import { getStore } from '../core/store.js';
+import { getStore } from '../../core/store.js';
 
 
 /** per-WU 累计行：全部数值字段为「该 WU 所有 token 事件的 Σ（仅计有限数字）」 */

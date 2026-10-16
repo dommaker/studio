@@ -13,7 +13,7 @@ import { estimateTokens } from '@dommaker/harness';
 
 import { writeWorkunitTokenEvent, WORKUNIT_TOKENS_SSE_TYPE } from '../agent-loop-events.js';
 import { eventBus } from '@dommaker/studio-shared';
-import { resolveTokenLedgerFile } from '../../../utils/token-ledger.js';
+import { resolveTokenLedgerFile } from '../../workunit/index.js';
 
 function withTmpFile(fn: (eventsFile: string) => Promise<void>): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'workunit-tokens-'));

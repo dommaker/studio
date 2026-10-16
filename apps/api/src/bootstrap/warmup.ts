@@ -44,7 +44,7 @@ const WARMUP_TASKS: readonly SoftStep[] = [
     // 永久保留；噪声（level=debug：knowledge:*/tool:call）7 天滚动删除。启动后跑一次 + 每 24h。
     name: 'studio-events-rotation',
     run: async () => {
-      const { rotateStudioEvents } = await import('../utils/studio-events-rotation.js');
+      const { rotateStudioEvents } = await import('./studio-events-rotation.js');
       const runRotation = () => rotateStudioEvents()
         .catch(err => logger.warn('[StudioEvents] Retention rotation failed', { error: String(err) }));
       setTimeout(runRotation, 15_000);
@@ -57,7 +57,7 @@ const WARMUP_TASKS: readonly SoftStep[] = [
     // 删除。与 #173 同一节奏：启动后跑一次 + 每 24h。
     name: 'studio-log-rotation',
     run: async () => {
-      const { rotateStudioLogFiles, archiveLegacyStudioLogs } = await import('../utils/studio-log-rotation.js');
+      const { rotateStudioLogFiles, archiveLegacyStudioLogs } = await import('./studio-log-rotation.js');
       const runLogRotation = () => rotateStudioLogFiles()
         .then(() => archiveLegacyStudioLogs())
         .catch(err => logger.warn('[StudioLogRotation] Rotation failed', { error: String(err) }));

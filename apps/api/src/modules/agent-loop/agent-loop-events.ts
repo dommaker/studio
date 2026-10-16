@@ -10,7 +10,7 @@ import type { ExecutionResult } from '@dommaker/studio-agent';
 // #665（ADR 2026-08-24 落地）：workunit.tokens SSE 负载与 studio-contract 同源
 import type { WorkunitTokenEvent } from '@dommaker/studio-contract';
 import { noteTokensWritten } from './daily-token-budget.js';
-import { noteTokenLedgerWritten } from '../../utils/token-ledger.js';
+import { noteTokenLedgerWritten } from '../workunit/index.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
 

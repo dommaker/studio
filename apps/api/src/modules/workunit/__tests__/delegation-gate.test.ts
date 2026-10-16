@@ -5,14 +5,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
-import { syncTokenLedger, emptyTokenLedger, type TokenLedgerRow } from '../../../utils/token-ledger.js';
+import { syncTokenLedger, emptyTokenLedger, type TokenLedgerRow } from '../token-ledger.js';
 import { vi } from 'vitest';
 
 // #320：闸门预算用例以 syncTokenLedger 为单测 seam（mock 注入账本），
 // 规避共享 studio-test-logs 目录下并行测试文件重写事件/账本文件的竞态；
 // 账本自身的文件级行为由 utils/__tests__/token-ledger.test.ts 覆盖。
-vi.mock('../../../utils/token-ledger.js', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('../../../utils/token-ledger.js')>();
+vi.mock('../token-ledger.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../token-ledger.js')>();
   return { ...orig, syncTokenLedger: vi.fn() };
 });
 const mockSyncTokenLedger = vi.mocked(syncTokenLedger);

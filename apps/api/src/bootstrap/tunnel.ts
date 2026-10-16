@@ -3,8 +3,8 @@
 import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import { logger } from '@dommaker/studio-shared';
-import { tunnelUrlFile } from '../utils/runtime-paths.js';
-import { isCloudflaredEnabled } from '../utils/cloudflared.js';
+import { tunnelUrlFile } from './runtime-paths.js';
+import { isCloudflaredEnabled } from './cloudflared.js';
 
 let cloudflaredProc: ChildProcess | null = null;
 let lastTunnelUrl = '';

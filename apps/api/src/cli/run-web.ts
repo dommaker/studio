@@ -19,7 +19,7 @@ import { scanAllProviders } from '../daemon/cli-scanner.js';
 import { buildFirstRunPanel } from './first-run-panel.js';
 import { parsePortFlag, resolvePort, explicitPortFromEnv } from './port-probe.js';
 import { ensureFrontendDist } from '../utils/frontend-dist.js';
-import { resolveListenHost } from '../utils/listen-host.js';
+import { resolveListenHost } from './listen-host.js';
 
 const CLI_DIR = path.dirname(fileURLToPath(import.meta.url));
 

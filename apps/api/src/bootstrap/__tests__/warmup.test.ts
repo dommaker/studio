@@ -33,10 +33,10 @@ vi.mock('../../modules/agents/index.js', () => ({
 vi.mock('../../modules/agent-knowledge/index.js', () => ({
   knowledgeCurator: { coldStartAll: spies.coldStartAll },
 }));
-vi.mock('../../utils/studio-events-rotation.js', () => ({
+vi.mock('../studio-events-rotation.js', () => ({
   rotateStudioEvents: spies.rotateStudioEvents,
 }));
-vi.mock('../../utils/studio-log-rotation.js', () => ({
+vi.mock('../studio-log-rotation.js', () => ({
   rotateStudioLogFiles: spies.rotateStudioLogFiles,
   archiveLegacyStudioLogs: spies.archiveLegacyStudioLogs,
 }));

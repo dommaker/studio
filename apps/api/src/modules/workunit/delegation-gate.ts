@@ -22,7 +22,7 @@ import type { WorkUnitMetadata } from './workunit.types.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
-import { syncTokenLedger } from '../../utils/token-ledger.js';
+import { syncTokenLedger } from './token-ledger.js';
 
 /** 协作元数据（WorkUnitMetadata.collab 的具象类型） */
 export type CollabMeta = NonNullable<WorkUnitMetadata['collab']>;

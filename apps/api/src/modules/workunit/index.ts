@@ -13,6 +13,7 @@ export type { CollabMeta } from './delegation-gate.js';
 export { scanGateEscalationReminders } from './gate-escalation.js';
 export { initInReviewInbox } from './in-review-inbox.js';
 export { MAX_TIMEOUT_RELEASES, pidStartMatchesInstance, scanTimedOutWorkUnits } from './timeout-release.js';
+export { noteTokenLedgerWritten, resolveTokenLedgerFile } from './token-ledger.js';
 export { resumeWaitingWorkUnit, scanWaitingForInputReminders } from './waiting-input.js';
 export { snapshotToData } from './workunit-crud.js';
 export type { WorkUnitData } from './workunit-crud.js';

@@ -13,6 +13,7 @@
 - `run-web.ts`：`studioRunWeb()`——启动链：ensureDataDirs/ensureDaemonSecrets → 端口解析 → 首启面板 → preflight（存储探针 + frontend dist）→ ensureDefaults → `await import('../index.js')`。数据区迁移钩子接入点（#572）在其 preflight 之前。
 - `bootstrap.ts`：ensureDataDirs / ensureDaemonSecrets（env > .daemon/ 文件 > 生成落盘）/ probeStorageWritable；run web 与 up 共用。
 - `port-probe.ts`：probePortFree（net 模块探测，跨平台不走 lsof）/ resolvePort（默认 3001 起顺延上限 +100；显式 --port/PORT 占用即拒启）/ parsePortFlag / explicitPortFromEnv。
+- `listen-host.ts`：resolveListenHost / isLoopbackHost（监听地址解析，2026-08-25 安全收口：默认 127.0.0.1，STUDIO_AUTH=none 禁绑非回环；2026-10-16 批次 F 自 utils/ 归位，消费方 server.ts/run-web.ts + bootstrap/config.ts）。
 - `first-run-panel.ts`：buildFirstRunPanel()——Node 版本对 engines>=20、cli-scanner 全 provider 探测结果、数据根、实际监听地址；零 provider 只提示不阻断。
 - `mcp-install.ts`（#566 P3）：`studio mcp install <agent> [--url] [--print] [--uninstall]`——把对外只读 MCP 入口（/api/v1/mcp/external/sse）幂等合入 agent 用户级配置（claude `~/.claude.json` / kimi `~/.kimi-code/mcp.json` / opencode `~/.config/opencode/opencode.json`，均只动 `studio` key、写前 .bak 备份、JSON 损坏拒写）；URL 缺省探测 3001 /mcp/health，不通报错提示 --url；codex 不支持 SSE 报错（Q2 不架 mcp-remote 桥）。
 - `workflow.ts`：审批域 `studio approve/reject`（list 离线扫描频道待审卡；approve 走频道消息 actions 端点）。skill 提案 CLI 审批已随 #648 退役（旧 `/harness/proposals` 面删除），approve skill 给明确不支持提示，走频道卡片（review-proposal 正本）。
@@ -26,5 +27,5 @@
 - **apps/api 的 tsc dist 不能被 node 直跑**（tsconfig module ESNext 而包无 `type: module`，产物含 ESM import + 裸 require/__dirname）——npm 形态不走 tsc dist，`pnpm start`/`dev` 走 tsx；不要再给 tsc dist 加 bin 指向（apps/api bin 已于 #571 移除）。
 - CJS 遗迹：部分模块仍有 `require(...)` 惰性调用——bundle 靠 banner 的 createRequire 兜底，dev 靠 tsx；改 ESM 化时逐文件处理，别指望 tsc 产物直接跑。
 - **checkPrerequisites 测试口径（#577）**：scanAllProviders 真机全量扫描成本随 provider 探测增长（#573 注册表扫描、#574 模型探测后复审环境实测 43-55s），`__tests__/server.test.ts` 已用 importOriginal 部分 mock 隔离——该文件任何用例不得再打真扫描/留集成级超时窗口；要真扫描覆盖请放 e2e。
-- `studio up` 语义不动，但端口口径已随 #573 收口：启动前经 port-probe 解析（PORT 显式占用即拒启，缺省 3001 动态顺延上限 +100），ops preflight 的 lsof abort 与 index.ts 的 EADDRINUSE 3s 无限重试均已删除（后者归 utils/listen-error.ts，listen 竞态撞占用 = 拒启）。checkPrerequisites 的 agent CLI 检查同票对齐 provider 注册表扫描（不再硬编码 claude），缺失只警告不阻断。
+- `studio up` 语义不动，但端口口径已随 #573 收口：启动前经 port-probe 解析（PORT 显式占用即拒启，缺省 3001 动态顺延上限 +100），ops preflight 的 lsof abort 与 index.ts 的 EADDRINUSE 3s 无限重试均已删除（后者归 bootstrap/listen-error.ts，listen 竞态撞占用 = 拒启；批次 F 自 utils/ 归位）。checkPrerequisites 的 agent CLI 检查同票对齐 provider 注册表扫描（不再硬编码 claude），缺失只警告不阻断。
 - getAdminToken 的 login 响应解包随契约驱动批次 6/7 同步：token 在 `{ data }` 壳内（body.data.token）。
