@@ -14,7 +14,7 @@
  */
 import { logger, type FileStore } from '@dommaker/studio-shared';
 import { scanAllProviders, scanAllProvidersAsync, type DetectedRuntime } from '../../daemon/cli-scanner.js';
-import { isSystemRole } from './system-role.js';
+import { isSystemRole } from '../../core/system-role.js';
 
 /** 选默认 provider：扫描结果第一个（注册表顺序）。扫不到返回 null。 */
 export function resolveDefaultProvider(

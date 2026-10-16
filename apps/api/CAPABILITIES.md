@@ -166,7 +166,7 @@
 | system-health | src/modules/agents/ops/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
 | system-executor | src/modules/agents/system-executor.ts | SystemExecutor - 系统级 LLM 调用执行器（AC-1.6 ~ AC-1.10） |
-| system-role | src/modules/agents/system-role.ts | 系统角色身份断言（#631）——「是不是系统角色」的唯一判定点。 |
+| system-role | src/core/system-role.ts | 系统角色身份断言（#631）——「是不是系统角色」的唯一判定点。 |
 | token-usage.routes | src/modules/agents/token-usage.routes.ts | §10.5 角色级 token 视图路由（只读）。 |
 | token-usage.service | src/modules/agents/token-usage.service.ts | §10.5 角色级 token 滚动视图（只读聚合）。 |
 | incident-notification | src/modules/agents/triage/incident-notification.ts | incident 落通知（#468 行动中心）：incident.created/escalated 处理点同步写 |

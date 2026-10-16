@@ -2,7 +2,7 @@
 
 ### 职责
 
-Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言门面、default-provider/default-triggers、session-summary）。REST API CRUD + 事件驱动自动挂载/运行/终止。
+Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言——正本在 core/system-role.ts 本模块直引、default-provider/default-triggers、session-summary）。REST API CRUD + 事件驱动自动挂载/运行/终止。
 
 P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 超级域五个子系统 + Triage 已拆分为顶层模块——决策循环 `modules/agent-loop`、健康监控 `modules/agent-monitor`（含 instance-timeout-scan）、日审 `modules/agent-auditor`、进程守护 `modules/agent-ops`、知识维护 `modules/agent-knowledge`、Triage 并入 `modules/triage`。其后 #683（2026-10-09）将 agent-monitor / agent-ops / monitoring / src/monitoring 四面合并为 `modules/ops`。
 
@@ -15,12 +15,12 @@ P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 
 - `default-provider.ts` — provider 默认选取：resolveDefaultProviderAsync（请求路径用，2026-10-03 根因修复 A 批——agent-profile.service 角色创建原走 sync 全扫，真机冷缓存 43-55s 冻结事件循环）+ resolveDefaultProvider（sync 版仅 CLI 一次性路径用）+ backfillProfileProviders（bootstrap 启动链用，缺省 scanAllProvidersAsync）
 - `default-triggers.ts` — 10 个系统 trigger（inspection-scan/dispatch-reconciliation/doc-semantic-review/#523 workunit-gate-escalation 等）
 - `system-executor.ts` — SystemExecutor 系统级 LLM 直调（读 studio 角色 provider，轻量 spawn 无状态；6+ 模块经 barrel 消费）
-- `system-role.ts` — 系统角色断言门面（正本 core/system-role.ts）
+- ~~`system-role.ts`~~ — 系统角色断言 re-export 壳已随 2026-10-16 批次 F 删除：正本 `core/system-role.ts`，agents 内部消费方与 barrel 均直引 core，无行为变化
 - `session-summary.service.ts` — 会话级知识提取（daemon 启动/6h 增量，纯代码无 LLM；2026-10-03 D 批/#663 起 git 子进程全链走 `core/exec-async.execFileAsync`——原 execFileSync 首跑全量提取阻塞事件循环 ≈10s；2026-10-08 #675 起提取循环逐条 `setImmediate` 让出——首跑 HEAD~50..HEAD 在合并历史下可达数百提交（实测 692），逐条同步 ingest 写的 microtask 紧循环曾饿死事件循环 ≈3.3s，见 performance-baseline.md §10）
 
 ### 核心导出
 
-- `index.ts` — 模块公共出口 barrel：`AgentInstanceService`/`INSTANCE_ALIVE_TIMEOUT_MS`/`summarizeRoleStates`、`ensureStudioProfile`、`backfillProfileProviders`、`registerDefaultTriggers`、`sessionSummaryService`、`getSystemExecutor`/`StudioRoleNotConfiguredError`、`isSystemRole`/`STUDIO_ROLE_NAME`、`aggregateTreeTokens`/`sumTokensForWorkUnits`
+- `index.ts` — 模块公共出口 barrel：`AgentInstanceService`/`INSTANCE_ALIVE_TIMEOUT_MS`/`summarizeRoleStates`、`ensureStudioProfile`、`backfillProfileProviders`、`registerDefaultTriggers`、`sessionSummaryService`、`getSystemExecutor`/`StudioRoleNotConfiguredError`、`isSystemRole`/`STUDIO_ROLE_NAME`（直 re-export `core/system-role.js`，批次 F 起无中间壳）、`aggregateTreeTokens`/`sumTokensForWorkUnits`
 
 ### 依赖关系
 
@@ -45,7 +45,7 @@ P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 
 - **AgentProfile 持久化**：`~/.studio/data/agents/{id}/profile.json` + `state.json`；原子写+mkdir 锁，仅可显式 DELETE；保留名 `studio`。删除时反向收敛引用（agent-profile.service.delete）：清各频道 members + #497 起同步把 channel.routing 中指名该 profile 的档归一化为 null（其他档不动；无引用的频道零写入，幂等）
 - **角色 preset 浮出水面（#633，ADR 2026-09-23-role-preset-surface）**：`GET /agent-profiles/presets` 只读端点返回 `.agents/roles/*.yaml` 清单（`listRolePresets` 扫目录，只回 name+description，templates/capabilities 死字段不浮出；目录新增 yaml 免改代码即出现，单文件解析失败跳过）；注册序须在 `/:id` 之前。`update()` 开放 `persona`（null/空白串=清空——patch 置 undefined，写盘 JSON 序列化丢键）与 `acceptedTypes`（`[]`=清空，与 skills 同口径）。快照断裂为已知限制（yaml 仅 create 时读一次，存量角色吃不到飞轮对 persona 的改进），follow-up 另票裁决
 - **studio 系统角色语义（2026-09-10 修正）**：AC-1.3「studio 不挂 loop」已废除——trigger `assigneeRole` 指名 = 独占认领（仅该角色 loop 可见），studio 无 loop 期间指名 WU 全部结构性死单（doc-semantic-review 滞留 143h 事故）。现 studio = 系统维护任务执行角色（正常挂 loop，`channels=[]` 只看得见指名给它的单）+ systemExecutor 直调身份（读其 provider）双重用途；保留名保护扩展到**禁止停用**（update status 非 active 拒绝），删除仍拒。存量旧 description 文案由 `ensureStudioProfile` 按 `STUDIO_ROLE_LEGACY_DESCRIPTION` 匹配迁移，用户自定义不覆盖
-- **系统角色身份 = `AgentProfileData.kind`（#631）**：`kind: 'system' | 'user'`（additive，新写入必带；ensureStudioProfile 写/回填 'system'，create 写 'user'）。「是不是系统角色」唯一断言 = `system-role.ts` 的 `isSystemRole(profile)`（kind 直读，历史无字段记录按 name==='studio' 兜底一次）；list 默认排除/禁停用/禁删/mention 前缀兜底排除/members 过滤全部走它。独立成模块（不住 service）是为 default-provider 等低位文件可 import 而不循环依赖。**保留名拒绝（create/update 的 `input.name === STUDIO_ROLE_NAME`）仍是 name 语义**——守的是入参名字，非身份。web 侧同口径断言在 `apps/web/src/utils/systemRole.ts`
+- **系统角色身份 = `AgentProfileData.kind`（#631）**：`kind: 'system' | 'user'`（additive，新写入必带；ensureStudioProfile 写/回填 'system'，create 写 'user'）。「是不是系统角色」唯一断言 = `core/system-role.ts` 的 `isSystemRole(profile)`（kind 直读，历史无字段记录按 name==='studio' 兜底一次）；list 默认排除/禁停用/禁删/mention 前缀兜底排除/members 过滤全部走它（agents 内部直引 core 正本，批次 F 已删本模块 re-export 壳；断言不住 service/域模块，是为 default-provider 等低位文件可 import 而不循环依赖）。**保留名拒绝（create/update 的 `input.name === STUDIO_ROLE_NAME`）仍是 name 语义**——守的是入参名字，非身份。web 侧同口径断言在 `apps/web/src/utils/systemRole.ts`
 - **prompt 注入 = index-on-demand**：skills 只注入 name+description+triggers+指针，正文不注入；注入索引候选 = +skill 点名（scope 解析）+ role.skills 显式声明（#462，同权、按名去重）+ 域匹配（acceptedTypes ∪ wu.type 归一化 ∩ skill.agentTypes）三类；知识分层（rule/context 全量、signal 索引、reference 报条数）；分段软定额+池内余量共享截断（harness 1.16.0 estimateTokens 新尺子旧窗口反推值：persona 703/roster 493/skills 635/map 1181/memory 318/knowledge 493/files 213/contract 396/handoff 834，推导即测试=prompt-composer.test.ts 反推块；旧尺子口径原值 300/400/600/800/300/1000/400/200/800）；段序 persona->roster->skills->map->memory->knowledge->files->base->contract->handoff->hint
 - **三层超时**：步墙钟 1800s 兜底+静默看门狗（300s warn/600s 杀进程组）+maxTurns=50
 - **param_tuning 审计建议只指真生效旋钮（#593）**：auditor-rules 检测规则 3 的文案引用 `task.timeoutMs`/`silenceWarnMs`/`silenceKillMs`（runner-lightweight spawn 选项，配置入口 = agent-loop 侧常量）；`ExecutorConfig.sessionTimeoutMinutes`/`taskTimeoutMinutes` 两个只写不读字段已随 #589 删除、禁入面向人文案，`auditor-rules.test.ts` 有白名单断言防同类回归

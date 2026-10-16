@@ -30,7 +30,7 @@ vi.mock('@dommaker/studio-shared/node', () => ({ resolveWorkspacesDir: () => '/t
 
 import { SystemExecutor, StudioRoleNotConfiguredError, SystemExecutorJsonParseError } from '../system-executor.js';
 import { ensureStudioProfile } from '../agent-profile.service.js';
-import { isSystemRole } from '../system-role.js';
+import { isSystemRole } from '../../../core/system-role.js';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'system-executor-test-'));

@@ -10,5 +10,5 @@ export { backfillProfileProviders } from './default-provider.js';
 export { registerDefaultTriggers } from './default-triggers.js';
 export { sessionSummaryService } from './session-summary.service.js';
 export { getSystemExecutor, StudioRoleNotConfiguredError } from './system-executor.js';
-export { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';
+export { isSystemRole, STUDIO_ROLE_NAME } from '../../core/system-role.js';
 export { aggregateTreeTokens, sumTokensForWorkUnits } from './token-usage.service.js';

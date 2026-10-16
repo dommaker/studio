@@ -15,7 +15,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
-import { isSystemRole } from './system-role.js';
+import { isSystemRole } from '../../core/system-role.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';

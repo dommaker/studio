@@ -8,7 +8,8 @@
  *
  * P2-c 自 modules/agents/system-role.ts 下沉 core/：纯原语（常量 + 判定函数），
  * agents 与 channels 双方消费——跨模块共享叶子不该挂在一个域模块里（会拉成互耦对）。
- * agents 内部各消费方经 modules/agents/system-role.ts 门面转介，路径不变。
+ * 2026-10-16 批次 F 三轨归一：agents 侧 re-export 壳删除，agents 内部消费方
+ * 与 agents/index.ts barrel 均直引本文件（barrel 保留导出以维持公共面）。
  */
 
 import type { AgentProfileData } from '@dommaker/studio-shared';

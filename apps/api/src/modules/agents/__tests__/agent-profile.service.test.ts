@@ -8,7 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { AgentProfileService, ensureStudioProfile, listRolePresets, STUDIO_ROLE_DESCRIPTION, STUDIO_ROLE_DEFAULT_PROVIDER, STUDIO_ROLE_LEGACY_DESCRIPTION } from '../agent-profile.service.js';
-import { isSystemRole } from '../system-role.js';
+import { isSystemRole } from '../../../core/system-role.js';
 
 // F1: provider 缺省打戳的扫描结果 mock 为固定 'claude'（真机扫描结果随机器漂移，测试要确定）
 // 2026-10-03：角色创建路径换 resolveDefaultProviderAsync（async 变体），mock 出口同步换名

@@ -7,7 +7,7 @@ API 内核横切层：HTTP 契约装配（http.ts defineRoute）+ 进程级 File
 ### 核心导出
 
 - `http.ts` — `defineRoute`（契约驱动路由：zod 校验 / envelope `{ data }` / `{ error }` / 分页壳）、`HttpError`、`paginated`、`requireHuman`、`ROUTE_SCHEMA_META`（defineRoute 挂在返回 handler 上的 schema 元数据 Symbol 键，OpenAPI 派生用，见 ../openapi/）
-- `system-role.ts` — `STUDIO_ROLE_NAME` / `isSystemRole()`（P2-c 自 agents 下沉：agents/channels 双方消费的系统角色身份断言纯原语；agents 内经 `modules/agents/system-role.ts` 门面转介）
+- `system-role.ts` — `STUDIO_ROLE_NAME` / `isSystemRole()`（P2-c 自 agents 下沉：agents/channels 双方消费的系统角色身份断言纯原语；2026-10-16 批次 F 三轨归一——agents 侧 re-export 壳与 agent-profile.service 二次 re-export 均已删，agents 内部与 agents barrel 全直引本文件）
 - `proc-probes.ts` — /proc 系统探测单出口（P2-c 自 agents/ops 下沉：零子进程 statfs/meminfo/loadavg/cmdline 原语，agents 与 knowledge/env-snapper 双方消费；agents 内经 `modules/agents/ops/proc-probes.ts` 门面转介）
 - `exec-async.ts` — 轮内异步子进程包装（P2-d 自 agents/monitor 下沉：回调式 exec/execFile 的 Promise 版 + #411 exec 段计时；loop/monitor/triage 三方消费，禁同步 exec 阻塞事件循环）
 - `store.ts` — `initStore(root?)` / `getStore()` / `resetStoreForTesting()`（P2-b）：apps/api 进程级 FileStore 唯一获取口；`initStore()` 由 bootstrap 在 initConfig 后、迁移前调一次钉定（并同步钉定 packages 持有器，生产态 api 与 packages 共享同一实例），`getStore()` 为消费方唯一入口。构造必须经本模块对 `@dommaker/studio-shared` 的 import 发生——37 个测试 vi.mock 该 specifier 换 mock FileStore，委托包内持有器构造会让 mock 全灭；packages 消费方走 studio-shared `file-store-default.ts` 的 `getDefaultFileStore()`

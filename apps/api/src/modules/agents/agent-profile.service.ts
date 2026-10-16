@@ -15,10 +15,7 @@ import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfil
 import { clearCache } from '../../middleware/api-cache.js';
 import { resolveDefaultProviderAsync } from './default-provider.js';
 import { summarizeRoleStates } from './agent-instance.service.js';
-import { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';
-
-// #631: 系统角色断言收口于 system-role.ts；此处 re-export 保持既有 import 路径不破
-export { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';
+import { isSystemRole, STUDIO_ROLE_NAME } from '../../core/system-role.js';
 
 /** B4a: studio 角色定位描述（种子默认值；用户自定义后不覆盖） */
 export const STUDIO_ROLE_DESCRIPTION = '系统角色：系统维护任务执行身份（挂 loop，仅消费指名给它的 WU）+ 平台维护性 LLM 直调与系统提醒署名';
