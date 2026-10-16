@@ -4,7 +4,7 @@
 
 import { estimateTokens } from '@dommaker/harness';
 import type { AgentProfileData } from '@dommaker/studio-shared';
-import { sliceToTokenBudget, type BuiltSection } from './prompt-quota.js';
+import { sliceToTokenBudget, type BuiltSection } from '../prompt-quota.js';
 
 /**
  * 决策 13 + #91: 组装 `## 你的角色` 段（角色自述 + preset 声明）。

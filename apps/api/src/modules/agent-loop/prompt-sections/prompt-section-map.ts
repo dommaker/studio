@@ -3,9 +3,9 @@
  */
 
 import { estimateTokens } from '@dommaker/harness';
-import { projectService } from '../pmo/index.js';
-import type { WorkUnitMetadata } from '../workunit/index.js';
-import { sliceToTokenBudget, type BuiltSection } from './prompt-quota.js';
+import { projectService } from '../../pmo/index.js';
+import type { WorkUnitMetadata } from '../../workunit/index.js';
+import { sliceToTokenBudget, type BuiltSection } from '../prompt-quota.js';
 
 /** #111 T5：地图段 decisions 渲染条数封顶 N（顶格完整渲染尺寸随 map 段定额一并在旧窗口反推中校准，见 __tests__/prompt-composer.test.ts 推导块；超出段预算时按 fog 保留、决策从旧到新裁） */
 export const MAP_DECISIONS_MAX = 10;

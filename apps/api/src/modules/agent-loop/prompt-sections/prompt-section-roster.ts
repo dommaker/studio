@@ -4,9 +4,9 @@
 
 import { estimateTokens } from '@dommaker/harness';
 import { parseChannels, type AgentProfileData, type FileStore } from '@dommaker/studio-shared';
-import { resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT } from '../workunit/index.js';
-import type { WorkUnitData } from '../workunit/index.js';
-import { sliceToTokenBudget, type BuiltSection } from './prompt-quota.js';
+import { resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT } from '../../workunit/index.js';
+import type { WorkUnitData } from '../../workunit/index.js';
+import { sliceToTokenBudget, type BuiltSection } from '../prompt-quota.js';
 
 /** roster 段所需的最小依赖面（编排方 PromptComposerDeps 的结构子集，避免类型回引成环） */
 export interface RosterSectionDeps {

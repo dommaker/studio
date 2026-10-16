@@ -4,8 +4,8 @@
 
 import { estimateTokens } from '@dommaker/harness';
 import { stripTrailingSlashes } from '@dommaker/studio-shared';
-import type { WorkUnitMetadata } from '../workunit/index.js';
-import type { BuiltSection } from './prompt-quota.js';
+import type { WorkUnitMetadata } from '../../workunit/index.js';
+import type { BuiltSection } from '../prompt-quota.js';
 
 /**
  * #285（决策 #257 D1/D2/D4/D6/D7/D9）：组装 `## 引用文件` 段 —— WU metadata.fileRefs

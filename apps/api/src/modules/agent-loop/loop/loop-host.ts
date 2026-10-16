@@ -8,11 +8,11 @@
  * 不经 index.ts 出模块（跨模块消费仍只走 barrel）。
  */
 import type { AgentProfileData, FileStore } from '@dommaker/studio-shared';
-import type { WorkUnitService, WorkUnitData } from '../workunit/index.js';
-import type { MessageMeta } from '../channels/index.js';
-import type { Executor } from './executor.js';
-import type { WuLeaseTracker } from './wu-lease.js';
-import type { RuntimeInstanceRow } from './agent-loop.types.js';
+import type { WorkUnitService, WorkUnitData } from '../../workunit/index.js';
+import type { MessageMeta } from '../../channels/index.js';
+import type { Executor } from '../executor.js';
+import type { WuLeaseTracker } from '../wu-lease.js';
+import type { RuntimeInstanceRow } from '../agent-loop.types.js';
 
 export interface AgentLoopHost {
   // ── 构造期依赖（只读） ──

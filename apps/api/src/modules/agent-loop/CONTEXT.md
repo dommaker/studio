@@ -1,17 +1,19 @@
 # apps/api/src/modules/agent-loop
 
+> Updated: 2026-10-16（P1.5 下半平铺归位：8 个 prompt-section-* 收 `prompt-sections/`、6 个 loop-* 收 `loop/`，纯移动零行为变更）
+
 ### 职责
 
 决策循环与 WU 执行链（P2-d 刀5 自 modules/agents/loop 提升为顶层模块）：AgentLoop 循环编排（observe → 过滤 → claim → agentStep → recordResult → 回帖）、prompt/上下文组装、WU 租约与心跳、步级守卫链与重试策略、完成收割与验证、评审派发、派工断链对账。
 
 ### 目录结构
 
-- `agent-loop.ts` — 门面（导出面 = AgentLoop + StepResult；#544 拆除 re-export 门面；#363：原 start() 同角色 terminated 启动清理已拆除，回收归 instance-timeout-scan）：#668 按职责切五段后只留构造接线 + runLoop 主循环编排 + 对外/测试 seam 薄委托；段间共享状态与跨段调用经 `loop-host.ts` 的 AgentLoopHost 接口显式化（模块内部面，不经 index.ts 出模块）
-- `loop-lifecycle.ts` — 生命周期段：start/stop/waitForStop + 实例状态 SSE（publishInstanceStatus/recordStartupFailure）+ #179 心跳连败自裁。start() 健康探针（`buildHealthProbeCommand` + 失败 recordStartupFailure）走 `core/exec-async.execAsync` 异步链（2026-10-03 D 批——原 execSync 在 listen 后 mount 链/profile.created 事件路径按角色串行阻塞事件循环）
-- `loop-observe.ts` — 观察段：observe（§9.5 频道成员过滤 / #221 认领陈旧守卫 / 决策 10 显式认领 / B5 字节水位增量回复检测）+ 事件唤醒三件套（#330/#493/#523：idleSleep / onChannelMessageSent / onWorkUnitClaimable，只放行不裁决）
-- `loop-claim.ts` — 认领段：claimAndAnnounce（#175 认领即发声，#445 委托 workunit/claim-announce）+ 决策 14 适任判断链（ensureClaimFit → recordClaimUnfit → blockIfAllMembersUnfit）
-- `loop-step.ts` — 步执行段：agentStep 编排（step-guards → worktree/PMO 分支基线 → 会话续用 #94/#637/#639 → prompt-composer → Executor 执行 → step-retry-policy 重试 → token 记账/tool:call/transcript/步事件/R3 提取/#542 收割）+ #90 outcome 落账
-- `loop-record-result.ts` — 结果记录段：recordResult（#178 fencing → completion-gates → delegate 分支 → §4.2 新鲜度 → result-bookkeeping 簿记 → F6-c 强制收口补验 → 原子写 → 状态迁移与频道通知）+ postToDiscussionSpace（频道系统消息唯一出口，经 host seam 供 claim/step 段共用）
+- `agent-loop.ts` — 门面（导出面 = AgentLoop + StepResult；#544 拆除 re-export 门面；#363：原 start() 同角色 terminated 启动清理已拆除，回收归 instance-timeout-scan）：#668 按职责切五段后只留构造接线 + runLoop 主循环编排 + 对外/测试 seam 薄委托；段间共享状态与跨段调用经 `loop/loop-host.ts` 的 AgentLoopHost 接口显式化（模块内部面，不经 index.ts 出模块）
+- `loop/loop-lifecycle.ts` — 生命周期段：start/stop/waitForStop + 实例状态 SSE（publishInstanceStatus/recordStartupFailure）+ #179 心跳连败自裁。start() 健康探针（`buildHealthProbeCommand` + 失败 recordStartupFailure）走 `core/exec-async.execAsync` 异步链（2026-10-03 D 批——原 execSync 在 listen 后 mount 链/profile.created 事件路径按角色串行阻塞事件循环）
+- `loop/loop-observe.ts` — 观察段：observe（§9.5 频道成员过滤 / #221 认领陈旧守卫 / 决策 10 显式认领 / B5 字节水位增量回复检测）+ 事件唤醒三件套（#330/#493/#523：idleSleep / onChannelMessageSent / onWorkUnitClaimable，只放行不裁决）
+- `loop/loop-claim.ts` — 认领段：claimAndAnnounce（#175 认领即发声，#445 委托 workunit/claim-announce）+ 决策 14 适任判断链（ensureClaimFit → recordClaimUnfit → blockIfAllMembersUnfit）
+- `loop/loop-step.ts` — 步执行段：agentStep 编排（step-guards → worktree/PMO 分支基线 → 会话续用 #94/#637/#639 → prompt-composer → Executor 执行 → step-retry-policy 重试 → token 记账/tool:call/transcript/步事件/R3 提取/#542 收割）+ #90 outcome 落账
+- `loop/loop-record-result.ts` — 结果记录段：recordResult（#178 fencing → completion-gates → delegate 分支 → §4.2 新鲜度 → result-bookkeeping 簿记 → F6-c 强制收口补验 → 原子写 → 状态迁移与频道通知）+ postToDiscussionSpace（频道系统消息唯一出口，经 host seam 供 claim/step 段共用）
 - `execution-cwd.ts` — 执行目录解析三规则（#481 workspaceRoot 唯一来源 / B3b-i 父 worktree 继承 / 收口守卫 git cwd），deps 注入纯函数（`__tests__/execution-cwd.test.ts` 直测）
 - `agent-loop.types.ts` — 类型契约（纯类型零运行时）
 - `agent-loop-registry.ts` — profileId→running AgentLoop 注册表（profile 生命周期事件驱动挂载/卸载；#634 provider 变更重挂）
@@ -19,7 +21,7 @@
 - `step-guards.ts`（#541 入口守卫链：B2 测试 WU / #585 需求+AC / C3 日预算 / #162 WU 预算 / #471 plan 额度）、`step-retry-policy.ts`（#543 重试策略：#94 续用丢失降级 + #96 上下文溢出收敛为 runStepRetry 一份）
 - `claim-fitness.ts`（认领前适任判断，决策 14；2026-09-25 起落 `agent:claim_fitness` 台账事件）
 - `daily-token-budget.ts`（每日 token 预算熔断，C3）、`delegate-branch.ts`（A2A DELEGATE 分支委派）
-- `prompt-composer.ts`（prompt/上下文组装编排：composeStepPrompt 段序与池共享 runSection、hint 读取/消费清除、base prompt 选择、knowledge 段、files 截断播报；#671 按组装段拆分后 318 行，拆分前公共面经 re-export 保持不变）、`prompt-quota.ts`（SECTION_QUOTAS 九段软定额 + BuiltSection + sliceToTokenBudget 截断共享件）、`prompt-section-{persona,roster,skill,map,memory,files,contract,handoff}.ts`（八个注入段组装各居其文件；段模板正本 CONTRACT_TEMPLATES/INSPECTION_CONTRACT 居 contract 段文件）、`session-resume.ts`（#94）、`context-overflow.ts`（溢出识别+滚动摘要）
+- `prompt-composer.ts`（prompt/上下文组装编排：composeStepPrompt 段序与池共享 runSection、hint 读取/消费清除、base prompt 选择、knowledge 段、files 截断播报；#671 按组装段拆分后 318 行，拆分前公共面经 re-export 保持不变）、`prompt-quota.ts`（SECTION_QUOTAS 九段软定额 + BuiltSection + sliceToTokenBudget 截断共享件）、`prompt-sections/prompt-section-{persona,roster,skill,map,memory,files,contract,handoff}.ts`（八个注入段组装各居其文件；段模板正本 CONTRACT_TEMPLATES/INSPECTION_CONTRACT 居 contract 段文件）、`session-resume.ts`（#94）、`context-overflow.ts`（溢出识别+滚动摘要）
 - `wu-lease.ts` / `lease-heartbeat.ts`（WU 租约/fencing 追踪器 #209 / 心跳 30s）
 - `executor.ts`（Executor 接口，LocalExecutor 委托 agentRunner）、`execution-step-events.ts`（步级事件落盘+步内流式 SSE；#665 起 payload 类型与 studio-contract/sse-events.ts 同源——ExecutionStepEventPayload/ExecutionStreamChunk 是契约类型别名，改形状先改契约；#687 起 EXECUTION_STREAM_SSE_TYPE 常量正本亦收编契约（本文件 re-export 保持既有 import 路径），wire round-trip 行为校验见 events/__tests__/sse-payload-contract.test.ts）
 - `wu-verification.ts`（自动验证可复用实现）、`completion-gates.ts`（收口守卫链）、`completion-harvest.ts`（#542 per-WU-type COMPLETE 收割注册表）、`result-bookkeeping.ts`（#655 recordResult 簿记段）、`review-contract.ts`（verdict 语义单一来源）

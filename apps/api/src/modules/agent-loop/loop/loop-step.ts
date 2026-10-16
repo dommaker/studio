@@ -14,28 +14,28 @@ import { estimateTokens } from '@dommaker/harness';
 import { randomUUID } from 'crypto';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommaker/studio-agent';
-import { parseWuMetadata, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
-import { resolvePmoBranchForWU } from '../requirements/index.js';
+import { parseWuMetadata, type WorkUnitData, type WorkUnitMetadata } from '../../workunit/index.js';
+import { resolvePmoBranchForWU } from '../../requirements/index.js';
 import { writeStudioEvent, resolveStudioEventsFile } from '@dommaker/studio-shared';
-import { getErrorMessage } from '../../utils/errors.js';
-import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
-import { knowledgeService } from '../knowledge/index.js';
-import { CODE_WORKTREE_TYPES } from './wu-verification.js';
-import { runStepGuards } from './step-guards.js';
-import { harvestCompletionMetadata } from './completion-harvest.js';
-import type { StepResult, Target } from './agent-loop.types.js';
+import { getErrorMessage } from '../../../utils/errors.js';
+import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from '../execution-step-events.js';
+import { knowledgeService } from '../../knowledge/index.js';
+import { CODE_WORKTREE_TYPES } from '../wu-verification.js';
+import { runStepGuards } from '../step-guards.js';
+import { harvestCompletionMetadata } from '../completion-harvest.js';
+import type { StepResult, Target } from '../agent-loop.types.js';
 import {
   isGitRepoRoot, resolveWorktreesDir, parseAgentOutput,
-} from './agent-loop-parsers.js';
+} from '../agent-loop-parsers.js';
 import {
   resolveRealUsage, writeWorkunitTokenEvent,
   resolveToolTraceFile, writeToolCallEvents, type RealUsage,
-} from './agent-loop-events.js';
-import { composeStepPrompt } from './prompt-composer.js';
-import { shouldResumeSession } from './session-resume.js';
-import { runStepRetry, resetUnestablishedSessionBookkeeping, MAX_SESSIONS_PER_WU } from './step-retry-policy.js';
-import { appendTranscriptStep, transcriptPath } from '../transcripts/index.js';
-import { resolveExecutionWorkspaceRoot, resolveParentWorktreePath } from './execution-cwd.js';
+} from '../agent-loop-events.js';
+import { composeStepPrompt } from '../prompt-composer.js';
+import { shouldResumeSession } from '../session-resume.js';
+import { runStepRetry, resetUnestablishedSessionBookkeeping, MAX_SESSIONS_PER_WU } from '../step-retry-policy.js';
+import { appendTranscriptStep, transcriptPath } from '../../transcripts/index.js';
+import { resolveExecutionWorkspaceRoot, resolveParentWorktreePath } from '../execution-cwd.js';
 import type { AgentLoopHost } from './loop-host.js';
 
 /** #171（#54 决议 A1，数值来自 #68 实测）：三层超时 ——

@@ -32,12 +32,12 @@ import { LocalExecutor, type Executor } from './executor.js';
 import { WuLeaseTracker } from './wu-lease.js';
 import { resolveTarget, dynamicInterval, sleep } from './agent-loop-parsers.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
-import type { AgentLoopHost } from './loop-host.js';
-import { LoopLifecycle } from './loop-lifecycle.js';
-import { LoopObserver } from './loop-observe.js';
-import { LoopClaim } from './loop-claim.js';
-import { StepRunner } from './loop-step.js';
-import { ResultRecorder } from './loop-record-result.js';
+import type { AgentLoopHost } from './loop/loop-host.js';
+import { LoopLifecycle } from './loop/loop-lifecycle.js';
+import { LoopObserver } from './loop/loop-observe.js';
+import { LoopClaim } from './loop/loop-claim.js';
+import { StepRunner } from './loop/loop-step.js';
+import { ResultRecorder } from './loop/loop-record-result.js';
 
 // 类型契约已抽到 ./agent-loop.types.js（工单 28，行为不变）；
 // StepResult re-export 保留——completion-gates 等生产消费方经本门面取类型（#544）

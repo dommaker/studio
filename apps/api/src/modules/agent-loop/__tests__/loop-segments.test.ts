@@ -26,11 +26,11 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 }));
 
 import { AgentLoop } from '../agent-loop';
-import { LoopLifecycle } from '../loop-lifecycle';
-import { LoopObserver } from '../loop-observe';
-import { LoopClaim } from '../loop-claim';
-import { StepRunner } from '../loop-step';
-import { ResultRecorder } from '../loop-record-result';
+import { LoopLifecycle } from '../loop/loop-lifecycle';
+import { LoopObserver } from '../loop/loop-observe';
+import { LoopClaim } from '../loop/loop-claim';
+import { StepRunner } from '../loop/loop-step';
+import { ResultRecorder } from '../loop/loop-record-result';
 import { WuLeaseTracker } from '../wu-lease';
 
 const mockRole = {

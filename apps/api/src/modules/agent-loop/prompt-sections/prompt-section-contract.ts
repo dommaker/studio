@@ -3,8 +3,8 @@
  */
 
 import { estimateTokens } from '@dommaker/harness';
-import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
-import { sliceToTokenBudget, type BuiltSection } from './prompt-quota.js';
+import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
+import { sliceToTokenBudget, type BuiltSection } from '../prompt-quota.js';
 
 /**
  * #567：plan 方向锁定契约段（插在裁决轮段之前）——存在互斥大方向时出一次方向卡

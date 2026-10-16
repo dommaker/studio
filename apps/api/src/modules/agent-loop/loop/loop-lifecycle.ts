@@ -10,11 +10,11 @@
 import { eventBus, logger, type RuntimeStateData } from '@dommaker/studio-shared';
 import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
-import { execAsync } from '../../core/exec-async.js';
-import { getTriggerScheduler } from '../triggers/index.js';
-import { getErrorMessage } from '../../utils/errors.js';
-import { isProcessAlive } from './agent-loop-parsers.js';
-import { loadCurrentWuContexts, type CurrentWuContext } from '../ops/index.js';
+import { execAsync } from '../../../core/exec-async.js';
+import { getTriggerScheduler } from '../../triggers/index.js';
+import { getErrorMessage } from '../../../utils/errors.js';
+import { isProcessAlive } from '../agent-loop-parsers.js';
+import { loadCurrentWuContexts, type CurrentWuContext } from '../../ops/index.js';
 // #665（ADR 2026-08-24 落地）：agent.* SSE 负载与 studio-contract 同源
 import type { AgentHealthFailedPayload, AgentInstanceStatusChangedPayload } from '@dommaker/studio-contract';
 import type { AgentLoopHost } from './loop-host.js';
@@ -387,7 +387,7 @@ export class LoopLifecycle {
       // project.service 走动态 import：避免与 pmo/workunit 模块链形成加载期循环依赖（同 monitoring.service 的 lazy 惯例）
       const ctx = currentWorkUnitId
         ? (await loadCurrentWuContexts(host.fileStore, [currentWorkUnitId], async () => {
-            const mod = await import('../pmo/index.js');
+            const mod = await import('../../pmo/index.js');
             return mod.projectService.list({ limit: 100000 });
           }).catch(() => new Map())).get(currentWorkUnitId) ?? null
         : null;

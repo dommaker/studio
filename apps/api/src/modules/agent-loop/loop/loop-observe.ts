@@ -8,10 +8,10 @@
  * 全部共享状态经 AgentLoopHost 读写；本类零自有状态。
  */
 import { parseChannels, isStaleClaimSleep, type ChannelMessageData } from '@dommaker/studio-shared';
-import { snapshotToData, hasUnfinishedDeps, buildStatusById } from '../workunit/index.js';
-import { parseExcludeAssignee } from './agent-loop-guards.js';
-import { isRoleUnfit } from './claim-fitness.js';
-import type { Observations } from './agent-loop.types.js';
+import { snapshotToData, hasUnfinishedDeps, buildStatusById } from '../../workunit/index.js';
+import { parseExcludeAssignee } from '../agent-loop-guards.js';
+import { isRoleUnfit } from '../claim-fitness.js';
+import type { Observations } from '../agent-loop.types.js';
 import type { AgentLoopHost } from './loop-host.js';
 
 export class LoopObserver {

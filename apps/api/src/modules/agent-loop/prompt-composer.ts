@@ -27,25 +27,25 @@ import { buildContinuePrompt, buildReplyPrompt } from './agent-loop-parsers.js';
 import { metricsFileStore } from './agent-loop-events.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { SECTION_QUOTAS, type InjectSectionName, type BuiltSection } from './prompt-quota.js';
-import { buildPersonaSection } from './prompt-section-persona.js';
-import { buildRosterSection } from './prompt-section-roster.js';
-import { buildSkillSection } from './prompt-section-skill.js';
-import { buildPmoMapSection } from './prompt-section-map.js';
-import { buildMemorySection } from './prompt-section-memory.js';
-import { buildFilesSection } from './prompt-section-files.js';
-import { buildContractSection } from './prompt-section-contract.js';
-import { buildHandoffSection, WAITING_QUESTION_REPLAY_MAX_CHARS } from './prompt-section-handoff.js';
+import { buildPersonaSection } from './prompt-sections/prompt-section-persona.js';
+import { buildRosterSection } from './prompt-sections/prompt-section-roster.js';
+import { buildSkillSection } from './prompt-sections/prompt-section-skill.js';
+import { buildPmoMapSection } from './prompt-sections/prompt-section-map.js';
+import { buildMemorySection } from './prompt-sections/prompt-section-memory.js';
+import { buildFilesSection } from './prompt-sections/prompt-section-files.js';
+import { buildContractSection } from './prompt-sections/prompt-section-contract.js';
+import { buildHandoffSection, WAITING_QUESTION_REPLAY_MAX_CHARS } from './prompt-sections/prompt-section-handoff.js';
 
 // #671：拆分前公共面 re-export——定额表 / 段模板 / 段常量原经本文件导出，拆后出口不变
 export { SECTION_QUOTAS } from './prompt-quota.js';
-export { MAP_DECISIONS_MAX, MAP_SUMMARY_MAX_CHARS } from './prompt-section-map.js';
-export { WAITING_QUESTION_REPLAY_MAX_CHARS } from './prompt-section-handoff.js';
+export { MAP_DECISIONS_MAX, MAP_SUMMARY_MAX_CHARS } from './prompt-sections/prompt-section-map.js';
+export { WAITING_QUESTION_REPLAY_MAX_CHARS } from './prompt-sections/prompt-section-handoff.js';
 export {
   PLAN_DIRECTION_SECTION,
   PLAN_DIRECTION_DISABLED_HINT,
   CONTRACT_TEMPLATES,
   INSPECTION_CONTRACT,
-} from './prompt-section-contract.js';
+} from './prompt-sections/prompt-section-contract.js';
 
 /** prompt 组装输入。metadata 为 agentStep 入口解析的持久化视图（hint 消费读取同一来源）。 */
 export interface PromptComposerCtx {

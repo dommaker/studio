@@ -4,9 +4,9 @@
 
 import { estimateTokens } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared';
-import { roleMemoryStore } from '../role-memory/index.js';
-import { getErrorMessage } from '../../utils/errors.js';
-import { sliceToTokenBudget, type BuiltSection } from './prompt-quota.js';
+import { roleMemoryStore } from '../../role-memory/index.js';
+import { getErrorMessage } from '../../../utils/errors.js';
+import { sliceToTokenBudget, type BuiltSection } from '../prompt-quota.js';
 
 /**
  * #100: 组装 `## 角色记忆索引` 段 —— 注入 per-role MEMORY.md 索引全文（index-on-demand：

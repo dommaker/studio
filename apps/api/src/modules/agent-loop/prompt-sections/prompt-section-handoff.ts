@@ -3,8 +3,8 @@
  */
 
 import { estimateTokens } from '@dommaker/harness';
-import type { WorkUnitMetadata } from '../workunit/index.js';
-import { sliceToTokenBudget, type BuiltSection } from './prompt-quota.js';
+import type { WorkUnitMetadata } from '../../workunit/index.js';
+import { sliceToTokenBudget, type BuiltSection } from '../prompt-quota.js';
 
 /** #95：waitingQuestion 仅新会话回放的截断字符上限 */
 export const WAITING_QUESTION_REPLAY_MAX_CHARS = 300;

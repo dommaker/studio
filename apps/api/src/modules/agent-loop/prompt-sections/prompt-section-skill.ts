@@ -5,10 +5,10 @@
 import { estimateTokens } from '@dommaker/harness';
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { loadManifest } from '../skills/index.js';
-import { selectSkillsForInjection, parseSkillHintsFromScope } from '../skills/index.js';
-import type { WorkUnitData } from '../workunit/index.js';
-import { sliceToTokenBudget } from './prompt-quota.js';
+import { loadManifest } from '../../skills/index.js';
+import { selectSkillsForInjection, parseSkillHintsFromScope } from '../../skills/index.js';
+import type { WorkUnitData } from '../../workunit/index.js';
+import { sliceToTokenBudget } from '../prompt-quota.js';
 
 /** skills 段所需的最小依赖面（编排方 PromptComposerDeps 的结构子集，避免类型回引成环） */
 export interface SkillSectionDeps {

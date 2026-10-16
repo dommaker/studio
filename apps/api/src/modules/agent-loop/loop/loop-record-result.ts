@@ -13,15 +13,15 @@ import { logger, withAttestation } from '@dommaker/studio-shared';
 import {
   mergedWuView, withBlockedCta, postWuSystemMessage,
   type WorkUnitData, type WorkUnitMetadata,
-} from '../workunit/index.js';
-import type { MessageMeta } from '../channels/index.js';
-import { emitWorkUnitFailedEvent } from './execution-step-events.js';
-import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
-import { runCompletionGuards } from './completion-gates.js';
-import { prepareRecordBookkeeping } from './result-bookkeeping.js';
-import { handleDelegateBranch } from './delegate-branch.js';
-import { resolveExecutionCwd } from './execution-cwd.js';
-import type { StepResult, Target } from './agent-loop.types.js';
+} from '../../workunit/index.js';
+import type { MessageMeta } from '../../channels/index.js';
+import { emitWorkUnitFailedEvent } from '../execution-step-events.js';
+import { CODE_WORKTREE_TYPES, runWuVerification } from '../wu-verification.js';
+import { runCompletionGuards } from '../completion-gates.js';
+import { prepareRecordBookkeeping } from '../result-bookkeeping.js';
+import { handleDelegateBranch } from '../delegate-branch.js';
+import { resolveExecutionCwd } from '../execution-cwd.js';
+import type { StepResult, Target } from '../agent-loop.types.js';
 import type { AgentLoopHost } from './loop-host.js';
 
 /** 步骤数上限：超限强制 in_review 交人工。review WU 单独放宽——
