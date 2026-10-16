@@ -50,9 +50,9 @@
 
 权威边集分析（p2c-dep-analysis）锁定三条「一个 import 就是一个模块全部出簇边」的切点：
 
-- [ ] **auth → audit-logs**（`auth/routes.ts:13` getAuditService，1 条静态 import）
-- [ ] **notifications → channels**（`alert-notifier.ts:21` ChannelMessageService，1 条）
-- [ ] **review-proposal → channels**（`card.ts:40` 动态 import channelMessageService，1 条——动态 import 是当时躲循环的临时招，正说明该处需要正经的缝）
+- [x] **auth → audit-logs**（47c5b72d，audit-sink 注册口+module-sinks 装配）（`auth/routes.ts:13` getAuditService，1 条静态 import）
+- [x] **notifications → channels**（5b80b22d，AlertChannelPoster 注册口+装配）（`alert-notifier.ts:21` ChannelMessageService，1 条）
+- [x] **review-proposal → channels**（e72f45fb，ChannelCardPoster 注册口+装配，动态 import 退役）（`card.ts:40` 动态 import channelMessageService，1 条——动态 import 是当时躲循环的临时招，正说明该处需要正经的缝）
 
 手法（三处统一，树立后续解耦的标准模式）：**bootstrap 装配期 DI**——被调方模块暴露注册口（如 `registerAuditSink(fn)`/`registerChannelCardPoster(fn)`），bootstrap/ 装配时把 channels/audit-logs 的实现注进去，静态 import 边消除。事件总线留给真正异步 fire-and-forget 的场景，不滥用。
 每切一刀：更新 `scripts/module-cycle-exemptions.mjs` HUB_SCC 成员集 → `pnpm lint:cycles` 验证转绿（门自带 stale 自检，豁免不同步会红，天然验收）。
