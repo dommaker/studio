@@ -75,7 +75,7 @@ export function filterCooldownAlerts(alerts: MonitorAlert[], now: number = Date.
 
 /**
  * D18 事件入口统一：事件文件 = ~/.studio/logs/studio-events.jsonl
- * （测试期经 studio-log-path 隔离）。保留本函数名以兼容既有调用方/测试。
+ * （测试期经 shared log-path 隔离）。保留本函数名以兼容既有调用方/测试。
  */
 export function studioEventsJsonl(): string {
   return resolveStudioEventsFile();

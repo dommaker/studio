@@ -173,15 +173,15 @@ describe('summarizeChains', () => {
     // 派单样本 [2000, 1000, 4000] → 排序 [1000, 2000, 4000]
     expect(report.segments.dispatch.n).toBe(3);
     expect(report.segments.dispatch.p50Ms).toBe(2_000);
-    expect(report.segments.dispatch.p95Ms).toBe(4_000);
-    // 等认领 [10000, 5000]（nearest-rank：偶数样本 p50 取下中位）；wu-c 缺 claimedAt 跳过
+    expect(report.segments.dispatch.p95Ms).toBe(3_800); // 线性插值：idx=1.9 → 2000*0.1+4000*0.9
+    // 等认领 [10000, 5000]（线性插值：偶数样本 p50 取两中位均值）；wu-c 缺 claimedAt 跳过
     expect(report.segments.waitClaim.n).toBe(2);
-    expect(report.segments.waitClaim.p50Ms).toBe(5_000);
+    expect(report.segments.waitClaim.p50Ms).toBe(7_500);
     expect(report.segments.waitClaim.skipped['waitClaim:no_claimedAt']).toBe(1);
-    // 执行 [60000, 30000]
+    // 执行 [60000, 30000]（p50 均值 45000；p95 idx=0.95 → 30000*0.05+60000*0.95）
     expect(report.segments.execution.n).toBe(2);
-    expect(report.segments.execution.p50Ms).toBe(30_000);
-    expect(report.segments.execution.p95Ms).toBe(60_000);
+    expect(report.segments.execution.p50Ms).toBe(45_000);
+    expect(report.segments.execution.p95Ms).toBe(58_500);
     // 回执 [3000]；b 无回执消息、c 未完成各跳过
     expect(report.segments.receipt.n).toBe(1);
     expect(report.segments.receipt.p50Ms).toBe(3_000);

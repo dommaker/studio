@@ -27,16 +27,15 @@
  * checkCapacity 作为未来 GC 可消费的 hook，不深入改 KnowledgeSync。见 apps/api/src/modules/role-memory/CONTEXT.md。
  *
  * 路径：落盘经 studioPath()（读 STUDIO_HOME，dev/prod 隔离，禁硬编码 ~/.studio）。
- * 测试隔离与 studio-log-path 同约定：VITEST/NODE_ENV=test 时改写 os.tmpdir()/
+ * 测试隔离与 shared log-path 同约定：VITEST/NODE_ENV=test 时改写 os.tmpdir()/
  * studio-test-role-memory/<per-进程子目录>（全局设 STUDIO_HOME 会破坏既有测试，故不改写
  * env 用 tmpdir；per-进程子目录防 vitest 并行测试文件整删互踩，#135）。
  */
 import fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { foldJsonlById } from '@dommaker/studio-shared';
+import { foldJsonlById, isTestEnv, testTmpRoot } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { isTestEnv, testTmpRoot } from '../../utils/studio-log-path.js';
 import { getStore } from '../../core/store.js';
 
 

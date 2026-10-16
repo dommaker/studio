@@ -18,7 +18,7 @@
  *   - 会话定位：每行携带 sessionId（metadata.sessionId 已维护 WU→session 映射）
  *   - 保留策略：不主动 GC（后续由 ops 按需清理）
  *
- * 测试隔离：与 studio-log-path 同一约定 —— VITEST/NODE_ENV=test 时改写到
+ * 测试隔离：与 shared log-path 同一约定 —— VITEST/NODE_ENV=test 时改写到
  * os.tmpdir()/studio-test-transcripts/<per-进程子目录>（文件名格式不变），防测试写生产
  * ~/.studio/transcripts（agent-loop 集成测试会触发本写入，须隔离）；per-进程子目录防
  * vitest 并行测试文件互踩（#135）。生产路径不变。
@@ -28,8 +28,8 @@
  */
 import * as path from 'node:path';
 
+import { testTmpRoot } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { testTmpRoot } from '../../utils/studio-log-path.js';
 import { getStore } from '../../core/store.js';
 
 
@@ -37,7 +37,7 @@ import { getStore } from '../../core/store.js';
 /** 归档根目录名（studioDir() 下单层目录名） */
 export const TRANSCRIPTS_DIR = 'transcripts';
 
-/** 是否测试环境（vitest 设置 VITEST=true；CI/脚本常用 NODE_ENV=test），同 studio-log-path */
+/** 是否测试环境（vitest 设置 VITEST=true；CI/脚本常用 NODE_ENV=test），同 shared log-path */
 export function isTestEnv(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.VITEST) || env.NODE_ENV === 'test';
 }

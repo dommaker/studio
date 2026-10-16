@@ -91,7 +91,8 @@ export function hashSkillDir(dir: string): string | null {
   return h.digest('hex');
 }
 
-function copyTree(src: string, dest: string): void {
+/** 递归整目录拷贝：先清目标再逐文件复制。apps/api cli/skill install 与 seed 共用同一语义（#568） */
+export function copyTree(src: string, dest: string): void {
   fs.rmSync(dest, { recursive: true, force: true });
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {

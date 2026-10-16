@@ -82,4 +82,4 @@ export type {
 } from './file-store';
 
 // 导出 Stats 模块
-export * from './stats/anomaly-detector';
+export * from './stats/percentile';

@@ -171,7 +171,7 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
 
 /**
  * D18 事件入口统一: tool:call trace 写入统一事件文件
- * （~/.studio/logs/studio-events.jsonl，测试期经 studio-log-path 隔离）。
+ * （~/.studio/logs/studio-events.jsonl，测试期经 shared log-path 隔离）。
  * 懒解析以支持运行时/测试注入 env。
  */
 export function resolveToolTraceFile(): string {

@@ -19,7 +19,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveStudioLogFile } from '../apps/api/src/utils/studio-log-path.js';
+// #361 薄壳已删（2026-10 死代码批次）：直引 shared 正本（scripts/ 无 workspace 链接，走相对路径同 e2e-live-smoke）
+import { resolveStudioLogFile } from '../packages/studio-shared/src/log-path';
 import { getSystemExecutor, resetSystemExecutor } from '../apps/api/src/modules/agents/system-executor.js';
 
 export const SMOKE_EVENT_SOURCE = 'smoke-370';

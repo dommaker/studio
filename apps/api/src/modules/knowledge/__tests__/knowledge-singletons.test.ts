@@ -18,7 +18,7 @@ import {
   isVectorDbSyncing,
   ingestWithQualityGate,
 } from '../knowledge-singletons.js';
-import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { resolveStudioLogFile } from '@dommaker/studio-shared';
 import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 import { setSegmentMetricsSink, type SegmentMetricEvent } from '@dommaker/studio-shared/read-metrics';
 

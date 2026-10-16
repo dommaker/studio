@@ -31,8 +31,7 @@
 - `types.ts` — MonitorAlert/MonitorAlertSource 类型
 - `ops.service.ts` — OpsService 门面 + `createOpsService` 工厂
 - `ops-rules.ts` — 守护规则加载（processes_to_clean 等契约）
-- `system-health.ts` — collectSystemHealth / checkThresholds / runGC（done/closed 且 completedAt >30 天 WU 清理，无生产接线仅测试可达）
-- `__tests__/` — monitor-* / monitoring-* / metrics / ops-* / system-health / current-wu-context 等 21 个测试
+- `__tests__/` — monitor-* / monitoring-* / metrics / ops-* / current-wu-context 等 20 个测试
 
 ### 核心导出
 
@@ -53,11 +52,11 @@
 - 成本红线常量 (`INJECTED_TOKEN_BUDGET`、`OVERHEAD_RATIO_BUDGET`) 与 vision §3 对齐，修改需同步文档。
 - 监控数据窗口默认 30 天，由 `KnowledgeMetricsSource` 的 `windowDays` 参数控制。
 - **鉴权（2026-07-24 收紧）**：`/api/v1/monitoring` 挂载级 `requireAuth()+requireAdmin()`（route-registry）。GET 端点此前无挂载中间件、仅靠 Lurk Wall 大门兜底。
-- **fs 直写保留理由（P2-e 登记）**：`gcStaleWorktrees` 的 worktrees 目录扫描/删除与 `system-health runGC` 的 worktrees/sessions 目录清理是目录级 GC 操作（FileStore 不管的形态）；目录口径 P2-e 起为 `WORKTREES_DIR > studioPath('worktrees')`（契约 §8 双口径收编，fallback 与 bootstrap 注入值同源）。
+- **fs 直写保留理由（P2-e 登记）**：`gcStaleWorktrees` 的 worktrees 目录扫描/删除是目录级 GC 操作（FileStore 不管的形态）；目录口径 P2-e 起为 `WORKTREES_DIR > studioPath('worktrees')`（契约 §8 双口径收编，fallback 与 bootstrap 注入值同源）。原 `system-health.ts` runGC（worktrees/sessions 目录清理）因无生产接线已于 2026-10 死代码批次整体删除（ADR 2026-09-15 决策 3 的 needs-triage 接线票以删除收口）。
 - **周期循环 scan-sharing（候选 3，2026-09-08）**：monitor `check()` 一轮开头一次 `getIndex()`，快照作 caller-private 传给 6 个 WU 探针（收 `snapshots` 参数、内存 filter，不再各自 getIndex；动作前新鲜度复核 `getIndex({id})` 点读不受影响）——**新 WU 探针一律收快照不自己读**；跨 job 不共享
 - **monitor-round 零同步子进程（#374）**：全部同步 exec 收口 `core/exec-async.ts`（gcStaleWorktrees `git worktree prune`、dailyReflection git log/diff 等；fail-open 语义与超时不变）
 - **decision/spec 豁免超时巡检（#553 裁决）**：checkTotalExecutionTime 跳过 DECISION_SPEC_TYPES——裁剪状态机无 closed、决策/成文单可等关键人多天，语义选「跳过巡检」
-- **WU 删除走 service.delete 单口（#538）**：monitor-lifecycle 每日 TTL 与 system-health runGC 的筛选逻辑留调用方，删除循环改调 `service.delete(id, { reason })`；#540 起加终态守卫——仅删 done/closed；runGC 接线与否仍为独立 needs-triage 票
+- **WU 删除走 service.delete 单口（#538）**：monitor-lifecycle 每日 TTL 的筛选逻辑留调用方，删除循环改调 `service.delete(id, { reason })`；#540 起加终态守卫——仅删 done/closed。原 system-health runGC 同口径改造后仍无生产接线，已随 2026-10 死代码批次删除
 - **monitor-reports 知识质量审计构造（harness 1.8.0 / #134①；#559 收口）**：`new KnowledgeAudit(store, 阈值?)`——日兜底走 `sharedStore` 单例，调用点为类型完整动态导入（无 `as any`）
 - **Idle 心跳 45s**，超时扫描 5min；**isOnline** = loop 存活+心跳新鲜（≤5min）；#345 起 isOnline/每角色最新 error 聚合单源 `summarizeRoleStates`（agents 模块 agent-instance.service），agent-profile list 与 instance-timeout-scan 的 5min 窗口同源（INSTANCE_ALIVE_TIMEOUT_MS）
 - **Ops 看门狗探针语义（2026-09-21，生产假阴性自杀循环事故修复）**：`ops.service getStatus()` 探针打免鉴权 `/health`（app.ts 注册于鉴权中间件之前，不依赖任何业务路由），**收到任何 HTTP 响应（含 401/403/5xx）即判活，只有连接失败/超时才判死**——严禁改回「业务路由 + statusCode===200」判定（防回归测试：`__tests__/ops-health-probe.test.ts`）。已知残留假阴性面（未修，仅记录）：判死后 daemon-busy 豁免检查的 `fileStore.getIndex` 读失败被 catch 静默吞掉 → 有活跃执行 session 也照 exit

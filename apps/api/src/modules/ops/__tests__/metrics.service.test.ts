@@ -111,17 +111,17 @@ describe('aggregateOverview (D16)', () => {
     const m = aggregateOverview(makeInput());
 
     expect(m.taskFlow.byStatus).toEqual({ done: 2, active: 1, blocked: 1, unassigned: 1 });
-    // 滞留：wu-c 24h、wu-d 12h、wu-e 240h → P50=24, P95=240
+    // 滞留：wu-c 24h、wu-d 12h、wu-e 240h → P50=24, P95=218.4（线性插值：idx=1.9 → 24*0.1+240*0.9）
     expect(m.taskFlow.dwell.count).toBe(3);
     expect(m.taskFlow.dwell.p50Hours).toBe(24);
-    expect(m.taskFlow.dwell.p95Hours).toBe(240);
-    // 创建→认领：wu-a 12h、wu-b 0h、wu-c 0h（wu-e 窗口外、wu-d 未认领）
+    expect(m.taskFlow.dwell.p95Hours).toBe(218.4);
+    // 创建→认领：wu-a 12h、wu-b 0h、wu-c 0h（wu-e 窗口外、wu-d 未认领）→ P95 idx=1.9 → 12*0.9=10.8
     expect(m.taskFlow.createToClaim.count).toBe(3);
     expect(m.taskFlow.createToClaim.p50Hours).toBe(0);
-    expect(m.taskFlow.createToClaim.p95Hours).toBe(12);
-    // 认领→完成：wu-a 84h、wu-b 96h
+    expect(m.taskFlow.createToClaim.p95Hours).toBe(10.8);
+    // 认领→完成：wu-a 84h、wu-b 96h → P50 线性插值 = (84+96)/2 = 90
     expect(m.taskFlow.claimToComplete.count).toBe(2);
-    expect(m.taskFlow.claimToComplete.p50Hours).toBe(96);
+    expect(m.taskFlow.claimToComplete.p50Hours).toBe(90);
     // errorType 分桶：failureType 列优先，其次 metadata.errorType
     expect(m.taskFlow.failuresByErrorType.buckets).toEqual({ execution_failed: 1, timeout: 1 });
     // step 统计：4/2/3 → avg 3；stuck：wu-c consecutiveStuck=2

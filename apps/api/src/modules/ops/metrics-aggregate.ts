@@ -5,7 +5,7 @@
  */
 
 import { deriveDisplayState, POOL_STAGNATION_WARN_MS, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
-import { parseStudioEventPayload, getStudioEventTime } from '@dommaker/studio-shared';
+import { parseStudioEventPayload, getStudioEventTime, percentile } from '@dommaker/studio-shared';
 import { parseWuMetadata } from '../workunit/index.js';
 import type { AssigneeProfileResolver } from '../workunit/index.js';
 import type {
@@ -49,11 +49,10 @@ export interface OverviewAggregateInput {
   windowDays?: number;
 }
 
-function percentile(values: number[]): { p50: number | null; p95: number | null } {
+/** p50/p95 对（线性插值 type 7，正本 @dommaker/studio-shared percentile）；空样本显式 null（口径：数据不足 → null，不编造） */
+function percentilePair(values: number[]): { p50: number | null; p95: number | null } {
   if (values.length === 0) return { p50: null, p95: null };
-  const sorted = [...values].sort((a, b) => a - b);
-  const pick = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
-  return { p50: pick(0.5), p95: pick(0.95) };
+  return { p50: percentile(values, 50), p95: percentile(values, 95) };
 }
 
 const msToHours = (ms: number) => Math.round((ms / 3600_000) * 10) / 10;
@@ -120,10 +119,10 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
     }
   }
 
-  const dwellP = percentile(dwellValues);
-  const c2cP = percentile(createToClaimValues);
-  const cl2dP = percentile(claimToCompleteValues);
-  const c2dP = percentile(createToDoneValues);
+  const dwellP = percentilePair(dwellValues);
+  const c2cP = percentilePair(createToClaimValues);
+  const cl2dP = percentilePair(claimToCompleteValues);
+  const c2dP = percentilePair(createToDoneValues);
 
   const taskFlow: TaskFlowMetrics = {
     description: '任务流健康：WU 在各状态的堆积与流转速度。滞留 P95 高 = 有任务卡住没人管；创建→认领高 = 接单慢；认领→完成高 = 执行慢；errorType 分桶暴露主要失败原因。',

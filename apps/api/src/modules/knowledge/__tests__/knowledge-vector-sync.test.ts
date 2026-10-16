@@ -17,7 +17,7 @@ function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnTyp
     FileStore: class {
       appendJsonl = vi.fn().mockResolvedValue(undefined);
     },
-    // #361 薄壳转发后 knowledge-singletons 经 utils/studio-log-path re-export 取用；
+    // #361 薄壳已删：knowledge-singletons 直引 @dommaker/studio-shared log-path；
     // 模块加载期即调用，partial mock 必须提供
     resolveStudioLogFile: (name: string) => `/tmp/test-studio-logs/${name}`,
   }));

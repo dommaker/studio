@@ -20,6 +20,8 @@
  * 缺失段不静默丢样本：链上 skips[] 与分布的 skipped{} 如实标注原因。
  */
 
+import { percentile } from '@dommaker/studio-shared';
+
 // ── 输入行类型（CLI 壳从文件读出后传入；字段宽容，缺失走跳过标注）──
 export interface ChannelMessageRow {
   id: string;
@@ -141,11 +143,9 @@ function parsePayload(raw: unknown): Record<string, unknown> | null {
   }
 }
 
-/** nearest-rank 分位；空数组 → null */
-function percentile(sorted: number[], p: number): number | null {
-  if (sorted.length === 0) return null;
-  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
-  return sorted[idx];
+/** 分位（线性插值 type 7，正本 @dommaker/studio-shared percentile）；空样本 → null */
+function pctOrNull(samples: number[], p: number): number | null {
+  return samples.length === 0 ? null : percentile(samples, p);
 }
 
 function segmentStats(chains: MainlineChain[], pick: (c: MainlineChain) => number | null, prefix: string): SegmentStats {
@@ -164,8 +164,8 @@ function segmentStats(chains: MainlineChain[], pick: (c: MainlineChain) => numbe
   samples.sort((a, b) => a - b);
   return {
     n: samples.length,
-    p50Ms: percentile(samples, 50),
-    p95Ms: percentile(samples, 95),
+    p50Ms: pctOrNull(samples, 50),
+    p95Ms: pctOrNull(samples, 95),
     minMs: samples.length ? samples[0] : null,
     maxMs: samples.length ? samples[samples.length - 1] : null,
     skipped,
@@ -331,8 +331,8 @@ export function summarizeChains(chains: MainlineChain[], events: StudioEventRow[
       const n = events.filter(e => e?.type === type).length;
       const stats: ClientPerfStats = {
         n,
-        p50Ms: percentile(msSamples, 50),
-        p95Ms: percentile(msSamples, 95),
+        p50Ms: pctOrNull(msSamples, 50),
+        p95Ms: pctOrNull(msSamples, 95),
         ...(n === 0 ? { note: 'no_samples' as const } : {}),
       };
       return [type, stats];

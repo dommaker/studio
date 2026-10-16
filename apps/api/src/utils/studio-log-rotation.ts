@@ -23,7 +23,7 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { getStudioEventTime } from '@dommaker/studio-shared';
-import { isTestEnv, resolveStudioLogsDir } from './studio-log-path.js';
+import { isTestEnv, resolveStudioLogsDir } from '@dommaker/studio-shared';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

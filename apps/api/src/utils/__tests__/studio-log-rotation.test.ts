@@ -202,7 +202,7 @@ describe('rotateStudioLogFiles（#213 决议值：incidents 30d / audit 90d / no
   });
 
   it('无参调用（index.ts 生产挂载形态）不抛错，走默认路径解析', async () => {
-    // vitest 下 resolveStudioLogsDir() → os.tmpdir()/studio-test-logs（studio-log-path 约定）。
+    // vitest 下 resolveStudioLogsDir() → os.tmpdir()/studio-test-logs（shared log-path 约定）。
     // 用真实当前时间造一条 10 天前通知，无参调用后应被滚删。
     const sharedDir = path.join(os.tmpdir(), 'studio-test-logs');
     fs.mkdirSync(sharedDir, { recursive: true });

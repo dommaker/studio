@@ -15,7 +15,7 @@ session:start/end 事件链路（#174）：agent-loop 把 `transcriptPath(wu.id)
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `transcriptPath` | `transcript-archive.ts` | 归档文件路径：生产 `studioPath('transcripts', '<workUnitId>.jsonl')`，测试改写隔离目录（纯函数，按 workUnitId 确定性推导） |
 | `transcriptsDir` | `transcript-archive.ts` | 归档根目录：测试 → `os.tmpdir()/studio-test-transcripts/<per-进程子目录>`（#135）；生产 → `studioPath('transcripts')` |
-| `isTestEnv` | `transcript-archive.ts` | 测试环境判定（`VITEST`/`NODE_ENV=test`），同 studio-log-path |
+| `isTestEnv` | `transcript-archive.ts` | 测试环境判定（`VITEST`/`NODE_ENV=test`），同 shared log-path |
 | `appendTranscriptStep` | `transcript-archive.ts` | 追加一步原文（JSONL 一行）；调用方 fire-and-forget 兜底 |
 | `readTranscript` | `transcript-archive.ts` | 按 workUnitId 读取全文 transcript；文件不存在返回 `[]` |
 | `TranscriptEntry` | `transcript-archive.ts` | 单步条目类型（workUnitId/sessionId/step/action/rawOutput/createdAt） |
@@ -28,7 +28,7 @@ session:start/end 事件链路（#174）：agent-loop 把 `transcriptPath(wu.id)
 - **数据源**：agent-loop 每步 `result.rawOutput`（raw CLI stdout，provider 无关）。单一来源同时满足三方：全文 + 执行痕迹，非摘要级截断，不依赖 provider 的 CLI session jsonl 路径（claude `~/.claude/projects/...` 等）。
 - **归档时机**：每步成功执行后追加一行（会话结束即完整，天然可检索）。
 - **格式**：JSONL，一行一步（append-friendly；损坏行由 FileStore 读时跳过）。
-- **路径**：生产经 `studioPath()`（读 `STUDIO_HOME`，dev/prod 隔离）；测试经 `isTestEnv` 改写 `os.tmpdir()/studio-test-transcripts/<per-进程子目录>`（同 studio-log-path 约定，防测试写生产 `~/.studio/transcripts`，per-进程子目录见 #135）；禁硬编码 `~/.studio`。
+- **路径**：生产经 `studioPath()`（读 `STUDIO_HOME`，dev/prod 隔离）；测试经 `isTestEnv` 改写 `os.tmpdir()/studio-test-transcripts/<per-进程子目录>`（同 shared log-path 约定，防测试写生产 `~/.studio/transcripts`，per-进程子目录见 #135）；禁硬编码 `~/.studio`。
 - **会话定位**：每行携带 `sessionId`（`metadata.sessionId` 已维护 WU→session 映射；WU 内可能因重建/续用切换）。
 - **保留策略**：不主动 GC（最简；后续由 ops 按需清理）。
 - **不落 metadata、不建独立索引**：路径由 workUnitId 确定性推导，无需在 `WorkUnitMetadata` 冗余存 archive 路径。
@@ -50,4 +50,4 @@ session:start/end 事件链路（#174）：agent-loop 把 `transcriptPath(wu.id)
 - **契约驱动迁移（2026-10 批次 5/7）**：transcript.routes.ts defineRoute 化——响应统一 `{ data }` 壳（原平铺，分页语义不变）；workUnitId 防路径穿越手写 400 收进 zod params；错误统一 `{ error: { code, message } }`；契约正本 = `packages/studio-contract/src/transcripts.ts`（TranscriptEntry 等实体 z.infer alias，schema 即正本）
 - `appendTranscriptStep` 写盘失败会抛出——agent-loop 用 `void ... .catch(() => {})` fire-and-forget，绝不阻断任务流程。
 - `readTranscript` 经 `FileStore.readJsonl`（mtime 读穿缓存），写入后立即读一致。
-- 测试隔离走 `isTestEnv` 改写（`os.tmpdir()/studio-test-transcripts/<per-进程子目录>`，文件名不变，#135），与 `studio-log-path` 同约定；生产路径的 `STUDIO_HOME` 解析由 `studio-dir` 单测覆盖。
+- 测试隔离走 `isTestEnv` 改写（`os.tmpdir()/studio-test-transcripts/<per-进程子目录>`，文件名不变，#135），与 `shared log-path` 同约定；生产路径的 `STUDIO_HOME` 解析由 `studio-dir` 单测覆盖。

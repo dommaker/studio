@@ -4,9 +4,8 @@
 
 import { randomUUID } from 'crypto';
 import path from 'node:path';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, logger, isTestEnv, resolveStudioLogsDir } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { isTestEnv, resolveStudioLogsDir } from '../../utils/studio-log-path.js';
 import { getStore } from '../../core/store.js';
 
 
