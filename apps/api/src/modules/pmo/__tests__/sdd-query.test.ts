@@ -29,10 +29,10 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 // Mock channelMessageService and WorkUnitService (needed by project.service imports)
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: {
+  getChannelMessageService: () => ({
     createHumanMessage: vi.fn(),
     updateMessageMeta: vi.fn(),
-  },
+  }),
 }));
 
 vi.mock('../../workunit/workunit-review.js', () => ({

@@ -72,11 +72,11 @@ vi.mock('node:fs', async () => {
 
 // Mock channelMessageService
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: {
+  getChannelMessageService: () => ({
     createHumanMessage: (...args: unknown[]) => mockCreateHumanMessage(...args),
     createAgentMessage: (...args: unknown[]) => mockCreateAgentMessage(...args),
     updateMessageMeta: (...args: unknown[]) => mockUpdateMessageMeta(...args),
-  },
+  }),
 }));
 
 // Mock WorkUnitService

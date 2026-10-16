@@ -240,10 +240,10 @@ export class OpsService {
         }
         // Push alert to #系统 Channel
         try {
-          const { channelMessageService } = await import('../channels/index.js');
+          const { getChannelMessageService } = await import('../channels/index.js');
           const sysChannel = (await this.fileStore.listChannels({ name: '#系统' }))[0] ?? null;
           if (sysChannel) {
-            await channelMessageService.createAgentMessage(sysChannel.id, 'OpsAgent',
+            await getChannelMessageService().createAgentMessage(sysChannel.id, 'OpsAgent',
               `## 🚨 API 不可达告警\n\n- **端口**: ${this.port}\n- **时间**: ${new Date().toISOString()}\n- **动作**: 已触发 systemd 重启`,
               { meta: { alertType: 'api_unreachable', port: this.port, severity: 'critical' } }
             );

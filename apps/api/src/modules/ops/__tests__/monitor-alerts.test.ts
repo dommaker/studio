@@ -43,7 +43,7 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({
 }));
 
 vi.mock('../../triage/index.js', () => ({
-  triageService: { handleAlert: mockHandleAlert },
+  getTriageService: () => ({ handleAlert: mockHandleAlert }),
 }));
 
 const { mockNotifyAlert } = vi.hoisted(() => ({

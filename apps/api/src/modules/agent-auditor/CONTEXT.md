@@ -15,7 +15,7 @@ Auditor Agent（P2-d 刀4 自 modules/agents/auditor 提升为顶层模块）：
 
 ### 核心导出
 
-- `index.ts` — 模块公共出口 barrel：`auditorService`、`getAuditorReviewAdapter`
+- `index.ts` — 模块公共出口 barrel：`getAuditorService`（createLazyService 惰性单例）、`getAuditorReviewAdapter`
 - `auditor-rules`（#523 起 OKR 低达成建 okr_proposal 单收口 WorkUnitService.create——原 commitSnapshot 直写不发 eventBus 事件，对唤醒体系隐形）
 - `auditor-execution`（低风险自动应用/确认卡片经 review-proposal 正本发卡/Resolution/Triage 升级；#439 起铃铛通知 link 带消息粒度——发卡后按 proposalId 反查卡消息拼 `?highlight=<mid>`，link 构造唯一出口 `buildAuditorNotificationLink`，反查不到降级频道粒度不阻断；#591 起低风险自动应用逐建议落 auto_apply 决策埋点——audit-logs 轨，一次运行共享 runId=requestId，依据=risk+detail 摘要，失败 status=failure 不阻断后续建议）
 - `review-adapter`（#356：kind=auditor，onApprove 建未指派 task 工单；审批走通用端点 /review-proposals/auditor/:id/*；`findAuditorCardMessageId` = 按提案 id 反查卡消息唯一出口，onApprove 原卡链接与 #439 通知 link 共用）

@@ -13,6 +13,7 @@ import { randomUUID } from 'crypto';
 import { skillStore } from './skill-store.js';
 import { getSkillReviewAdapter, submitSkillProposal } from './review-adapter.js';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 
 export interface ExtractedSkillProposal {
@@ -249,4 +250,6 @@ Output JSON: {"hasPattern": bool, "name": "pattern name", "description": "descri
   }
 }
 
-export const skillExtractionService = new SkillExtractionService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getSkillExtractionService = createLazyService(() => new SkillExtractionService());

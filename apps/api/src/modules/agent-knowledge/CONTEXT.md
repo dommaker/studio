@@ -6,7 +6,7 @@
 
 ### 目录结构
 
-- `knowledge-curator.service.ts` — 门面（冷启动 + 每日维护调度；`knowledgeCurator` 单例 + `getExtractFromTextSystemPrompt` 提取 prompt 单一来源）
+- `knowledge-curator.service.ts` — 门面（冷启动 + 每日维护调度；`getKnowledgeCurator()` 单例（createLazyService 惰性，禁 import 期捕获） + `getExtractFromTextSystemPrompt` 提取 prompt 单一来源）
 - `knowledge-cold-start.ts` — 四源导入（docs/code/git/manual）
 - `knowledge-extraction.ts` — 提取 prompt 单一来源
 - `knowledge-maintenance.ts` — 语义去重/质量评估/过期验证/矛盾审查
@@ -14,7 +14,7 @@
 
 ### 核心导出
 
-- `index.ts` — 模块公共出口 barrel：`knowledgeCurator`、`getExtractFromTextSystemPrompt`
+- `index.ts` — 模块公共出口 barrel：`getKnowledgeCurator`、`getExtractFromTextSystemPrompt`
 
 ### 依赖关系
 

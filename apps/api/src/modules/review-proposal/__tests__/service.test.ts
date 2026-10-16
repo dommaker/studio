@@ -16,7 +16,7 @@ import { FileStore } from '@dommaker/studio-shared';
 const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
 }));
 
 import {

@@ -7,7 +7,7 @@
 import { logger } from '@dommaker/studio-shared';
 import { preferenceObserver } from './producers/preference-observer.js';
 import { ruleScanner } from './producers/rule-scanner.js';
-import { envSnapper } from './producers/env-snapper.js';
+import { getEnvSnapper } from './producers/env-snapper.js';
 import { decisionChainExtractor } from './producers/decision-chain-extractor.js';
 import { patternMiner } from './producers/pattern-miner.js';
 
@@ -37,7 +37,7 @@ export class KnowledgeQueryService {
         return ruleScanner.getActiveRules();
       }
       case 'environment': {
-        const snap = await envSnapper.getLatest();
+        const snap = await getEnvSnapper().getLatest();
         return snap ? [snap] : [];
       }
       case 'decision_chain': {
@@ -72,7 +72,7 @@ export class KnowledgeQueryService {
     } catch { stats.business_rule = { error: true }; }
 
     try {
-      const snap = await envSnapper.getLatest();
+      const snap = await getEnvSnapper().getLatest();
       stats.environment = snap ? { takenAt: snap.takenAt } : { status: 'no_snapshot' };
     } catch { stats.environment = { error: true }; }
 

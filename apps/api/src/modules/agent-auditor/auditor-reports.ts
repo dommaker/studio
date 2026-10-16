@@ -208,8 +208,8 @@ export async function postToSystemChannel(fileStore: FileStore, content: string)
       return;
     }
 
-    const { channelMessageService } = await import('../channels/index.js');
-    await channelMessageService.createAgentMessage(
+    const { getChannelMessageService } = await import('../channels/index.js');
+    await getChannelMessageService().createAgentMessage(
       channel.id,
       'Auditor',
       content,

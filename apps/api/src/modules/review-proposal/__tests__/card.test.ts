@@ -15,7 +15,7 @@ import { FileStore } from '@dommaker/studio-shared';
 const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
 }));
 
 import { postReviewProposalCard } from '../card.js';
@@ -60,7 +60,7 @@ describe('postReviewProposalCard', () => {
     expect(cardData).toEqual({ proposalId: 'p-1' });
   });
 
-  it('#系统 频道缺失 → 静默 false，不抛（不调 channelMessageService）', async () => {
+  it('#系统 频道缺失 → 静默 false，不抛（不调 getChannelMessageService()）', async () => {
     const posted = await postReviewProposalCard(
       { cardType: 'gc_proposal', content: 'x', cardData: {} },
       { fileStore },

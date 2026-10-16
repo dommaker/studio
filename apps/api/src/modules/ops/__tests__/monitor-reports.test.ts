@@ -57,7 +57,7 @@ vi.mock('../../knowledge/knowledge-singletons.js', () => ({
 }));
 
 vi.mock('../../triage/index.js', () => ({
-  triageService: { handleAlert: vi.fn(() => Promise.resolve()) },
+  getTriageService: () => ({ handleAlert: vi.fn(() => Promise.resolve()) }),
 }));
 
 vi.mock('@dommaker/harness', async (importOriginal) => {
@@ -199,11 +199,11 @@ describe('dailyReflection', () => {
       listChannels: vi.fn(async () => [{ id: 'ch-sys', name: '#系统' }]),
     });
     vi.doMock('../../channels/channel-message.service.js', () => ({
-      channelMessageService: {
+      getChannelMessageService: () => ({
         createAgentMessage: vi.fn(async (_ch: string, _sender: string, content: string) => {
           posted.push(content);
         }),
-      },
+      }),
     }));
     vi.resetModules();
     const { dailyReflection: dr } = await import('../monitor-reports.js');
@@ -236,11 +236,11 @@ describe('dailyReflection', () => {
     vi.doMock('../../knowledge/knowledge-singletons.js', () => ({ sharedStore: realStore }));
     const posted: string[] = [];
     vi.doMock('../../channels/channel-message.service.js', () => ({
-      channelMessageService: {
+      getChannelMessageService: () => ({
         createAgentMessage: vi.fn(async (_ch: string, _sender: string, content: string) => {
           posted.push(content);
         }),
-      },
+      }),
     }));
     vi.resetModules();
     const { dailyReflection: dr } = await import('../monitor-reports.js');

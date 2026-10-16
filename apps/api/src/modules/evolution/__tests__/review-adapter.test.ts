@@ -28,7 +28,7 @@ import { resolveEvolutionPaths, type EvolutionPaths } from '../signals.js';
 const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
 }));
 
 let tmpDir: string;

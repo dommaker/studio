@@ -56,7 +56,7 @@ describe('模块 barrel 完整性', () => {
     expect(typeof workunit.WorkUnitService).toBe('function');
     expect(typeof workunit.postWuSystemMessage).toBe('function');
     const channels = await import('../modules/channels/index.js');
-    expect(channels.channelMessageService).toBeTruthy();
+    expect(channels.getChannelMessageService()).toBeTruthy();
     const agents = await import('../modules/agents/index.js');
     expect(typeof agents.getSystemExecutor).toBe('function');
   });

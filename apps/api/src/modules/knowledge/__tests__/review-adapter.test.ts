@@ -28,7 +28,7 @@ const { mockCreateCardMessage, mockPromote, mockDemote } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
 }));
 
 // onApprove/onReject 经动态 import 取 knowledgeService 单例——mock 掉以隔离真实知识库

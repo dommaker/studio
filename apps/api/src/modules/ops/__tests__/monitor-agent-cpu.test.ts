@@ -61,7 +61,7 @@ vi.mock('../../knowledge/producers/preference-observer.js', () => ({
 }));
 
 vi.mock('../../triage/index.js', () => ({
-  triageService: { handleAlert: vi.fn() },
+  getTriageService: () => ({ handleAlert: vi.fn() }),
 }));
 
 import { systemHealthCheck } from '../monitor-system-probes.js';

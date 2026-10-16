@@ -39,7 +39,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 // Use dynamic import after mock setup
-const { triageService } = await import('../triage.service.js');
+const { getTriageService } = await import('../triage.service.js');
 const { systemHealthCheck } = await import('../../ops/monitor-system-probes.js');
 const { foldIncidentRows } = await import('../incident-store.js');
 
@@ -90,7 +90,7 @@ describe('TriageService + MonitorService', () => {
 
     it('creates an Incident record with valid ID format', async () => {
       // Use resource_critical - avoids ACT phase (resolves immediately as minor)
-      const result = await triageService.handleAlert({
+      const result = await getTriageService().handleAlert({
         type: 'resource_critical',
         severity: 'warning',
         message: 'Test: disk at 92%',
@@ -107,7 +107,7 @@ describe('TriageService + MonitorService', () => {
     });
 
     it('reaches terminal state (resolved or escalated)', async () => {
-      const result = await triageService.handleAlert({
+      const result = await getTriageService().handleAlert({
         type: 'resource_critical',
         severity: 'warning',
         message: 'Test: disk at 91%',
@@ -128,7 +128,7 @@ describe('TriageService + MonitorService', () => {
     });
 
     it('writes structured triageLog as JSON array', { timeout: 30000 }, async () => {
-      const result = await triageService.handleAlert({
+      const result = await getTriageService().handleAlert({
         type: 'resource_critical',
         severity: 'warning',
         message: 'Disk at 95%',
@@ -152,7 +152,7 @@ describe('TriageService + MonitorService', () => {
     });
 
     it('includes diagnose and classify phases in triageLog', async () => {
-      const result = await triageService.handleAlert({
+      const result = await getTriageService().handleAlert({
         type: 'resource_critical',
         severity: 'warning',
         message: 'Disk at 93%',
@@ -173,7 +173,7 @@ describe('TriageService + MonitorService', () => {
     // ── 执行级事件处理 (FL-037 Phase 1) ──
 
     it('handles execution_stuck type and reaches terminal state', { timeout: 30000 }, async () => {
-      const result = await triageService.handleAlert({
+      const result = await getTriageService().handleAlert({
         type: 'execution_stuck',
         severity: 'critical',
         message: 'Test: execution stuck 35min',
@@ -193,7 +193,7 @@ describe('TriageService + MonitorService', () => {
     // #454：df/free 删除、探测改 proc-probes 同源后，findings 文本口径钉死
     // （现有用例只到 phase 结构，不 pin 文案；重拼字符串漂移靠本用例抓）
     it('pins diagnose findings text format (Disk/Memory/Tmux via proc-probes)', { timeout: 30000 }, async () => {
-      const result = await triageService.handleAlert({
+      const result = await getTriageService().handleAlert({
         type: 'execution_stuck',
         severity: 'critical',
         message: 'Test: pin findings format',
@@ -215,7 +215,7 @@ describe('TriageService + MonitorService', () => {
     });
 
     it('handles execution_session_exhausted and escalates to human', { timeout: 30000 }, async () => {
-      const result = await triageService.handleAlert({
+      const result = await getTriageService().handleAlert({
         type: 'execution_session_exhausted',
         severity: 'critical',
         message: 'Test: 5 sessions exhausted',

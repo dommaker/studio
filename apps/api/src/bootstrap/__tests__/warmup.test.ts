@@ -25,13 +25,13 @@ vi.mock('../../modules/knowledge/index.js', () => ({
   verifyConsumptionChain: spies.verifyConsumptionChain,
   resolutionService: { ensureSeedResolutions: spies.ensureSeedResolutions },
   ruleScanner: { fullScan: spies.fullScan },
-  envSnapper: { startPeriodicSnapshots: spies.startPeriodicSnapshots },
+  getEnvSnapper: () => ({ startPeriodicSnapshots: spies.startPeriodicSnapshots }),
 }));
 vi.mock('../../modules/agents/index.js', () => ({
   sessionSummaryService: { summarize: spies.summarize },
 }));
 vi.mock('../../modules/agent-knowledge/index.js', () => ({
-  knowledgeCurator: { coldStartAll: spies.coldStartAll },
+  getKnowledgeCurator: () => ({ coldStartAll: spies.coldStartAll }),
 }));
 vi.mock('../studio-events-rotation.js', () => ({
   rotateStudioEvents: spies.rotateStudioEvents,

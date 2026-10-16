@@ -12,7 +12,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
 import { readStudioEvents, parseStudioEventPayload } from '@dommaker/studio-shared';
 import {
   invalidateFileRefVocabularyCache,
@@ -61,7 +61,7 @@ beforeEach(async () => {
     discordChannelId: null, discordWebhookUrl: null,
     members: '[]', createdAt: now(), updatedAt: now(),
   });
-  channelMessageService.setFileStore(fileStore);
+  getChannelMessageService().setFileStore(fileStore);
   invalidateFileRefVocabularyCache();
 });
 

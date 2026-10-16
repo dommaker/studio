@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 // wire 上 JSON 序列化为 ISO string 后 = 契约 ChannelMessage（wire parity 见契约 __tests__）。
 import type { SseEventPayloadMap } from '@dommaker/studio-contract';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 type SseChannelEventType = 'channel.message_sent' | 'channel.message_updated';
 type SseChannelData<K extends SseChannelEventType> =
@@ -329,4 +330,6 @@ export class ChannelMessageService {
   }
 }
 
-export const channelMessageService = new ChannelMessageService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getChannelMessageService = createLazyService(() => new ChannelMessageService());

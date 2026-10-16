@@ -10,6 +10,7 @@ import { getErrorMessage } from '../../utils/errors.js';
 import { countProcessesByCmdline, listZombieProcesses, readDiskUsage, readMemoryUsage } from '../../core/proc-probes.js';
 import { execAsync } from '../../core/exec-async.js';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
@@ -531,4 +532,6 @@ class TriageService {
   }
 }
 
-export const triageService = new TriageService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getTriageService = createLazyService(() => new TriageService());

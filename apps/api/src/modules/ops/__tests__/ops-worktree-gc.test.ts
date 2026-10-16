@@ -55,7 +55,7 @@ vi.mock('../../knowledge/scheduling/knowledge-sync.service.js', () => ({
 }));
 
 vi.mock('../../triage/index.js', () => ({
-  triageService: {},
+  getTriageService: () => ({}),
 }));
 
 vi.mock('../monitor-alerts.js', () => ({

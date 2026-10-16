@@ -12,7 +12,7 @@
  * 消息 ↔ WU 关联（best-effort，同 createFromMessage 既有路径）。
  */
 import { logger, type ChannelData, type FileStore } from '@dommaker/studio-shared';
-import { channelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
+import { getChannelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService, postWuSystemMessage, type WorkUnitData } from '../workunit/index.js';
 import { matchMentionAgent, stripMentionScope } from './mention-match.js';
 import { resolveReqIdForDispatch, OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/index.js';
@@ -54,7 +54,7 @@ async function createDispatchedWorkUnit(
   input: CreateWuInput,
   deps: WuDispatchDeps,
 ): Promise<{ dispatchMessage: MessageRecord; workUnit: WorkUnitData }> {
-  const dispatchMessage = await channelMessageService.createHumanMessage(
+  const dispatchMessage = await getChannelMessageService().createHumanMessage(
     channelId,
     content,
     undefined,
@@ -85,7 +85,7 @@ async function linkDispatchMessage(
   workUnit: WorkUnitData,
   deps: WuDispatchDeps,
 ): Promise<MessageRecord> {
-  const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id, channelId).catch(err => {
+  const message = await getChannelMessageService().linkWorkUnit(dispatchMessage.id, workUnit.id, channelId).catch(err => {
     logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {
       workUnitId: workUnit.id, messageId: dispatchMessage.id, error: String(err),
     });

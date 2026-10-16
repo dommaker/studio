@@ -66,10 +66,10 @@ vi.mock('@dommaker/studio-shared', () => ({ createSettledTracker: () => ({ track
 
 // ── Mock channel/log/fs ──
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: {
+  getChannelMessageService: () => ({
     createHumanMessage: (...args: unknown[]) => mockCreateHumanMessage(...args),
     updateMessageMeta: (...args: unknown[]) => mockUpdateMessageMeta(...args),
-  },
+  }),
 }));
 
 vi.mock('../../workunit/workunit-review.js', () => ({

@@ -387,8 +387,8 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       const sysChannels = await fileStore.listChannels({ name: '#系统' });
       const sysChannel = sysChannels[0] ?? null;
       if (sysChannel) {
-        const { channelMessageService } = await import('../channels/index.js');
-        await channelMessageService.createAgentMessage(sysChannel.id, 'DailyReflection', content, {
+        const { getChannelMessageService } = await import('../channels/index.js');
+        await getChannelMessageService().createAgentMessage(sysChannel.id, 'DailyReflection', content, {
           meta: { cardType: 'daily_reflection', date: today },
         });
         logger.info('[MonitorService] DailyReflection posted', { date: today });

@@ -196,8 +196,8 @@ export class WorkUnitCrudService {
 
   private getMessageService(): Promise<ChannelMessageService> {
     if (this.messageService) return Promise.resolve(this.messageService);
-    return (this.messageServicePromise ??= import('../channels/index.js').then(({ ChannelMessageService, channelMessageService }) =>
-      this.injectedFileStore ? new ChannelMessageService(this.injectedFileStore) : channelMessageService));
+    return (this.messageServicePromise ??= import('../channels/index.js').then(({ ChannelMessageService, getChannelMessageService }) =>
+      this.injectedFileStore ? new ChannelMessageService(this.injectedFileStore) : getChannelMessageService()));
   }
 
   /**

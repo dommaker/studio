@@ -55,7 +55,7 @@ vi.mock('../../agent-knowledge/index.js', () => ({
 
 // 审核闭环：发卡到 #系统 走 channelMessageService（动态 import 路径与生产一致）
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
 }));
 
 vi.mock('../knowledge-singletons.js', () => ({

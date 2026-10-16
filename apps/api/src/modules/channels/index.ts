@@ -5,6 +5,6 @@
  * 公共面 = 生成时实际被模块外消费的符号；新增跨模块消费时在此补导出。
  */
 export { ensureDefaultChannels } from './channel-init.js';
-export { channelMessageService, ChannelMessageService } from './channel-message.service.js';
+export { getChannelMessageService, ChannelMessageService } from './channel-message.service.js';
 export type { MessageMeta, MessageRecord } from './channel-message.service.js';
 export { resolveOrNotice, resolveStageRouting, ROUTING_STAGE_LABELS } from './routing.js';

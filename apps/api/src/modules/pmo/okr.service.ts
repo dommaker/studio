@@ -4,6 +4,7 @@ import { studioDir } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 import { projectService } from './project.service.js';
 
 
@@ -316,4 +317,6 @@ export class OKRService {
 
 }
 
-export const okrService = new OKRService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getOkrService = createLazyService(() => new OKRService());

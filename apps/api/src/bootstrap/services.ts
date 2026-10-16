@@ -4,13 +4,13 @@
 // #686：表驱动 + runSoftSteps 单循环，「失败只 log 不拒启」纪律固化在 soft-steps.ts
 // （monitor/auditor 两个裸 start 一并纳入软启动纪律）；新增服务 = CORE_SERVICES 加一行。
 import { startEvolutionScheduler } from '../modules/knowledge/index.js';
-import { monitorService } from '../modules/ops/index.js';
-import { auditorService } from '../modules/agent-auditor/index.js';
+import { getMonitorService } from '../modules/ops/index.js';
+import { getAuditorService } from '../modules/agent-auditor/index.js';
 import { runSoftSteps, type SoftStep } from './soft-steps.js';
 
 const CORE_SERVICES: readonly SoftStep[] = [
-  { name: 'Monitor', run: () => monitorService.start() },
-  { name: 'Auditor', run: () => auditorService.start() },
+  { name: 'Monitor', run: () => getMonitorService().start() },
+  { name: 'Auditor', run: () => getAuditorService().start() },
   {
     // REQ 需求编号体系（vision §5.3）：WorkUnit 终态 → Requirement done 状态汇总
     name: 'RequirementRollup',

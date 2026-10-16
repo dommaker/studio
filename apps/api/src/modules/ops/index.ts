@@ -10,6 +10,6 @@ export type { CurrentWuContext } from './current-wu-context.js';
 export { scanStaleAgentInstances } from './instance-timeout-scan.js';
 export { initLockEventsBridge } from './lock-events-bridge.js';
 export { dispatchMonitorAlerts, emitMonitorEvent } from './monitor-alerts.js';
-export { monitorService } from './monitor.service.js';
+export { getMonitorService } from './monitor.service.js';
 export type { MonitorAlert, MonitorAlertSource } from './types.js';
 export { createOpsService } from './ops.service.js';

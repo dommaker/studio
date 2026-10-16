@@ -7,7 +7,7 @@
 
 import { FileStore, generateId, parseFrontmatter } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
-import { channelMessageService } from '../channels/index.js';
+import { getChannelMessageService } from '../channels/index.js';
 import { resolveOrNotice } from '../channels/index.js';
 import { WorkUnitService } from '../workunit/index.js';
 import * as fs from 'node:fs';
@@ -555,8 +555,8 @@ export const projectService = {
     // 存量项目 requirement 有值时行为逐字节不变
     const requirementText = project.requirement || project.description || '';
     const content = `📋 ${project.pmoNumber}: ${project.title}\n\n${requirementText}`;
-    const message = await channelMessageService.createHumanMessage(input.channelId, content);
-    await channelMessageService.updateMessageMeta(message.id, { pmoId: project.id }, input.channelId);
+    const message = await getChannelMessageService().createHumanMessage(input.channelId, content);
+    await getChannelMessageService().updateMessageMeta(message.id, { pmoId: project.id }, input.channelId);
 
     const workUnitService = new WorkUnitService();
     // #112 T6 多腿段：显式多腿（deliveries > 1）时 scope 注入全部仓库路径
@@ -626,7 +626,7 @@ FOG: <待决问题>
     // #466 路由回退提醒（非阻断）：配置失效不影响发布主链路
     // #497: 同频道同档同原因冷却窗内不重复出声（冷却闸在 resolveOrNotice 内消费）
     if (planRouting?.notice) {
-      await channelMessageService.createAgentMessage(
+      await getChannelMessageService().createAgentMessage(
         input.channelId,
         'Studio',
         planRouting.notice,

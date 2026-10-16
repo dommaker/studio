@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { eventBus, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit-review.js';
-import { channelMessageService } from '../../channels/channel-message.service.js';
+import { getChannelMessageService } from '../../channels/channel-message.service.js';
 
 describe('WorkUnit API service', () => {
   let tmpDir: string;
@@ -23,7 +23,7 @@ describe('WorkUnit API service', () => {
     service = new WorkUnitService(fileStore);
 
     // Inject same FileStore into channelMessageService for cross-store consistency
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
 
     // Create channel in FileStore (for message ops)
     const channelName = `#test-wu-${Date.now()}`;
@@ -441,7 +441,7 @@ describe('WorkUnit API service', () => {
 
   describe('createFromMessage', () => {
     it('converts message to WorkUnit and links', async () => {
-      const msg = await channelMessageService.createHumanMessage(
+      const msg = await getChannelMessageService().createHumanMessage(
         testChannelId, 'Fix the login bug',
       );
 
@@ -465,7 +465,7 @@ describe('WorkUnit API service', () => {
     });
 
     it('rejects if message already converted', async () => {
-      const msg = await channelMessageService.createHumanMessage(
+      const msg = await getChannelMessageService().createHumanMessage(
         testChannelId, 'Already converted',
       );
       const wu = await service.createFromMessage(msg.id);
@@ -475,7 +475,7 @@ describe('WorkUnit API service', () => {
     });
 
     it('accepts custom type and metadata', async () => {
-      const msg = await channelMessageService.createHumanMessage(
+      const msg = await getChannelMessageService().createHumanMessage(
         testChannelId, 'Analysis needed',
       );
 
@@ -493,7 +493,7 @@ describe('WorkUnit API service', () => {
 
     it('truncates long content for scope', async () => {
       const longContent = 'x'.repeat(600);
-      const msg = await channelMessageService.createHumanMessage(
+      const msg = await getChannelMessageService().createHumanMessage(
         testChannelId, longContent,
       );
 

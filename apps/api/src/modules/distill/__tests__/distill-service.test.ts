@@ -31,7 +31,7 @@ vi.mock('../../agents/system-executor.js', () => ({
 }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
 }));
 
 import { DISTILL_SYSTEM_PROMPT, DistillService, type DistillProposal } from '../distill-service.js';

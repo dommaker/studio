@@ -11,6 +11,7 @@ import path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { countProcessesByCmdline } from '../../../core/proc-probes.js'; // P2-c 拆环：零依赖原语自 agents 下沉 core，knowledge→agents 此边清零
 import { getStore } from '../../../core/store.js';
+import { createLazyService } from '../../../utils/services.js';
 
 
 interface SnapshotData {
@@ -307,4 +308,6 @@ export class EnvSnapper {
   }
 }
 
-export const envSnapper = new EnvSnapper();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getEnvSnapper = createLazyService(() => new EnvSnapper());

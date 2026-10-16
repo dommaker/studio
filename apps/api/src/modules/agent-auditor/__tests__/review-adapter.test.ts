@@ -30,7 +30,7 @@ const { mockCreateCardMessage } = vi.hoisted(() => ({
 // （wireCardPostingToRealStore 用真类把卡片落进测试 fileStore）
 vi.mock('../../channels/channel-message.service.js', async importOriginal => {
   const actual = await importOriginal<typeof import('../../channels/channel-message.service.js')>();
-  return { ...actual, channelMessageService: { createCardMessage: mockCreateCardMessage } };
+  return { ...actual, getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }) };
 });
 
 import { FileStore } from '@dommaker/studio-shared';

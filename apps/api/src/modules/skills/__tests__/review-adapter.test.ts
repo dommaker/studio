@@ -29,7 +29,7 @@ const { mockCreateCardMessage, mockSkillGet, mockSkillUpdate } = vi.hoisted(() =
 }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
 }));
 
 // skillStore 单例固定写 ~/.studio——mock 掉以隔离真实数据区

@@ -13,7 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
 import { ConvertToTaskService } from '../convert-to-task.service.js';
 import { validateDefaultWorkspaceId } from '../channel.service.js';
 
@@ -53,7 +53,7 @@ async function findWu(id: string) {
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'f6-binding-test-'));
   fileStore = new FileStore(tmpDir);
-  channelMessageService.setFileStore(fileStore);
+  getChannelMessageService().setFileStore(fileStore);
   fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
   fs.writeFileSync(wsFilePath(testWsId), JSON.stringify({
     id: testWsId, name: 'f6-test', workspaceRoot: '/tmp/f6-test-root',
@@ -71,7 +71,7 @@ beforeEach(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
   fs.mkdirSync(tmpDir, { recursive: true });
   fileStore = new FileStore(tmpDir);
-  channelMessageService.setFileStore(fileStore);
+  getChannelMessageService().setFileStore(fileStore);
   channelId = await createChannel(null);
   // B3a：线程回复触发归属解析时会查 project-discovery —— 指向空 tmp 目录保持隔离
   process.env.STUDIO_PROJECTS_ROOT = tmpDir;

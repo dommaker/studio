@@ -135,7 +135,7 @@ ${(diff || '').substring(0, 3000)}
 
       if (count > 0) {
         try {
-          const { channelMessageService } = await import('../../channels/index.js');
+          const { getChannelMessageService } = await import('../../channels/index.js');
           const sysChannels = await getStore().listChannels({ name: '#系统' });
           const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {
@@ -143,7 +143,7 @@ ${(diff || '').substring(0, 3000)}
               .slice(0, 3)
               .map(d => `- **${d.topic}**: 选择 ${d.chosen}${d.rationale ? ` (${d.rationale.slice(0, 80)})` : ''}`)
               .join('\n');
-            await channelMessageService.createAgentMessage(sysChannel.id, 'KK',
+            await getChannelMessageService().createAgentMessage(sysChannel.id, 'KK',
               `从执行 ${taskId.slice(0, 8)} 提取了 ${count} 个决策:\n${decisionSummary}`,
               { meta: { cardType: 'decision_chain', taskId, count } },
             );

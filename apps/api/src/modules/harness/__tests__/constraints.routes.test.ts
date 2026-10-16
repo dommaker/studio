@@ -26,7 +26,7 @@ const { mockCreateCardMessage, checkConstraintsCalls, mockRunCmd } = vi.hoisted(
 
 // propose-upgrade 端点建卡走 review-proposal 正本发卡（ADR-0033 子项 8）
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage, createAgentMessage: vi.fn() },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage, createAgentMessage: vi.fn() }),
 }));
 
 // #646：rollback spawn 真实 CLI；runCmd 包一层 vi.fn 供「CLI 不可用 → 500」用例注入失败

@@ -25,7 +25,7 @@ import {
   updateOkrBodySchema,
   ERROR_CODES,
 } from '@dommaker/studio-contract';
-import { okrService, type UpdateOKRInput } from './okr.service.js';
+import { getOkrService, type UpdateOKRInput } from './okr.service.js';
 import { projectService, parsePmoNumberFromCommand, type UpdateProjectInput } from './project.service.js';
 import { getDeliveryStatus, deliverProject, markProjectDelivered } from './delivery.js';
 import { syncProjectProgress } from './progress-rollup.js';
@@ -321,7 +321,7 @@ openRoutes.post('/project/parse-command', defineRoute({ body: parsePmoCommandBod
  * 获取 OKR 列表
  */
 openRoutes.get('/okr', apiCache(CACHE_CONFIG.medium), defineRoute({ query: listOkrsQuerySchema }, async (_req, _res, { query }) => {
-  return okrService.list(query.companyId, { status: query.status });
+  return getOkrService().list(query.companyId, { status: query.status });
 }));
 
 /**
@@ -335,7 +335,7 @@ writeRoutes.post('/okr', defineRoute(
     errors: [{ match: 'already exists', status: 409, code: ERROR_CODES.CONFLICT }],
   },
   async (req, _res, { body }) => {
-    const okr = await okrService.create({
+    const okr = await getOkrService().create({
       companyId: body.companyId,
       title: body.title,
       // z.infer 嵌套退化可选（坑①），body 已过 zod，路由边界 map + as 收回必填
@@ -365,7 +365,7 @@ openRoutes.get('/okr/:id', defineRoute(
   { params: okrIdParamsSchema },
   { errors: [{ match: 'OKR not found', status: 404, code: ERROR_CODES.NOT_FOUND }] },
   async (_req, _res, { params }) => {
-    return okrService.get(params.id);
+    return getOkrService().get(params.id);
   },
 ));
 
@@ -397,7 +397,7 @@ writeRoutes.put('/okr/:id', defineRoute(
           }
         : {}),
     };
-    const updated = await okrService.update(params.id, input);
+    const updated = await getOkrService().update(params.id, input);
     // #448 问题1：写后失效 OKR 列表缓存（30s apiCache）
     await clearCache(`${req.baseUrl}/okr`);
     return updated;
@@ -412,7 +412,7 @@ writeRoutes.put('/okr/:id', defineRoute(
 adminRoutes.delete('/okr/:id', defineRoute(
   { params: okrIdParamsSchema },
   async (req, _res, { params }) => {
-    const result = await okrService.delete(params.id);
+    const result = await getOkrService().delete(params.id);
     // #448 问题1：写后失效 OKR 列表缓存（30s apiCache）
     await clearCache(`${req.baseUrl}/okr`);
     return result;

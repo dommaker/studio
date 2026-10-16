@@ -15,7 +15,7 @@
 
 **上游（本目录依赖）：**
 - `@dommaker/studio-shared`：提供 `FileStore`、`logger`
-- `../channels/channel-message.service.ts`：`channelMessageService`
+- `../channels/channel-message.service.ts`：`getChannelMessageService()`（惰性单例）
 - `../workunit/workunit.service.ts`：`WorkUnitService`（#550 起关闭走 `close()` 状态机单口，wu-closure 已删）
 - `../../utils/logger.ts`：logger
 - `express`、`crypto` 等标准库

@@ -20,7 +20,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
 import { RequirementService } from '../../requirements/requirement.service.js';
 import { projectService, type ProjectData } from '../../pmo/project.service.js';
 
@@ -64,7 +64,7 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'msg-ownership-test-'));
   fileStore = new FileStore(tmpDir);
   reqService = new RequirementService(fileStore);
-  channelMessageService.setFileStore(fileStore);
+  getChannelMessageService().setFileStore(fileStore);
 });
 
 afterEach(async () => {

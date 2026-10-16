@@ -11,7 +11,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { pmoOpenRoutes, pmoWriteRoutes, pmoAdminRoutes } from '../routes.js';
 import { requireAuth, requireNotGuest, requireAdmin } from '../../../middleware/auth.js';
-import { okrService } from '../okr.service.js';
+import { getOkrService } from '../okr.service.js';
 import { clearCache } from '../../../middleware/api-cache.js';
 
 let server: Server;
@@ -143,7 +143,7 @@ describe('#448 问题2: OKR 撞重返回 409', () => {
   });
 
   it('service 层非冲突错误仍返回 500（错误码统一 INTERNAL，原 INTERNAL_ERROR）', async () => {
-    vi.spyOn(okrService, 'create').mockRejectedValueOnce(new Error('disk exploded'));
+    vi.spyOn(getOkrService(), 'create').mockRejectedValueOnce(new Error('disk exploded'));
     const res = await createOkr(uniqueQuarter());
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error: { code: string } };

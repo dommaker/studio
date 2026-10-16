@@ -12,7 +12,7 @@
  * 由 agent-loop step 时经 parseSkillHintsFromScope 解析（skill-selector.ts）。
  */
 import { logger, FileStore, type ChannelData } from '@dommaker/studio-shared';
-import { channelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
+import { getChannelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { resumeWaitingWorkUnit } from '../workunit/index.js';
 import { resolveMergeTarget } from './merge-target.js';
@@ -135,7 +135,7 @@ export async function routeMessage(
     const listed = droppedRefs.slice(0, 5)
       .map(d => `${d.path}（${REASON_LABEL[d.reason]}）`).join('、');
     const suffix = droppedRefs.length > 5 ? ` 等 ${droppedRefs.length} 条` : '';
-    await channelMessageService.createAgentMessage(
+    await getChannelMessageService().createAgentMessage(
       channelId,
       'Studio',
       `部分文件引用已失效，未随消息发出：${listed}${suffix}`,
@@ -181,7 +181,7 @@ export async function routeMessage(
       });
     }
     const inheritedWorkUnitId = found?.message.workUnitId ?? undefined;
-    const message = await channelMessageService.createHumanMessage(
+    const message = await getChannelMessageService().createHumanMessage(
       channelId,
       content,
       replyToId,
@@ -207,7 +207,7 @@ export async function routeMessage(
     // #492（方案 a）：父消息在冷层 → 降级放行的回复不会触达任何任务，
     // 频道发 Studio 系统提示（挂在该回复线程），用户不再静默失效；提示本身 best-effort。
     if (!found) {
-      await channelMessageService.createAgentMessage(
+      await getChannelMessageService().createAgentMessage(
         channelId,
         'Studio',
         '该话题已归档，回复不会触达任务',
@@ -248,7 +248,7 @@ export async function routeMessage(
     const resolution = await resolveMergeTarget(channelId, resolvedFs, wuService);
     if (resolution.kind === 'unique') {
       const mergeTarget = resolution.target;
-      const message = await channelMessageService.createHumanMessage(
+      const message = await getChannelMessageService().createHumanMessage(
         channelId,
         content,
         mergeTarget.anchorMessageId, // 挂到在途 WU 的派发线程（缺 anchor 时退为根消息）
@@ -300,7 +300,7 @@ export async function routeMessage(
   }
 
   // 纯存储
-  const message = await channelMessageService.createHumanMessage(channelId, content, undefined, undefined, filesMeta);
+  const message = await getChannelMessageService().createHumanMessage(channelId, content, undefined, undefined, filesMeta);
   await reportDroppedRefs(message);
   return message;
 }

@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, afterAll } from 'vitest';
 import { FileStore } from '@dommaker/studio-shared';
-import { channelService } from '../channel.service.js';
+import { getChannelService } from '../channel.service.js';
 
 const fileStore = new FileStore();
 
@@ -84,7 +84,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const agent = await createTestAgent();
       testAgentIds.push(agent.id);
 
-      const result = await channelService.updateMembers(ch.id, { add: [agent.id] });
+      const result = await getChannelService().updateMembers(ch.id, { add: [agent.id] });
       expect(result).toContain(agent.id);
     });
 
@@ -94,7 +94,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-rm', { members: JSON.stringify([agent.id]) });
       testChannelIds.push(ch.id);
 
-      const result = await channelService.updateMembers(ch.id, { remove: [agent.id] });
+      const result = await getChannelService().updateMembers(ch.id, { remove: [agent.id] });
       expect(result).not.toContain(agent.id);
     });
 
@@ -104,7 +104,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-dup', { members: JSON.stringify([agent.id]) });
       testChannelIds.push(ch.id);
 
-      const result = await channelService.updateMembers(ch.id, { add: [agent.id] });
+      const result = await getChannelService().updateMembers(ch.id, { add: [agent.id] });
       expect(result.filter(id => id === agent.id).length).toBe(1);
     });
 
@@ -112,7 +112,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-noop');
       testChannelIds.push(ch.id);
 
-      const result = await channelService.updateMembers(ch.id, { remove: ['nonexistent-id'] });
+      const result = await getChannelService().updateMembers(ch.id, { remove: ['nonexistent-id'] });
       expect(result).toEqual([]);
     });
 
@@ -120,7 +120,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-add-unknown');
       testChannelIds.push(ch.id);
 
-      await expect(channelService.updateMembers(ch.id, { add: ['no-such-profile-id'] }))
+      await expect(getChannelService().updateMembers(ch.id, { add: ['no-such-profile-id'] }))
         .rejects.toMatchObject({ name: 'ChannelError', status: 400 });
       const stored = await fileStore.getChannel(ch.id);
       expect(stored?.members).toBe('[]');
@@ -130,7 +130,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-add-undefined');
       testChannelIds.push(ch.id);
 
-      await expect(channelService.updateMembers(ch.id, { add: [undefined as unknown as string] }))
+      await expect(getChannelService().updateMembers(ch.id, { add: [undefined as unknown as string] }))
         .rejects.toMatchObject({ name: 'ChannelError', status: 400 });
       const stored = await fileStore.getChannel(ch.id);
       expect(stored?.members).toBe('[]');
@@ -142,7 +142,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-rm-undefined', { members: JSON.stringify([agent.id]) });
       testChannelIds.push(ch.id);
 
-      await expect(channelService.updateMembers(ch.id, { remove: [null as unknown as string] }))
+      await expect(getChannelService().updateMembers(ch.id, { remove: [null as unknown as string] }))
         .rejects.toMatchObject({ name: 'ChannelError', status: 400 });
       const stored = await fileStore.getChannel(ch.id);
       expect(JSON.parse(stored!.members)).toContain(agent.id);
@@ -154,7 +154,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-empty', { members: JSON.stringify([agent.id]) });
       testChannelIds.push(ch.id);
 
-      const result = await channelService.updateMembers(ch.id, {});
+      const result = await getChannelService().updateMembers(ch.id, {});
       expect(result).toContain(agent.id);
     });
   });

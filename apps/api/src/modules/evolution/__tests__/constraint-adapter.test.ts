@@ -34,7 +34,7 @@ const { mockCreateCardMessage, mockCreateAgentMessage } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage, createAgentMessage: mockCreateAgentMessage },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage, createAgentMessage: mockCreateAgentMessage }),
 }));
 
 let tmpDir: string;

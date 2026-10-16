@@ -23,10 +23,10 @@ vi.mock('../../modules/knowledge/scheduling/evolution-scheduler.js', () => ({
   stopEvolutionScheduler: () => calls.push('stopEvolutionScheduler'),
 }));
 vi.mock('../../modules/ops/index.js', () => ({
-  monitorService: { start: vi.fn(), stop: () => calls.push('monitor.stop') },
+  getMonitorService: () => ({ start: vi.fn(), stop: () => calls.push('monitor.stop') }),
 }));
 vi.mock('../../modules/agent-auditor/index.js', () => ({
-  auditorService: { start: vi.fn(), stop: () => calls.push('auditor.stop') },
+  getAuditorService: () => ({ start: vi.fn(), stop: () => calls.push('auditor.stop') }),
 }));
 
 import { installErrorHandlers, listen, registerShutdown } from '../lifecycle.js';

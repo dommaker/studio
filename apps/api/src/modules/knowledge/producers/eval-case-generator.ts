@@ -6,7 +6,7 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { channelMessageService } from '../../channels/index.js';
+import { getChannelMessageService } from '../../channels/index.js';
 import { listEvalCases, createEvalCase, updateEvalCase } from './eval-case-store.js';
 import { getStore } from '../../../core/store.js';
 
@@ -246,7 +246,7 @@ export class EvalCaseGenerator {
         .map(([tag, count]) => `- ${tag}: ${count}`)
         .join('\n');
 
-      await channelMessageService.createAgentMessage(
+      await getChannelMessageService().createAgentMessage(
         channel.id,
         'Auditor',
         [

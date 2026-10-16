@@ -29,7 +29,7 @@ vi.mock('os', async (importOriginal) => {
 afterAll(() => { fs.rmSync(tmpHome, { recursive: true, force: true }); });
 
 vi.mock('../../triage/index.js', () => ({
-  triageService: { handleAlert: mockHandleAlert },
+  getTriageService: () => ({ handleAlert: mockHandleAlert }),
 }));
 
 vi.mock('../../knowledge/resolution.service.js', () => ({

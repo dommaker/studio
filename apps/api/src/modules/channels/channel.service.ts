@@ -7,6 +7,7 @@ import { clearCache } from '../../middleware/api-cache.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { getWorkspaceRecord } from '../workspaces/index.js';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 
 /** 缓存失效键 = 路由挂载点（route-registry `/api/v1/channels`，与现状 req.baseUrl 一致） */
@@ -258,4 +259,6 @@ export async function validateDefaultWorkspaceId(
   return { ok: true, value: wsId };
 }
 
-export const channelService = new ChannelService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getChannelService = createLazyService(() => new ChannelService());

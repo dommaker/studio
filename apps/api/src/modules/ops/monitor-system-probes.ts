@@ -17,7 +17,7 @@ import { execAsync } from '../../core/exec-async.js';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger } from '@dommaker/studio-shared';
 import type { TriageIncidentInput } from '../triage/index.js';
-import { triageService } from '../triage/index.js';
+import { getTriageService } from '../triage/index.js';
 import { KnowledgeAudit } from '@dommaker/harness';
 import { sharedStore, sharedLifecycle } from '../knowledge/index.js';
 import { knowledgeSync } from '../knowledge/index.js';
@@ -138,7 +138,7 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
 
     if (score < 60) {
       // Escalate to Triage
-      triageService.handleAlert({
+      getTriageService().handleAlert({
         type: 'knowledge_health_degraded',
         severity: 'warning',
         message: `知识库健康评分: ${score}/100`,
@@ -189,8 +189,8 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
       // STUDIO_KNOWLEDGE_MAINTENANCE=on 时才执行（semantic dedup, quality, freshness, contradictions）
       if (knowledgeMaintenanceEnabled()) {
         try {
-          const { knowledgeCurator } = await import('../agent-knowledge/index.js');
-          const maintenance = await knowledgeCurator.runDailyMaintenance();
+          const { getKnowledgeCurator } = await import('../agent-knowledge/index.js');
+          const maintenance = await getKnowledgeCurator().runDailyMaintenance();
           logger.info('[MonitorService] KnowledgeCurator daily maintenance', maintenance);
         } catch (err) {
           logger.warn('[MonitorService] KnowledgeCurator maintenance failed', { error: String(err) });
@@ -378,7 +378,7 @@ export async function systemTriageCheck(): Promise<void> {
         systemHealthCounters.delete(key);
 
         // Fire-and-forget: triage runs async
-        triageService.handleAlert(anomaly).catch(err => {
+        getTriageService().handleAlert(anomaly).catch(err => {
           logger.error('[MonitorService] Triage handleAlert failed', { error: String(err) });
         });
       }

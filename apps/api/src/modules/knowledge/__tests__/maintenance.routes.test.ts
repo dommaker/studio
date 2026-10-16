@@ -15,7 +15,7 @@ const { mockRunDailyMaintenance } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../agent-knowledge/index.js', () => ({
-  knowledgeCurator: { runDailyMaintenance: mockRunDailyMaintenance },
+  getKnowledgeCurator: () => ({ runDailyMaintenance: mockRunDailyMaintenance }),
 }));
 
 import { maintenanceRoutes } from '../routes/maintenance.routes.js';

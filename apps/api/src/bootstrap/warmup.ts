@@ -15,11 +15,11 @@ const WARMUP_TASKS: readonly SoftStep[] = [
     // GAP-16 消费链完整性验证 / RKB Resolution Seed / G-002 规则扫描 / G-003 环境快照
     name: 'knowledge',
     run: async () => {
-      const { verifyConsumptionChain, resolutionService, ruleScanner, envSnapper } = await import('../modules/knowledge/index.js');
+      const { verifyConsumptionChain, resolutionService, ruleScanner, getEnvSnapper } = await import('../modules/knowledge/index.js');
       verifyConsumptionChain().catch(err => logger.warn('[ConsumptionChain] verify failed', { error: String(err) }));
       resolutionService.ensureSeedResolutions().catch(err => logger.warn('[RKB] Seed failed', { error: String(err) }));
       ruleScanner.fullScan().catch(err => logger.warn('[RuleScanner] Cold start scan failed', { error: String(err) }));
-      envSnapper.startPeriodicSnapshots();
+      getEnvSnapper().startPeriodicSnapshots();
     },
   },
   {
@@ -35,8 +35,8 @@ const WARMUP_TASKS: readonly SoftStep[] = [
     // P1b 知识冷启动导入（P2-d 刀7：knowledgeCurator 随知识维护 Agent 迁 agent-knowledge）
     name: 'agent-knowledge',
     run: async () => {
-      const { knowledgeCurator } = await import('../modules/agent-knowledge/index.js');
-      knowledgeCurator.coldStartAll().catch(() => { /* non-blocking */ });
+      const { getKnowledgeCurator } = await import('../modules/agent-knowledge/index.js');
+      getKnowledgeCurator().coldStartAll().catch(() => { /* non-blocking */ });
     },
   },
   {

@@ -13,7 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
 import { STUDIO_ROLE_DESCRIPTION } from '../../agents/agent-profile.service.js';
 
 let channelId: string;
@@ -58,7 +58,7 @@ describe('#632: @studio → 未匹配 mention（未指派 + 频道说明）', ()
       members: '[]',
       createdAt: now, updatedAt: now,
     });
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   it('@studio → 未指派 + 频道说明（系统角色不执行任务，转自动认领）', async () => {

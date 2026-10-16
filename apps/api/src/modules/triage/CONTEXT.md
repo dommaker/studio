@@ -19,7 +19,7 @@
 | `TriageErrorClass` | error-class.ts | 系统级错误分类（timeout / test_failure 等） |
 | `SystemTriageResult` | error-class.ts | 系统级分类结果（含 errorClass、severity、recommendedAction） |
 | `classifySystemError` | error-class.ts | 系统级错误分类入口（triage.service 与告警升级链消费） |
-| `triageService` | triage.service.ts | Triage Agent 单例（handleAlert 入口；Monitor 告警升级消费方走 barrel） |
+| `getTriageService()` | triage.service.ts | Triage Agent 单例（handleAlert 入口；Monitor 告警升级消费方走 barrel） |
 | `TriageIncidentInput` / `TriageIncidentType` / `TriageLogEntry` | types.ts | incident 类型契约（P2-d 自 agents/types.ts 拆分归属） |
 
 ### 依赖关系

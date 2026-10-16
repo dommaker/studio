@@ -18,7 +18,7 @@ import { getStore } from '../../../core/store.js';
 const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
 }));
 
 import { createJsonlReviewAdapter, type JsonlReviewAdapterConfig } from '../jsonl-adapter.js';

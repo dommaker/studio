@@ -143,7 +143,7 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
 
     // Circuit 7: OKR 达成率 (B8 OKR 驱动闭环)
     try {
-      const { okrService } = await import('../pmo/index.js');
+      const { getOkrService } = await import('../pmo/index.js');
       // Read OKR files from ~/.studio/okr/
       const okrDir = studioPath('okr');
       const okrKeys = await fileStore.listDocs(okrDir);
@@ -159,7 +159,7 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
         for (const kr of krs) {
           if (!kr.metricType || !kr.target || kr.target <= 0) continue;
 
-          const ds = okrService ? 'ok' : 'empty'; // service exists
+          const ds = getOkrService() ? 'ok' : 'empty'; // service exists
           if (!ds) continue;
 
           // Query KR history for trend from ~/.studio/okr/kr-history.jsonl

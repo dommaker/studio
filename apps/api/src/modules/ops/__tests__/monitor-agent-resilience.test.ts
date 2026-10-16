@@ -59,9 +59,9 @@ vi.mock('../../knowledge/knowledge-singletons.js', () => ({
 vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} }));
 vi.mock('../../knowledge/scheduling/knowledge-sync.service.js', () => ({ knowledgeSync: {} }));
 vi.mock('../../knowledge/producers/preference-observer.js', () => ({ preferenceObserver: { record: vi.fn() } }));
-vi.mock('../../triage/index.js', () => ({ triageService: { handleAlert: vi.fn() } }));
+vi.mock('../../triage/index.js', () => ({ getTriageService: () => ({ handleAlert: vi.fn() }) }));
 
-import { monitorService } from '../monitor.service.js';
+import { getMonitorService } from '../monitor.service.js';
 import { agentRunner } from '@dommaker/studio-agent';
 
 /** Create minimal WorkUnitSnapshot for test fixtures */
@@ -107,7 +107,7 @@ describe('MonitorService auto-fail time-critical workUnits', () => {
     ]);
     vi.mocked(agentRunner.stop).mockResolvedValue(undefined);
 
-    const alerts = await (monitorService as any).checkTotalExecutionTime(await mockGetIndex());
+    const alerts = await (getMonitorService() as any).checkTotalExecutionTime(await mockGetIndex());
 
     // Should generate a critical alert
     expect(alerts).toEqual(expect.arrayContaining([
@@ -134,7 +134,7 @@ describe('MonitorService auto-fail time-critical workUnits', () => {
       makeSnapshot({ id: 'exec-ok', status: 'active', parentId: 'parent-1', claimedAt: oneHourAgo, createdAt: oneHourAgo }),
     ]);
 
-    const alerts = await (monitorService as any).checkTotalExecutionTime(await mockGetIndex());
+    const alerts = await (getMonitorService() as any).checkTotalExecutionTime(await mockGetIndex());
 
     // Should NOT call agentRunner.stop
     expect(agentRunner.stop).not.toHaveBeenCalled();

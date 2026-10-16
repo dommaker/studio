@@ -15,7 +15,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../../channels/message-routing.js';
-import { channelMessageService } from '../../channels/channel-message.service.js';
+import { getChannelMessageService } from '../../channels/channel-message.service.js';
 import { ConvertToTaskService } from '../../channels/convert-to-task.service.js';
 import { RequirementService, type RequirementWithProject } from '../requirement.service.js';
 import { deriveChannelReqPmo } from '../channel-req-pmo.js';
@@ -47,7 +47,7 @@ beforeEach(async () => {
     discordChannelId: null, discordWebhookUrl: null, members: '[]',
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   });
-  channelMessageService.setFileStore(fileStore);
+  getChannelMessageService().setFileStore(fileStore);
   // B3a：线程回复触发归属解析时会查 project-discovery —— 指向空 tmp 目录保持隔离
   process.env.STUDIO_PROJECTS_ROOT = tmpDir;
 });
@@ -164,7 +164,7 @@ describe('@mention 派发 → REQ 自动绑定（vision §5.3）', () => {
 
 describe('convert-to-task → REQ 绑定（vision §5.3）', () => {
   async function createSourceMessage(content: string): Promise<string> {
-    const msg = await channelMessageService.createHumanMessage(channelId, content);
+    const msg = await getChannelMessageService().createHumanMessage(channelId, content);
     return msg.id;
   }
 

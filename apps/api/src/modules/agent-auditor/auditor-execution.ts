@@ -186,8 +186,8 @@ export async function escalateToTriage(
       const failureRate = stats.failed / stats.total;
       if (failureRate > 0.3) {
         try {
-          const { triageService } = await import('../triage/index.js');
-          triageService.handleAlert({
+          const { getTriageService } = await import('../triage/index.js');
+          getTriageService().handleAlert({
             type: 'agent_type_failure_trend',
             severity: 'critical',
             message: `Agent type "${agentType}" failure rate ${(failureRate * 100).toFixed(0)}% (${stats.failed}/${stats.total})`,
@@ -204,7 +204,7 @@ export async function escalateToTriage(
             });
           });
         } catch (err) {
-          logger.warn('[AuditorService] Failed to import triageService for agent_type_failure_trend', { error: String(err) });
+          logger.warn('[AuditorService] Failed to import getTriageService() for agent_type_failure_trend', { error: String(err) });
         }
       }
     }
@@ -213,8 +213,8 @@ export async function escalateToTriage(
   // Overall successRate < 50% → workunit_health_degraded
   if (total >= 5 && overallSuccessRate < 50) {
     try {
-      const { triageService } = await import('../triage/index.js');
-      triageService.handleAlert({
+      const { getTriageService } = await import('../triage/index.js');
+      getTriageService().handleAlert({
         type: 'workunit_health_degraded',
         severity: 'critical',
         message: `WorkUnit success rate ${overallSuccessRate}% (${failed}/${total} failed) below 50% threshold`,
@@ -229,7 +229,7 @@ export async function escalateToTriage(
         });
       });
     } catch (err) {
-      logger.warn('[AuditorService] Failed to import triageService for workunit_health_degraded', { error: String(err) });
+      logger.warn('[AuditorService] Failed to import getTriageService() for workunit_health_degraded', { error: String(err) });
     }
   }
 }

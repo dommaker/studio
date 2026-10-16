@@ -81,7 +81,7 @@ vi.mock('../../knowledge/scheduling/knowledge-sync.service.js', () => ({
 }));
 
 vi.mock('../../triage/index.js', () => ({
-  triageService: { handleAlert: mockHandleAlert },
+  getTriageService: () => ({ handleAlert: mockHandleAlert }),
 }));
 
 vi.mock('../monitor-alerts.js', () => ({
@@ -93,7 +93,7 @@ vi.mock('../../../utils/studio-events-tail.js', () => ({
 }));
 
 vi.mock('../../agent-knowledge/index.js', () => ({
-  knowledgeCurator: { runDailyMaintenance: mockRunDailyMaintenance },
+  getKnowledgeCurator: () => ({ runDailyMaintenance: mockRunDailyMaintenance }),
 }));
 
 import {

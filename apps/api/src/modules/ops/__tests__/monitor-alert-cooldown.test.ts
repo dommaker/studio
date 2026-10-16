@@ -19,7 +19,7 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({
 }));
 
 vi.mock('../../triage/index.js', () => ({
-  triageService: { handleAlert: vi.fn(() => Promise.resolve()) },
+  getTriageService: () => ({ handleAlert: vi.fn(() => Promise.resolve()) }),
 }));
 
 vi.mock('../../notifications/index.js', () => ({

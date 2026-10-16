@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
 import { getMergeWindowMs, resolveMergeTarget } from '../merge-target.js';
-import { channelMessageService } from '../channel-message.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 let channelId: string;
@@ -73,7 +73,7 @@ describe('#632: 合并窗口解耦 + 歧义守卫 + 显式意图', () => {
       members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   afterEach(() => {

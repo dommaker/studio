@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { dispatchMentionMessage, dispatchNewTaskMessage, type WuDispatchDeps } from '../wu-dispatch.js';
-import { channelMessageService } from '../channel-message.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 let channelId: string;
@@ -64,7 +64,7 @@ describe('wu-dispatch：@mention 派单', () => {
       members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   it('命中成员 → 建单指名 + anchorMessageId 锚定派发消息 + 消息回填 workUnitId', async () => {
@@ -160,7 +160,7 @@ describe('wu-dispatch：intent=new-task 显式建单', () => {
       members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   it('建未指派 WU 走涌现认领（creationMode=channel-new-task，scope=原文，不做归属解析）', async () => {

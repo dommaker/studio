@@ -35,7 +35,7 @@
 
 ### 核心导出
 
-- `index.ts` — 模块公共出口 barrel：`getMetrics`、`loadCurrentWuContexts` + `CurrentWuContext`（type）、`scanStaleAgentInstances`、`initLockEventsBridge`、`dispatchMonitorAlerts` / `emitMonitorEvent`、`monitorService`、`MonitorAlert` / `MonitorAlertSource`（type）、`createOpsService`
+- `index.ts` — 模块公共出口 barrel：`getMetrics`、`loadCurrentWuContexts` + `CurrentWuContext`（type）、`scanStaleAgentInstances`、`initLockEventsBridge`、`dispatchMonitorAlerts` / `emitMonitorEvent`、`getMonitorService()`（惰性单例）、`MonitorAlert` / `MonitorAlertSource`（type）、`createOpsService`
 - `default` (Router) — `monitoring.routes.ts`（深路径动态 import 仅限 route-registry 白名单）
 - `MonitoringService` / `MetricsService` / `INJECTED_TOKEN_BUDGET` / `OVERHEAD_RATIO_BUDGET` 等维持深路径消费现状（bench、模块内测试、prompt-composer 测试）
 - `KnowledgeMetricsSource` (接口) — 知识度量源接口（DI 注入，默认 lazy 获取生产单例，避免模块加载期副作用），定义 `getFlywheelMetrics` 和 `getAuditReport`
@@ -43,7 +43,7 @@
 
 ### 依赖关系
 
-- 上游：`@dommaker/studio-shared`（FileStore 等）、`modules/agents`（barrel：AgentInstanceService/INSTANCE_ALIVE_TIMEOUT_MS）、`modules/triage`（barrel：triageService 告警升级）、`modules/knowledge`、`modules/workunit`、`modules/pmo`（current-wu-context 归属链）、`modules/auth`（hashPassword）、`core/`（store/proc-probes/exec-async）、`utils/`；动态 import `modules/mcp`、`modules/channels`
+- 上游：`@dommaker/studio-shared`（FileStore 等）、`modules/agents`（barrel：AgentInstanceService/INSTANCE_ALIVE_TIMEOUT_MS）、`modules/triage`（barrel：getTriageService() 告警升级）、`modules/knowledge`、`modules/workunit`、`modules/pmo`（current-wu-context 归属链）、`modules/auth`（hashPassword）、`core/`（store/proc-probes/exec-async）、`utils/`；动态 import `modules/mcp`、`modules/channels`
 - 下游：`app.ts`（/metrics 动态 import barrel）、`route-registry.ts`（monitoring.routes 深路径动态 + /health 探针 barrel 动态）、`bootstrap/`（services/lifecycle/migrations/handlers/bridges）、`cli/server.ts` / `cli/run-web.ts`、`modules/agent-loop`（loop-lifecycle 静态 barrel / dispatch-reconciliation 告警出声）、`modules/pmo`（analysis-handoff 动态）、`modules/workunit`（in-review-inbox 动态）、`bench/walk5-page-load.ts`（monitoring.service 深路径）
 
 ### 注意事项

@@ -37,8 +37,8 @@ export async function postReviewProposalCard(
     const channel = (await deps.fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
     if (!channel) return false; // 频道未播种 → 静默跳过
 
-    const { channelMessageService } = await import('../channels/index.js');
-    await channelMessageService.createCardMessage(
+    const { getChannelMessageService } = await import('../channels/index.js');
+    await getChannelMessageService().createCardMessage(
       channel.id,
       card.author ?? 'KK',
       card.content,

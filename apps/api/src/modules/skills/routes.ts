@@ -28,7 +28,7 @@ import { skillStore } from './skill-store.js';
 import { loadManifest } from './manifest-loader.js';
 import { getSkillReviewAdapter } from './review-adapter.js';
 import { promoteSkill } from './skill-promotion.js';
-import { channelMessageService } from '../channels/index.js';
+import { getChannelMessageService } from '../channels/index.js';
 import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
 
 // P2-e 鉴权声明式统一：open（GET 读，含 /discover /manifest /:id /stats，注册顺序保持原样含 /:id 遮蔽）
@@ -292,7 +292,7 @@ writeRoutes.post('/:id/retract/decide', defineRoute(
 
     if (typeof messageId === 'string' && messageId) {
       try {
-        await channelMessageService.updateMessageMeta(
+        await getChannelMessageService().updateMessageMeta(
           messageId,
           { status: nextStatus },
           typeof channelId === 'string' && channelId ? channelId : undefined,

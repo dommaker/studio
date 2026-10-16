@@ -8,7 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
 import { ConvertToTaskService } from '../convert-to-task.service.js';
 
 let tmpDir: string;
@@ -41,7 +41,7 @@ beforeEach(async () => {
     discordChannelId: null, discordWebhookUrl: null, members: '[]',
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   });
-  channelMessageService.setFileStore(fileStore);
+  getChannelMessageService().setFileStore(fileStore);
 });
 
 afterEach(() => {
@@ -91,9 +91,9 @@ describe('归档消息只读降级（#327）', () => {
   it('归档消息编辑 → updateMessage / updateMessageMeta 抛 not found（路由映射 404 的既有路径）', async () => {
     const archived = await seedArchivedMessage('edit-archived');
 
-    await expect(channelMessageService.updateMessage(archived.id, { content: '改' }))
+    await expect(getChannelMessageService().updateMessage(archived.id, { content: '改' }))
       .rejects.toThrow(/not found/);
-    await expect(channelMessageService.updateMessageMeta(archived.id, { status: 'done' }))
+    await expect(getChannelMessageService().updateMessageMeta(archived.id, { status: 'done' }))
       .rejects.toThrow(/not found/);
   });
 

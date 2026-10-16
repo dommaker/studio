@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { eventBus, FileStore, type AgentProfileData, type ChannelMessageData } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
 import { detectMention } from '../mention-match.js';
-import { channelMessageService } from '../channel-message.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 let channelId: string;
@@ -55,7 +55,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     // 让 singleton service 使用测试 FileStore
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   afterAll(async () => {
@@ -76,7 +76,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   // ── AC-A1: @mention binds assigneeId ──

@@ -10,17 +10,17 @@ const flags = vi.hoisted(() => ({ failOnMonitor: false }));
 
 // #683：monitorService 与 createOpsService 同归 ops barrel，合并为一个 mock
 vi.mock('../../modules/ops/index.js', () => ({
-  monitorService: {
+  getMonitorService: () => ({
     start: () => {
       if (flags.failOnMonitor) throw new Error('monitor boom');
       calls.push('monitor');
     },
     stop: vi.fn(),
-  },
+  }),
   createOpsService: () => ({ start: () => calls.push('ops') }),
 }));
 vi.mock('../../modules/agent-auditor/index.js', () => ({
-  auditorService: { start: () => calls.push('auditor'), stop: vi.fn() },
+  getAuditorService: () => ({ start: () => calls.push('auditor'), stop: vi.fn() }),
 }));
 vi.mock('../../modules/requirements/rollup.js', () => ({
   initRequirementRollup: () => calls.push('requirement-rollup'),

@@ -26,6 +26,7 @@ import * as alerting from './monitor-alerts.js';
 import * as reports from './monitor-reports.js';
 import * as lifecycle from './monitor-lifecycle.js';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 
@@ -196,4 +197,6 @@ export class MonitorService {
   }
 }
 
-export const monitorService = new MonitorService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getMonitorService = createLazyService(() => new MonitorService());

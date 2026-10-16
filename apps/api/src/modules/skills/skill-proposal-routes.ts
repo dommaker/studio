@@ -22,9 +22,9 @@ import {
   skillIdParamsSchema,
   ERROR_CODES,
 } from '@dommaker/studio-contract';
-import { skillExtractionService } from './skill-extraction.service.js';
+import { getSkillExtractionService } from './skill-extraction.service.js';
 import { logger } from '@dommaker/studio-shared';
-import { channelMessageService } from '../channels/index.js';
+import { getChannelMessageService } from '../channels/index.js';
 import { skillStore } from './skill-store.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
@@ -39,7 +39,7 @@ const writeRoutes = Router();
  * 获取待审批的 Skill 提案
  */
 openRoutes.get('/', defineRoute({ query: listSkillProposalsQuerySchema }, async (_req, _res, { query }) => {
-  return skillExtractionService.getPendingProposals(query.companyId!);
+  return getSkillExtractionService().getPendingProposals(query.companyId!);
 }));
 
 /**
@@ -49,12 +49,12 @@ openRoutes.get('/', defineRoute({ query: listSkillProposalsQuerySchema }, async 
 writeRoutes.post('/scan', defineRoute(
   { body: scanSkillProposalsBodySchema },
   async (_req, _res, { body }) => {
-    const proposals = await skillExtractionService.scanForPatterns(body.companyId!);
+    const proposals = await getSkillExtractionService().scanForPatterns(body.companyId!);
 
     // 保存提案
     const saved: Array<{ skillId: string; proposalId: string; autoPublished: boolean }> = [];
     for (const proposal of proposals) {
-      const ids = await skillExtractionService.saveProposal(proposal);
+      const ids = await getSkillExtractionService().saveProposal(proposal);
       saved.push(ids);
     }
 
@@ -73,13 +73,13 @@ writeRoutes.post('/scan', defineRoute(
 writeRoutes.post('/extract/:executionId', defineRoute(
   { params: executionIdParamsSchema },
   async (_req, _res, { params }) => {
-    const proposal = await skillExtractionService.extractFromWorkUnit(params.executionId);
+    const proposal = await getSkillExtractionService().extractFromWorkUnit(params.executionId);
 
     if (!proposal) {
       return { extracted: false, message: 'No reusable pattern found' };
     }
 
-    const ids = await skillExtractionService.saveProposal(proposal);
+    const ids = await getSkillExtractionService().saveProposal(proposal);
     return { extracted: true, ...ids, proposal };
   },
 ));
@@ -108,7 +108,7 @@ writeRoutes.post('/:id/retract', defineRoute(
     const sysChannels = await getStore().listChannels({ name: '#系统' });
     const sysChannel = sysChannels[0] ?? null;
     if (sysChannel) {
-      await channelMessageService.createCardMessage(
+      await getChannelMessageService().createCardMessage(
         sysChannel.id,
         'KK',
         `⚠️ **撤回确认**: Skill \`${skill.name}\` [${skill.category || '未分类'}]\n\n${skill.description || '无描述'}\n\n确认将此 Skill 标记为废弃？`,

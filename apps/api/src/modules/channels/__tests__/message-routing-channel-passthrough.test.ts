@@ -9,7 +9,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, type AgentProfileData, type ChannelData } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
 
 /** 计数包装：统计 routeMessage 链路对 getChannel 的读取次数 */
 class CountingFileStore extends FileStore {
@@ -53,7 +53,7 @@ describe('routeMessage options.channel 传参（#525 P2-2）', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     fs.mkdirSync(tmpDir, { recursive: true });
     fileStore = new CountingFileStore(tmpDir);
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   it('@mention 路径：传入 channel 时全程零次 getChannel', async () => {

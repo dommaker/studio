@@ -14,6 +14,7 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import * as coldStart from './knowledge-cold-start.js';
 import * as maintenance from './knowledge-maintenance.js';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 
 /**
@@ -106,4 +107,6 @@ export class KnowledgeCurator {
   }
 }
 
-export const knowledgeCurator = new KnowledgeCurator();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getKnowledgeCurator = createLazyService(() => new KnowledgeCurator());

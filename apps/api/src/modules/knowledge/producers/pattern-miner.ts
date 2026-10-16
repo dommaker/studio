@@ -124,7 +124,7 @@ export class PatternMiner {
           .slice(0, 3);
 
         if (activePatterns.length > 0) {
-          const { channelMessageService } = await import('../../channels/index.js');
+          const { getChannelMessageService } = await import('../../channels/index.js');
           const sysChannels = await getStore().listChannels({ name: '#系统' });
           const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {
@@ -132,7 +132,7 @@ export class PatternMiner {
               const d = parsePatternContent(e.content) ?? {};
               return `- **${e.title}**: ${d.insight || d.description} (置信度: ${Math.round((d.confidence || 0) * 100)}%)`;
             }).join('\n');
-            await channelMessageService.createAgentMessage(sysChannel.id, 'PatternMiner',
+            await getChannelMessageService().createAgentMessage(sysChannel.id, 'PatternMiner',
               `发现 ${activePatterns.length} 个高置信度模式:\n${insightLines}`,
               { meta: { cardType: 'pattern_insight', count: activePatterns.length } },
             );

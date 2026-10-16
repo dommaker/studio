@@ -8,7 +8,7 @@ export { AnalysisHandoff, initAnalysisHandoff } from './analysis-handoff.js';
 export { initDecisionResolution } from './decision-resolution.js';
 export { matchWuToLeg, selectProjectSnapshots } from './evidence-summary.js';
 export { initMapOpening, MAP_OPENING_FOG_MAX, parseMapOpening } from './map-opening.js';
-export { okrService } from './okr.service.js';
+export { getOkrService } from './okr.service.js';
 export { applyPlanDirection, PlanDirectionError, validateDirectionPick } from './plan-direction.js';
 export { applyPlanRuling, PlanRulingError, validateRulingItems } from './plan-ruling.js';
 export { initPmoProgressRollup } from './progress-rollup.js';

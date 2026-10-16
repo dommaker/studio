@@ -9,7 +9,7 @@
 | 导出 | 文件 | 说明 |
 |------|------|------|
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
-| `getCurrentQuarter` / `OKRService` / `okrService` | `okr.service.ts` | OKR 核心 + 季度计算 + 单例 |
+| `getCurrentQuarter` / `OKRService` / `getOkrService()`（惰性单例） | `okr.service.ts` | OKR 核心 + 季度计算 + 单例 |
 | `OKRMetricQueries` | `okr-metric-queries.ts` | OKR 数据源查询基类，22 个 metric 查询 + `checkDataSourceHealth` |
 | `projectService` | `project.service.ts` | 项目服务单例（`getByReqAlias`/`getByPmoNumber`/`findChoreProject`/`publish`） |
 | `generatePmoNumber` / `parsePmoSeq` | `project.service.ts` | 统一编号 max(PM/PMO,REQ)+1，格式 PMO-<n> |
@@ -45,7 +45,7 @@
 - 杂务 PMO：`isChore + channelId` 联合标识，`findChoreProject` 只查不建（B4 清扫起创建端点 POST /channels/:id/chore-pmo 与 `ensureChoreProject` 已删——仓内零调用方；存量杂务 PMO 的读侧回退保留）。
 - 多腿项目：`POST /project` 接受 `gitRepos: string[]`，每个工程落一条 `deliveries[]` 腿。
 - 鉴权（P2-e 声明式统一）：router 拆 open（GET 读 + POST parse-command，开放）/ write（8 条写，registry 挂 authNotGuest）/ admin（DELETE project/okr，registry 挂 requireAuth+requireAdmin，与原 requireRole('Admin') 单挂在全部模式下状态码/错误体等价）三档，路由内不再挂鉴权。
-- **OKR 缓存与冲突语义（#448，2026-09-02）**：`GET /okr` 挂 30s apiCache，OKR 写端点（POST/PUT/DELETE `/okr*`）成功后 `clearCache(baseUrl + '/okr')` 写后失效；`POST /okr` 季度撞重（`okrService.create` 抛 "already exists"）映射 409 CONFLICT（options.errors 映射表），其余 service 错误仍 500（错误码统一 INTERNAL）。
+- **OKR 缓存与冲突语义（#448，2026-09-02）**：`GET /okr` 挂 30s apiCache，OKR 写端点（POST/PUT/DELETE `/okr*`）成功后 `clearCache(baseUrl + '/okr')` 写后失效；`POST /okr` 季度撞重（`getOkrService().create` 抛 "already exists"）映射 409 CONFLICT（options.errors 映射表），其余 service 错误仍 500（错误码统一 INTERNAL）。
 - **契约驱动迁移（2026-10 批次 2/7）**：`routes.ts` 全部 18 端点走 core/http.ts defineRoute——手写 guard（title/status/channelId/command/commit/companyId/deliveryPolicy/gitRepos 形状）收进 `@dommaker/studio-contract` pmo.ts 的 zod schema；统一 envelope `{ data }`（单体/交付/发布/parse-command/sdd 原裸对象统一进壳，GET /project 与 GET /okr 原已带壳形状不变）；错误映射收 options.errors（publish 'not found'/'pending'→400、DELETE 'Project not found'/'Can only delete'→400、OKR 'already exists'→409、GET okr 'OKR not found'→404）。human-only 守卫删 local 复制（resolveCallerAuthorType/内联 403），改挂 core/http.ts `requireHuman`（defineRoute 之前，读原始 body.authorType）；deliver/mark-delivered 的 409 拒绝体带 missing/conflictFiles 扩展（HttpError 承载不了，handler 自写 res）。鉴权挂载已随 P2-e 上移至 route-registry（open/write/admin 三 entry），声明式统一完成。已知保持项：PUT /project/:id、PUT /project/:id/status、PUT /okr/:id、DELETE /okr/:id 的 service 错误（含 not found）旧行为即 500，不映射 404。
 - **未归属 WU（#402 决策）**：无 reqId 且 pmoId 归因戳解析为 null 的 WU——不计入任何项目的交付统计，但 API 层可过滤/计数/列清单。trigger 系统维护单等合法无归属，创建入口不强制归因（best-effort 落戳）。#402 存量不 backfill（生产 REQ.projectId 全空、戳覆盖极低，无可推导补差集，同 #376 存量决策）；REQ 解绑不拦截（解绑语义），无戳关联 WU 失去归属时 requirement.service 记 warn 供对账。
 - **gitRepo 白名单（2026-08-25 收口）**：`POST /project` 与 `PUT /project/:id` 校验 `gitRepo`/`gitRepos`——resolve 后须落在允许根（env `PMO_GIT_REPO_ROOTS` 冒号分隔，缺省 `/root/projects`）且为已存在目录，否则 400 INVALID_INPUT。写入口仅此两处（`updateStatus` 不触 gitRepo）。

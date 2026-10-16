@@ -9,7 +9,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
 
 let channelId: string;
 let tmpDir: string;
@@ -32,7 +32,7 @@ describe('§10.3 → 决策 11: routeMessage 与 +skill 解耦', () => {
       discordChannelId: null, discordWebhookUrl: null, members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   afterAll(async () => {
@@ -49,7 +49,7 @@ describe('§10.3 → 决策 11: routeMessage 与 +skill 解耦', () => {
       discordChannelId: null, discordWebhookUrl: null, members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   it('@mention 路径：+token 保留在 scope 原文，metadata 不再写 skillHints', async () => {

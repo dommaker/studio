@@ -59,7 +59,7 @@ vi.mock('child_process', () => ({
   }),
 }));
 
-const { triageService, guarded } = await import('../triage.service.js');
+const { getTriageService, guarded } = await import('../triage.service.js');
 
 const DRY_RUN_PREFIX = `echo '[Triage] DRY-RUN`;
 // 破坏性 token：出现即说明该命令"含破坏性意图"
@@ -110,7 +110,7 @@ describe('TriageService destructive action gating', () => {
   describe('flag off (default)', () => {
     for (const type of DESTRUCTIVE_TYPES) {
       it(`${type}: destructive command is NOT executed, only dry-run echo`, { timeout: 30000 }, async () => {
-        const result = await triageService.handleAlert({
+        const result = await getTriageService().handleAlert({
           type,
           severity: 'critical',
           message: `test ${type}`,
@@ -133,7 +133,7 @@ describe('TriageService destructive action gating', () => {
     }
 
     it('read-only diagnose commands still run (observability kept)', { timeout: 30000 }, async () => {
-      await triageService.handleAlert({
+      await getTriageService().handleAlert({
         type: 'execution_stuck',
         severity: 'critical',
         message: 'test read-only diagnose',
@@ -150,9 +150,9 @@ describe('TriageService destructive action gating', () => {
     it('executes destructive commands verbatim', { timeout: 60000 }, async () => {
       process.env.STUDIO_TRIAGE_DESTRUCTIVE = 'true';
 
-      await triageService.handleAlert({ type: 'execution_stuck', severity: 'critical', message: 't', details: { executionId: 'e1' } });
-      await triageService.handleAlert({ type: 'zombie', severity: 'critical', message: 't' });
-      await triageService.handleAlert({ type: 'resource_critical', severity: 'critical', message: 't' });
+      await getTriageService().handleAlert({ type: 'execution_stuck', severity: 'critical', message: 't', details: { executionId: 'e1' } });
+      await getTriageService().handleAlert({ type: 'zombie', severity: 'critical', message: 't' });
+      await getTriageService().handleAlert({ type: 'resource_critical', severity: 'critical', message: 't' });
 
       const rawDestructive = execCalls.filter(
         (cmd) => DESTRUCTIVE_RE.test(cmd) && !cmd.startsWith(DRY_RUN_PREFIX),

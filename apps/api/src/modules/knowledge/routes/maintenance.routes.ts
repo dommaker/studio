@@ -19,8 +19,8 @@ const router = Router();
 /** POST /api/v1/knowledge/maintenance/run — 手动运行 F1 知识库维护 */
 router.post('/maintenance/run', defineRoute({}, async () => {
   // P2-c 拆环：knowledge→agents 静态边转函数内动态 import
-  const { knowledgeCurator } = await import('../../agent-knowledge/index.js');
-  return knowledgeCurator.runDailyMaintenance();
+  const { getKnowledgeCurator } = await import('../../agent-knowledge/index.js');
+  return getKnowledgeCurator().runDailyMaintenance();
 }));
 
 export { router as maintenanceRoutes };

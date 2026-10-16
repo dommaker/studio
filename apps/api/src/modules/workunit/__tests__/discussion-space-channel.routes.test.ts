@@ -16,7 +16,7 @@ vi.mock('../workunit-review.js', () => ({
 }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { listByWorkUnitId: mockListByWu },
+  getChannelMessageService: () => ({ listByWorkUnitId: mockListByWu }),
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {

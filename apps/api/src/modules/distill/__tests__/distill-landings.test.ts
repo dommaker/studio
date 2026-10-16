@@ -38,7 +38,7 @@ vi.mock('../../agents/system-executor.js', () => ({
 }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
+  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
 }));
 
 // #353：memory 落地经 review-adapter.submitMemoryProposal（正本发卡；其行为级测试在 role-memory/review-adapter.test.ts）。
