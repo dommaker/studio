@@ -27,6 +27,7 @@ Specs 域：变更分析（L1-L4 分级与审批推荐）、变更历史查询�
 - 门禁验证 API：POST `/changes/:changeId/validate` 调 `GateCheckerService.validate`（通用检查走 harness CheckpointValidator，studio#644），GET `/gates/:level` 与 `/gates` 查询 L1-L4 策略。
 - Harness 模块采用动态导入（`await import(...)`）以避免循环依赖，失败时降级：L1/L2 非严格模式跳过、L3/L4 或严格模式判失败（降级语义见 `__tests__/gate-checker.degradation.test.ts`）。
 - 通用检查不再自建构造/分发层（studio#644）：检查项即 harness `CheckpointCheck`（`config` 为 harness `CheckConfig`），上下文为 harness `CheckpointContext`（`projectPath`/`workdir`）。
+- harness 4.0.0 适配（CheckConfig 判别联合化）：入站由契约层 `validateChangeBodySchema` 按 type 校验必填字段（file_exists→path、file_contains→path+content、command_success→command、output_matches→pattern，缺了 400 点名）；服务层 `buildHarnessCheck` 防御性再断一次，缺字段抛错走 catch 判失败——不再 `|| ''` 静默兜底。
 - 类型定义中 `SpecContent` 没有定义所有字段（如 `api.schemas` 中的具体 schema 结构），需保持与解析器对齐。
 - 所有端点需统一处理错误并记录日志。
 - **鉴权（2026-07-24 收紧；P2-e 声明式统一）**：拆 open（读 + analyze-change，registry 挂 auth）/ write（POST /changes/:changeId/validate（可触发 harness 检查点执行）、POST /:id/changes/import，registry 挂 authNotGuest）双 router，路由内零鉴权挂载。

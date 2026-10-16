@@ -226,6 +226,30 @@ describe('GateCheckerService', () => {
     // Harness 已安装在当前环境，检查应正常运行
   });
 
+  // harness 4.0.0 CheckConfig 判别联合：缺必填字段判失败并点名，不再 || '' 静默兜底
+  it('should fail Harness check with named field when required config missing', async () => {
+    const spec: SpecContent = {
+      metadata: { id: 'spec-missing-config', title: 'Test' },
+    };
+
+    const submitResult = saveChange({
+      specId: 'spec-missing-config',
+      newVersion: spec,
+      level: 'L3',
+    });
+
+    const validateResult = await gateCheckerService.validate({
+      changeId: submitResult.id,
+      checkpoints: ['file_exists'],
+      strictMode: true,
+    });
+
+    const fileCheck = validateResult.checks.find(c => c.type === 'file_exists');
+    expect(fileCheck).toBeDefined();
+    expect(fileCheck!.passed).toBe(false);
+    expect(fileCheck!.message).toContain('config.path');
+  });
+
   // 检查类型判断
   it('should correctly identify Harness checks', () => {
     expect(isHarnessCheck('file_exists')).toBe(true);

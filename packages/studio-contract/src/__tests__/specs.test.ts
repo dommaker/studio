@@ -140,6 +140,37 @@ describe('请求 schema', () => {
     expect(importChangesBodySchema.parse({ data: '[]' })).toEqual({ data: '[]' });
     expect(importChangesBodySchema.safeParse({}).success).toBe(false);
   });
+
+  // harness 4.0.0 CheckConfig 判别联合口径：按 type 校验必填字段，缺了 400 点名
+  it('validate body：harness 检查必填字段按 type 校验', () => {
+    // 四种 harness 检查各缺必填字段 → 拒绝并点名
+    for (const [type, harness, field] of [
+      ['file_exists', {}, 'path'],
+      ['file_exists', { path: '' }, 'path'],
+      ['file_contains', { path: 'x' }, 'content'],
+      ['command_success', {}, 'command'],
+      ['output_matches', {}, 'pattern'],
+    ] as const) {
+      const result = validateChangeBodySchema.safeParse({ harnessConfigs: [{ type, harness }] });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(JSON.stringify(result.error.issues)).toContain(`harness.${field}`);
+      }
+    }
+    // 字段齐全 → 放行
+    expect(validateChangeBodySchema.parse({
+      harnessConfigs: [
+        { type: 'file_exists', harness: { path: 'x' } },
+        { type: 'file_contains', harness: { path: 'x', content: 'y' } },
+        { type: 'command_success', harness: { command: 'make test' } },
+        { type: 'output_matches', harness: { pattern: '^ok' } },
+      ],
+    })).toBeTruthy();
+    // 非 harness 类型（业务检查点）不校验 harness 字段
+    expect(validateChangeBodySchema.parse({
+      harnessConfigs: [{ type: 'spec_format' }],
+    })).toBeTruthy();
+  });
 });
 
 describe('响应 schema（{ data } / 分页壳）', () => {

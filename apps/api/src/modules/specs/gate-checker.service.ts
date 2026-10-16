@@ -24,8 +24,29 @@ import {
 import { ChangeLevel, ChangeRecord } from './types/change.types.js';
 import { changeHistoryService } from './change-history.service.js';
 
-import type { Checkpoint, CheckpointContext, CheckpointValidator } from '@dommaker/harness';
+import type { Checkpoint, CheckpointCheck, CheckpointContext, CheckpointValidator } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared/node';
+
+/**
+ * harness 4.0.0（班次3 Phase5）：CheckConfig 判别联合化，按 type 收窄必填字段。
+ * 入站已由契约层 validateChangeBodySchema 按 type 校验（缺字段 400 点名）；
+ * 此处防御性再断一次——缺字段抛错走 runHarnessCheckpoint 的 catch 判失败，
+ * 不再 || '' 静默放行（同 ADR-0041 警示的可选链假绿同型陷阱）。
+ * 校验通过后原样返回 config，调用点按判别子 Extract 出精确 config 类型。
+ */
+function requireConfigFields(
+  config: HarnessCheckConfig | undefined,
+  type: HarnessCheckpointType,
+  fields: readonly string[],
+): HarnessCheckConfig {
+  const record = config as Record<string, unknown> | undefined;
+  for (const field of fields) {
+    if (typeof record?.[field] !== 'string' || record[field] === '') {
+      throw new Error(`${type} 检查缺少必填配置项 config.${field}`);
+    }
+  }
+  return config as HarnessCheckConfig;
+}
 
 /**
  * Harness CheckpointValidator（动态导入）
@@ -209,7 +230,7 @@ export class GateCheckerService {
 
       const checkpoint: Checkpoint = {
         id: `gate-${type}`,
-        checks: [{ id: type, type, config: config ?? {} }],
+        checks: [this.buildHarnessCheck(type, config)],
       };
 
       const context: CheckpointContext = {
@@ -231,6 +252,39 @@ export class GateCheckerService {
         passed: false,
         message: `Harness 检查失败: ${error instanceof Error ? error.message : String(error)}`,
       };
+    }
+  }
+
+  /**
+   * 按判别子窄化构造 harness CheckpointCheck（4 种 HarnessCheckpointType 全量覆盖，
+   * 必填字段经 requireConfigFields 运行时校验后 Extract 出精确 config 类型）
+   */
+  private buildHarnessCheck(type: HarnessCheckpointType, config?: HarnessCheckConfig): CheckpointCheck {
+    switch (type) {
+      case 'file_exists':
+        return {
+          id: type,
+          type,
+          config: requireConfigFields(config, type, ['path']) as Extract<CheckpointCheck, { type: 'file_exists' }>['config'],
+        };
+      case 'file_contains':
+        return {
+          id: type,
+          type,
+          config: requireConfigFields(config, type, ['path', 'content']) as Extract<CheckpointCheck, { type: 'file_contains' }>['config'],
+        };
+      case 'command_success':
+        return {
+          id: type,
+          type,
+          config: requireConfigFields(config, type, ['command']) as Extract<CheckpointCheck, { type: 'command_success' }>['config'],
+        };
+      case 'output_matches':
+        return {
+          id: type,
+          type,
+          config: requireConfigFields(config, type, ['pattern']) as Extract<CheckpointCheck, { type: 'output_matches' }>['config'],
+        };
     }
   }
 

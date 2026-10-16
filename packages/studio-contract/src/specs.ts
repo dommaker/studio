@@ -178,13 +178,38 @@ export const analyzeChangeBodySchema = z.object({
 });
 export type AnalyzeChangeBody = z.infer<typeof analyzeChangeBodySchema>;
 
+/**
+ * harness 通用检查按 type 的必填 config 字段（harness 4.0.0 CheckConfig 判别联合口径，
+ * 对齐 harness assertCheckpointShape fail-fast）：缺字段入站 400 点名，
+ * 不再落到运行时 || '' 静默兜底。
+ */
+const HARNESS_CHECK_REQUIRED_FIELDS: Record<string, readonly string[]> = {
+  file_exists: ['path'],
+  file_contains: ['path', 'content'],
+  command_success: ['command'],
+  output_matches: ['pattern'],
+};
+
 /** POST /changes/:changeId/validate（全可选；checkpoints 缺省按变更级别取策略） */
 export const validateChangeBodySchema = z.object({
   checkpoints: z.array(z.string()).optional(),
   harnessConfigs: z.array(z.object({
     type: z.string(),
     harness: z.record(z.unknown()).optional(),
-  }).passthrough()).optional(),
+  }).passthrough().superRefine((entry, ctx) => {
+    const required = HARNESS_CHECK_REQUIRED_FIELDS[entry.type];
+    if (!required) return;
+    for (const field of required) {
+      const value = entry.harness?.[field];
+      if (typeof value !== 'string' || value === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['harness', field],
+          message: `${entry.type} 检查缺少必填配置项 harness.${field}`,
+        });
+      }
+    }
+  })).optional(),
   strictMode: z.boolean().optional(),
 });
 export type ValidateChangeBody = z.infer<typeof validateChangeBodySchema>;
