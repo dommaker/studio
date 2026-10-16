@@ -294,9 +294,10 @@ describe('EnvSnapper (G-003)', () => {
   });
 
   it('默认已知限制包含 SQLite 和 Discord', async () => {
-    const { envSnapper } = await import(
+    const { getEnvSnapper } = await import(
       '../../apps/api/src/modules/knowledge/producers/env-snapper.js'
     );
+    const envSnapper = getEnvSnapper();
 
     // getDefaultLimitations is private, but we can verify the service exists
     expect(envSnapper).toBeDefined();
