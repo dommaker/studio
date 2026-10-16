@@ -17,12 +17,10 @@ import { getStore } from '../../../core/store.js';
 
 const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
 
-vi.mock('../../channels/channel-message.service.js', () => ({
-  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
-}));
-
+// Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
 import { createJsonlReviewAdapter, type JsonlReviewAdapterConfig } from '../jsonl-adapter.js';
 import { getReviewProposalAdapter, clearReviewProposalAdapters } from '../registry.js';
+import { registerChannelCardPoster } from '../card.js';
 
 interface TestProposal {
   id: string;
@@ -49,6 +47,9 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-proposal-jsonl-adapter-'));
   fileStore = new FileStore(tmpDir);
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
 });
 
 afterEach(() => {

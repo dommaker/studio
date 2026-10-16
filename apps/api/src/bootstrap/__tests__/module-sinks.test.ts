@@ -11,13 +11,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const {
   mockRegisterAuthAuditSink,
   mockRegisterAlertChannelPoster,
+  mockRegisterChannelCardPoster,
   mockAuditLog,
   mockCreateAgentMessage,
+  mockCreateCardMessage,
 } = vi.hoisted(() => ({
   mockRegisterAuthAuditSink: vi.fn(),
   mockRegisterAlertChannelPoster: vi.fn(),
+  mockRegisterChannelCardPoster: vi.fn(),
   mockAuditLog: vi.fn(),
   mockCreateAgentMessage: vi.fn(),
+  mockCreateCardMessage: vi.fn(),
 }));
 
 vi.mock('../../modules/auth/index.js', () => ({
@@ -28,12 +32,16 @@ vi.mock('../../modules/notifications/index.js', () => ({
   registerAlertChannelPoster: mockRegisterAlertChannelPoster,
 }));
 
+vi.mock('../../modules/review-proposal/index.js', () => ({
+  registerChannelCardPoster: mockRegisterChannelCardPoster,
+}));
+
 vi.mock('../../modules/audit-logs/index.js', () => ({
   getAuditService: () => ({ log: mockAuditLog }),
 }));
 
 vi.mock('../../modules/channels/index.js', () => ({
-  getChannelMessageService: () => ({ createAgentMessage: mockCreateAgentMessage }),
+  getChannelMessageService: () => ({ createAgentMessage: mockCreateAgentMessage, createCardMessage: mockCreateCardMessage }),
 }));
 
 import { registerModuleSinks } from '../module-sinks.js';
@@ -63,5 +71,14 @@ describe('bootstrap/module-sinks 装配', () => {
 
     await poster({ channelId: 'ch-1', content: 'body', atHuman: false });
     expect(mockCreateAgentMessage).toHaveBeenLastCalledWith('ch-1', 'Studio', 'body', undefined);
+  });
+
+  it('review-proposal 卡 poster：注入闭包委托 createCardMessage（参数原样透传）', async () => {
+    expect(mockRegisterChannelCardPoster).toHaveBeenCalledTimes(1);
+    const poster = mockRegisterChannelCardPoster.mock.calls[0][0];
+    mockCreateCardMessage.mockResolvedValue({ id: 'msg-2' });
+
+    await poster({ channelId: 'ch-sys', author: 'KK', content: 'md', cardType: 'distill_proposal', cardData: { proposalId: 'p-1' } });
+    expect(mockCreateCardMessage).toHaveBeenCalledWith('ch-sys', 'KK', 'md', 'distill_proposal', { proposalId: 'p-1' });
   });
 });

@@ -5,7 +5,7 @@
  * - 每条必须带 reason（架构成因 + 治理去向），改动本文件须在 commit message 说明；
  * - 实际环与清单任一侧漂移即 CI 红：新增环拆依赖或补豁免，环清零后必须回收对应豁免（stale 也 fail）。
  *
- * 现状（2026-10-09 #683 更新）：33 个模块中 21 个落在同一个 SCC——
+ * 现状（2026-10-16 Phase 5 更新）：33 个模块中 18 个落在同一个 SCC——
  * 根因是「领域服务经对方 barrel（index.ts）互调」是本平台的主流协作形态
  * （WU 状态机贯穿 channels/pmo/requirements/knowledge/agents 各域），
  * 全部边均走公共面 barrel、无深路径；清零依赖 Phase 3 巨型文件拆分（#668-#672）
@@ -16,7 +16,7 @@
  * 成员集则不再单独告警，簇扩大/合并/分裂仍撞门。
  */
 
-// 21 节点环簇：以 workunit 为枢纽的领域互调网（agent-* / channels / pmo / knowledge / requirements 等
+// 18 节点环簇：以 workunit 为枢纽的领域互调网（agent-* / channels / pmo / knowledge / requirements 等
 // 均经 barrel 互取服务）。成员集精确匹配——任何新模块加入环簇或环簇合并/分裂都会撞门。
 // 2026-10-09 #682：通知域合一后 notifications 入簇（alert-notifier 频道 sink → channels barrel，
 // channels→workunit→notifications 回路本已存在）；入簇边 = 模块内 alert-notifier → ../channels/index.js。
@@ -27,11 +27,13 @@
 // bootstrap/module-sinks.ts 注入实现），auth 的出簇边清零退出 SCC（21→20）。
 // 2026-10-16 Phase 5 第一刀 #2：notifications→channels 同手法（alert-notifier 的
 // AlertChannelPoster 注册口 + 装配注入），notifications 出簇边清零退出 SCC（20→19）。
+// 2026-10-16 Phase 5 第一刀 #3：review-proposal→channels 同手法（card.ts 的
+// ChannelCardPoster 注册口 + 装配注入，动态 import 临时招退役），退出 SCC（19→18）。
 const HUB_SCC = [
   'agent-auditor', 'agent-knowledge', 'agent-loop', 'agents',
   'audit-logs', 'channels', 'evolution', 'harness', 'knowledge',
   'mcp', 'ops', 'pmo', 'requirements',
-  'review-proposal', 'role-memory', 'skills', 'triage', 'triggers',
+  'role-memory', 'skills', 'triage', 'triggers',
   'workunit',
 ];
 

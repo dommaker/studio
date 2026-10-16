@@ -26,17 +26,13 @@ const { mockCreateCardMessage } = vi.hoisted(() => ({
   mockCreateCardMessage: vi.fn(),
 }));
 
-// 单例发卡走 mock（断言 + 重定向到测试 fileStore）；ChannelMessageService 类保持真实
-// （wireCardPostingToRealStore 用真类把卡片落进测试 fileStore）
-vi.mock('../../channels/channel-message.service.js', async importOriginal => {
-  const actual = await importOriginal<typeof import('../../channels/channel-message.service.js')>();
-  return { ...actual, getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }) };
-});
-
+// Phase 5 SCC 第一刀 #3：正本发卡改装配注入的 ChannelCardPoster（原 channels 单例 mock 已死），
+// 测试内注册 poster；ChannelMessageService 类保持真实（wireCardPostingToRealStore 用真类把卡片落进测试 fileStore）
 import { FileStore } from '@dommaker/studio-shared';
 import { ChannelMessageService } from '../../channels/channel-message.service.js';
 import { clearReviewProposalAdapters } from '../../review-proposal/registry.js';
 import { approveProposal, rejectProposal, getProposalStatus } from '../../review-proposal/service.js';
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 import { registerAuditorReviewAdapter, submitAuditorSuggestionProposal, findAuditorCardMessageId } from '../review-adapter.js';
 import type { Suggestion } from '../auditor-rules.js';
 
@@ -50,7 +46,7 @@ let dataDir: string;
 let fileStore: FileStore;
 let channelId: string;
 
-/** 发卡落真：正本动态 import 的单例被 mock，这里把卡片真实写进测试 fileStore（卡片定位/作者断言需要真消息） */
+/** 发卡落真：poster 委托到 mockCreateCardMessage，这里把实现切到真类把卡片真实写进测试 fileStore（卡片定位/作者断言需要真消息） */
 function wireCardPostingToRealStore(): void {
   const realMessageService = new ChannelMessageService(fileStore);
   mockCreateCardMessage.mockImplementation(
@@ -76,6 +72,11 @@ beforeEach(() => {
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-review-adapter-'));
   dataDir = path.join(tmpRoot, 'data');
   fileStore = new FileStore(tmpRoot);
+  mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   registerAuditorReviewAdapter({ fileStore, dataDir });
 });
 

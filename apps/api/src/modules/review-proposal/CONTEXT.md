@@ -14,7 +14,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 - `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
 - `store.ts` -- `ReviewProposalStore<P>`：append-only JSONL 提案行 + 墓碑折叠（`ReviewProposalRecord<P>`；#360 起分组折叠走共享 `foldJsonlById`，「末个状态行 = 最新状态」语义留本模块 adapter）。状态词表 `pending | executed | rejected | failed | card-failed` + `stale`（#623：仅 evolution 自定义 store 读侧归一带出，墓碑写路径不产生）
-- `card.ts` -- `postReviewProposalCard`：#系统 频道解析 + 发卡；失败静默 false 不抛
+- `card.ts` -- `postReviewProposalCard`：#系统 频道解析 + 发卡；失败静默 false 不抛。发卡出口缝（Phase 5 SCC 第一刀 #3，2026-10-16）：`ChannelCardPost`/`ChannelCardPoster` + `registerChannelCardPoster(fn|null)` 注册口，实现由 bootstrap/module-sinks.ts 装配期注入（channels 的 createCardMessage）；原动态 import 躲循环的临时招随之退役。**未注册语义：抛错（被本文件 catch 收成 warn + false，与发卡失败同口径）**
 - `registry.ts` -- adapter 注册表：`registerReviewProposalAdapter` / `getReviewProposalAdapter` / `listReviewProposalAdapters`（#591 审计聚合读面遍历用）/ `ApproveOutcome`（config.store 可选注入自定义存取——仅供存储形态例外域：#353 memory per-role draft.jsonl、#623 evolution EP-XXXX.json 单提案文件；缺省正本物化单文件）
 - `jsonl-adapter.ts` -- `createJsonlReviewAdapter`：JSONL 存储路径 adapter 工厂（P2.2 收敛 agent-auditor #356 / knowledge #355 / skills #354 三家装配样板）——产出 register(deps?)/get()/submit() 三件套；deps 缺省 fileStore=getStore() / dataDir=studioDir()（register 时解析）；onApprove 第二参 ctx.fileStore = 注册时解析实例（auditor 建工单闭包语义）；空载荷早退是业务语义，留各域 submit 包装。存储形态例外域（#353/#623）不经本工厂
 - `service.ts` -- 生命周期：`submitProposal`（建卡+card-failed 降级）/ `approveProposal` / `rejectProposal` / `getProposalStatus`
@@ -22,7 +22,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 ### 依赖关系
 
-**上游**: `@dommaker/studio-shared`（FileStore/logger）、`channels/channel-message.service.ts`（发卡，动态 import）、`middleware/auth.js`、`core/store.js`（jsonl-adapter 工厂 deps 缺省解析 getStore()，register 时调用——静态 import 仅为函数引用，无 import 期实例捕获）
+**上游**: `@dommaker/studio-shared`（FileStore/logger）、`middleware/auth.js`、`core/store.js`（jsonl-adapter 工厂 deps 缺省解析 getStore()，register 时调用——静态 import 仅为函数引用，无 import 期实例捕获）。~~channels/channel-message.service.ts（发卡，动态 import）~~——无（Phase 5 #3 起发卡走装配注入的 ChannelCardPoster，见 card.ts）
 
 **下游**: modules/distill（distill/GC 两 adapter，kind: distill/gc；存量约束审计 adapter 已随 #617 拆除）；role-memory（#353，kind: memory，自定义 store 落 per-role draft.jsonl，旧 promoted 读侧归一）；skills（#354，kind: skill，默认物化 skill-proposals.jsonl，onApprove 生成 SKILL.md）；knowledge（#355，kind: knowledge，默认物化 knowledge-proposals.jsonl，onApprove 逐条目 promote / onReject 逐条目 demote，knowledge-service 模块加载即注册）；agents/auditor（#356，kind: auditor，默认物化 auditor-proposals.jsonl，onApprove 建未指派 task 工单——自旧 channels/card-decision.service 搬入，卡片作者经 payload.author 透传保持 Auditor，auditor.service 模块加载即注册）；evolution（#623，kind: evolution，自定义 store 包 evolution FileStore 的 EP-XXXX.json 单提案文件读写——第二个存储形态例外，读侧归一 applied→executed / approved→pending 保 APPLY_FAILED 重试 / stale→stale，onApprove/onReject 调 EvolutionService.decide，EvolutionService 构造即注册，频道文本审核通道同票退役）
 

@@ -15,10 +15,7 @@ import { FileStore } from '@dommaker/studio-shared';
 
 const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
 
-vi.mock('../../channels/channel-message.service.js', () => ({
-  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
-}));
-
+// Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
 import {
   registerReviewProposalAdapter,
   getReviewProposalAdapter,
@@ -26,6 +23,7 @@ import {
   type ReviewProposalAdapterConfig,
 } from '../registry.js';
 import { submitProposal, approveProposal, rejectProposal, getProposalStatus } from '../service.js';
+import { registerChannelCardPoster } from '../card.js';
 
 interface TestProposal {
   id: string;
@@ -51,6 +49,9 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-proposal-service-'));
   fileStore = new FileStore(tmpDir);
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   onApprove = vi.fn(async () => ({ status: 'executed' as const, data: { productIds: ['x'] } }));
   onReject = vi.fn(async () => {});
   const config: ReviewProposalAdapterConfig<TestProposal> = {

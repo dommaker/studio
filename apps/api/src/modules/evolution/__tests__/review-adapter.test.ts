@@ -27,9 +27,7 @@ import { resolveEvolutionPaths, type EvolutionPaths } from '../signals.js';
 
 const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
 
-vi.mock('../../channels/channel-message.service.js', () => ({
-  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
-}));
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -61,6 +59,10 @@ async function seedProposal(patch?: Partial<EvolutionProposalData>): Promise<Evo
 beforeEach(async () => {
   vi.clearAllMocks();
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-review-adapter-'));
   fileStore = new FileStore(tmpDir);
   prevEnv = process.env.STUDIO_PROMPT_OVERRIDES_DIR;

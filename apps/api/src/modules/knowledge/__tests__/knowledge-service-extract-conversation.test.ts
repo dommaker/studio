@@ -53,10 +53,9 @@ vi.mock('../../agent-knowledge/index.js', () => ({
   getExtractFromTextSystemPrompt: () => 'shared-extraction-system-prompt',
 }));
 
-// 审核闭环：发卡到 #系统 走 channelMessageService（动态 import 路径与生产一致）
-vi.mock('../../channels/channel-message.service.js', () => ({
-  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
-}));
+// 审核闭环：发卡经 review-proposal 正本 + 装配注入的 ChannelCardPoster（Phase 5 SCC 第一刀 #3，
+// 原 channels 单例 mock 已死）——poster 注册在该文件下方 beforeEach
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 
 vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: {},
@@ -148,6 +147,10 @@ function makeRunResult(data: unknown, usage?: { inputTokens: number; outputToken
 describe('R3: extractFromConversation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+    registerChannelCardPoster((post) =>
+      mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+    );
   });
 
   it('(a) 解析 LLM 输出 → 以 maturity=draft 入库（proposal），复用共享 prompt 与 knowledge provider', async () => {

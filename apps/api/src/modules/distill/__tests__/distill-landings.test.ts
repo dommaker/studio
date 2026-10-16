@@ -37,10 +37,6 @@ vi.mock('../../agents/system-executor.js', () => ({
   getSystemExecutor: () => ({ runJson: mockRunJson }),
 }));
 
-vi.mock('../../channels/channel-message.service.js', () => ({
-  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
-}));
-
 // #353：memory 落地经 review-adapter.submitMemoryProposal（正本发卡；其行为级测试在 role-memory/review-adapter.test.ts）。
 // mock 实现保留「条目落 draft.jsonl」写盘副作用（真实 roleMemoryStore），剔除发卡。
 vi.mock('../../role-memory/review-adapter.js', async (importOriginal) => {
@@ -66,6 +62,7 @@ import {
 } from '../distill-service.js';
 import { approveProposal } from '../../review-proposal/service.js';
 import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 
 // #351：approve 走 review-proposal 正本生命周期（adapter 由 DistillService 构造注册）
 const approve = (id: string) => approveProposal('distill', id);
@@ -143,6 +140,10 @@ beforeEach(async () => {
   });
   service = new DistillService({ store, fileStore, dataDir, eventsFile });
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   mockSubmitMemory.mockImplementation(async (roleId: string, inputs: Array<Record<string, unknown>>) => {
     const out = [];
     for (const input of inputs) out.push(await roleMemoryStore.appendDraft(roleId, input as never));

@@ -19,6 +19,7 @@ import type { KnowledgeEntry } from '@dommaker/harness';
 import { FileStore } from '@dommaker/studio-shared';
 import { approveProposal, rejectProposal, getProposalStatus } from '../../review-proposal/service.js';
 import { clearReviewProposalAdapters } from '../../review-proposal/registry.js';
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 import {
   draftConstraintId,
   inferCheckerDraft,
@@ -34,7 +35,7 @@ const { mockCreateCardMessage, mockCreateAgentMessage } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage, createAgentMessage: mockCreateAgentMessage }),
+  getChannelMessageService: () => ({ createAgentMessage: mockCreateAgentMessage }),
 }));
 
 let tmpDir: string;
@@ -90,6 +91,10 @@ function readConstraintsFile(): Array<Record<string, unknown>> {
 beforeEach(async () => {
   vi.clearAllMocks();
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 的 createCardMessage 已死）
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'constraint-adapter-'));
   repoRoot = path.join(tmpDir, 'repo');
   fs.mkdirSync(path.join(repoRoot, '.harness'), { recursive: true });

@@ -24,9 +24,10 @@ const { mockCreateCardMessage, checkConstraintsCalls, mockRunCmd } = vi.hoisted(
   mockRunCmd: vi.fn(),
 }));
 
-// propose-upgrade 端点建卡走 review-proposal 正本发卡（ADR-0033 子项 8）
+// propose-upgrade 端点建卡走 review-proposal 正本发卡（ADR-0033 子项 8）；
+// Phase 5 SCC 第一刀 #3：正本发卡改装配注入的 ChannelCardPoster，测试内注册（channels mock 仅留 createAgentMessage）
 vi.mock('../../channels/channel-message.service.js', () => ({
-  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage, createAgentMessage: vi.fn() }),
+  getChannelMessageService: () => ({ createAgentMessage: vi.fn() }),
 }));
 
 // #646：rollback spawn 真实 CLI；runCmd 包一层 vi.fn 供「CLI 不可用 → 500」用例注入失败
@@ -107,6 +108,11 @@ beforeAll(async () => {
   });
   registerConstraintReviewAdapter({ fileStore, dataDir: tmpHome });
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 的 createCardMessage 已死）
+  const { registerChannelCardPoster } = await import('../../review-proposal/card.js');
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
 
   const app = express();
   app.use(express.json());

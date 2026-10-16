@@ -17,13 +17,10 @@ const { mockCreateCardMessage } = vi.hoisted(() => ({
   mockCreateCardMessage: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock('../../channels/channel-message.service.js', () => ({
-  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
-}));
-
 import { FileStore } from '@dommaker/studio-shared';
 import { clearReviewProposalAdapters } from '../../review-proposal/registry.js';
 import { approveProposal, rejectProposal, getProposalStatus } from '../../review-proposal/service.js';
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 import {
   foldDraftRows,
   roleMemoryRoot,
@@ -53,6 +50,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearReviewProposalAdapters();
   fileStore = new FileStore();
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   // 发卡频道解析走 adapter.fileStore.listChannels——spy 控制 #系统 频道有无，其余 FileStore I/O 全真
   listChannelsSpy = vi.spyOn(fileStore, 'listChannels').mockResolvedValue([]);
   // 预注册受控 adapter：submitMemoryProposal 优先取注册表（getReviewProposalAdapter），不自助注册

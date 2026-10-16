@@ -29,6 +29,8 @@ const { tmpHome, origHomedir } = vi.hoisted(() => {
 
 import { FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../../skills/skill-store.js';
+import { getChannelMessageService } from '../../channels/index.js';
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 
 let testCompanyId: string;
 let testChannelId: string;
@@ -42,6 +44,11 @@ describe('AuditorService B3-005', () => {
   const fileStore = new FileStore();
 
   beforeAll(async () => {
+    // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster——本文件走真发卡链路，
+    // 注册真实现（等价生产 bootstrap/module-sinks.ts 装配，本文件无 bootstrap 介入）
+    registerChannelCardPoster((post) =>
+      getChannelMessageService().createCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+    );
     // Use generated test company ID (Prisma removed, Spec 4 AC-6a)
     testCompanyId = `test-company-${Date.now()}`;
 

@@ -28,10 +28,6 @@ const { mockCreateCardMessage, mockSkillGet, mockSkillUpdate } = vi.hoisted(() =
   mockSkillUpdate: vi.fn(),
 }));
 
-vi.mock('../../channels/channel-message.service.js', () => ({
-  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
-}));
-
 // skillStore 单例固定写 ~/.studio——mock 掉以隔离真实数据区
 vi.mock('../skill-store.js', () => ({
   skillStore: { get: mockSkillGet, update: mockSkillUpdate },
@@ -40,6 +36,7 @@ vi.mock('../skill-store.js', () => ({
 import { FileStore } from '@dommaker/studio-shared';
 import { clearReviewProposalAdapters } from '../../review-proposal/registry.js';
 import { approveProposal, rejectProposal, getProposalStatus } from '../../review-proposal/service.js';
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 import { registerSkillReviewAdapter, submitSkillProposal } from '../review-adapter.js';
 
 let tmpRoot: string;
@@ -58,6 +55,10 @@ beforeEach(() => {
   prevSkillsDir = process.env.SKILLS_DIR;
   process.env.SKILLS_DIR = skillsDir;
   fileStore = new FileStore();
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   // 发卡频道解析走 adapter.fileStore.listChannels——spy 控制 #系统 频道有无，其余 FileStore I/O 全真
   listChannelsSpy = vi.spyOn(fileStore, 'listChannels').mockResolvedValue([]);
   registerSkillReviewAdapter({ fileStore, dataDir });

@@ -30,13 +30,10 @@ vi.mock('../../agents/system-executor.js', () => ({
   getSystemExecutor: () => ({ runJson: mockRunJson }),
 }));
 
-vi.mock('../../channels/channel-message.service.js', () => ({
-  getChannelMessageService: () => ({ createCardMessage: mockCreateCardMessage }),
-}));
-
 import { DISTILL_SYSTEM_PROMPT, DistillService, type DistillProposal } from '../distill-service.js';
 import { approveProposal, rejectProposal } from '../../review-proposal/service.js';
 import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 
 // #351：approve/reject/状态查询走 review-proposal 正本生命周期（adapter 由 DistillService 构造注册）
 const approve = (id: string) => approveProposal('distill', id);
@@ -123,6 +120,10 @@ beforeEach(async () => {
   eventBus.unsubscribeAll?.('workunit.status_changed');
   service = new DistillService({ store, fileStore, dataDir, eventsFile });
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
 });
 
 afterEach(() => {

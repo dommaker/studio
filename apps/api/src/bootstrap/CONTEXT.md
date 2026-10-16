@@ -18,7 +18,7 @@
 - `channels.ts` — `initChannels()`（ensureDefaultChannels，Goal 管线需要）
 - `handlers.ts` — `registerScanHandlers()`（SCAN_HANDLERS 表 5 个周期扫描 handler + evolution-scan（与 review-proposal adapter 注册共用单次 evolution import）；2026-10-03 C 批起失败只 warn 不拒启——listen 前移后本步 throw 会落 bootstrap catch → exit(1)，发生在端口可服务之后；#686 起纪律经 runSoftSteps 固化）
 - `readiness.ts` — 进程级 readiness 状态（`markReady()/isReady()/readyTimestamp()`，`resetReadiness()` 供测试）：listen 前移后「端口可服务 ≠ 全量就绪」，bootstrap 初始化链尾 markReady()，`app.ts` 的 `/readyz` 据此 200/503；deploy 健康检查以 /readyz 为准（/health 仅 liveness）
-- `module-sinks.ts` — `registerModuleSinks()`（Phase 5 SCC 第一刀，2026-10-16）：装配期依赖倒置注入点——注册口在调用方模块（auth/audit-sink.ts 等），这里把被调方实现（audit-logs AuditService.log 等）注进去，消除模块级单边；bootstrap() 里挂 registerRoutes 之前（首次业务调用前必须完成）；新增 sink = 本文件加一行 + 调用方模块加注册口
+- `module-sinks.ts` — `registerModuleSinks()`（Phase 5 SCC 第一刀，2026-10-16）：装配期依赖倒置注入点——注册口在调用方模块（auth/audit-sink.ts 的 registerAuthAuditSink / notifications/alert-notifier.ts 的 registerAlertChannelPoster / review-proposal/card.ts 的 registerChannelCardPoster），这里把被调方实现（audit-logs AuditService.log、channels ChannelMessageService.createAgentMessage/createCardMessage）注进去，消除 auth→audit-logs、notifications→channels、review-proposal→channels 三条模块级单边（HUB_SCC 21→18）；bootstrap() 里挂 registerRoutes 之前（首次业务调用前必须完成）；新增 sink = 本文件加一行 + 调用方模块加注册口
 - `tunnel.ts` — `startTunnelIfEnabled()` / `stopTunnel()`（cloudflared 守护，#571 默认关）
 - `cloudflared.ts` — `isCloudflaredEnabled()`（#571 冲突 5：仅 CLOUDFLARED_ENABLED=true 拉起隧道；2026-10-16 批次 F 自 utils/ 归位，唯一消费方 tunnel.ts）
 - `runtime-paths.ts` — `defaultKnowledgeDir()` / `tunnelUrlFile()`（#571：KNOWLEDGE_DIR/TUNNEL_URL_FILE 归数据根；批次 F 自 utils/ 归位，消费方 = 根 index.ts + cli/server.ts + cli/run-web.ts + tunnel.ts）
