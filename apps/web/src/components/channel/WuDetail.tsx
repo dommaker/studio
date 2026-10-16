@@ -1,0 +1,308 @@
+// WuDetail — WorkUnitDrawer 的 WU 详情体（拆分来源：components/channel/WorkUnitDrawer.tsx 的「── WorkUnit 详情 ──」段）
+// 只展示真实 API 数据（workunitApi / monitoringApi / channelApi），无对应数据的维度不展示、不编造
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  workunitApi,
+  parseWorkunitTokenEvents,
+  type WorkunitTokenEvent,
+} from '../../api/workunit';
+import { useWorkUnitStore } from '../../stores/workunitStore';
+import { monitoringApi, type OverheadStats } from '../../api/monitoring';
+import { channelApi, type AgentProfile } from '../../api/channel';
+import { useSseContext } from '../../api/sseHooks';
+import { ExecutionSteps } from '../workunit/ExecutionSteps';
+import { SkeletonText } from '../ui';
+import { BlockedActions } from '../workunit/BlockedActions';
+import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
+import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
+import { IconCheck, IconX } from '../ui/icons';
+import { EvidenceLedger } from '../workunit/EvidenceLedger';
+import { ReviewHint } from '../workunit/ReviewHint';
+import { WuGateActions } from '../workunit/WuGateActions';
+import { TranscriptViewer } from '../workunit/TranscriptViewer';
+import { WU_STATUS_LABELS, formatChannelName, parseAttestations } from '@dommaker/studio-shared/web';
+import { AssigneeLabel } from '../workunit/AssigneeLabel';
+import { formatShortTime } from '../../utils/datetime';
+import { parseWuMeta } from '../../utils/wuMeta';
+import { wuStatusClass, deriveWuColumn } from './wuStatus';
+
+/** WU metadata JSON 解析产物（只声明本抽屉消费字段，其余透传） */
+interface WuMeta {
+  title?: string;
+  stepCount?: number;
+  waitingForInput?: boolean;
+  waitingQuestion?: string;
+  [key: string]: unknown;
+}
+
+function formatTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+export function WuDetail({ id, autoApprove = false, autoRuling = false, autoDirection = false, onOpenReq }: { id: string; autoApprove?: boolean; autoRuling?: boolean; autoDirection?: boolean; onOpenReq: (reqId: string) => void }) {
+  const navigate = useNavigate();
+  // #549（B5 收口）：WU 详情读 workunitStore detail slice——REST 打底（loadWorkUnitDetail）
+  // 与 SSE status_changed 就地 upsert 的落点合一（路由在 App 级 useWorkUnitStoreSync）；
+  // 本地 wu 直替已删，drawer 退回 store 订阅者。workunit.tokens 订阅保留本地（唯一消费方）
+  const detail = useWorkUnitStore(s => s.detailById[id]);
+  const [tokens, setTokens] = useState<WorkunitTokenEvent[] | null>(null);
+  const [overhead, setOverhead] = useState<OverheadStats | null>(null);
+  // #275（#251 断点2）：「#频道名」回频道入口的频道名（best-effort，失败退回 id 截短显示）
+  const [channelName, setChannelName] = useState<string | null>(null);
+  const [showTreeTokens, setShowTreeTokens] = useState(false);
+  // E2-1：ReviewHint 自列表展开区挪入——频道成员（in_review 时判断是否有人可认领评审）；
+  // null = 未拉到（含 best-effort 失败）→ 不渲染提醒（空数组会误报「无人可认领」）
+  const [channelMembers, setChannelMembers] = useState<AgentProfile[] | null>(null);
+  const { onEvent } = useSseContext();
+
+  // 渲染期按 id 重置本地切片（替代原 effect 内同步重置）：SSE 事件触发的更新不重置，
+  // 消除每次事件都闪"加载中…"的骨架闪烁——事件刷新静默进行，旧数据留到新数据到达；
+  // detail slice 由 store 按 id 分区，无需重置
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
+    setTokens(null);
+    setChannelName(null);
+    setChannelMembers(null);
+  }
+
+  // 开抽屉一次性打底：WU 详情进 store detail slice（打开/换 id 即拉，不做 TTL 门禁）
+  useEffect(() => {
+    void useWorkUnitStore.getState().loadWorkUnitDetail(id);
+  }, [id]);
+
+  // WU 落库后补频道面（best-effort，随 channelId 派生，不随 SSE 快照重拉）：
+  // #275 频道名（失败退回 id 截短）+ E2-1 ReviewHint 频道成员（失败留 null 不渲染提醒，防误报）
+  const channelId = detail?.wu?.channelId ?? null;
+  useEffect(() => {
+    if (!channelId) return;
+    let alive = true;
+    channelApi.get(channelId)
+      .then(res => { if (alive) setChannelName(res.data.data.name); })
+      .catch(() => { /* best-effort */ });
+    channelApi.listAgents(channelId)
+      .then(res => { if (alive) setChannelMembers(res.data.data); })
+      .catch(() => { /* best-effort */ });
+    return () => { alive = false; };
+  }, [channelId]);
+
+  // 开抽屉一次性打底：token 度量历史（此后增量走 workunit.tokens SSE）
+  useEffect(() => {
+    let alive = true;
+    workunitApi.listTokenEvents()
+      .then(r => { if (alive) setTokens(parseWorkunitTokenEvents(r.data.events || [], id)); })
+      .catch(() => { if (alive) setTokens([]); });
+    return () => { alive = false; };
+  }, [id]);
+
+  // 开抽屉一次性打底：全局 30 天封装开销（全局聚合，不随单 WU 事件变化，不随任何事件重拉）
+  useEffect(() => {
+    let alive = true;
+    monitoringApi.getOverhead()
+      // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
+      .then(r => { if (alive) setOverhead(r.data.data); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [id]);
+
+  // SSE 增量订阅：workunit.tokens 聚合累加（决策 8；status_changed 直替已收口进 store，#549）
+  useEffect(() => onEvent((msg) => {
+    if (msg.event_type !== 'workunit.tokens') return;
+    const [ev] = parseWorkunitTokenEvents([{ payload: msg.data }], id);
+    if (ev) setTokens(prev => [...(prev ?? []), ev]);
+  }), [onEvent, id]);
+
+  if (detail?.notFound) return <div className="mc-drawer-note">该任务不存在或已被清理（id：{id}）</div>;
+  if (detail?.error) return <div className="mc-drawer-note">加载失败: {detail.error}</div>;
+  if (!detail?.wu) return <SkeletonText lines={6} className="space-y-3" />;
+  const wu = detail.wu;
+
+  const meta = parseWuMeta<WuMeta>(wu.metadata);
+  const title = meta.title || wu.scope;
+  const attestations = parseAttestations(wu.metadata);
+  const injectedSum = (tokens ?? []).reduce((s, t) => s + t.injectedTokens, 0);
+  const execKnown = (tokens ?? []).filter(t => t.executionTokens !== null);
+  const execSum = execKnown.reduce((s, t) => s + (t.executionTokens ?? 0), 0);
+  const totalSum = (tokens ?? []).reduce((s, t) => s + t.totalTokens, 0);
+  const maxBar = Math.max(totalSum, 1);
+
+  /** E2-4：闸门动作写路径 #545 起内建于共享 WuGateActions（gateWriter 双写落点——
+   *  store applyWorkunitEvent 覆盖 detail slice 就地更新（#549），drawer 无需 onUpdated sink；
+   *  决策 8：状态变化另有 status_changed SSE 兜底）；分支/锁存/错误内联/弹窗全部组件自带 */
+  const gateActions = (
+    <WuGateActions wu={wu} autoApprove={autoApprove} />
+  );
+
+  return (
+    <div>
+      <div className="mc-drawer-subject">
+        <span className={wuStatusClass(deriveWuColumn(wu))}>
+          {deriveWuColumn(wu) === 'active' ? <span className="mc-dot" /> : null}
+          {WU_STATUS_LABELS[deriveWuColumn(wu)] ?? deriveWuColumn(wu)}
+        </span>
+        <SelfReviewBadge wu={wu} />
+        <span className="mc-drawer-subject-title">{title}</span>
+        {/* D-2 项2：行动中心就地化后详情页深链入口保留在抽屉内（深链分享/深度调查场景，
+            与列表行尾 ↗ 同语义）；此前抽屉无此入口，本次补全 */}
+        <button
+          className="mc-wu-link ml-auto flex-shrink-0"
+          onClick={() => navigate(`/workunits/${id}`)}
+          title="打开完整详情页"
+          aria-label="打开完整详情页"
+        >
+          ↗ 详情页
+        </button>
+      </div>
+
+      {/* #290（清单 #24）：负责人解析为角色名并链角色页（与详情页同一 hook 口径），查不到回退短 UUID */}
+      <div className="mc-kv"><span className="mc-kv-k">负责人</span><span className="mc-kv-v">{wu.assigneeId ? <AssigneeLabel assigneeId={wu.assigneeId} assigneeRoleId={wu.assigneeRoleId} className="mc-wu-link" /> : '—'}</span></div>
+      <div className="mc-kv">
+        <span className="mc-kv-k">所属需求</span>
+        <span className="mc-kv-v">
+          {wu.reqId
+            ? <button className="mc-wu-link" onClick={() => onOpenReq(wu.reqId!)}>{wu.reqId} ›</button>
+            : '—'}
+        </span>
+      </div>
+      {/* #275（#251 断点2）：WU→频道 反向链路在抽屉侧补齐（与 WU 详情页归属条频道 chip 同语义，
+          取数路径不同：详情页 list().find、此处 channelApi.get 单取）。
+          跳频道页属页面级跳转，走 react-router，不走抽屉回调 */}
+      {wu.channelId && (
+        <div className="mc-kv">
+          <span className="mc-kv-k">所属频道</span>
+          <span className="mc-kv-v">
+            <button
+              className="mc-wu-link"
+              onClick={() => navigate(`/channels/${wu.channelId}`)}
+              title="回频道（需求讨论现场）"
+            >
+              {formatChannelName(channelName ?? `${wu.channelId.slice(0, 8)}…`)}
+            </button>
+          </span>
+        </div>
+      )}
+      <div className="mc-kv"><span className="mc-kv-k">类型</span><span className="mc-kv-v">{wu.type}</span></div>
+      {typeof meta.stepCount === 'number' && (
+        <div className="mc-kv"><span className="mc-kv-k">已执行步数</span><span className="mc-kv-v">{meta.stepCount}</span></div>
+      )}
+      <div className="mc-kv"><span className="mc-kv-k">重试次数</span><span className="mc-kv-v">{wu.retryCount}</span></div>
+      <div className="mc-kv"><span className="mc-kv-k">创建</span><span className="mc-kv-v">{formatShortTime(wu.createdAt)}</span></div>
+      {wu.claimedAt && <div className="mc-kv"><span className="mc-kv-k">认领</span><span className="mc-kv-v">{formatShortTime(wu.claimedAt)}</span></div>}
+      {wu.completedAt && <div className="mc-kv"><span className="mc-kv-k">完成</span><span className="mc-kv-v">{formatShortTime(wu.completedAt)}</span></div>}
+
+      {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收 三层留痕（共享 EvidenceLedger，卡片变体见 WorkUnitDetailPage）。
+          语义：L2 是流程硬门（过了即推进）；L3 是人工背书台账，不阻断流程（done 缺 l3 时展示回审查列）。 */}
+      <EvidenceLedger attestations={attestations} variant="drawer" />
+      {/* E2-1：ReviewHint（in_review 且频道无 reviewer 提醒）自列表展开区挪入闸门动作区上方；
+          onSetupClick 按 E8-3 改链 /agents；成员未拉到（null）不渲染防误报 */}
+      {channelMembers !== null && (
+        <ReviewHint
+          status={wu.status}
+          channelMembers={channelMembers}
+          onSetupClick={() => navigate('/agents')}
+        />
+      )}
+      {/* E2-4：闸门动作 = 共享 WuGateActions（pending 确认 / in_review 通过+拒绝 / done 人工确认留痕） */}
+      <div className="mt-1 mb-2">{gateActions}</div>
+
+      {/* #185（决策 #87 D4）：blocked 处置组件（继续执行/关闭任务），与详情页同一组件；
+          #467：plan-ruling 挂起时另出「去裁决」（PlanRulingDialog，autoRuling = 接力卡打开即弹）；
+          #567：plan-direction 挂起时另出「去选定」（PlanDirectionDialog，autoDirection = 接力卡打开即弹）。
+          动作成功后重拉一次详情兜底（状态变化另有 status_changed SSE 负载直更） */}
+      <BlockedActions wu={wu} autoRuling={autoRuling} autoDirection={autoDirection} onChanged={() => {
+        void useWorkUnitStore.getState().loadWorkUnitDetail(id);
+      }} />
+
+      {/* WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
+          频道只留里程碑，过程明细在这里。
+          #182：传 wu 启用置顶「当前状态速览」节（决策 #61 速览档，与详情页同组件复用）。 */}
+      <ExecutionSteps workUnitId={id} wu={wu} />
+
+      {/* E2-2：「会话原文」折叠节（复用详情页 TranscriptViewer，默认折叠不请求）——
+          处置 blocked/待验收时不再必须跳详情页看原文 */}
+      <TranscriptViewer workUnitId={id} />
+
+      {wu.status === 'blocked' && meta.waitingForInput && meta.waitingQuestion && (
+        <>
+          <div className="mc-block-label">等待人类回复</div>
+          <div className="mc-need-q">{meta.waitingQuestion}</div>
+        </>
+      )}
+
+      <div className="mc-block-label">token 开销（本任务）</div>
+      {tokens === null && <SkeletonText lines={1} widths={['40%']} />}
+      {tokens !== null && tokens.length === 0 && (
+        <div className="mc-drawer-note">窗口内无 token 度量事件</div>
+      )}
+      {tokens !== null && tokens.length > 0 && (
+        <div className="mc-tokenbar">
+          <div className="mc-tokenbar-row">
+            <span className="mc-tokenbar-label">注入</span>
+            <span className="mc-tokenbar-track">
+              <span className="mc-tokenbar-fill" style={{ display: 'block', width: `${(injectedSum / maxBar) * 100}%`, background: 'var(--warning)' }} />
+            </span>
+            <span className="mc-tokenbar-val">{formatTokens(injectedSum)}</span>
+          </div>
+          <div className="mc-tokenbar-row">
+            <span className="mc-tokenbar-label">执行</span>
+            <span className="mc-tokenbar-track">
+              <span className="mc-tokenbar-fill" style={{ display: 'block', width: `${(execSum / maxBar) * 100}%`, background: 'var(--accent-primary)' }} />
+            </span>
+            <span className="mc-tokenbar-val">
+              {execKnown.length > 0 ? formatTokens(execSum) : '—'}
+            </span>
+          </div>
+          <div className="mc-tokenbar-row">
+            <span className="mc-tokenbar-label">合计</span>
+            <span className="mc-tokenbar-track">
+              <span className="mc-tokenbar-fill" style={{ display: 'block', width: '100%', background: 'var(--border-default)' }} />
+            </span>
+            <span className="mc-tokenbar-val">{formatTokens(totalSum)}</span>
+          </div>
+          <div className="mc-drawer-note">
+            {tokens.length} 次执行
+            {execKnown.length < tokens.length ? ` · ${tokens.length - execKnown.length} 次 CLI 未回报 usage` : ''}
+          </div>
+        </div>
+      )}
+
+      <div className="mc-block-label">
+        树级 token 开销
+        <button
+          className="mc-wu-link ml-auto"
+          onClick={() => setShowTreeTokens(s => !s)}
+        >
+          {showTreeTokens ? '收起' : '展开'}
+        </button>
+      </div>
+      {showTreeTokens && <TreeTokenDrawer workUnitId={id} onClose={() => setShowTreeTokens(false)} />}
+
+      {overhead && (
+        <>
+          <div className="mc-block-label">封装开销 vs 直连（近 {overhead.windowDays} 天全局）</div>
+          {overhead.source === 'insufficient-data' ? (
+            <div className="mc-drawer-note">窗口内度量数据不足</div>
+          ) : (
+            <div className="mc-tokenbar">
+              <div className="mc-redline">
+                <span>
+                  封装开销 {overhead.avgOverheadRatio !== null ? `${overhead.avgOverheadRatio.toFixed(2)}x` : '—'}（直连 1.0x）
+                </span>
+                <span className={overhead.avgOverheadRatio !== null && overhead.avgOverheadRatio <= overhead.overheadBudget ? 'mc-redline-ok' : 'mc-redline-breach'}>
+                  红线 {overhead.overheadBudget}x {overhead.avgOverheadRatio !== null && overhead.avgOverheadRatio <= overhead.overheadBudget ? <IconCheck size={12} /> : <IconX size={12} />}
+                </span>
+              </div>
+              <div className="mc-redline">
+                <span>注入均值 {formatTokens(Math.round(overhead.avgInjectedTokens))}</span>
+                <span className={overhead.injectedBudgetUsedPct <= 100 ? 'mc-redline-ok' : 'mc-redline-breach'}>
+                  预算 {formatTokens(overhead.injectedBudget)}（{Math.round(overhead.injectedBudgetUsedPct)}%）
+                </span>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
