@@ -6,13 +6,13 @@
 
 ## Phase 0 — 确证死代码清除（10 批小 commit）
 
-- [ ] **P0.1 删 `workunit.mappers.ts`（顺带修真 bug）**：该文件是 `workunit-crud.ts` 的漂移拷贝，拷贝版 `snapshotToData` 少 `closedAt` 字段（`workunit.mappers.ts:11` vs `workunit-crud.ts:100`），正被 workunit-query/lifecycle/review 三个生产文件消费 → review/查询链返回的 WU 全部静默丢 closedAt。做法：先写复现测试（RED）→ 删文件、3 处 import 改 barrel → GREEN。附带的死导出 `inputToSnapshot` 同删。
+- [x] **P0.1 删 `workunit.mappers.ts`（顺带修真 bug）**（3baf172b）
 - [ ] **P0.2 删 7 个空 barrel + 一次性 codemod**：`modules/{action-center,admin,companies,deploy,discord,library,specs}/index.ts`（6 行纯注释零 export，全仓零引用）+ `scripts/p2c-public-surface.mjs`（~300 行，仅归档计划引用）。`p2c-dep-analysis.mjs` 保留（lint:cycles 在用）。
 - [ ] **P0.3 删 `apps/api/src/scripts/seed-skills.ts`**：生产 seed 已由 `bootstrap/seed.ts` 接管，该脚本 seed 的 skill 名在正本里已不存在，手动跑只会注入过时数据。
-- [ ] **P0.4 删 `ops/system-health.ts` + 其测试**：325 行生产死代码（collectSystemHealth/checkThresholds/runGC 全仓零生产引用，仅自测引用）。
-- [ ] **P0.5 删 `studio-shared/src/stats/anomaly-detector.ts` + 测试**（351 行零消费方），把其中 `percentile` 提取为小工具留下，接线两处本地手写拷贝（`ops/metrics-aggregate.ts:52`、`apps/api/bench/mainline-align-core.ts:145`）。
-- [ ] **P0.6 前端死代码清扫**：`api/harness.ts`+测试（死链残桩）、`hooks/usePersistentStreamUI.ts`+测试（202 行从未接线）、`stores/index.ts`（死 barrel）、`utils/agentStatus.ts` 两个死常量、死 CSS（`.hide-tablet`×2、`.u-ok-border`）+ mission-control.css 三处死注释、`pages/*` 冗余 default 导出（App.tsx 全走 named lazy）。
-- [ ] **P0.7 小收敛**：`utils/pagination.ts` 删 `formatPaginatedResponse`/`sendPaginated`（零引用）；`copyTree` 双份收敛（apps/api/cli/skill.ts:42 → 复用 studio-skill seed.ts:94 导出）；删 `utils/studio-log-path.ts` 兼容薄壳（4 处 import 改直引 `@dommaker/studio-shared`）。
+- [x] **P0.4 删 `ops/system-health.ts` + 其测试**（c02d4a49）
+- [x] **P0.5 删 `studio-shared/src/stats/anomaly-detector.ts` + 测试**，`percentile` 提取为 `stats/percentile.ts` 并接线两处本地拷贝（c02d4a49）
+- [x] **P0.6 前端死代码清扫**（72504533；`usePersistentStreamUI` 复查确认仍被 `useChannelStream.ts` 使用，保留未删——计划初稿此项与实际不符，以代码事实为准）
+- [x] **P0.7 小收敛**（c02d4a49）
 - [ ] **P0.8 删 `scripts/visual/` 整目录**（用户已批）+ 移除 root devDeps `pixelmatch`/`pngjs`/`@types/pngjs`。
 - [ ] **P0.9 git rm `playwright-report/index.html`**（549KB 误提交产物，.gitignore 已声明勿提交）。
 - [ ] **P0.10 删 `@xyflow/react` 依赖**（源码零 import）+ `apps/web/vite.config.ts:63` manualChunks 对应条目。
