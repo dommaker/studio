@@ -10,7 +10,7 @@ import { WorkUnitService } from '../workunit/index.js';
 import type { WorkUnitData } from '../workunit/index.js';
 import { ChannelMessageService, getChannelMessageService } from './channel-message.service.js';
 import { resolveReqIdForDispatch } from '../requirements/index.js';
-// P2-c 拆环：getSystemExecutor 转函数内动态 import（channels→agents 静态边清零）
+import { getSystemExecutor } from '../agents/index.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
 
@@ -140,7 +140,6 @@ ${projectList || '(none)'}
 Return JSON only: {"title":"...","description":"...","suggestedAssigneeId":"...","suggestedProjectPath":"..."}`;
 
     // LLM 调用走 SystemExecutor（studio 角色绑定的 CLI）；角色未配置/失败由 suggest() 兜空
-    const { getSystemExecutor } = await import('../agents/index.js');
     const parsed = await getSystemExecutor().runJson<{
       title?: string;
       description?: string;

@@ -33,7 +33,7 @@
 - [x] **P2.3 totalPages 收敛**（44481edd：core/http.ts 增 `makePagination`，6 处收敛；助手刻意纯委托不做除零保护——skills 域 limit=0 现状输出 Infinity/NaN 不改）
 - [x] **P2.4 17 处模块级 service 单例改 `createLazyService`**：`export const x = new XService()` 在 import 期捕获 getStore()，正是 core/store.ts 头注明令禁止的模式（eslint 只挡了 FileStore 无参构造，漏了 service 级）。逐个确认构造副作用后统一。
 - [x] **P2.5 logger 双轨统一**（以代码事实为准：api 侧 pino 实只 13 文件经 utils/logger 消费，120+ 文件已引 shared console 版）：pino 正本落 `studio-shared/src/utils/logger-node.ts`（`/node` 出口，类型 `Logger & pino.Logger` 兼容 (msg,meta) 与 (obj,msg) 两种形态），apps/api 全量 Node 侧 ~166 文件改引 `/node`，api utils/logger 留薄壳；web 可达的 file-store/studio-events 内部保留 console 版（根入口不引 pino）
-- [ ] **P2.6 LLM 动态 import 归一**：knowledge/entries.routes.ts:112、skills/skill-extraction.service.ts:245、channels/convert-to-task.service.ts:143 三处 `await import('../agents/index.js')` 查因（疑似循环规避残留）后改静态。
+- [x] **P2.6 LLM 动态 import 归一**（查因结论：三处均为 4e0c5837 P2-c「互耦 10→0」指标的静态值边转动态，非真环——agents 模块反向静态边只有 workunit/triggers，且三者本就全在 21 模块豁免环簇内；#695 后环口径已显式接受 barrel 互调。三处全部改静态，`pnpm lint:cycles` 仍绿）：knowledge/routes/entries.routes.ts（原 :112）、skills/skill-extraction.service.ts（原 :245）、channels/convert-to-task.service.ts（原 :143）。
 
 ## Phase 3 — 复杂度热点拆分
 
