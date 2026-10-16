@@ -2,19 +2,23 @@
 // #398 重构（spec redesign-2026-08 §7）：首屏 = 行动面（需要处理 + 知识提案待审）；
 // 度量降下方「健康度量」默认折叠分区。删 WU 状态分布/Agent 状态/最近 24h/段 trim 四区块（§7.3）。
 // 文案按 §7.5：术语标题 + 大白话副标题 + 每区一个 22px 主数字。不扩监控 API。
+// Phase 3 拆分（2026-10）：提案待审区/六个度量区抽 components/monitoring/ 子组件，
+// SectionError 收敛 components/ui/（拆分来源见各子组件头注释），本文件留数据接线 + tab 骨架。
 import { useState } from 'react';
 import { monitoringApi } from '../api/monitoring';
 import { knowledgeApi } from '../api/knowledge';
-import { StatCard } from '../components/ui';
+import { SectionError } from '../components/ui';
 import { EventSearchPanel, type EventSearchFilters } from '../components/monitoring/EventSearchPanel';
 import { NeedsAttentionSection } from '../components/monitoring/NeedsAttentionSection';
+import { PendingProposalsSection } from '../components/monitoring/PendingProposalsSection';
+import { EvidenceSection } from '../components/monitoring/EvidenceSection';
+import { FlywheelSection } from '../components/monitoring/FlywheelSection';
+import { OverheadSection } from '../components/monitoring/OverheadSection';
+import { CacheEfficiencySection } from '../components/monitoring/CacheEfficiencySection';
+import { RolesEfficiencySection } from '../components/monitoring/RolesEfficiencySection';
+import { InterventionSection } from '../components/monitoring/InterventionSection';
 import { alertSignatureKeyword, type AlertGroup } from '../components/monitoring/alertGrouping';
-import { MonitorSection } from '../components/monitoring/MonitorSection';
-import { UsageBar, DayBars, HBars } from '../components/monitoring/charts';
 import { useAsyncData } from '../hooks/useAsyncData';
-import { formatAge } from '@dommaker/studio-shared/web';
-import { formatFullTime } from '../utils/datetime';
-import { KNOWLEDGE_TYPE_LABELS } from '../components/channel/proposalCardConfigs';
 import { toast } from '../utils/toast';
 import { serverErrorMessage } from '../utils/errorMessage';
 
@@ -164,62 +168,17 @@ export function MonitoringPage() {
           <div className="space-y-4 mt-4">
             <NeedsAttentionSection onAlertClick={drillIntoAlert} />
 
-            <MonitorSection
-              title="知识提案待审"
-              subtitle="Agent 提炼的新知识，等你确认"
-              stat={proposals === null ? undefined : proposals.length}
-              statTestId="proposals-stat"
-            >
-              {proposalsQ.error ? (
-                <SectionError error={proposalsQ.error} onRetry={proposalsQ.reload} />
-              ) : proposals === null ? (
-                <div className="text-sm u-text-3">加载中…</div>
-              ) : proposals.length === 0 ? (
-                <div className="empty-state text-sm">无待审提案（提取产物以 draft 入库，审核通过后才参与注入）</div>
-              ) : (
-                <div className="space-y-2">
-                  {proposals.map(p => (
-                    <div key={p.id} className="text-sm">
-                      <div className="flex items-center gap-3">
-                        {/* #473：标题即详情开关——审前先看内容（对照频道提案卡条目清单） */}
-                        <button
-                          className="u-btn-reset u-text u-hover-accent text-left flex-1 min-w-0 truncate"
-                          aria-expanded={expandedIds.has(p.id)}
-                          onClick={() => toggleExpanded(p.id)}
-                        >
-                          {p.title}
-                        </button>
-                        <span className="text-xs u-text-3">{formatAge(p.created)}</span>
-                        {/* 批次A 项8：补「拒绝」按钮（demote → archived），与通过共用 pending 锁存；
-                            #473：通过两步确认（首次仅待确认，再次点击才执行） */}
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          disabled={actingIds.has(p.id)}
-                          onClick={() => clickApprove(p.id)}
-                        >
-                          {actingIds.has(p.id) ? '处理中…' : armedIds.has(p.id) ? '再点一次确认通过' : '通过'}
-                        </button>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          disabled={actingIds.has(p.id)}
-                          onClick={() => actOnProposal(p.id, 'reject')}
-                        >
-                          {actingIds.has(p.id) ? '处理中…' : '拒绝'}
-                        </button>
-                      </div>
-                      {expandedIds.has(p.id) && (
-                        <div className="text-xs u-text-2 mt-1 space-y-0.5">
-                          <div>类型：{KNOWLEDGE_TYPE_LABELS[p.type || ''] || p.type || '未分类'}</div>
-                          {p.tags && p.tags.length > 0 && <div>标签：{p.tags.join('、')}</div>}
-                          {p.created && <div>提交时间：{formatFullTime(p.created)}</div>}
-                          <div>通过后参与注入；拒绝则归档不再出现。</div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </MonitorSection>
+            <PendingProposalsSection
+              proposals={proposals}
+              error={proposalsQ.error}
+              onRetry={proposalsQ.reload}
+              actingIds={actingIds}
+              armedIds={armedIds}
+              expandedIds={expandedIds}
+              onToggleExpanded={toggleExpanded}
+              onApprove={clickApprove}
+              onReject={entryId => void actOnProposal(entryId, 'reject')}
+            />
           </div>
 
           {/* 健康度量（§7.2：度量区降为下方分区，默认折叠） */}
@@ -238,187 +197,25 @@ export function MonitoringPage() {
               {/* 概览子拉取失败：证据台账/角色效率/人工干预三区块同源，一条错误行代表（原静默整块消失） */}
               {overviewQ.error && <SectionError error={overviewQ.error} onRetry={overviewQ.reload} />}
               {/* F6 证据台账（决策 1）：信任分层达成 + 双轨比对；§7.3 stat 减卡 7→5 */}
-              {!overviewQ.error && evidence && (
-                <MonitorSection
-                  title="证据台账（信任分层）"
-                  subtitle="每个任务有多少人/机器确认过"
-                  stat={evidence.engaged > 0 ? `${Math.round((evidence.l3Approved / evidence.engaged) * 100)}%` : 'N/A'}
-                  statTestId="evidence-stat"
-                >
-                  <div className="grid grid-cols-4 gap-3">
-                    <StatCard label="自动验证" value={evidence.l1Approved} color="u-ok" variant="inline" />
-                    <StatCard label="Agent 评审" value={evidence.l2Approved} color="u-ok" variant="inline" />
-                    <StatCard label="人工确认" value={evidence.l3Approved} color="u-ok" variant="inline" />
-                    {/* #472：待人工确认 warning（非真错误，error 红留给 blocked/failed） */}
-                    <StatCard label="待人工确认" value={evidence.needsHuman} color="u-warn" variant="inline" />
-                    <StatCard label="状态不一致" value={evidence.derivedMismatch} color="u-warn" variant="inline" />
-                  </div>
-                  <p className="text-xs u-text-3 mt-2">
-                    主数字 = 已验收任务占比（人工确认 ÷ 已介入 {evidence.engaged} 个任务）；
-                    状态不一致 = 界面显示状态与实际记录不符的任务数（验证期指标，持续为 0 才可信）
-                  </p>
-                </MonitorSection>
-              )}
+              {!overviewQ.error && evidence && <EvidenceSection evidence={evidence} />}
 
-              {/* M1: 飞轮指标；§7.3 stat 减卡到 hitRate / improvement / 待审；#473 标题白话化（L1/L2/L3 不上界面先例） */}
-              <MonitorSection
-                title="学习成效"
-                subtitle="系统有没有越用越聪明"
-                stat={flywheel ? `${flywheel.hitRate}%` : undefined}
-                statTestId="flywheel-stat"
-              >
-                {flywheelQ.error ? (
-                  <SectionError error={flywheelQ.error} onRetry={flywheelQ.reload} />
-                ) : flywheel ? (
-                  <>
-                    <div className="grid grid-cols-4 gap-3">
-                      <StatCard label="知识命中率" value={`${flywheel.hitRate}%`} color="u-accent" variant="inline" />
-                      <StatCard
-                        label="成功率变化"
-                        value={`${flywheel.improvement > 0 ? '+' : ''}${flywheel.improvement}pp`}
-                        color={flywheel.improvement > 0 ? 'u-ok' : flywheel.improvement < 0 ? 'u-err' : 'u-text-3'}
-                        variant="inline"
-                      />
-                      <StatCard
-                        label="待审提案"
-                        value={flywheel.proposalsPendingReview}
-                        color={flywheel.proposalsPendingReview > 0 ? 'u-warn' : 'u-text-3'}
-                        variant="inline"
-                      />
-                    </div>
-                    {flywheel.source === 'insufficient-data' && (
-                      <div className="mt-2 text-xs u-text-2">事件数据不足：命中率 / 成功率变化为 0 占位而非实测</div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-sm u-text-2">学习成效数据不可用</div>
-                )}
-              </MonitorSection>
+              <FlywheelSection flywheel={flywheel} error={flywheelQ.error} onRetry={flywheelQ.reload} />
 
-              {/* M2: 封装开销 → §7.3 图表化为预算用量条（承 §5.4 Token 面板模式） */}
-              <MonitorSection
-                title="注入预算占用"
-                subtitle="每次执行任务，背景注入占了多少上下文预算"
-                stat={overhead && overhead.source === 'events' ? `${overhead.injectedBudgetUsedPct}%` : undefined}
-                statTestId="overhead-stat"
-              >
-                {overheadQ.error ? (
-                  <SectionError error={overheadQ.error} onRetry={overheadQ.reload} />
-                ) : overhead && overhead.source === 'events' ? (
-                  <>
-                    <UsageBar
-                      usedPct={overhead.injectedBudgetUsedPct}
-                      caption={`平均注入 ${overhead.avgInjectedTokens} / 红线 ${overhead.injectedBudget} tokens（统计 ${overhead.executions} 次执行，覆盖率 ${overhead.executionCoveragePct}%）`}
-                    />
-                    <div className="mt-2 text-xs u-text-2">
-                      开销比 = 注入估算 / 执行 tokens：{overhead.avgOverheadRatio !== null ? `${Math.round(overhead.avgOverheadRatio * 1000) / 10}%` : 'N/A'}
-                      （红线 {Math.round(overhead.overheadBudget * 100)}%，仅统计 CLI 回报 usage 的执行）；
-                      平均执行 {overhead.avgExecutionTokens ?? 'N/A'} tokens；提取开销单独核算（{overhead.extractionTokens} tokens / {overhead.windowDays}d），不计入注入红线
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-sm u-text-2">暂无 workunit:tokens 事件，开销数据不足</div>
-                )}
-              </MonitorSection>
+              <OverheadSection overhead={overhead} error={overheadQ.error} onRetry={overheadQ.reload} />
 
-              {/* #120: 输入缓存命中率；§7.3 图表化 = byDay 柱 + byRole 横条（时间序列仅 byDay 一组可用，§7.1） */}
-              {efficiencyQ.error ? (
-                <SectionError error={efficiencyQ.error} onRetry={efficiencyQ.reload} />
-              ) : cacheHit && (
-                <MonitorSection
-                  title="输入缓存命中率"
-                  subtitle="重复内容有没有被缓存省下 token"
-                  stat={cacheHit.source === 'events'
-                    ? (cacheHit.overall.hitRatePct !== null ? `${cacheHit.overall.hitRatePct}%` : 'N/A')
-                    : undefined}
-                  statTestId="cache-stat"
-                >
-                  {cacheHit.source === 'events' ? (
-                    <>
-                      {cacheHit.byDay.length > 0 && (
-                        <div>
-                          <div className="text-sm u-text-3 mb-1">按天</div>
-                          <DayBars data={cacheHit.byDay.map(d => ({ day: d.day, value: d.hitRatePct }))} />
-                        </div>
-                      )}
-                      {cacheHit.byRole.length > 0 && (
-                        <div className="mt-3">
-                          <div className="text-sm u-text-3 mb-1">按角色</div>
-                          <HBars data={cacheHit.byRole.map(r => ({ label: r.profileName, value: r.hitRatePct }))} />
-                        </div>
-                      )}
-                      <div className="mt-2 text-xs u-text-2">
-                        缓存读取 {cacheHit.overall.cacheReadTokens} / 输入 {cacheHit.overall.inputTokens} tokens
-                        · 覆盖率 {cacheHit.coveragePct}%
-                        {cacheHit.coveragePct < 100 && '（部分执行无 CLI usage 回报，命中率口径不含这些事件）'}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-sm u-text-2">暂无带缓存字段的 workunit:tokens 事件，命中率数据不足</div>
-                  )}
-                </MonitorSection>
-              )}
+              <CacheEfficiencySection cacheHit={cacheHit} error={efficiencyQ.error} onRetry={efficiencyQ.reload} />
 
               {/* §7.3 新引入：角色效率表格（claims/完成/均时/NEED_INPUT 拆分） */}
-              {roles && roles.length > 0 && (
-                <MonitorSection title="角色效率" subtitle="每个角色认领、完成了多少任务、平均多久">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-xs u-text-3 text-left">
-                        <th className="py-1 font-normal">角色</th>
-                        <th className="py-1 font-normal">认领</th>
-                        <th className="py-1 font-normal">完成</th>
-                        <th className="py-1 font-normal">平均时长</th>
-                        <th className="py-1 font-normal">提问（澄清/执行）</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {roles.map(r => (
-                        <tr key={r.profileId} className="border-t u-border">
-                          <td className="py-1 u-text">{r.profileName}</td>
-                          <td className="py-1 font-mono">{r.claims}</td>
-                          <td className="py-1 font-mono">{r.completions}</td>
-                          <td className="py-1 font-mono">{r.avgDurationHours !== null ? `${Math.round(r.avgDurationHours * 10) / 10}h` : 'N/A'}</td>
-                          <td className="py-1 font-mono">{r.needInputClarify} / {r.needInputExecution}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </MonitorSection>
-              )}
+              {roles && roles.length > 0 && <RolesEfficiencySection roles={roles} />}
 
               {/* §7.3 新引入：人工干预北极星卡 */}
-              {intervention && (
-                <MonitorSection
-                  title="人工干预"
-                  subtitle="每完成一个任务，平均需要人插手几次"
-                  stat={intervention.avgPerCompletedWu !== null ? Math.round(intervention.avgPerCompletedWu * 100) / 100 : 'N/A'}
-                  statTestId="intervention-stat"
-                >
-                  <div className="text-xs u-text-2">
-                    窗口内完成 {intervention.completedWorkUnits} 个任务
-                    · NEED_INPUT 挂起 {intervention.needInputCount} 次
-                    · review 驳回 {intervention.reviewRejections} 次
-                    · 合并冲突转人工 {intervention.mergeConflicts} 次
-                  </div>
-                </MonitorSection>
-              )}
+              {intervention && <InterventionSection intervention={intervention} />}
             </div>
             )}
           </div>
         </div>
       </div>
       )}
-    </div>
-  );
-}
-
-/** 子拉取失败最小错误行（2026-09 web-ux-optional-fixes Step 1）：KnowledgePage/AuditLogsPage 错误条同款 u-err-dim 红条 + 重试 */
-function SectionError({ error, onRetry }: { error: string; onRetry: () => void }) {
-  return (
-    <div className="p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
-      <span>{error}</span>
-      <button onClick={onRetry} className="btn btn-secondary btn-sm">重试</button>
     </div>
   );
 }

@@ -7,6 +7,8 @@ export { ConfirmDialog } from './ConfirmDialog';
 export type { ConfirmDialogProps } from './ConfirmDialog';
 export { ManualTaskButton } from './ManualTaskButton';
 export { Modal } from './Modal';
+export { SectionError } from './SectionError';
+export type { SectionErrorProps } from './SectionError';
 export { Select } from './Select';
 export type { SelectOption, SelectProps } from './Select';
 export { SkeletonText, SkeletonCard } from './Skeleton';
