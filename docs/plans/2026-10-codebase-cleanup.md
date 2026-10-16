@@ -8,7 +8,7 @@
 
 - [x] **P0.1 删 `workunit.mappers.ts`（顺带修真 bug）**（3baf172b）
 - [x] **P0.2 删 7 个空 barrel + 一次性 codemod**
-- [ ] **P0.3 删 `apps/api/src/scripts/seed-skills.ts`**：生产 seed 已由 `bootstrap/seed.ts` 接管，该脚本 seed 的 skill 名在正本里已不存在，手动跑只会注入过时数据。
+- [x] **P0.3 删 `apps/api/src/scripts/seed-skills.ts`**
 - [x] **P0.4 删 `ops/system-health.ts` + 其测试**（c02d4a49）
 - [x] **P0.5 删 `studio-shared/src/stats/anomaly-detector.ts` + 测试**，`percentile` 提取为 `stats/percentile.ts` 并接线两处本地拷贝（c02d4a49）
 - [x] **P0.6 前端死代码清扫**（72504533；`usePersistentStreamUI` 复查确认仍被 `useChannelStream.ts` 使用，保留未删——计划初稿此项与实际不符，以代码事实为准）

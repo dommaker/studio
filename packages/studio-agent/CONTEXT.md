@@ -53,7 +53,7 @@ worktree/
 
 #### .progress.json 格式
 
-由 skill prompt 指示 agent 自己维护（`apps/api/src/scripts/seed-skills.ts`），读方：`output-capture.ts readProgress()`、discord 进度查询、monitor 停滞判定。executor 侧不再据此判定完成（那是 agent-loop 的 completion-gates 职责）。
+由 skill prompt 指示 agent 自己维护（内置 skill 正本随 `@dommaker/studio-skill` 包分发，首启经 bootstrap `seedBuiltinSkillsStep` 落盘），读方：`output-capture.ts readProgress()`、discord 进度查询、monitor 停滞判定。executor 侧不再据此判定完成（那是 agent-loop 的 completion-gates 职责）。
 
 ```json
 {

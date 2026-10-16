@@ -78,7 +78,6 @@
 | local-workspace | src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
 | workspace.routes | src/modules/workspaces/workspace.routes.ts | Workspace Routes — 本机 workspace 记录只读/删除 + 本机 CLI 清单 |
 | route-registry | src/route-registry.ts | Route Registry - 模块化路由注册 |
-| seed-skills | src/scripts/seed-skills.ts | Seed 4 built-in Skills into the Skill table (D6). |
 | discord-notifier | src/utils/discord-notifier.ts | Discord 通知工具 |
 | errors | src/utils/errors.ts | errors |
 | logger | src/utils/logger.ts | Logger 工具 |
