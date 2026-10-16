@@ -15,22 +15,20 @@
  * 词表 pending|executed|rejected|failed|card-failed。旧实现无自持提案存储（卡片状态记在
  * 消息 meta.status），故无历史存储迁移问题；接线前发出的存量卡（cardData 无 proposalId）
  * 不再可审批——前端按 meta.status 直读旧终态只读展示，同 #354/#355 存量口径。
+ *
+ * 装配收敛（P2.2）：register/get/submit 样板收进正本 createJsonlReviewAdapter 工厂，
+ * 本文件只留域差异（卡渲染 + onApprove 建工单 + findAuditorCardMessageId）。
  */
-import { randomUUID } from 'node:crypto';
 import { FileStore, logger } from '@dommaker/studio-shared';
-import { studioDir } from '@dommaker/studio-shared/studio-dir';
 import {
-  getReviewProposalAdapter,
-  registerReviewProposalAdapter,
+  createJsonlReviewAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
 } from '../review-proposal/index.js';
-import { submitProposal } from '../review-proposal/index.js';
 import type { ReviewProposalBase, ReviewProposalRecord } from '../review-proposal/index.js';
 import { parseMessageMeta } from '../../utils/message-meta.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import type { Suggestion } from './auditor-rules.js';
-import { getStore } from '../../core/store.js';
 
 
 /** 审核闭环：提案卡投放的目标频道（同旧 pushConfirmationCards / 正本 card.ts 口径） */
@@ -132,6 +130,19 @@ async function executeAuditorApproval(
 }
 
 /**
+ * auditor adapter 装配（createJsonlReviewAdapter 工厂，P2.2）：kind/cardType/物化路径/
+ * 作者/卡渲染/审批语义 = 本域差异面；register/get/submit 样板归 review-proposal 工厂。
+ */
+const auditorKit = createJsonlReviewAdapter<AuditorReviewProposal>({
+  kind: 'auditor',
+  cardType: 'auditor_suggestion',
+  storeNamespace: 'auditor-proposals',
+  author: 'Auditor',
+  renderCardContent: renderAuditorCard,
+  onApprove: (p, { fileStore }) => executeAuditorApproval(fileStore, p),
+});
+
+/**
  * 注册 auditor adapter（kind='auditor'）。同 kind 重复注册后者生效（幂等）。
  * 运行时装配 = auditor.service.ts 单例创建处（模块加载即注册，保证重启后存量
  * pending 提案可审批）；submitAuditorSuggestionProposal 自助注册兜底（同 #353–#355 口径）。
@@ -140,22 +151,12 @@ export function registerAuditorReviewAdapter(deps?: {
   fileStore?: FileStore;
   dataDir?: string;
 }): ReviewProposalAdapter<AuditorReviewProposal> {
-  const fileStore = deps?.fileStore ?? getStore();
-  return registerReviewProposalAdapter<AuditorReviewProposal>({
-    kind: 'auditor',
-    cardType: 'auditor_suggestion',
-    storeNamespace: 'auditor-proposals',
-    dataDir: deps?.dataDir ?? studioDir(),
-    fileStore,
-    author: 'Auditor',
-    renderCardContent: renderAuditorCard,
-    onApprove: p => executeAuditorApproval(fileStore, p),
-  });
+  return auditorKit.register(deps);
 }
 
 /** 取 auditor adapter（未注册则自助注册，幂等） */
 export function getAuditorReviewAdapter(): ReviewProposalAdapter<AuditorReviewProposal> {
-  return getReviewProposalAdapter<AuditorReviewProposal>('auditor') ?? registerAuditorReviewAdapter();
+  return auditorKit.get();
 }
 
 /**
@@ -168,14 +169,5 @@ export async function submitAuditorSuggestionProposal(
   deps?: { fileStore?: FileStore; dataDir?: string },
 ): Promise<{ proposalId: string; posted: boolean }> {
   if (suggestions.length === 0) return { proposalId: '', posted: false };
-  const adapter = deps
-    ? registerAuditorReviewAdapter(deps)
-    : getAuditorReviewAdapter();
-  const proposal: AuditorReviewProposal = {
-    id: randomUUID(),
-    createdAt: new Date().toISOString(),
-    suggestions,
-  };
-  const { posted } = await submitProposal(adapter, proposal);
-  return { proposalId: proposal.id, posted };
+  return auditorKit.submit({ suggestions }, deps);
 }

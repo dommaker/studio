@@ -29,7 +29,7 @@
 | `knowledge-lifecycle` | `knowledge-lifecycle.ts` | Lifecycle 实现体（#669 刀2）：promote/demote/decay/merge/graduateConstraint impl |
 | `knowledge-measure` | `knowledge-measure.ts` | Measure 实现体（#669 刀2）：getFlywheelMetrics/getHealthReport/getAuditReport/getAnalystAccuracy/getStats impl（实算内核在 knowledge-metrics 纯函数） |
 | `conversation-extractor` | `producers/conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门（knowledge-service.ts 拆出；提案卡 #355 起归 review-adapter）。总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`（默认开，P7/P8 批次 2026-09-16）：整体跳过 LLM 提取——无凭证/fake-provider 环境豁免真实 CLI 空转 |
-| `review-adapter` | `review-adapter.ts` | #355：knowledge 人审提案 adapter（kind='knowledge'），接线 review-proposal 正本——聚合卡渲染（knowledge_proposal 旧文案，cardData 旧形状 + proposalId）+ onApprove 逐条目 promote / onReject 逐条目 demote；存取物化 <dataDir>/knowledge-proposals.jsonl；knowledge-service.ts 模块加载即注册 |
+| `review-adapter` | `review-adapter.ts` | #355：knowledge 人审提案 adapter（kind='knowledge'），接线 review-proposal 正本——聚合卡渲染（knowledge_proposal 旧文案，cardData 旧形状 + proposalId）+ onApprove 逐条目 promote / onReject 逐条目 demote；存取物化 <dataDir>/knowledge-proposals.jsonl；knowledge-service.ts 模块加载即注册；装配样板走正本 createJsonlReviewAdapter 工厂（P2.2） |
 | `knowledge-metrics` | `knowledge-metrics.ts` | R1/M1 事件流度量纯函数：computeOutcomeMetrics（hitRate/improvement）+ scanKnowledgeEvents（审计计数）（knowledge-service.ts 拆出） |
 | `knowledgeRoutes` | `routes/routes.ts` | REST API 挂载门面（挂载同目录 6 个子路由，含 /unified 统一浏览） |
 | `ImproverScheduler` | `improver-scheduler.service.ts` | 自文档化调度器（每小时刷新 stale CONTEXT.md + 生成架构文档） |

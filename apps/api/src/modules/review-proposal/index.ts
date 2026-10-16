@@ -7,6 +7,8 @@
 export { postReviewProposalCard } from './card.js';
 export { getReviewProposalAdapter, listReviewProposalAdapters, registerReviewProposalAdapter } from './registry.js';
 export type { ApproveOutcome, ReviewProposalAdapter } from './registry.js';
+export { createJsonlReviewAdapter } from './jsonl-adapter.js';
+export type { JsonlReviewAdapterConfig, JsonlReviewAdapterKit } from './jsonl-adapter.js';
 export { submitProposal } from './service.js';
 export { ReviewProposalStore } from './store.js';
 export type { ReviewProposalBase, ReviewProposalRecord, ReviewProposalStatus } from './store.js';

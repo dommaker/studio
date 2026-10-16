@@ -13,22 +13,21 @@
  * 词表 pending|executed|rejected|failed|card-failed。旧自持存储 ~/.studio/proposals.json
  * （JSON 数组形态，非 append-only）随 proposal-store.ts 一并退役——历史文件不改写不迁移，
  * 其中存量 pending 提案不再进入待审列表（新存储起算）。
+ *
+ * 装配收敛（P2.2）：register/get/submit 样板收进正本 createJsonlReviewAdapter 工厂，
+ * 本文件只留域差异（两种旧卡渲染 + onApprove skill→draft + SKILL.md 生成）。
  */
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import * as path from 'node:path';
 import { FileStore, logger } from '@dommaker/studio-shared';
-import { studioDir, studioPath } from '@dommaker/studio-shared/studio-dir';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import {
-  getReviewProposalAdapter,
-  registerReviewProposalAdapter,
+  createJsonlReviewAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
 } from '../review-proposal/index.js';
-import { submitProposal } from '../review-proposal/index.js';
 import type { ReviewProposalBase } from '../review-proposal/index.js';
 import { skillStore } from './skill-store.js';
-import { getStore } from '../../core/store.js';
 
 
 /** skill 提案载荷（行形态：{ kind:'proposal', ... } 落 skill-proposals.jsonl） */
@@ -102,6 +101,20 @@ async function executeSkillApproval(p: SkillReviewProposal): Promise<ApproveOutc
 }
 
 /**
+ * skill adapter 装配（createJsonlReviewAdapter 工厂，P2.2）：kind/cardType/物化路径/
+ * 卡渲染/onApprove（skill→draft + SKILL.md）= 本域差异面；register/get/submit 样板归
+ * review-proposal 工厂。
+ */
+const skillKit = createJsonlReviewAdapter<SkillReviewProposal>({
+  kind: 'skill',
+  cardType: 'skill_review_request',
+  storeNamespace: 'skill-proposals',
+  renderCardContent: renderSkillCard,
+  onApprove: executeSkillApproval,
+  // reject 零业务副作用（墓碑由正本落）——同旧 reviewProposal 的 rejected 分支
+});
+
+/**
  * 注册 skill adapter（kind='skill'）。同 kind 重复注册后者生效（幂等）。
  * 运行时装配无显式入口——取用处经 getSkillReviewAdapter 自助注册（同 #353 role-memory 口径）。
  */
@@ -109,22 +122,12 @@ export function registerSkillReviewAdapter(deps?: {
   fileStore?: FileStore;
   dataDir?: string;
 }): ReviewProposalAdapter<SkillReviewProposal> {
-  const fileStore = deps?.fileStore ?? getStore();
-  return registerReviewProposalAdapter<SkillReviewProposal>({
-    kind: 'skill',
-    cardType: 'skill_review_request',
-    storeNamespace: 'skill-proposals',
-    dataDir: deps?.dataDir ?? studioDir(),
-    fileStore,
-    renderCardContent: renderSkillCard,
-    onApprove: executeSkillApproval,
-    // reject 零业务副作用（墓碑由正本落）——同旧 reviewProposal 的 rejected 分支
-  });
+  return skillKit.register(deps);
 }
 
 /** 取 skill adapter（未注册则自助注册，幂等） */
 export function getSkillReviewAdapter(): ReviewProposalAdapter<SkillReviewProposal> {
-  return getReviewProposalAdapter<SkillReviewProposal>('skill') ?? registerSkillReviewAdapter();
+  return skillKit.get();
 }
 
 /**
@@ -134,12 +137,5 @@ export function getSkillReviewAdapter(): ReviewProposalAdapter<SkillReviewPropos
 export async function submitSkillProposal(
   input: Omit<SkillReviewProposal, 'id' | 'createdAt'>,
 ): Promise<{ proposalId: string; posted: boolean }> {
-  const adapter = getSkillReviewAdapter();
-  const proposal: SkillReviewProposal = {
-    ...input,
-    id: randomUUID(),
-    createdAt: new Date().toISOString(),
-  };
-  const { posted } = await submitProposal(adapter, proposal);
-  return { proposalId: proposal.id, posted };
+  return skillKit.submit(input);
 }

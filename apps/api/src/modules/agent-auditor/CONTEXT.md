@@ -10,7 +10,7 @@ Auditor Agent（P2-d 刀4 自 modules/agents/auditor 提升为顶层模块）：
 - `auditor-rules.ts` — 检测规则（错误归类/技能建议/知识健康）
 - `auditor-execution.ts` — 建议执行（低风险自动应用/确认卡片/Resolution/Triage 升级）
 - `auditor-reports.ts` — 行为趋势/七日趋势/tier 反馈
-- `review-adapter.ts` — auditor_suggestion 卡接线 review-proposal 正本（#356）
+- `review-adapter.ts` — auditor_suggestion 卡接线 review-proposal 正本（#356）；装配样板走正本 createJsonlReviewAdapter 工厂（P2.2），本文件只留域差异
 - `__tests__/` — auditor-agent/execution/reports/rules/supplementary/track-trends/zero-execution/auto-apply-audit/review-adapter
 
 ### 核心导出
