@@ -7,7 +7,7 @@
 ## Phase 0 — 确证死代码清除（10 批小 commit）
 
 - [x] **P0.1 删 `workunit.mappers.ts`（顺带修真 bug）**（3baf172b）
-- [ ] **P0.2 删 7 个空 barrel + 一次性 codemod**：`modules/{action-center,admin,companies,deploy,discord,library,specs}/index.ts`（6 行纯注释零 export，全仓零引用）+ `scripts/p2c-public-surface.mjs`（~300 行，仅归档计划引用）。`p2c-dep-analysis.mjs` 保留（lint:cycles 在用）。
+- [x] **P0.2 删 7 个空 barrel + 一次性 codemod**
 - [ ] **P0.3 删 `apps/api/src/scripts/seed-skills.ts`**：生产 seed 已由 `bootstrap/seed.ts` 接管，该脚本 seed 的 skill 名在正本里已不存在，手动跑只会注入过时数据。
 - [x] **P0.4 删 `ops/system-health.ts` + 其测试**（c02d4a49）
 - [x] **P0.5 删 `studio-shared/src/stats/anomaly-detector.ts` + 测试**，`percentile` 提取为 `stats/percentile.ts` 并接线两处本地拷贝（c02d4a49）
