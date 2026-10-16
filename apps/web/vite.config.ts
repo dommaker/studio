@@ -59,10 +59,6 @@ export default defineConfig({
           if (id.includes('react-router')) {
             return 'vendor-react-eco';
           }
-          // 流程图库（大型，按需加载）
-          if (id.includes('@xyflow') || id.includes('xyflow')) {
-            return 'vendor-xyflow';
-          }
           // 状态管理（独立缓存，变更频率低）
           if (id.includes('zustand')) {
             return 'vendor-state';
