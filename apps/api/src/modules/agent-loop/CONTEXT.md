@@ -1,6 +1,6 @@
 # apps/api/src/modules/agent-loop
 
-> Updated: 2026-10-16（P1.5 下半平铺归位：8 个 prompt-section-* 收 `prompt-sections/`、6 个 loop-* 收 `loop/`，纯移动零行为变更）
+> Updated: 2026-10-17（Phase 3 后端刀1：`agentStep` 四段纯平移拆分，执行顺序与导出面不变）
 
 ### 职责
 
@@ -12,7 +12,8 @@
 - `loop/loop-lifecycle.ts` — 生命周期段：start/stop/waitForStop + 实例状态 SSE（publishInstanceStatus/recordStartupFailure）+ #179 心跳连败自裁。start() 健康探针（`buildHealthProbeCommand` + 失败 recordStartupFailure）走 `core/exec-async.execAsync` 异步链（2026-10-03 D 批——原 execSync 在 listen 后 mount 链/profile.created 事件路径按角色串行阻塞事件循环）
 - `loop/loop-observe.ts` — 观察段：observe（§9.5 频道成员过滤 / #221 认领陈旧守卫 / 决策 10 显式认领 / B5 字节水位增量回复检测）+ 事件唤醒三件套（#330/#493/#523：idleSleep / onChannelMessageSent / onWorkUnitClaimable，只放行不裁决）
 - `loop/loop-claim.ts` — 认领段：claimAndAnnounce（#175 认领即发声，#445 委托 workunit/claim-announce）+ 决策 14 适任判断链（ensureClaimFit → recordClaimUnfit → blockIfAllMembersUnfit）
-- `loop/loop-step.ts` — 步执行段：agentStep 编排（step-guards → worktree/PMO 分支基线 → 会话续用 #94/#637/#639 → prompt-composer → Executor 执行 → step-retry-policy 重试 → token 记账/tool:call/transcript/步事件/R3 提取/#542 收割）+ #90 outcome 落账
+- `loop/loop-step.ts` — 步执行编排门面：agentStep 串起 step-guards / 频道版本锚点与下述四段；#90 outcome 落账两件套留本文件
+- `loop/loop-step-worktree.ts` / `loop-step-session.ts` / `loop-step-prompt.ts` / `loop-step-execution.ts` — worktree 与 PMO 分支基线解析、会话续用判定与签发、prompt 组装及 hint 消费增量、Executor 执行与重试/记账/事件/收割四段；2026-10-17 纯平移，行为由既有 agent-loop 测试网锁定
 - `loop/loop-record-result.ts` — 结果记录段：recordResult（#178 fencing → completion-gates → delegate 分支 → §4.2 新鲜度 → result-bookkeeping 簿记 → F6-c 强制收口补验 → 原子写 → 状态迁移与频道通知）+ postToDiscussionSpace（频道系统消息唯一出口，经 host seam 供 claim/step 段共用）
 - `execution-cwd.ts` — 执行目录解析三规则（#481 workspaceRoot 唯一来源 / B3b-i 父 worktree 继承 / 收口守卫 git cwd），deps 注入纯函数（`__tests__/execution-cwd.test.ts` 直测）
 - `agent-loop.types.ts` — 类型契约（纯类型零运行时）
