@@ -25,7 +25,7 @@ import {
 } from '@dommaker/studio-contract';
 import { AgentProfileService, listRolePresets, type CreateAgentProfileInput, type UpdateAgentProfileInput } from './agent-profile.service.js';
 import { parsePagination } from '../../utils/pagination.js';
-import { defineRoute, HttpError, paginated } from '../../core/http.js';
+import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
 
 
@@ -47,12 +47,7 @@ openRoutes.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (r
     includeSystem: query.includeSystem === 'true',
   });
 
-  return paginated(result.data, {
-    page,
-    limit,
-    total: result.total,
-    totalPages: Math.ceil(result.total / limit),
-  });
+  return paginated(result.data, makePagination(page, limit, result.total));
 }));
 
 /** POST / — create AgentProfile */

@@ -21,7 +21,7 @@ import {
 import { changeAnalyzerService } from './change-analyzer.service.js';
 import { changeHistoryService } from './change-history.service.js';
 import { gateCheckerService } from './gate-checker.service.js';
-import { defineRoute, HttpError, paginated } from '../../core/http.js';
+import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
 
 // P2-e 鉴权声明式统一：open（读 + analyze-change，registry 挂 auth）/ write（changes validate +
 // changes import，registry 挂 authNotGuest）拆 router，路由内不再挂鉴权。
@@ -124,7 +124,7 @@ openRoutes.get('/:id/changes', defineRoute(
     const total = allRecords.length;
     const records = allRecords.slice(offset, offset + limit);
 
-    return paginated(records, { page, limit, total, totalPages: Math.ceil(total / limit) });
+    return paginated(records, makePagination(page, limit, total));
   },
 ));
 

@@ -9,7 +9,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { z } from 'zod';
-import { defineRoute, paginated, HttpError, requireHuman, resolveCallerAuthorType } from '../http.js';
+import { defineRoute, paginated, HttpError, requireHuman, resolveCallerAuthorType, makePagination } from '../http.js';
 
 const itemSchema = z.object({ id: z.string(), title: z.string() });
 
@@ -220,5 +220,32 @@ describe('requireHuman / resolveCallerAuthorType（A2A §4.4 human-only 守卫�
     expect(resolveCallerAuthorType(req(undefined, { 'x-author-type': 'agent' }))).toBe('agent');
     expect(resolveCallerAuthorType(req({ authorType: 123 }))).toBe('human');
     expect(resolveCallerAuthorType(req())).toBe('human');
+  });
+});
+
+describe('makePagination（P2.3：收敛手搓 Math.ceil(total/limit)）', () => {
+  it('字段口径与 paginated() 一致（page/limit/total 原样回显）', () => {
+    expect(makePagination(3, 20, 42)).toEqual({ page: 3, limit: 20, total: 42, totalPages: 3 });
+  });
+
+  it('total=0 → totalPages 0', () => {
+    expect(makePagination(1, 20, 0)).toEqual({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  });
+
+  it('整除不向上虚增一页；limit>total 恒为 1 页', () => {
+    expect(makePagination(1, 10, 20).totalPages).toBe(2);
+    expect(makePagination(1, 100, 5).totalPages).toBe(1);
+  });
+
+  it('limit=0 透出 Infinity（收敛前 6 处手搓行为的逐项保持，非新引入语义）', () => {
+    expect(makePagination(1, 0, 10).totalPages).toBe(Infinity);
+    expect(makePagination(1, 0, 0).totalPages).toBe(NaN);
+  });
+
+  it('与 paginated() 组合直出分页壳', () => {
+    expect(paginated([{ id: '1' }], makePagination(1, 20, 1))).toEqual({
+      data: [{ id: '1' }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
   });
 });

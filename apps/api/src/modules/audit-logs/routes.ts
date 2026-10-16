@@ -10,7 +10,7 @@ import { Router } from 'express';
 import { AuditActions, AuditResources, getAuditService } from './audit-service.js';
 import type { AuditLogInput } from './audit-service.js';
 
-import { defineRoute, HttpError, paginated } from '../../core/http.js';
+import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
 import { ERROR_CODES } from '@dommaker/studio-contract';
 import {
   auditLogListQuerySchema,
@@ -31,10 +31,6 @@ const router = Router();
 /** #591：合并操作轨 + 提案源行，统一按 createdAt 降序（list 分页与 export 共用） */
 function mergeDecisionRows<T extends { createdAt: string }>(...sources: T[][]): T[] {
   return sources.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-}
-
-function totalPages(total: number, limit: number): number {
-  return Math.ceil(total / limit);
 }
 
 // ========== API 路由 ==========
@@ -77,19 +73,13 @@ router.get('/', defineRoute(
       const proposalRows = await queryProposalDecisionRows(baseQuery);
       const merged = mergeDecisionRows(opRows, proposalRows);
       const items = merged.slice((page - 1) * limit, page * limit);
-      return paginated(items, { page, limit, total: merged.length, totalPages: totalPages(merged.length, limit) });
+      return paginated(items, makePagination(page, limit, merged.length));
     }
 
     const result = await service.query({ ...baseQuery, page, limit });
-    return paginated(result.data, {
-      page: result.page,
-      limit: result.limit,
-      total: result.total,
-      totalPages: totalPages(result.total, result.limit),
-    });
+    return paginated(result.data, makePagination(result.page, result.limit, result.total));
   },
 ));
-
 /**
  * GET /api/audit-logs/stats - 获取审计日志统计
  */

@@ -29,7 +29,7 @@ import { loadManifest } from './manifest-loader.js';
 import { getSkillReviewAdapter } from './review-adapter.js';
 import { promoteSkill } from './skill-promotion.js';
 import { channelMessageService } from '../channels/index.js';
-import { defineRoute, HttpError, paginated } from '../../core/http.js';
+import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
 
 // P2-e 鉴权声明式统一：open（GET 读，含 /discover /manifest /:id /stats，注册顺序保持原样含 /:id 遮蔽）
 // / write（registry 挂 authNotGuest）拆 router，路由内不再挂鉴权。
@@ -72,14 +72,7 @@ openRoutes.get('/', defineRoute({ query: listSkillsQuerySchema }, async (_req, _
     proposals: (pendingBySkill.get(s.id) ?? []).slice(0, 1).map(id => ({ id })),
   }));
 
-  const pageNum = Number(page);
-  const limitNum = Number(limit);
-  return paginated(withProposals, {
-    page: pageNum,
-    limit: limitNum,
-    total,
-    totalPages: Math.ceil(total / limitNum),
-  });
+  return paginated(withProposals, makePagination(Number(page), Number(limit), total));
 }));
 
 /**

@@ -79,7 +79,7 @@ import { claimWorkUnitAndAnnounce } from './claim-announce.js';
 import { listWorkUnitsChangedFiles } from './wu-changed-files.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { type AuthRequest } from '../../middleware/auth.js';
-import { defineRoute, paginated, HttpError, requireHuman } from '../../core/http.js';
+import { defineRoute, paginated, HttpError, requireHuman, makePagination } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
 
 
@@ -138,7 +138,7 @@ openRoutes.get('/', defineRoute(
       : new Map<string, string>();
     const data = result.data.map(w => ({ ...w, claimable: resolveClaimable(w, statusById) }));
 
-    return paginated(data, { page, limit, total: result.total, totalPages: Math.ceil(result.total / limit) });
+    return paginated(data, makePagination(page, limit, result.total));
   },
 ));
 

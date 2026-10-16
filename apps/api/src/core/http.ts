@@ -105,6 +105,17 @@ export function paginated<T>(items: T[], pagination: Pagination): PaginatedBody<
   return { data: items, pagination };
 }
 
+/**
+ * paginated() 的配套元信息助手：fields 口径与 paginated() 一致，totalPages 收敛
+ * 全仓手搓 `Math.ceil(total / limit)`（P2.3，共 6 处）。刻意纯委托不 clamp：
+ * 各调用方的 limit 均由 parsePagination clamp 1..100（skills 除外——其未校验
+ * NaN/0 是契约注释明言保留的 #359 前旧行为，助手不得改变）；limit=0 时
+ * 原样透出 Math.ceil(total/0)=Infinity，与该 6 处收敛前输出一致。
+ */
+export function makePagination(page: number, limit: number, total: number): Pagination {
+  return { page, limit, total, totalPages: Math.ceil(total / limit) };
+}
+
 function isPaginatedBody(value: unknown): value is PaginatedBody<unknown> {
   return typeof value === 'object' && value !== null
     && Array.isArray((value as PaginatedBody<unknown>).data)

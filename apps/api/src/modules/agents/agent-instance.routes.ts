@@ -23,7 +23,7 @@ import {
 } from '@dommaker/studio-contract';
 import { AgentInstanceService, type CreateInstanceInput, type UpdateInstanceInput } from './agent-instance.service.js';
 import { parsePagination } from '../../utils/pagination.js';
-import { defineRoute, HttpError, paginated } from '../../core/http.js';
+import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
 
 // P2-e 鉴权声明式统一：open（GET 读）/ write（registry 挂 authNotGuest）/ admin（terminate，registry 挂
 // requireAuth+requireAdmin）三档拆 router，路由内不再挂鉴权。
@@ -42,12 +42,7 @@ openRoutes.get('/', defineRoute({ query: agentInstanceListQuerySchema }, async (
     limit,
   });
 
-  return paginated(result.data, {
-    page,
-    limit,
-    total: result.total,
-    totalPages: Math.ceil(result.total / limit),
-  });
+  return paginated(result.data, makePagination(page, limit, result.total));
 }));
 
 /** POST / — create RuntimeInstance */
