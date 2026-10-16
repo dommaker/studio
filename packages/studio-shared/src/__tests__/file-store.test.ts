@@ -1028,7 +1028,7 @@ describe('FileStore T6: 原子写与并发', () => {
   describe('多进程并发压测', () => {
     const REPO_ROOT = path.resolve(__dirname, '../../../..');
     const TSX_BIN = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
-    const FILE_STORE_TS = pathToFileURL(path.resolve(__dirname, '..', 'file-store.ts')).href;
+    const FILE_STORE_TS = pathToFileURL(path.resolve(__dirname, '..', 'file-store', 'index.ts')).href;
 
     function writeWorker(): string {
       const workerPath = path.join(tmpDir, 't6-worker.ts');

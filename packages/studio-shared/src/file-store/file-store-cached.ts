@@ -12,13 +12,13 @@
  * messages 四域共用）。WorkUnit 索引读口 readIndexForQuery 随域留在 file-store-workunit.ts。
  *
  * 缓存共享件（jsonCache/jsonlCache/dirCache/statMtimeMs/cacheSet/cloneCached/
- * invalidateFileKey）在 file-store-cache.ts 定义并 import 共用（口径注释见该文件）。
+ * invalidateFileKey）在 cache-primitives.ts 定义并 import 共用（口径注释见该文件）。
  */
 
 import fs from 'node:fs';
 import { isErrnoError, type FileStoreBase } from './file-store-base';
-import { dirCache, jsonCache, jsonlCache, cacheSet, statMtimeMs, cloneCached, invalidateFileKey } from './file-store-cache';
-import { readMetricsBegin, emitReadMetric } from './read-metrics';
+import { dirCache, jsonCache, jsonlCache, cacheSet, statMtimeMs, cloneCached, invalidateFileKey } from './cache-primitives';
+import { readMetricsBegin, emitReadMetric } from '../read-metrics';
 
 // ─── CachedFileIo 类 ───
 

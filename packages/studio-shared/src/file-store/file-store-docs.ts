@@ -12,8 +12,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isErrnoError } from './file-store-base';
 import type { FileStoreCore } from './file-store-core';
-import { mdCache, cacheSet, statMtimeMs, cloneCached, collectNonNull, invalidateFileKey } from './file-store-cache';
-import { parseFrontmatter, serializeFrontmatter } from './frontmatter';
+import { mdCache, cacheSet, statMtimeMs, cloneCached, collectNonNull, invalidateFileKey } from './cache-primitives';
+import { parseFrontmatter, serializeFrontmatter } from '../frontmatter';
 
 // ─── DocsStore 类 ───
 

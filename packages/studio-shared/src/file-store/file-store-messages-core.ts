@@ -13,7 +13,7 @@
 import path from 'node:path';
 import type { FileStoreCore } from './file-store-core';
 import type { FileStoreWorkUnitOptions } from './file-store-workunit';
-import { foldJsonlById } from './jsonl-fold';
+import { foldJsonlById } from '../jsonl-fold';
 import type {
   ChannelMessageData,
   ChannelMessageRow,

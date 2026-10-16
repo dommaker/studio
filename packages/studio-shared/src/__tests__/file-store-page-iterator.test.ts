@@ -8,8 +8,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { iteratePageCandidates, assembleMessagePage, type PageAnchorState } from '../file-store-messages-query';
-import type { ChannelMessageData } from '../file-store-types';
+import { iteratePageCandidates, assembleMessagePage, type PageAnchorState } from '../file-store/file-store-messages-query';
+import type { ChannelMessageData } from '../file-store/file-store-types';
 
 function msg(id: string): ChannelMessageData {
   return {

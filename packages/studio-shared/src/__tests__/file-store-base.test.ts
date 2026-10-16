@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { FileStoreBase, LockTimeoutError } from '../file-store-base';
+import { FileStoreBase, LockTimeoutError } from '../file-store/file-store-base';
 import { eventBus } from '../event-bus';
 
 function createTempDir(): string {

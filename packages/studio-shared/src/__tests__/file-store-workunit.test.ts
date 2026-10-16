@@ -11,9 +11,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { WorkUnitStore, parseWorkUnitIndexContent } from '../file-store-workunit';
-import { createFileStoreCore, type FileStoreCore } from '../file-store-core';
-import type { WorkUnitEvent, WorkUnitSnapshot } from '../file-store-types';
+import { WorkUnitStore, parseWorkUnitIndexContent } from '../file-store/file-store-workunit';
+import { createFileStoreCore, type FileStoreCore } from '../file-store/file-store-core';
+import type { WorkUnitEvent, WorkUnitSnapshot } from '../file-store/file-store-types';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-wu-test-'));

@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isErrnoError } from './file-store-base';
 import type { FileStoreCore } from './file-store-core';
-import { statMtimeMs, collectNonNull, invalidateFileKey, invalidateRemovedPath } from './file-store-cache';
+import { statMtimeMs, collectNonNull, invalidateFileKey, invalidateRemovedPath } from './cache-primitives';
 import type {
   AgentProfileData,
   RuntimeStateData,

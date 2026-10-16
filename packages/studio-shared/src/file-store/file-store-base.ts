@@ -11,9 +11,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { studioPath } from './config/studio-dir';
-import { eventBus } from './event-bus';
-import { logger } from './utils/logger';
+import { studioPath } from '../config/studio-dir';
+import { eventBus } from '../event-bus';
+import { logger } from '../utils/logger';
 
 /** 锁超时错误 */
 export class LockTimeoutError extends Error {

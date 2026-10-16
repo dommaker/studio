@@ -22,7 +22,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { FileStore, parseWorkUnitIndexContent } from '@dommaker/studio-shared';
-// 子路径 exports（studio-dir 先例）；与 file-store.ts 的 './read-metrics' 解析到同一文件 → 同一模块实例（sink 生效前提）
+// 子路径 exports（studio-dir 先例）；与 file-store/index.ts 的 '../read-metrics' 解析到同一文件 → 同一模块实例（sink 生效前提）
 import { setReadMetricsSink, setSegmentMetricsSink, runWithLoopLabel } from '@dommaker/studio-shared/read-metrics';
 import { scanTimedOutWorkUnits } from '../src/modules/workunit/timeout-release.js';
 import { scanStaleAgentInstances } from '../src/modules/ops/instance-timeout-scan.js';

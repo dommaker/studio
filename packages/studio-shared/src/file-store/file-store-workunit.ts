@@ -14,8 +14,8 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { isErrnoError } from './file-store-base';
 import type { FileStoreCore } from './file-store-core';
-import { jsonCache, cacheSet, statMtimeMs, cloneCached } from './file-store-cache';
-import { readMetricsBegin, emitReadMetric } from './read-metrics';
+import { jsonCache, cacheSet, statMtimeMs, cloneCached } from './cache-primitives';
+import { readMetricsBegin, emitReadMetric } from '../read-metrics';
 import type { WorkUnitEvent, WorkUnitSnapshot, WorkUnitFilter } from './file-store-types';
 
 /** #314（D2）：租约推前的合并落盘窗口（默认 60s，≪ 5min 租约 TTL，活跃持有方不被误判到期） */

@@ -34,7 +34,7 @@
  * 30 天 → 月度 gzip 冷包永久保留；噪声 level=debug 7 天滚动删除），index.ts 启动
  * 挂载每 24h 一轮。
  */
-import { getDefaultFileStore } from './file-store-default';
+import { getDefaultFileStore } from './file-store/file-store-default';
 import { logger } from './utils/logger';
 import { resolveStudioLogFile } from './log-path';
 

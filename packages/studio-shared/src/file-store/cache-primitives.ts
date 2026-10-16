@@ -8,7 +8,7 @@
  * 其他进程的外部写入（mtime 变化）也会触发重读——不引入跨进程脏读。
  * 缓存对象一律不直接外发（命中返回结构克隆），调用方原地 mutate 返回值不会污染缓存。
  *
- * dirCache 是 readdirCached 的读穿缓存（定义在 file-store-messages-core.ts）；
+ * dirCache 是 readdirCached 的读穿缓存（定义在 file-store-cached.ts 的 CachedFileIo）；
  * statMtimeMs/cacheSet/CacheEntry 是缓存层通用件；json/jsonl/md 缓存与失效件
  * 供 file-store-cached.ts / file-store-entities.ts / file-store-docs.ts 共用。
  * 全部 export 仅供模块间共享，不进包 index。

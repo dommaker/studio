@@ -30,7 +30,7 @@ const GAPS = [
 
 const MEASUREMENT_CODE = [
   'packages/studio-shared/src/read-metrics.ts（新增：sink + ALS 归因 + readMetricsBegin/emitReadMetric；#411 增段事件 SegmentMetricEvent + runSegmentSpan + wrapWithSegmentSpan）',
-  'packages/studio-shared/src/file-store.ts（readJson / readJsonl / readdirCached / readIndexForQuery 四读口内计时埋点；锁内裸读路径未动）',
+  'packages/studio-shared/src/file-store/index.ts（readJson / readJsonl / readdirCached / readIndexForQuery 四读口内计时埋点；锁内裸读路径未动）',
   'packages/studio-shared/package.json（exports 增 ./read-metrics 子路径）',
   'apps/api/src/modules/agents/monitor/exec-async.ts（#411：execAsync/execFileAsync 内 exec 段计时上报，段名取到首个 flag 前）',
   'apps/api/src/modules/knowledge/knowledge-singletons.ts（#411：装配层包装 rawKnowledgeStore + 五 facade 方法为 harness 段 span，嵌套只记顶层）',

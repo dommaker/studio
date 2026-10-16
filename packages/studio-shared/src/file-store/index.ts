@@ -6,12 +6,12 @@
  * 数据区布局（data/ 子树与 ~/.studio 根级条目）唯一正本：
  * docs/architecture/data-directory-contract.md（#570）——布局变更须先修订契约。
  *
- * 本文件为组合门面：持有四个域 store 实例并逐方法委托，对外类名/构造签名/
- * 方法签名/导出面 100% 不变（消费方零改动）。内部结构：
+ * 本文件为组合门面（原 file-store.ts，现为本目录 index）：持有四个域 store 实例并逐方法委托，
+ * 对外类名/构造签名/方法签名/导出面 100% 不变（消费方零改动）。内部结构（均在本目录）：
  *   file-store-core.ts             FileStoreCore/createFileStoreCore  共享设施上下文（baseDir/base/io）
  *   file-store-base.ts             FileStoreBase                      JSON/锁裸原语（锁内/实时路径专用）
  *   file-store-cached.ts           CachedFileIo                       读穿缓存读写原语（唯一实现）
- *   file-store-cache.ts            （模块级件，无类）                  缓存共享件
+ *   cache-primitives.ts            （模块级件，无类）                  缓存共享件
  *   file-store-workunit.ts         WorkUnitStore                      WorkUnit 事件溯源
  *   file-store-messages-core.ts    MessagesCoreStore                  消息写路径/压实（#319）/路径件
  *   file-store-messages-query.ts   MessagesQueryStore                 倒扫/分页（#524/B4）/水位线（B5）
@@ -75,8 +75,8 @@ export { formatRequirementId, formatEvolutionId } from './file-store-types';
 export { LockTimeoutError } from './file-store-base';
 export type { WorkUnitReconcileResult } from './file-store-workunit';
 export { parseWorkUnitIndexContent } from './file-store-workunit';
-export { parseChannels, stringifyChannels } from './channels-codec';
-export { parseFrontmatter, serializeFrontmatter } from './frontmatter';
+export { parseChannels, stringifyChannels } from '../channels-codec';
+export { parseFrontmatter, serializeFrontmatter } from '../frontmatter';
 export type { FileStoreOptions } from './file-store-messages';
 
 // ─── FileStore 类（组合门面：持有域 store 实例，逐方法委托）───

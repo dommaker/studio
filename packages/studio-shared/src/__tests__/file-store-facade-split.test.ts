@@ -15,15 +15,15 @@
 import { describe, expect, it } from 'vitest';
 import * as fsModule from '../file-store';
 import { FileStore } from '../file-store';
-import { FileStoreBase } from '../file-store-base';
-import { CachedFileIo } from '../file-store-cached';
-import { WorkUnitStore } from '../file-store-workunit';
-import { MessagesStore } from '../file-store-messages';
-import { MessagesCoreStore } from '../file-store-messages-core';
-import { MessagesQueryStore } from '../file-store-messages-query';
-import { MessagesArchiveStore } from '../file-store-messages-archive';
-import { EntityStore } from '../file-store-entities';
-import { DocsStore } from '../file-store-docs';
+import { FileStoreBase } from '../file-store/file-store-base';
+import { CachedFileIo } from '../file-store/file-store-cached';
+import { WorkUnitStore } from '../file-store/file-store-workunit';
+import { MessagesStore } from '../file-store/file-store-messages';
+import { MessagesCoreStore } from '../file-store/file-store-messages-core';
+import { MessagesQueryStore } from '../file-store/file-store-messages-query';
+import { MessagesArchiveStore } from '../file-store/file-store-messages-archive';
+import { EntityStore } from '../file-store/file-store-entities';
+import { DocsStore } from '../file-store/file-store-docs';
 
 /** 公共方法面基线（组合前 FileStore 实例可调用的全部公共方法，逐条保留） */
 const BASELINE_PUBLIC_METHODS = [

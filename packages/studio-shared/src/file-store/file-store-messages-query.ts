@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import { isErrnoError } from './file-store-base';
 import type { FileStoreCore } from './file-store-core';
 import { type MessagesCoreStore, mergeActiveRows } from './file-store-messages-core';
-import { iterateJsonlLinesBackward, readJsonlTail } from './jsonl-tail';
+import { iterateJsonlLinesBackward, readJsonlTail } from '../jsonl-tail';
 import type {
   ChannelMessageData,
   ChannelMessageRow,

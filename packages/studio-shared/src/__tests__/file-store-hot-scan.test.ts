@@ -31,7 +31,7 @@ vi.mock('../jsonl-tail', async (importOriginal) => {
 });
 
 import { FileStore, type ChannelData, type ChannelMessageData } from '../file-store';
-import type { CachedFileIo } from '../file-store-cached';
+import type { CachedFileIo } from '../file-store/file-store-cached';
 
 /**
  * #681 组合化观测点适配：内部全量读口 = 门面持有的 CachedFileIo 实例

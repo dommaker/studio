@@ -16,8 +16,8 @@
  *   与历史上「改 env 后新构造」的行为一致（vitest 隔离 setup / 38 个动态 env 测试依赖）。
  * - setDefaultFileStore 钉定后恒返回该实例（生产 bootstrap 启动时钉一次）。
  */
-import { FileStore } from './file-store';
-import { studioPath } from './config/studio-dir';
+import { FileStore } from './index';
+import { studioPath } from '../config/studio-dir';
 
 /** 按数据根缓存的惰性实例（未钉定时的兜底面） */
 const storesByRoot = new Map<string, FileStore>();

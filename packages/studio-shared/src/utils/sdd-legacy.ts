@@ -9,7 +9,7 @@
  */
 
 import { parseFrontmatter } from '../file-store';
-import { getDefaultFileStore } from '../file-store-default';
+import { getDefaultFileStore } from '../file-store/file-store-default';
 
 // ── Types ──
 

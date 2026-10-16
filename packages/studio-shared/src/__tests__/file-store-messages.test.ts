@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, type ChannelMessageData } from '../file-store';
-import { MessagesStore } from '../file-store-messages';
+import { MessagesStore } from '../file-store/file-store-messages';
 
 const CH = 'ch-msgs-base';
 const BASE_MS = Date.UTC(2026, 0, 1);

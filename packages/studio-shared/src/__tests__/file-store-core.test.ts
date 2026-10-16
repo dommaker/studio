@@ -9,9 +9,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { createFileStoreCore } from '../file-store-core';
-import { FileStoreBase } from '../file-store-base';
-import { CachedFileIo } from '../file-store-cached';
+import { createFileStoreCore } from '../file-store/file-store-core';
+import { FileStoreBase } from '../file-store/file-store-base';
+import { CachedFileIo } from '../file-store/file-store-cached';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-core-test-'));
