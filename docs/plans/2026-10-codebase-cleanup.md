@@ -28,7 +28,7 @@
 
 ## Phase 2 — 重复逻辑收敛
 
-- [ ] **P2.1 pmo 三件套订阅样板**：analysis-handoff/map-opening/spec-materialization 三个文件 ~30 行×3 九成雷同（subscribed 标志 + settled tracker + subscribeToEvents），抽 `subscribeWuStatusChanged(handler)` 助手。
+- [x] **P2.1 pmo 三件套订阅样板**（be30350d：抽 `subscribeWuStatusChanged` 骨架 `wu-status-subscription.ts`，过滤条件差异以注入参数保留；decision-resolution 第四处形态不同未纳入）
 - [ ] **P2.2 review-adapter ×3 收敛**：agent-auditor/knowledge/skills 三家同走「JSONL 存储」路径，抽 `createJsonlReviewAdapter({kind, renderCard, onApprove, onReject})`；evolution/role-memory 存储例外留原样。
 - [ ] **P2.3 totalPages 收敛**：6 处手搓 `Math.ceil(total/limit)` → core/http.ts 给 paginated() 配 `makePagination(page,limit,total)`。
 - [ ] **P2.4 17 处模块级 service 单例改 `createLazyService`**：`export const x = new XService()` 在 import 期捕获 getStore()，正是 core/store.ts 头注明令禁止的模式（eslint 只挡了 FileStore 无参构造，漏了 service 级）。逐个确认构造副作用后统一。
