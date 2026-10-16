@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { monitoringApi } from '../api/monitoring';
 import { knowledgeApi } from '../api/knowledge';
+import { StatCard } from '../components/ui';
 import { EventSearchPanel, type EventSearchFilters } from '../components/monitoring/EventSearchPanel';
 import { NeedsAttentionSection } from '../components/monitoring/NeedsAttentionSection';
 import { alertSignatureKeyword, type AlertGroup } from '../components/monitoring/alertGrouping';
@@ -245,12 +246,12 @@ export function MonitoringPage() {
                   statTestId="evidence-stat"
                 >
                   <div className="grid grid-cols-4 gap-3">
-                    <StatCard label="自动验证" value={evidence.l1Approved} color="u-ok" />
-                    <StatCard label="Agent 评审" value={evidence.l2Approved} color="u-ok" />
-                    <StatCard label="人工确认" value={evidence.l3Approved} color="u-ok" />
+                    <StatCard label="自动验证" value={evidence.l1Approved} color="u-ok" variant="inline" />
+                    <StatCard label="Agent 评审" value={evidence.l2Approved} color="u-ok" variant="inline" />
+                    <StatCard label="人工确认" value={evidence.l3Approved} color="u-ok" variant="inline" />
                     {/* #472：待人工确认 warning（非真错误，error 红留给 blocked/failed） */}
-                    <StatCard label="待人工确认" value={evidence.needsHuman} color="u-warn" />
-                    <StatCard label="状态不一致" value={evidence.derivedMismatch} color="u-warn" />
+                    <StatCard label="待人工确认" value={evidence.needsHuman} color="u-warn" variant="inline" />
+                    <StatCard label="状态不一致" value={evidence.derivedMismatch} color="u-warn" variant="inline" />
                   </div>
                   <p className="text-xs u-text-3 mt-2">
                     主数字 = 已验收任务占比（人工确认 ÷ 已介入 {evidence.engaged} 个任务）；
@@ -271,16 +272,18 @@ export function MonitoringPage() {
                 ) : flywheel ? (
                   <>
                     <div className="grid grid-cols-4 gap-3">
-                      <StatCard label="知识命中率" value={`${flywheel.hitRate}%`} color="u-accent" />
+                      <StatCard label="知识命中率" value={`${flywheel.hitRate}%`} color="u-accent" variant="inline" />
                       <StatCard
                         label="成功率变化"
                         value={`${flywheel.improvement > 0 ? '+' : ''}${flywheel.improvement}pp`}
                         color={flywheel.improvement > 0 ? 'u-ok' : flywheel.improvement < 0 ? 'u-err' : 'u-text-3'}
+                        variant="inline"
                       />
                       <StatCard
                         label="待审提案"
                         value={flywheel.proposalsPendingReview}
                         color={flywheel.proposalsPendingReview > 0 ? 'u-warn' : 'u-text-3'}
+                        variant="inline"
                       />
                     </div>
                     {flywheel.source === 'insufficient-data' && (
@@ -406,15 +409,6 @@ export function MonitoringPage() {
         </div>
       </div>
       )}
-    </div>
-  );
-}
-
-function StatCard({ label, value, color }: { label: string; value: React.ReactNode; color: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className={`font-bold ${color}`} style={{ fontSize: 'var(--fs-stat)' }}>{value}</span>
-      <span className="text-sm u-text-2">{label}</span>
     </div>
   );
 }

@@ -11,3 +11,5 @@ export { Select } from './Select';
 export type { SelectOption, SelectProps } from './Select';
 export { SkeletonText, SkeletonCard } from './Skeleton';
 export type { SkeletonTextProps, SkeletonCardProps } from './Skeleton';
+export { StatCard } from './StatCard';
+export type { StatCardProps } from './StatCard';
