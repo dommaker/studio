@@ -22,20 +22,20 @@
  * 事件订阅语义与 ReviewDispatcher 一致（eventBus 进程内，best-effort）。
  */
 
-import { eventBus, logger, createSettledTracker, type FileStore } from '@dommaker/studio-shared';
+import { logger, type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { ChannelMessageService } from '../channels/index.js';
 import { resolveStageRouting, resolveOrNotice } from '../channels/index.js';
+import { WuStatusChangedSubscription } from './wu-status-subscription.js';
 // P2-c 拆环：dispatchMonitorAlerts 转方法内动态 import（pmo→agents 静态边清零）
 import { getStore } from '../../core/store.js';
 
 
 export class AnalysisHandoff {
-  private subscribed = false;
+  /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled（共享骨架 P2.1） */
+  private readonly statusChanged = new WuStatusChangedSubscription();
   private messageService: ChannelMessageService;
-  /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled */
-  private readonly settled = createSettledTracker();
 
   constructor(
     private fileStore: FileStore,
@@ -47,12 +47,11 @@ export class AnalysisHandoff {
 
   /** 订阅 workunit.status_changed。幂等。 */
   subscribeToEvents(): void {
-    if (this.subscribed) return;
-    this.subscribed = true;
-
-    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
-      this.settled.track(this.handleStatusChanged(payload.workunit));
-    });
+    // 类型过滤在此；状态分流（in_review/done）在 handleStatusChanged 内（原行为不变）
+    this.statusChanged.subscribe(
+      (wu) => !!wu && (wu.type === 'analysis' || wu.type === 'plan'),
+      (wu) => this.handleStatusChanged(wu),
+    );
   }
 
   private async handleStatusChanged(wu: WorkUnitData): Promise<void> {
@@ -72,10 +71,11 @@ export class AnalysisHandoff {
   /**
    * 等待本实例已触发的全部事件链落定（测试用确定性信号，替代盲等轮询）。
    * publish 在 transitionStatus await 链内同步发射（eventBus emit 同步），故
-   * await 触发方返回时在途链必已登记。实现经 studio-shared createSettledTracker。
+   * await 触发方返回时在途链必已登记。实现经 WuStatusChangedSubscription
+   * 共享骨架（studio-shared createSettledTracker）。
    */
   async waitForSettled(): Promise<void> {
-    await this.settled.waitForSettled();
+    await this.statusChanged.waitForSettled();
   }
 
   private readMeta(wu: WorkUnitData): WorkUnitMetadata {
