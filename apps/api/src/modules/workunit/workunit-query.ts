@@ -7,8 +7,7 @@
  */
 
 import { type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { snapshotToData } from './workunit.mappers.js';
-import { WorkUnitCrudService, type WorkUnitData } from './workunit-crud.js';
+import { WorkUnitCrudService, snapshotToData, type WorkUnitData } from './workunit-crud.js';
 // #428：未归属口径的戳解析复用 requirements 的零依赖叶子（无循环依赖风险，见该文件头注释）
 import { parseWuPmoId } from '../requirements/index.js';
 

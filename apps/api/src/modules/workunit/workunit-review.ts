@@ -13,9 +13,8 @@ import { logger, withAttestation, deriveDisplayState, createSettledTracker, type
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from './merge-on-review-pass.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
-import { snapshotToData } from './workunit.mappers.js';
+import { snapshotToData, type WorkUnitData } from './workunit-crud.js';
 import { WorkUnitLifecycleService } from './workunit-lifecycle.js';
-import { type WorkUnitData } from './workunit-crud.js';
 import { type AuditActor } from '../audit-logs/index.js';
 
 /**

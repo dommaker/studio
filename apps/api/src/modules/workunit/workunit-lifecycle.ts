@@ -10,9 +10,8 @@
 import { logger, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveValidTransitions, WORKUNIT_CLOSED_EVENT_TYPE, type WorkUnitMetadata, type CloseWorkUnitOptions } from './workunit.types.js';
-import { snapshotToData } from './workunit.mappers.js';
+import { snapshotToData, type WorkUnitData } from './workunit-crud.js';
 import { WorkUnitQueryService } from './workunit-query.js';
-import { type WorkUnitData } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
 import { recordAgentDecision, type AuditActor } from '../audit-logs/index.js';
