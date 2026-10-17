@@ -16,6 +16,6 @@ OpenAPI 文档派生与 /api/docs 挂载（Phase 4 复活 Phase 0 删掉的死�
 ## 注意事项
 
 - 文档是 contract 的派生物不是正本：请求 schema 直接来自 defineRoute 实际挂载（零漂移）；响应 schema 靠 response-map 装订，防漂移靠 __tests__/openapi.probe.ts 断言「映射键 ⊆ 实际端点」。
-- Phase 4 孤儿端点收缩（2026-10-17 起）逐批同步删本表映射：批1 knowledge-service 域 19→3 行（保留 entries/promote/demote）；批2 knowledge 域 8 条（顺带修正 /gaps/:type 原误挂概览响应壳的既有错误）。
+- Phase 4 孤儿端点收缩（2026-10-17 起）逐批同步删本表映射：批1 knowledge-service 域 19→3 行（保留 entries/promote/demote）；批2 knowledge 域 8 条（顺带修正 /gaps/:type 原误挂概览响应壳的既有错误）；批3 skills 域 20→3 条（保留列表/manifest/retract-decide）。
 - 协议面不进文档（discord/deploy webhook、SSE、MCP 消息面、health 运维探针）——它们不是 defineRoute 路由，自然落 skipped。例外清单唯一正本 = route-registry.ts `PROTOCOL_SURFACE_EXCEPTIONS`（#664 固化）：probe 断言「skipped 集合 ≡ 例外清单」双向精确相等，清单外新 raw 路由 = 红，例外被收编后不同步删清单条目 = 红。
 - 鉴权语义来自 route-registry 的 describeEntryAuth（姿态数组模块级共享，按数组引用判别）。

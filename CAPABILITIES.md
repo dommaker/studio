@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-10-16
+> 最后更新: 2026-10-17
 
 ---
 
@@ -30,6 +30,17 @@
 | pmo | apps/api/src/modules/pmo/ | 🆕 AS-016: 获取当前季度 |
 | skills | apps/api/src/modules/skills/ | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
+| module-sinks | apps/api/src/bootstrap/module-sinks.ts | ── 模块 sink 装配（Phase 5 SCC 第一刀，2026-10-16）── |
+| loop-record-events | apps/api/src/modules/agent-loop/loop/loop-record-events.ts | loop-record-events |
+| loop-record-persistence | apps/api/src/modules/agent-loop/loop/loop-record-persistence.ts | loop-record-persistence |
+| loop-record-reply | apps/api/src/modules/agent-loop/loop/loop-record-reply.ts | loop-record-reply |
+| loop-step-execution | apps/api/src/modules/agent-loop/loop/loop-step-execution.ts | loop-step-execution |
+| loop-step-prompt | apps/api/src/modules/agent-loop/loop/loop-step-prompt.ts | loop-step-prompt |
+| loop-step-session | apps/api/src/modules/agent-loop/loop/loop-step-session.ts | loop-step-session |
+| loop-step-worktree | apps/api/src/modules/agent-loop/loop/loop-step-worktree.ts | loop-step-worktree |
+| metrics-overview | apps/api/src/modules/ops/metrics-overview.ts | metrics-overview |
+| monitor-reflection-collectors | apps/api/src/modules/ops/monitor-reflection-collectors.ts | #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读 |
+| jsonl-adapter | apps/api/src/modules/review-proposal/jsonl-adapter.ts | review-proposal/jsonl-adapter — JSONL 存储路径 adapter 工厂（代码库清理 P2.2） |
 | cloudflared | apps/api/src/bootstrap/cloudflared.ts | cloudflared — 隧道启停判定（#571 冲突 5 冻结结论：外联隧道默认关） |
 | listen-error | apps/api/src/bootstrap/listen-error.ts | listen-error — server.listen 错误处理（#573 端口双口径收口） |
 | runtime-paths | apps/api/src/bootstrap/runtime-paths.ts | runtime-paths — KNOWLEDGE_DIR / TUNNEL_URL_FILE 归数据根（#571） |
@@ -268,7 +279,6 @@
 | review-adapter | apps/api/src/modules/role-memory/review-adapter.ts | review-adapter (#353) — role-memory 人审提案 adapter（接线 review-proposal 正本） |
 | review-adapter | apps/api/src/modules/skills/review-adapter.ts | review-adapter (#354) — skills 提案审批 adapter（接线 review-proposal 正本） |
 | ReviewProposalCard | apps/web/src/components/channel/ReviewProposalCard.tsx | ReviewProposalCard — #352 人审提案卡合一壳（ADR 2026-08-25 决策 5） |
-| proposalCardConfigs | apps/web/src/components/channel/proposalCardConfigs.tsx | 人审提案卡配置（#352，ADR 2026-08-25 决策 5）：6 张提案卡坍缩为「条目清单 + 文案」纯数据配置。 |
 | ChannelActivityRail | apps/web/src/components/channel/ChannelActivityRail.tsx | #394 频道动态右栏（spec §4.1–4.3，#381 定稿变体 B）——300px REQ 链路卡栏： |
 | CreateRoleModal | apps/web/src/components/monitoring/CreateRoleModal.tsx | 创建角色弹框（#397，redesign §6.4：弹框不跳页——上下文不丢） |
 | MonitorSection | apps/web/src/components/monitoring/MonitorSection.tsx | MonitorSection — #398 监控页区块容器（spec §7.5 文案定稿模式） |

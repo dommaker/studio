@@ -15,7 +15,7 @@ API 契约唯一正本（docs/architecture/target-architecture.md）：按域一
 - `companies.ts`：companies 域——Company 实体 + sizes-config/hall-stats 派生读 + 端点请求/响应
 - `projects.ts`：projects 域——LocalProject 实体 + exclude 清单形状 + 端点请求/响应
 - `workspaces.ts`：workspaces 域——Workspace（schemaless 记录，schema passthrough 放行历史扩展字段）/ WorkspaceRuntime 实体 + 端点请求/响应；list/runtimes 的 total 随 `{success,data,total}` 壳一并退役（无消费方）
-- `skills.ts`：skills 域（批次 3/7）——Skill（= SkillRecord 全字段）/ SkillManifestEntry / SkillsStats / DemotionProposal 实体 + 提案提取（scan/extract/retract）结果 + 端点请求/响应；GET / 列表平铺分页 → 统一分页壳，demotion 列表 scan 摘要兄弟键退役（均无消费方）；publish 的 promote 门禁拒绝体为错误壳扩展 `{ error: { code, message, reasons } }`（handler 自写 res）
+- `skills.ts`：skills 域（批次 3/7；P4.3 起只剩 3 端点配套——GET / 列表、GET /manifest、POST /:id/retract/decide，CRUD/publish/demotion/proposals 等 16 条孤儿端点 schema 已删）——Skill（= SkillRecord 全字段）/ SkillManifestEntry 实体 + 端点请求/响应；GET / 列表平铺分页 → 统一分页壳
 - `specs.ts`：specs 域——SpecContent/AnalyzeChangeResult/ChangeRecord/GatePolicy/ValidateChangeResult schema 即 wire 正本（字段正本在 apps/api/src/modules/specs（#684 并回），引 harness/Node 依赖，contract 不可反向 import）；ChangeRecord 的 Date 字段 wire 为 ISO 串（与内存型有意不同构）；export 附件下载不进壳；harnessConfigs 按 type 校验 harness 必填字段（harness 4.0.0 CheckConfig 判别联合口径：file_exists→path、file_contains→path+content、command_success→command、output_matches→pattern，缺了 400 点名）
 - `triggers.ts`：triggers 域——TriggerConfig（condition/action 判别联合）+ 派生读（withState/costs/status/logs/fire 结果）+ 端点请求/响应；原全平铺响应统一进 `{ data }` 壳
 - `evolution.ts`：evolution 域——EvolutionProposal（= EvolutionProposalData）/ ConstraintProposal / runScan 结果 + 端点请求/响应；`{ success, data }` 壳的 success 标志退役；通用提案卡端点 /review-proposals/evolution/* 归批次 4 不在此

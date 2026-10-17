@@ -142,13 +142,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   ]);
 
   // SkillHub routes (FL-025)——P2-e 拆 open/write 双 router（鉴权挂 registry entry）
+  // P4.3：skill-demotion-routes / skill-proposal-routes 整文件随孤儿端点删除，
+  // 原「先于 SkillHub 挂载防 /:id 遮蔽」的顺序约束随之退役（/:id 本身已删）
   const { skillsOpenRoutes, skillsWriteRoutes } = await import('./modules/skills/routes.js');
-
-  // §10.6 skill 降级提案（须先于 /api/v1/skills 注册，否则被 skillsOpenRoutes 的 GET /:id 吃掉）
-  const { skillDemotionOpenRoutes, skillDemotionWriteRoutes } = await import('./modules/skills/skill-demotion-routes.js');
-
-  // Skill proposal routes
-  const { skillProposalOpenRoutes, skillProposalWriteRoutes } = await import('./modules/skills/skill-proposal-routes.js');
 
   // Company routes (FileStore 存储；PMO 页 / Settings 依赖)
   const { default: companyRoutes } = await import('./modules/companies/routes.js') as { default: Router };
@@ -293,15 +289,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/projects', router: projectRoutes, middleware: auth, comment: 'AC-D1+D3: Local project discovery（登录即可：PMO 新建表单工程下拉依赖）' },
 
     // 能力与工具
-    // 顺序约束①：skillDemotionOpenRoutes 必须先于 skillsOpenRoutes 挂载（见文件尾部 assertRouteOrder）。
-    // 原因：skillsOpenRoutes 的 GET /:id 未命中时直接 404 不 next()，
-    // 若 SkillHub 先挂载，GET /api/v1/skills/demotion-proposals 会被 :id='demotion-proposals' 吞掉，降级提案端点死路。
-    { path: '/api/v1/skills/demotion-proposals', router: skillDemotionOpenRoutes, comment: '§10.6: skill 降级提案（先于 SkillHub 注册；读开放）' },
-    { path: '/api/v1/skills/demotion-proposals', router: skillDemotionWriteRoutes, middleware: authNotGuest },
-    // §10.6 同理（顺序约束②）：skillsOpenRoutes 的 GET /:id 未命中直接 404，proposals 必须先于 SkillHub 挂载
-    { path: '/api/v1/skills/proposals', router: skillProposalOpenRoutes },
-    { path: '/api/v1/skills/proposals', router: skillProposalWriteRoutes, middleware: authNotGuest },
-    { path: '/api/v1/skills', router: skillsOpenRoutes, comment: 'FL-025: SkillHub（读开放）' },
+    // P4.3：/api/v1/skills 面只剩 GET /、GET /manifest（open）+ POST /:id/retract/decide（write），
+    // 原 /:id 参数路由已删，demotion-proposals / proposals 先于 SkillHub 挂载的防遮蔽约束随之退役。
+    { path: '/api/v1/skills', router: skillsOpenRoutes, comment: 'FL-025: SkillHub（读开放；P4.3 后剩 GET / 与 GET /manifest）' },
     { path: '/api/v1/skills', router: skillsWriteRoutes, middleware: authNotGuest },
 
     // 运行时
@@ -346,19 +336,10 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   ];
 
   // 启动断言（fail-fast）：顺序敏感注册约束，顺序被改动破坏时启动即报错，
-  // 而不是上线后静默 404 / 路由错。约束原因见上方「顺序约束」注释。
-  assertRouteOrder(table, [
-    {
-      before: { path: '/api/v1/skills/demotion-proposals', router: skillDemotionOpenRoutes },
-      after: { path: '/api/v1/skills', router: skillsOpenRoutes },
-      reason: '§10.6: skillsOpenRoutes 的 GET /:id 未命中直接 404，降级提案必须先于 SkillHub 挂载，否则端点被 :id 吞掉。',
-    },
-    {
-      before: { path: '/api/v1/skills/proposals', router: skillProposalOpenRoutes },
-      after: { path: '/api/v1/skills', router: skillsOpenRoutes },
-      reason: '§10.6 同理：proposals 必须先于 SkillHub 挂载，否则 GET /api/v1/skills/proposals 被 :id=\'proposals\' 吞掉。',
-    },
-  ]);
+  // 而不是上线后静默 404 / 路由错。
+  // P4.3：skills 域的 assertRouteOrder 约束随 demotion-proposals / proposals 挂载退役
+  // （/:id 参数路由已删，遮蔽前提不复存在）；表内其余顺序约束如有新增在此登记。
+  assertRouteOrder(table, []);
 
   return table;
 }

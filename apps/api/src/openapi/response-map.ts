@@ -71,20 +71,10 @@ import {
   workspaceRuntimeListResponseSchema,
   workspaceRuntimesResponseSchema,
   deleteWorkspaceResponseSchema,
-  // skills
+  // skills（P4.3 后剩 GET /、GET /manifest、POST /:id/retract/decide 三条端点）
   skillListResponseSchema,
-  skillDiscoverResponseSchema,
   skillManifestResponseSchema,
-  skillDetailResponseSchema,
   skillResponseSchema,
-  deleteSkillResponseSchema,
-  skillsStatsResponseSchema,
-  demotionProposalListResponseSchema,
-  reviewDemotionResponseSchema,
-  skillProposalListResponseSchema,
-  scanSkillProposalsResponseSchema,
-  extractSkillProposalResponseSchema,
-  retractSkillResponseSchema,
   // specs
   analyzeChangeResponseSchema,
   changeRecordResponseSchema,
@@ -309,27 +299,10 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/workspaces/:id/runtimes': { response: workspaceRuntimeListResponseSchema, summary: 'Workspace 运行时清单' },
   'DELETE /api/v1/workspaces/:id': { response: deleteWorkspaceResponseSchema, summary: '删除 Workspace' },
 
-  // ── skills ──
+  // ── skills ──（P4.3：16 条孤儿端点删除，映射只留存活 3 条）
   'GET /api/v1/skills': { response: skillListResponseSchema, summary: '技能列表（分页）' },
-  'POST /api/v1/skills': { response: skillResponseSchema, summary: '创建技能' },
-  'GET /api/v1/skills/:id': { response: skillDetailResponseSchema, summary: '技能详情' },
-  'PATCH /api/v1/skills/:id': { response: skillResponseSchema, summary: '更新技能' },
-  'DELETE /api/v1/skills/:id': { response: deleteSkillResponseSchema, summary: '删除技能' },
-  'GET /api/v1/skills/discover': { response: skillDiscoverResponseSchema, summary: '技能发现' },
   'GET /api/v1/skills/manifest': { response: skillManifestResponseSchema, summary: '技能清单' },
-  'GET /api/v1/skills/stats': { response: skillsStatsResponseSchema, summary: '技能统计', description: '历史注册顺序被 GET /:id 遮蔽（registry 注释在案）' },
-  'POST /api/v1/skills/:id/publish': { response: skillResponseSchema, summary: '发布技能（promote 门禁；拒绝体为错误壳扩展 { error: { code, message, reasons } }）' },
-  'POST /api/v1/skills/:id/deprecate': { response: skillResponseSchema, summary: '弃用技能' },
-  'POST /api/v1/skills/:id/restore': { response: skillResponseSchema, summary: '恢复技能' },
-  'POST /api/v1/skills/:id/usage': { response: skillResponseSchema, summary: '记录技能使用' },
   'POST /api/v1/skills/:id/retract/decide': { response: skillResponseSchema, summary: '撤回裁决' },
-  'GET /api/v1/skills/demotion-proposals': { response: demotionProposalListResponseSchema, summary: '降级提案列表' },
-  'POST /api/v1/skills/demotion-proposals/:id/approve': { response: reviewDemotionResponseSchema, summary: '降级提案通过' },
-  'POST /api/v1/skills/demotion-proposals/:id/reject': { response: reviewDemotionResponseSchema, summary: '降级提案拒绝' },
-  'GET /api/v1/skills/proposals': { response: skillProposalListResponseSchema, summary: '技能提案列表' },
-  'POST /api/v1/skills/proposals/scan': { response: scanSkillProposalsResponseSchema, summary: '扫描技能提案' },
-  'POST /api/v1/skills/proposals/extract/:executionId': { response: extractSkillProposalResponseSchema, summary: '从执行提取提案' },
-  'POST /api/v1/skills/proposals/:id/retract': { response: retractSkillResponseSchema, summary: '撤回提案' },
 
   // ── specs ──
   'GET /api/v1/specs/:id/changes': { response: specChangeListResponseSchema, summary: 'Spec 变更历史（分页）' },
