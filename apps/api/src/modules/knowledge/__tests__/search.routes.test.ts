@@ -3,8 +3,8 @@
  *
  * 挂载 searchRoutes 到 express app，覆盖：
  * GET /search（400 缺 q / 空库 200 / apiCache 中间件命中 X-Cache: HIT）、
- * GET /resolutions（空库 200）、GET /resolution/density、
- * GET /resolution/cross-session。HOME 指向临时目录隔离真实数据。
+ * GET /resolutions（空库 200）。HOME 指向临时目录隔离真实数据。
+ * P4.2：/resolution/density /resolution/cross-session 端点已删，对应用例随之摘除。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -108,17 +108,5 @@ describe('search.routes', () => {
     const res = await api('GET', '/resolutions');
     expect(res.status).toBe(200);
     expect(res.json).toEqual({ data: { resolutions: [], total: 0, byStatus: {} } });
-  });
-
-  it('GET /resolution/density 200 returns density score object', async () => {
-    const res = await api('GET', '/resolution/density');
-    expect(res.status).toBe(200);
-    expect(typeof res.json.data).toBe('object');
-  });
-
-  it('GET /resolution/cross-session 200 returns stats object', async () => {
-    const res = await api('GET', '/resolution/cross-session');
-    expect(res.status).toBe(200);
-    expect(typeof res.json.data).toBe('object');
   });
 });

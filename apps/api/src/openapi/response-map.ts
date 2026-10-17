@@ -107,18 +107,11 @@ import {
   evolutionProposalResponseSchema,
   evolutionRunResponseSchema,
   // knowledge（/knowledge + /knowledge-service + /api/knowledge 内部）
-  requirementDocListResponseSchema,
-  readKnowledgeFileResponseSchema,
-  knowledgeFileResponseSchema,
-  knowledgeAskResponseSchema,
   knowledgeGapsResponseSchema,
-  knowledgeGapStatsResponseSchema,
   unifiedKnowledgeListResponseSchema,
   createUnifiedEntryResponseSchema,
   resolutionListResponseSchema,
   knowledgeSearchResponseSchema,
-  resolutionDensityResponseSchema,
-  crossSessionStatsResponseSchema,
   knowledgeSyncStatusResponseSchema,
   upsertKnowledgeResponseSchema,
   knowledgeMaintenanceResponseSchema,
@@ -363,19 +356,12 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'POST /api/v1/evolution/proposals/:id/reject': { response: evolutionProposalResponseSchema, summary: '进化提案拒绝' },
   'POST /api/v1/evolution/run': { response: evolutionRunResponseSchema, summary: '手动扫描' },
 
-  // ── knowledge（/api/v1/knowledge）──
-  'GET /api/v1/knowledge/requirements': { response: requirementDocListResponseSchema, summary: '需求文档知识列表' },
-  'POST /api/v1/knowledge/read-file': { response: readKnowledgeFileResponseSchema, summary: '读知识文件' },
-  'GET /api/v1/knowledge/file': { response: knowledgeFileResponseSchema, summary: '知识文件详情' },
-  'POST /api/v1/knowledge/ask': { response: knowledgeAskResponseSchema, summary: '知识问答' },
-  'GET /api/v1/knowledge/gaps': { response: knowledgeGapsResponseSchema, summary: '知识缺口' },
-  'GET /api/v1/knowledge/gaps/:type': { response: knowledgeGapStatsResponseSchema, summary: '缺口统计（按类型）' },
+  // ── knowledge（P4.2 后 /api/v1/knowledge 剩 7 端点 + maintenance 1 条）──
+  'GET /api/v1/knowledge/gaps/:type': { response: knowledgeGapsResponseSchema, summary: '五类知识缺口查询（按类型）' },
   'GET /api/v1/knowledge/unified': { response: unifiedKnowledgeListResponseSchema, summary: '统一知识列表' },
   'POST /api/v1/knowledge/unified': { response: createUnifiedEntryResponseSchema, summary: '创建统一知识条目' },
   'GET /api/v1/knowledge/resolutions': { response: resolutionListResponseSchema, summary: 'Resolution 列表' },
   'GET /api/v1/knowledge/search': { response: knowledgeSearchResponseSchema, summary: '知识搜索' },
-  'GET /api/v1/knowledge/resolution/density': { response: resolutionDensityResponseSchema, summary: 'Resolution 密度分' },
-  'GET /api/v1/knowledge/resolution/cross-session': { response: crossSessionStatsResponseSchema, summary: '跨会话统计' },
   'POST /api/v1/knowledge/maintenance/run': { response: knowledgeMaintenanceResponseSchema, summary: '手动跑知识维护' },
 
   // ── knowledge-service（P4.1 后仅剩审核闭环 3 端点）──

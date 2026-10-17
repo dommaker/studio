@@ -19,25 +19,16 @@ import {
   knowledgeGapTypeSchema,
   knowledgeMaintenanceResultSchema,
   type KnowledgeMaintenanceResult,
-  knowledgeAskResultSchema,
   knowledgeGapsResultSchema,
   unifiedKnowledgeListResultSchema,
   resolutionListResultSchema,
-  resolutionDensityScoreSchema,
-  crossSessionStatsSchema,
-  requirementDocListResultSchema,
-  readKnowledgeFileResultSchema,
   knowledgeSyncStatusResultSchema,
   upsertKnowledgeResultSchema,
-  knowledgeExportQuerySchema,
   knowledgeGapParamsSchema,
   unifiedKnowledgeQuerySchema,
   knowledgeSearchQuerySchema,
-  knowledgeFileQuerySchema,
   listKnowledgeEntriesQuerySchema,
-  knowledgeAskBodySchema,
   createUnifiedEntryBodySchema,
-  readKnowledgeFileBodySchema,
   upsertKnowledgeBodySchema,
   knowledgeLifecycleBodySchema,
   unifiedKnowledgeListResponseSchema,
@@ -179,21 +170,13 @@ describe('派生读 schema', () => {
     expect(() => knowledgeGapTypeSchema.parse('bogus')).toThrow();
   });
 
-  it('ask/gaps/unified/resolutions/density/cross-session 结果形状', () => {
-    expect(knowledgeAskResultSchema.parse({ answer: 'a', sources: [{ id: 'x', title: 't', type: 'guideline' }] }).sources).toHaveLength(1);
+  it('gaps/unified/resolutions 结果形状', () => {
     expect(knowledgeGapsResultSchema.parse({ type: 'preference', data: [{ confidence: 0.9 }], total: 1 }).total).toBe(1);
     expect(unifiedKnowledgeListResultSchema.parse({ entries: [unifiedRow], total: 1 }).entries).toHaveLength(1);
     expect(resolutionListResultSchema.parse({ resolutions: [resolutionRow], total: 1, byStatus: { draft: 1 } }).byStatus.draft).toBe(1);
-    expect(resolutionDensityScoreSchema.parse({ score: 50, total: 10, verified: 2, proven: 1, errorClasses: 3, layers: 2 }).score).toBe(50);
-    expect(crossSessionStatsSchema.parse({ linkedToGoals: 1, unlinked: 2, topErrorClasses: [{ errorClass: 'permission_error', count: 3, avgVerifyCount: 1 }] }).unlinked).toBe(2);
   });
 
-  it('files/sync/upsert 结果形状', () => {
-    expect(requirementDocListResultSchema.parse({
-      docs: [{ path: '/kb/p/需求.md', name: '需求.md', project: 'p', updatedAt: 't', isRequirement: true }],
-      total: 1,
-    }).total).toBe(1);
-    expect(readKnowledgeFileResultSchema.parse({ content: 'c', path: '/x.md', size: 1, ext: '.md' }).ext).toBe('.md');
+  it('sync/upsert 结果形状', () => {
     expect(knowledgeSyncStatusResultSchema.parse({ trackedScopes: [], stale: [], unmonitored: [], healed: [] }).healed).toEqual([]);
     expect(upsertKnowledgeResultSchema.parse({ knowledgeStore: { action: 'created', entryId: 'ke-1' } }).knowledgeStore.action).toBe('created');
     expect(() => upsertKnowledgeResultSchema.parse({ knowledgeStore: { action: 'bogus', entryId: 'ke-1' } })).toThrow();
@@ -201,11 +184,9 @@ describe('派生读 schema', () => {
 });
 
 describe('请求 schema 边界（原手写 400 guard 收进 zod）', () => {
-  it('query：q/path/filePath/entryId 等必填项缺失即 400', () => {
+  it('query：q 等必填项缺失即 400', () => {
     expect(() => knowledgeSearchQuerySchema.parse({})).toThrow();
     expect(knowledgeSearchQuerySchema.parse({ q: 'x' }).q).toBe('x');
-    expect(() => knowledgeFileQuerySchema.parse({})).toThrow();
-    expect(knowledgeExportQuerySchema.parse({}).format).toBeUndefined();
     expect(knowledgeGapParamsSchema.parse({ type: 'preference' }).type).toBe('preference');
     expect(() => knowledgeGapParamsSchema.parse({ type: 'bogus' })).toThrow();
     expect(unifiedKnowledgeQuerySchema.parse({ consumptionMode: 'rule', offset: '20' }).offset).toBe('20');
@@ -213,11 +194,8 @@ describe('请求 schema 边界（原手写 400 guard 收进 zod）', () => {
   });
 
   it('body：必填字段缺失即 400', () => {
-    expect(() => knowledgeAskBodySchema.parse({})).toThrow();
-    expect(knowledgeAskBodySchema.parse({ question: 'q' }).question).toBe('q');
     expect(() => createUnifiedEntryBodySchema.parse({ type: 't', title: 't' })).toThrow();
     expect(createUnifiedEntryBodySchema.parse({ type: 't', title: 't', content: 'c', consumptionMode: 'rule' }).consumptionMode).toBe('rule');
-    expect(() => readKnowledgeFileBodySchema.parse({})).toThrow();
     expect(() => upsertKnowledgeBodySchema.parse({ scope: 's' })).toThrow();
     expect(() => knowledgeLifecycleBodySchema.parse({})).toThrow();
   });

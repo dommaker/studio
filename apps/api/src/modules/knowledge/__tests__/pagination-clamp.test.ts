@@ -1,9 +1,10 @@
 /**
  * #359: knowledge 分页入口统一走 parsePagination（clamp 1..100）
- * （P4.1 后 /knowledge-service/search 端点已删，本文件只覆盖现存入口）
+ * （P4.1 后 /knowledge-service/search 端点已删；P4.2 后 /export 端点已删，
+ * 本文件只覆盖现存入口）
  *
- * 修复前三处三个口径（search clamp 50 / entries|unified clamp 100 / export 无 clamp）。
- * 行为口径变化（缺省值）：search 10→20、export 100→20、unified 50→20、
+ * 修复前三处三个口径（search clamp 50 / entries|unified clamp 100 / ~~export 无 clamp~~）。
+ * 行为口径变化（缺省值）：search 10→20、~~export 100→20~~、unified 50→20、
  * entries 无 limit 时从不设限 → 缺省 20。
  *
  * mock 掉 store/service 层，直接驱动 router handler，断言传入下游的 limit。
@@ -12,14 +13,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Router, type RequestHandler } from 'express';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────
-const mockSharedStoreList = vi.hoisted(() => vi.fn());
 const mockList = vi.hoisted(() => vi.fn());
 const mockGapQuery = vi.hoisted(() => vi.fn());
 const mockListEntries = vi.hoisted(() => vi.fn());
 
-vi.mock('../knowledge-singletons.js', () => ({
-  sharedStore: { list: mockSharedStoreList },
-}));
 vi.mock('../knowledge-service.js', () => ({
   knowledgeService: { list: mockList },
 }));
@@ -67,26 +64,9 @@ function getHandler(router: Router, method: string, path: string): RequestHandle
 describe('knowledge 分页 clamp (#359)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSharedStoreList.mockReturnValue(
-      Array.from({ length: 150 }, (_, i) => ({ id: `e${i}`, title: `t${i}`, content: 'c' })),
-    );
     mockList.mockResolvedValue([]);
     mockGapQuery.mockResolvedValue([]);
     mockListEntries.mockResolvedValue({ entries: [], total: 0 });
-  });
-
-  it('GET /export?limit=9999 → 截断 100 条（修复前无 clamp 全量返回）', async () => {
-    const res = createRes();
-    await getHandler(entriesRoutes, 'get', '/export')(createReq({ format: 'json', limit: '9999' }), res, () => undefined);
-    const entries = JSON.parse(res.send.mock.calls[0][0]);
-    expect(entries).toHaveLength(100);
-  });
-
-  it('GET /export 缺省 limit=20（原缺省 100）', async () => {
-    const res = createRes();
-    await getHandler(entriesRoutes, 'get', '/export')(createReq({ format: 'json' }), res, () => undefined);
-    const entries = JSON.parse(res.send.mock.calls[0][0]);
-    expect(entries).toHaveLength(20);
   });
 
   it('GET /gaps/:type?limit=9999 → 下游 limit clamp 100（修复前 9999 直通）', async () => {

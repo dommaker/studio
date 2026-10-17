@@ -2,7 +2,7 @@
  * knowledge 域契约——正本字段以 apps/api/src/modules/knowledge/ 实测 wire 为准：
  * knowledge-service.ts（KnowledgeService list/get/stats/health/flywheel/audit 等）、
  * knowledge-metrics.ts（FlywheelMetrics/HealthReport/AuditReport/AccuracyReport）、
- * resolution.service.ts（Resolution 投影/density/cross-session，Resolution wire 与
+ * resolution.service.ts（Resolution 投影，Resolution wire 与
  * studio-shared types/resolution.ts 内存型有意不同构，schema 即正本，见下方注记）、
  * engine/unified-query.ts（ListEntriesResult）、knowledge-sync.service.ts、
  * knowledge-design-doc.ts（upsertKnowledge 结果）、knowledge-curator.service.ts
@@ -11,16 +11,20 @@
  * 条目级锚定受 sourceReferences 所限不可表达，见下方注记）。
  *
  * 三套路由（route-registry.ts）：
- * - /api/v1/knowledge（files/entries/search/maintenance 子路由，auth）
+ * - /api/v1/knowledge（entries/search/maintenance 子路由，auth；P4.2 起
+ *   files 子路由整体已删）
  * - /api/v1/knowledge-service（KnowledgeService HTTP API，auth）
  * - /api/knowledge（internal，本机回环限定，无 auth）
  *
  * wire 形状（defineRoute 统一壳后）：
  * - 全部 JSON 端点 `{ data: T }`（原平铺/裸对象/{ success } 全收进壳）
- * - GET /export 附件下载（md/json）handler 自写 res 不进壳（specs 先例）
  * - /api/v1/knowledge-service 自 P4.1（2026-10-17）只剩审核闭环 3 端点
  *   （GET /entries、POST /promote、POST /demote），原 20 条孤儿端点及
  *   配套 schema 已删（见 apps/api/src/modules/knowledge/CONTEXT.md）
+ * - /api/v1/knowledge 自 P4.2（2026-10-17）删 8 条孤儿端点——GET /export、
+ *   POST /ask、GET /gaps、GET /requirements、POST /read-file、GET /file、
+ *   GET /resolution/density、GET /resolution/cross-session——配套 schema
+ *   已删；保留端点见各 schema 注记
  * - 错误统一 `{ error: { code, message } }`（原 `{ error: string }` 与
  *   `{ error: { message } }` 退役；500 文案由固定串变为实际错误消息）
  */
@@ -148,17 +152,6 @@ export type KnowledgeGapType = z.infer<typeof knowledgeGapTypeSchema>;
 
 // ── 派生读形状 ──
 
-/** POST /knowledge/ask 响应 data */
-export const knowledgeAskResultSchema = z.object({
-  answer: z.string(),
-  sources: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-    type: z.string(),
-  })),
-});
-export type KnowledgeAskResult = z.infer<typeof knowledgeAskResultSchema>;
-
 /** GET /knowledge/gaps/:type 响应 data */
 export const knowledgeGapsResultSchema = z.object({
   type: z.string(),
@@ -166,10 +159,6 @@ export const knowledgeGapsResultSchema = z.object({
   total: z.number(),
 });
 export type KnowledgeGapsResult = z.infer<typeof knowledgeGapsResultSchema>;
-
-/** GET /knowledge/gaps 响应 data（五类统计概览，各类形状不一） */
-export const knowledgeGapStatsSchema = z.record(z.unknown());
-export type KnowledgeGapStats = z.infer<typeof knowledgeGapStatsSchema>;
 
 /** GET /knowledge/unified 响应 data */
 export const unifiedKnowledgeListResultSchema = z.object({
@@ -200,61 +189,6 @@ export const knowledgeSearchListResultSchema = z.object({
   total: z.number(),
 });
 export type KnowledgeSearchListResult = z.infer<typeof knowledgeSearchListResultSchema>;
-
-/** GET /knowledge/resolution/density 响应 data */
-export const resolutionDensityScoreSchema = z.object({
-  score: z.number(),
-  total: z.number(),
-  verified: z.number(),
-  proven: z.number(),
-  errorClasses: z.number(),
-  layers: z.number(),
-});
-export type ResolutionDensityScore = z.infer<typeof resolutionDensityScoreSchema>;
-
-/** GET /knowledge/resolution/cross-session 响应 data */
-export const crossSessionStatsSchema = z.object({
-  linkedToGoals: z.number(),
-  unlinked: z.number(),
-  topErrorClasses: z.array(z.object({
-    errorClass: z.string(),
-    count: z.number(),
-    avgVerifyCount: z.number(),
-  })),
-});
-export type CrossSessionStats = z.infer<typeof crossSessionStatsSchema>;
-
-/** GET /knowledge/requirements 响应 data（files.routes 需求文档扫描） */
-export const requirementDocItemSchema = z.object({
-  path: z.string(),
-  name: z.string(),
-  project: z.string().optional(),
-  updatedAt: z.string().optional(),
-  isRequirement: z.boolean().optional(),
-});
-export type RequirementDocItem = z.infer<typeof requirementDocItemSchema>;
-
-export const requirementDocListResultSchema = z.object({
-  docs: z.array(requirementDocItemSchema),
-  total: z.number(),
-});
-export type RequirementDocListResult = z.infer<typeof requirementDocListResultSchema>;
-
-/** POST /knowledge/read-file 响应 data */
-export const readKnowledgeFileResultSchema = z.object({
-  content: z.string(),
-  path: z.string(),
-  size: z.number(),
-  ext: z.string(),
-});
-export type ReadKnowledgeFileResult = z.infer<typeof readKnowledgeFileResultSchema>;
-
-/** GET /knowledge/file 响应 data */
-export const knowledgeFileResultSchema = z.object({
-  content: z.string(),
-  path: z.string(),
-});
-export type KnowledgeFileResult = z.infer<typeof knowledgeFileResultSchema>;
 
 /** GET /api/knowledge/sync-status 响应 data（internal，本机回环限定） */
 export const knowledgeSyncStatusResultSchema = z.object({
@@ -298,14 +232,6 @@ export type KnowledgeSuccessResult = z.infer<typeof knowledgeSuccessResultSchema
 
 // ── 请求：query / params ──
 
-/** GET /knowledge/export（format=md|json；types 逗号分隔；limit clamp 走 parsePagination） */
-export const knowledgeExportQuerySchema = z.object({
-  format: z.string().optional(),
-  types: z.string().optional(),
-  limit: z.string().optional(),
-});
-export type KnowledgeExportQuery = z.infer<typeof knowledgeExportQuerySchema>;
-
 /** GET /knowledge/gaps/:type（limit clamp 走 parsePagination） */
 export const knowledgeGapParamsSchema = z.object({ type: knowledgeGapTypeSchema });
 export type KnowledgeGapParams = z.infer<typeof knowledgeGapParamsSchema>;
@@ -348,12 +274,6 @@ export const knowledgeSearchQuerySchema = z.object({
 });
 export type KnowledgeSearchQuery = z.infer<typeof knowledgeSearchQuerySchema>;
 
-/** GET /knowledge/file（path 必填——原手写 400 收进 zod） */
-export const knowledgeFileQuerySchema = z.object({
-  path: z.string().min(1),
-});
-export type KnowledgeFileQuery = z.infer<typeof knowledgeFileQuerySchema>;
-
 /** GET /knowledge-service/entries（逗号分隔多值；limit clamp 走 parsePagination） */
 export const listKnowledgeEntriesQuerySchema = z.object({
   type: z.string().optional(),
@@ -366,14 +286,6 @@ export type ListKnowledgeEntriesQuery = z.infer<typeof listKnowledgeEntriesQuery
 
 // ── 请求：body ──
 
-/** POST /knowledge/ask（question 必填——原手写 400 收进 zod） */
-export const knowledgeAskBodySchema = z.object({
-  question: z.string().min(1),
-  types: z.array(z.string()).optional(),
-  limit: z.number().optional(),
-});
-export type KnowledgeAskBody = z.infer<typeof knowledgeAskBodySchema>;
-
 /** POST /knowledge/unified（四字段必填——原手写 400 收进 zod） */
 export const createUnifiedEntryBodySchema = z.object({
   type: z.string().min(1),
@@ -384,12 +296,6 @@ export const createUnifiedEntryBodySchema = z.object({
   tags: z.array(z.string()).optional(),
 });
 export type CreateUnifiedEntryBody = z.infer<typeof createUnifiedEntryBodySchema>;
-
-/** POST /knowledge/read-file（filePath 必填——原手写 400 收进 zod） */
-export const readKnowledgeFileBodySchema = z.object({
-  filePath: z.string().min(1),
-});
-export type ReadKnowledgeFileBody = z.infer<typeof readKnowledgeFileBodySchema>;
 
 /** POST /api/knowledge/upsert（scope/title/content 必填——原手写 400 收进 zod） */
 export const upsertKnowledgeBodySchema = z.object({
@@ -407,20 +313,13 @@ export const knowledgeLifecycleBodySchema = z.object({
 });
 export type KnowledgeLifecycleBody = z.infer<typeof knowledgeLifecycleBodySchema>;
 
-// ── 响应（统一 `{ data }` 壳；GET /export 附件不进壳）──
+// ── 响应（统一 `{ data }` 壳）──
 
-export const requirementDocListResponseSchema = dataBodySchema(requirementDocListResultSchema);
-export const readKnowledgeFileResponseSchema = dataBodySchema(readKnowledgeFileResultSchema);
-export const knowledgeFileResponseSchema = dataBodySchema(knowledgeFileResultSchema);
-export const knowledgeAskResponseSchema = dataBodySchema(knowledgeAskResultSchema);
 export const knowledgeGapsResponseSchema = dataBodySchema(knowledgeGapsResultSchema);
-export const knowledgeGapStatsResponseSchema = dataBodySchema(knowledgeGapStatsSchema);
 export const unifiedKnowledgeListResponseSchema = dataBodySchema(unifiedKnowledgeListResultSchema);
 export const createUnifiedEntryResponseSchema = dataBodySchema(createUnifiedEntryResultSchema);
 export const resolutionListResponseSchema = dataBodySchema(resolutionListResultSchema);
 export const knowledgeSearchResponseSchema = dataBodySchema(knowledgeSearchListResultSchema);
-export const resolutionDensityResponseSchema = dataBodySchema(resolutionDensityScoreSchema);
-export const crossSessionStatsResponseSchema = dataBodySchema(crossSessionStatsSchema);
 export const knowledgeSyncStatusResponseSchema = dataBodySchema(knowledgeSyncStatusResultSchema);
 export const upsertKnowledgeResponseSchema = dataBodySchema(upsertKnowledgeResultSchema);
 export const knowledgeMaintenanceResponseSchema = dataBodySchema(knowledgeMaintenanceResultSchema);

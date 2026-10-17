@@ -1,126 +1,35 @@
 /**
- * entries.routes — 知识条目子路由（KnowledgeStore 条目的导出/问答/缺口/统一浏览）
+ * entries.routes — 知识条目子路由（KnowledgeStore 条目的缺口查询/统一浏览）
  *
  * 从 routes.ts 提取（T3 大文件拆分，零行为变更），处理器逐字迁移：
- * - GET  /export      B9-021: Knowledge Export API（md/json）
- * - POST /ask         §12.11b: 知识问答（检索 → LLM 生成回答）
  * - GET  /gaps/:type  G-001~005: 五大知识缺口查询
- * - GET  /gaps        五类知识统计概览
  * - GET  /unified     AS-022: 统一知识浏览
  * - POST /unified     AS-022: 手动知识条目创建
  *
+ * P4.2（2026-10-17）：GET /export、POST /ask、GET /gaps（统计概览）为孤儿端点
+ * （web/cli/mcp/studio-config 均无消费方）已删；连带 KnowledgeQueryService.getStats、
+ * contract 配套 schema 与 response-map 映射一并摘除（见 CONTEXT.md）。
+ *
  * 契约驱动迁移（2026-10 批次 4/7）：全端点走 core/http.ts defineRoute——
- * question/必填四件套/gaps type 词表 guard 收进 zod（原手写 400）；响应统一
- * `{ data }` 壳（原平铺 `{ answer, sources }` / `{ type, data, total }` / 裸 stats /
- * `{ entries, total }` / 201 `{ id, title, consumptionMode }`）；错误统一
+ * 必填四件套/gaps type 词表 guard 收进 zod（原手写 400）；响应统一
+ * `{ data }` 壳（原平铺 `{ type, data, total }` / `{ entries, total }` /
+ * 201 `{ id, title, consumptionMode }`）；错误统一
  * `{ error: { code, message } }`（500 文案由固定串变为实际错误消息）。
- * GET /export 附件下载 handler 自写 res 不进壳（specs 先例）。
  */
 
 import { Router } from 'express';
 import {
-  knowledgeExportQuerySchema,
-  knowledgeAskBodySchema,
   knowledgeGapParamsSchema,
   knowledgeGapQuerySchema,
   unifiedKnowledgeQuerySchema,
   createUnifiedEntryBodySchema,
 } from '@dommaker/studio-contract';
 import { sharedStore, publishKnowledgeEntryChanged } from '../knowledge-singletons.js';
-import { getSystemExecutor } from '../../agents/index.js';
 import { requireNotGuest } from '../../../middleware/auth.js';
 import { parsePagination } from '../../../utils/pagination.js';
 import { defineRoute } from '../../../core/http.js';
 
 export const entriesRoutes = Router();
-
-// ============================================
-// B9-021: Knowledge Export API
-// Uses sharedStore directly — KnowledgeService.list() wraps the same store
-// ============================================
-
-/**
- * GET /api/v1/knowledge/export
- * Query: format=md|json, types=guideline,pitfall (comma-separated), limit（默认 20，上限 100 — #359 起统一 parsePagination，原缺省 100 无 clamp）
- * 附件下载（md/json）：handler 自写 res 不进 `{ data }` 壳（specs export 先例）
- */
-entriesRoutes.get('/export', defineRoute({ query: knowledgeExportQuerySchema }, async (req, res, { query }) => {
-  const { sharedStore } = await import('../knowledge-singletons.js');
-  const format = query.format === 'json' ? 'json' : 'md';
-  const types = query.types ? query.types.split(',').filter(Boolean) : undefined;
-  const { limit } = parsePagination(req);
-
-  const entries = sharedStore.list({ types: types as any }).slice(0, limit);
-  const content = format === 'json'
-    ? JSON.stringify(entries, null, 2)
-    : entries.map((e: any) => `# ${e.title || e.id}\n\n${e.content}`).join('\n\n---\n\n');
-
-  if (format === 'json') {
-    res.setHeader('Content-Type', 'application/json');
-  } else {
-    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="knowledge-export.md"');
-  }
-  res.send(content);
-}));
-
-// ============================================
-// §12.11b: 知识问答 API
-// ============================================
-
-/**
- * POST /api/v1/knowledge/ask
- * 知识问答：检索相关知识条目 → LLM 生成回答
- *
- * Body: { question: string, types?: string[], limit?: number }
- * Returns: { data: { answer: string, sources: Array<{ id, title, type }> } }
- */
-entriesRoutes.post('/ask', requireNotGuest(), defineRoute(
-  { body: knowledgeAskBodySchema },
-  async (_req, _res, { body }) => {
-    const { question, types, limit = 10 } = body;
-
-    // 1. Retrieve relevant entries from KnowledgeStore
-    const allEntries = sharedStore.list({ types: types as any }).slice(0, 100);
-    // Simple keyword matching on title + content
-    const keywords = question.toLowerCase().split(/\s+/).filter(Boolean);
-    const scored = allEntries
-      .map((e: any) => {
-        const text = `${e.title || ''} ${e.content}`.toLowerCase();
-        const hits = keywords.filter((k: string) => text.includes(k)).length;
-        return { entry: e, score: hits };
-      })
-      .filter((s: any) => s.score > 0)
-      .sort((a: any, b: any) => b.score - a.score)
-      .slice(0, limit);
-
-    if (scored.length === 0) {
-      return { answer: '未找到相关知识条目。', sources: [] };
-    }
-
-    // 2. Format context for LLM
-    const entries = scored.map((s: any) => s.entry);
-    const contextLines = entries.map((e: any, i: number) =>
-      `[${i + 1}] ${e.title || '(无标题)'} (${e.type})\n${e.content}`
-    );
-    const context = contextLines.join('\n\n---\n\n');
-
-    // 3. LLM call
-    const systemPrompt = '你是知识库问答助手。根据提供的知识条目回答用户问题。回答必须基于知识条目内容，不要编造。引用时标注来源编号如 [1] [2]。';
-    const userPrompt = `知识条目：\n${context}\n\n---\n\n用户问题：${question}`;
-
-    const answer = (await getSystemExecutor().run(userPrompt, { systemPrompt, eventSource: 'knowledge-qa' })).output;
-
-    // 4. Return answer + source references
-    const sources = entries.map((e: any) => ({
-      id: e.id,
-      title: e.title || e.content.slice(0, 60),
-      type: e.type,
-    }));
-
-    return { answer, sources };
-  },
-));
 
 // ============================================
 // G-001~005: 五大知识缺口查询 API
@@ -147,15 +56,6 @@ entriesRoutes.get('/gaps/:type', defineRoute(
     return { type, data, total: data.length };
   },
 ));
-
-/**
- * GET /api/v1/knowledge/gaps
- * 获取所有五种知识类型的统计概览
- */
-entriesRoutes.get('/gaps', defineRoute({}, async () => {
-  const { knowledgeQuery } = await import('../knowledge-query.service.js');
-  return knowledgeQuery.getStats();
-}));
 
 // ── AS-022: Unified Knowledge API ─────────────────────────
 

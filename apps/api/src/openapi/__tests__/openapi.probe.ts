@@ -136,13 +136,11 @@ async function main(): Promise<void> {
     if (!undocumented.some(s => s.path === '/api/v1/events/stream')) fail('undocumented', 'SSE 应列在 x-studio-undocumented');
   }
 
-  // ── knowledge 域覆盖（#664：raw 路由不进文档的缺口已消除）──
+  // ── knowledge 域覆盖（#664：raw 路由不进文档的缺口已消除；P4.2 孤儿端点已删）──
   {
-    getOp('get', '/api/v1/knowledge/requirements');
     getOp('get', '/api/v1/knowledge/search');
-    getOp('post', '/api/v1/knowledge/read-file');
     getOp('get', '/api/v1/knowledge/unified');
-    getOp('get', '/api/v1/knowledge/gaps');
+    getOp('get', '/api/v1/knowledge/gaps/:type');
     getOp('get', '/api/v1/knowledge/resolutions');
   }
 

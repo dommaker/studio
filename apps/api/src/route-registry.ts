@@ -323,7 +323,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/action-center', router: actionCenterRoutes, middleware: authNotGuest, comment: '#468: 统一行动中心（状态派生 + 事件持久）' },
     { path: '/api/v1/notify', router: notifyRoutes, middleware: admin, comment: 'DD-009: 出站推送（内部调用）' },
     { path: '/api/v1/notify-channels', router: notifyChannelRoutes, middleware: admin, comment: '#525 P2-6: 通知渠道配置（企微 webhook + ClawBot 扫码绑定，/settings 配置区）' },
-    { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth, comment: '知识条目/文件/检索（2026-10 批次 4/7 收编 defineRoute，#664 验证全覆盖）' },
+    { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth, comment: '知识条目/检索（2026-10 批次 4/7 收编 defineRoute；P4.2 删孤儿 8 端点后剩 gaps/:type·unified·resolutions·search·maintenance/run，#664 验证全覆盖）' },
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
     { path: '/api/v1/review-proposals', router: reviewProposalOpenRoutes, middleware: auth, comment: '#351: 人审提案卡通用端点 status（只读，登录即可；distill/gc/audit/memory 经注册表分发；#353 起取代 /role-memory 专有端点）' },
     { path: '/api/v1/review-proposals', router: reviewProposalWriteRoutes, middleware: authNotGuest, comment: '#351: approve/reject（原路由内 requireNotGuest 等价上移）' },

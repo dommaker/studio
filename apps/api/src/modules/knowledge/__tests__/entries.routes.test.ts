@@ -3,9 +3,9 @@
  *
  * 挂载 entriesRoutes 到 express app，覆盖：
  * POST /unified（400 缺字段 / 201 创建，applicableAgents → agent: 标签）、
- * GET /unified（列出创建的条目）、POST /ask（400 / 空库短路回答，不触发 LLM）、
- * GET /gaps/:type（非法类型 400）、GET /export（md / json 两种格式）。
+ * GET /unified（列出创建的条目）、GET /gaps/:type（非法类型 400）。
  * HOME 指向临时目录隔离 sharedStore（~/.studio/knowledge）。
+ * P4.2：/export /ask /gaps（统计概览）端点已删，对应用例随之摘除。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -102,35 +102,10 @@ describe('entries.routes', () => {
     expect(found.tags).toContain('process');
   });
 
-  it('POST /ask 400 without question', async () => {
-    const res = await api('POST', '/ask', {});
-    expect(res.status).toBe(400);
-    expect(res.json.error.code).toBe('BAD_REQUEST');
-  });
-
-  it('POST /ask short-circuits when no entry matches (no LLM call)', async () => {
-    const res = await api('POST', '/ask', { question: 'zzz-no-match-token' });
-    expect(res.status).toBe(200);
-    expect(res.json).toEqual({ data: { answer: '未找到相关知识条目。', sources: [] } });
-  });
-
   it('GET /gaps/:type 400 for invalid type', async () => {
     const res = await api('GET', '/gaps/bogus');
     expect(res.status).toBe(400);
     // 非法 type 原手写 400 → zod enum 400
     expect(res.json.error.code).toBe('BAD_REQUEST');
-  });
-
-  it('GET /export returns markdown by default and JSON with format=json', async () => {
-    const md = await api('GET', '/export');
-    expect(md.status).toBe(200);
-    expect(md.headers.get('content-type')).toContain('text/markdown');
-    expect(md.headers.get('content-disposition')).toContain('knowledge-export.md');
-
-    const jsonRes = await fetch(`${base}/export?format=json`);
-    expect(jsonRes.status).toBe(200);
-    expect(jsonRes.headers.get('content-type')).toContain('application/json');
-    const entries = await jsonRes.json() as any[];
-    expect(entries.some((e: any) => e.title === '提交规范')).toBe(true);
   });
 });

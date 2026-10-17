@@ -2,6 +2,8 @@
  * KnowledgeQueryService (S8) — 统一知识检索入口
  *
  * 聚合五种知识类型的查询 + 格式化，供 Agent context injection 使用。
+ * P4.2（2026-10-17）：getStats（五类统计概览）原唯一消费方
+ * GET /knowledge/gaps 端点已删，方法随之摘除。
  */
 
 import { preferenceObserver } from './producers/preference-observer.js';
@@ -9,7 +11,6 @@ import { ruleScanner } from './producers/rule-scanner.js';
 import { getEnvSnapper } from './producers/env-snapper.js';
 import { decisionChainExtractor } from './producers/decision-chain-extractor.js';
 import { patternMiner } from './producers/pattern-miner.js';
-import { logger } from '@dommaker/studio-shared/node';
 
 export type KnowledgeType =
   | 'preference'
@@ -53,40 +54,6 @@ export class KnowledgeQueryService {
       default:
         return [];
     }
-  }
-
-  /**
-   * 获取知识统计概览
-   */
-  async getStats(): Promise<Record<string, any>> {
-    const stats: Record<string, any> = {};
-
-    try {
-      const prefs = await preferenceObserver.getPreferences();
-      stats.preference = prefs ? { confidence: prefs.confidence } : { status: 'cold_start' };
-    } catch { stats.preference = { error: true }; }
-
-    try {
-      const rules = await ruleScanner.getActiveRules();
-      stats.business_rule = { count: rules.length };
-    } catch { stats.business_rule = { error: true }; }
-
-    try {
-      const snap = await getEnvSnapper().getLatest();
-      stats.environment = snap ? { takenAt: snap.takenAt } : { status: 'no_snapshot' };
-    } catch { stats.environment = { error: true }; }
-
-    try {
-      const chains = await decisionChainExtractor.query({ limit: 0 });
-      stats.decision_chain = { count: chains.length };
-    } catch { stats.decision_chain = { error: true }; }
-
-    try {
-      const patterns = await patternMiner.getActivePatterns();
-      stats.interaction = { count: patterns.length };
-    } catch { stats.interaction = { error: true }; }
-
-    return stats;
   }
 }
 

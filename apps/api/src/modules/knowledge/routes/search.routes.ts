@@ -1,16 +1,19 @@
 /**
- * search.routes — 知识检索与解法指标子路由
+ * search.routes — 知识检索子路由
  *
  * 从 routes.ts 提取（T3 大文件拆分，零行为变更），处理器逐字迁移：
- * - GET /resolutions              S11: 解法浏览（status/errorClass/layer/search 过滤）
- * - GET /search                   S11: 统一检索（apiCache 中间件保留在本路由上）
- * - GET /resolution/density       RKB Phase 2: 知识密度评分
- * - GET /resolution/cross-session RKB Phase 2: 跨会话因果关系统计
+ * - GET /resolutions  S11: 解法浏览（status/errorClass/layer/search 过滤）
+ * - GET /search        S11: 统一检索（apiCache 中间件保留在本路由上）
+ *
+ * P4.2（2026-10-17）：GET /resolution/density、GET /resolution/cross-session
+ * 为孤儿端点（web/cli/mcp/studio-config 均无消费方）已删；连带
+ * ResolutionService.getDensityScore/getCrossSessionStats、contract 配套
+ * schema 与 response-map 映射一并摘除（见 CONTEXT.md）。
  *
  * 契约驱动迁移（2026-10 批次 4/7）：全端点走 core/http.ts defineRoute——
  * q 必填 guard 收进 zod（原手写 400）；响应统一 `{ data }` 壳（原平铺
- * `{ resolutions, total, byStatus }` / `{ results, total }` / 裸 density/cross-session
- * 对象）；错误统一 `{ error: { code, message } }`（500 文案由固定串变为实际错误消息）。
+ * `{ resolutions, total, byStatus }` / `{ results, total }`）；错误统一
+ * `{ error: { code, message } }`（500 文案由固定串变为实际错误消息）。
  */
 
 import { Router } from 'express';
@@ -167,26 +170,4 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), defineRoute({ query: k
   results.sort((a, b) => b.score - a.score);
 
   return { results: results.slice(0, takeLimit), total: results.length };
-}));
-
-// ============================================
-// RKB Phase 2: Knowledge density + cross-session + auto-verify
-// ============================================
-
-/**
- * GET /api/v1/knowledge/resolution/density
- * Knowledge density score (0-100) based on coverage, verification, breadth
- */
-searchRoutes.get('/resolution/density', defineRoute({}, async () => {
-  const { resolutionService } = await import('../resolution.service.js');
-  return resolutionService.getDensityScore();
-}));
-
-/**
- * GET /api/v1/knowledge/resolution/cross-session
- * Cross-session causality stats: goal-linked vs unlinked resolutions
- */
-searchRoutes.get('/resolution/cross-session', defineRoute({}, async () => {
-  const { resolutionService } = await import('../resolution.service.js');
-  return resolutionService.getCrossSessionStats();
 }));
