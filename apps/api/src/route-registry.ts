@@ -224,11 +224,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // AgentProfile routes (AS-025 Phase 2)
   const { agentProfileOpenRoutes, agentProfileWriteRoutes } = await import('./modules/agents/agent-profile.routes.js');
 
-  // §10.5 角色级 token 视图（只读聚合，/api/v1/agents 下唯一活面）
-  const { default: tokenUsageRoutes } = await import('./modules/agents/token-usage.routes.js') as { default: Router };
-
-  // RuntimeInstance routes (AS-026 AC-1)
-  const { agentInstanceOpenRoutes, agentInstanceWriteRoutes, agentInstanceAdminRoutes } = await import('./modules/agents/agent-instance.routes.js');
+  // RuntimeInstance terminate（AS-026 AC-1；Phase 4 批5：管理面 4 条孤儿端点已删，
+  // agent-instance.service 由 ops/agent-loop 直调，不经 HTTP）
+  const { agentInstanceAdminRoutes } = await import('./modules/agents/agent-instance.routes.js');
 
   // Trigger routes (3.28c-4: REST API for trigger management)
   const { triggerRouter } = await import('./modules/triggers/trigger.routes.js') as { triggerRouter: Router };
@@ -253,9 +251,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/auth', router: authRoutes, comment: 'SEC-001: 认证系统（混合粒度，不上移）' },
 
     // 核心业务
-    // §10.5 角色级 token 视图（只读聚合，/api/v1/agents 下唯一活面——legacy CRUD 面
-    // 已随架构精简刀2 删除，只处理 GET /:id/token-usage，其余路径 404）
-    { path: '/api/v1/agents', router: tokenUsageRoutes, comment: '§10.5: 角色级 token 视图（仅 /:id/token-usage）' },
     // runtime 事件回调（events 模块；POST /events 路由内 requireLocalhost，粒度混合不上移）
     { path: '/api/v1/executions', router: runtimeEventRoutes, comment: 'agent-runtime 事件回调（自 executions 模块迁入，URL 不变）' },
 
@@ -274,10 +269,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/requirements', router: requirementWriteRoutes, middleware: authNotGuest },
     { path: '/api/v1/agent-profiles', router: agentProfileOpenRoutes, comment: 'AS-025 Phase 2: AgentProfile CRUD（读开放）' },
     { path: '/api/v1/agent-profiles', router: agentProfileWriteRoutes, middleware: authNotGuest },
-    { path: '/api/v1/agent-instances', router: agentInstanceOpenRoutes, comment: 'AS-026 AC-1: RuntimeInstance CRUD（读开放）' },
-    { path: '/api/v1/agent-instances', router: agentInstanceWriteRoutes, middleware: authNotGuest },
-    { path: '/api/v1/agent-instances', router: agentInstanceAdminRoutes, middleware: admin, comment: 'terminate（原 requireAuth+requireAdmin，等价上移）' },
-    { path: '/api/v1/triggers', router: triggerRouter, middleware: admin, comment: '3.28c-4: Trigger CRUD + status' },
+    { path: '/api/v1/agent-instances', router: agentInstanceAdminRoutes, middleware: admin, comment: 'terminate（Phase 4 批5 后唯一活端点；原 requireAuth+requireAdmin，等价上移）' },
+    { path: '/api/v1/triggers', router: triggerRouter, middleware: admin, comment: '3.28c-4: Trigger costs + fire（Phase 4 批5 后仅剩两个活端点）' },
     { path: '/api/v1/monitoring', router: monitoringRoutes, middleware: admin, comment: 'MVP-2/6: Agent + WorkUnit monitoring' },
     { path: '/api/v1/projects', router: projectRoutes, middleware: auth, comment: 'AC-D1+D3: Local project discovery（登录即可：PMO 新建表单工程下拉依赖）' },
 

@@ -84,15 +84,9 @@ import {
   specChangeListResponseSchema,
   changeStatsResponseSchema,
   importChangesResponseSchema,
-  // triggers
-  listTriggersResponseSchema,
+  // triggers（Phase 4 批5 后只剩 costs + fire 两个活端点）
   triggerCostsResponseSchema,
-  triggerResponseSchema,
-  saveTriggerResponseSchema,
   fireTriggerResponseSchema,
-  deleteTriggerResponseSchema,
-  triggerLogsResponseSchema,
-  triggerStatusResponseSchema,
   // knowledge（/knowledge + /knowledge-service + /api/knowledge 内部）
   knowledgeGapsResponseSchema,
   unifiedKnowledgeListResponseSchema,
@@ -184,11 +178,9 @@ import {
   mcpPermissionSetResponseSchema,
   mcpAuditResponseSchema,
   executionEventResponseSchema,
-  agentTokenUsageResponseSchema,
   agentProfileListResponseSchema,
   agentProfileResponseSchema,
   rolePresetListResponseSchema,
-  agentInstanceListResponseSchema,
   agentInstanceResponseSchema,
 } from '@dommaker/studio-contract';
 
@@ -307,15 +299,9 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/specs/gates': { response: gatePolicyMapResponseSchema, summary: '门禁策略全表' },
   'GET /api/v1/specs/gates/:level': { response: gatePolicyResponseSchema, summary: '门禁策略（按级别）' },
 
-  // ── triggers ──
-  'GET /api/v1/triggers': { response: listTriggersResponseSchema, summary: '触发器列表' },
-  'POST /api/v1/triggers': { response: saveTriggerResponseSchema, summary: '创建触发器' },
-  'GET /api/v1/triggers/:id': { response: triggerResponseSchema, summary: '触发器详情' },
-  'DELETE /api/v1/triggers/:id': { response: deleteTriggerResponseSchema, summary: '删除触发器' },
+  // ── triggers（Phase 4 批5 后只剩 costs + fire）──
   'POST /api/v1/triggers/:id/fire': { response: fireTriggerResponseSchema, summary: '手动触发' },
-  'GET /api/v1/triggers/:id/logs': { response: triggerLogsResponseSchema, summary: '触发日志' },
   'GET /api/v1/triggers/costs': { response: triggerCostsResponseSchema, summary: '触发成本' },
-  'GET /api/v1/triggers/status': { response: triggerStatusResponseSchema, summary: '调度器状态' },
 
   // ── knowledge（P4.2 后 /api/v1/knowledge 剩 7 端点 + maintenance 1 条）──
   'GET /api/v1/knowledge/gaps/:type': { response: knowledgeGapsResponseSchema, summary: '五类知识缺口查询（按类型）' },
@@ -422,17 +408,13 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'PUT /api/v1/mcp/admin/permissions': { response: mcpPermissionSetResponseSchema, summary: '权限设置' },
   'GET /api/v1/mcp/admin/audit': { response: mcpAuditResponseSchema, summary: 'MCP 审计日志' },
 
-  // ── agents / agent-profiles ──
+  // ── agents / agent-profiles（Phase 4 批5：token-usage 端点已删——service 由 pmo/workunit 直调；
+  // agent-instances 管理面 4 条已删，只剩 terminate）──
   'POST /api/v1/executions/events': { response: executionEventResponseSchema, summary: 'runtime 事件回调（本机限定，events 模块）' },
-  'GET /api/v1/agents/:id/token-usage': { response: agentTokenUsageResponseSchema, summary: '角色级 token 视图（§10.5）' },
   'GET /api/v1/agent-profiles': { response: agentProfileListResponseSchema, summary: 'AgentProfile 列表（分页）' },
   'POST /api/v1/agent-profiles': { response: agentProfileResponseSchema, summary: '创建 AgentProfile' },
   'GET /api/v1/agent-profiles/presets': { response: rolePresetListResponseSchema, summary: '角色预设' },
   'GET /api/v1/agent-profiles/:id': { response: agentProfileResponseSchema, summary: 'AgentProfile 详情' },
   'PATCH /api/v1/agent-profiles/:id': { response: agentProfileResponseSchema, summary: '更新 AgentProfile' },
-  'GET /api/v1/agent-instances': { response: agentInstanceListResponseSchema, summary: '运行实例列表（分页）' },
-  'POST /api/v1/agent-instances': { response: agentInstanceResponseSchema, summary: '创建运行实例' },
-  'GET /api/v1/agent-instances/:id': { response: agentInstanceResponseSchema, summary: '运行实例详情' },
-  'PATCH /api/v1/agent-instances/:id': { response: agentInstanceResponseSchema, summary: '更新运行实例' },
   'POST /api/v1/agent-instances/:id/terminate': { response: agentInstanceResponseSchema, summary: '终止实例（Admin）' },
 };

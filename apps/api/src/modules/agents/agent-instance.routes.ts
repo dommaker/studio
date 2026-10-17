@@ -1,88 +1,23 @@
 /**
- * RuntimeInstance API 路由 (AS-026 AC-1)
+ * RuntimeInstance terminate 路由 (AS-026 AC-1)
  *
- * 契约驱动迁移（2026-10 批次 8/8）：全部端点走 core/http.ts defineRoute——
- * roleId 必填收进 zod（原手写 400 INVALID_INPUT → 400 BAD_REQUEST）；
- * INVALID_REFERENCE/Invalid status/not found 走错误映射表；裸实体响应统一
- * `{ data }` 壳；500 code 'INTERNAL_ERROR' 归一 INTERNAL。
+ * Phase 4 批5（2026-10-17）：管理面 4 条孤儿端点删除（GET /、POST /、GET /:id、
+ * PATCH /:id——零消费方：ops roster 走 service 与 /monitoring/agents；agent-loop 经
+ * service 建实例），agent-instance.service 本体保留（ops/instance-timeout-scan、
+ * workunit-review 直调）。本文件只剩 terminate 一个活端点：
  *
- * Endpoints:
- *   GET    /api/v1/agent-instances          — list
- *   POST   /api/v1/agent-instances          — create
- *   GET    /api/v1/agent-instances/:id      — get by id
- *   PATCH  /api/v1/agent-instances/:id      — update
  *   POST   /api/v1/agent-instances/:id/terminate — 强制停止：unclaim + WorkUnit 置 blocked 转人工 + 实例 terminated
+ *
+ * 鉴权：terminate 归 admin entry（registry 挂 requireAuth+requireAdmin），路由内不挂鉴权。
  */
 
 import { Router } from 'express';
-import {
-  agentInstanceListQuerySchema,
-  createAgentInstanceBodySchema,
-  updateAgentInstanceBodySchema,
-  agentInstanceIdParamsSchema,
-} from '@dommaker/studio-contract';
-import { AgentInstanceService, type CreateInstanceInput, type UpdateInstanceInput } from './agent-instance.service.js';
-import { parsePagination } from '../../utils/pagination.js';
-import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
+import { agentInstanceIdParamsSchema } from '@dommaker/studio-contract';
+import { AgentInstanceService } from './agent-instance.service.js';
+import { defineRoute } from '../../core/http.js';
 
-// P2-e 鉴权声明式统一：open（GET 读）/ write（registry 挂 authNotGuest）/ admin（terminate，registry 挂
-// requireAuth+requireAdmin）三档拆 router，路由内不再挂鉴权。
-const openRoutes = Router();
-const writeRoutes = Router();
 const adminRoutes = Router();
 const service = new AgentInstanceService();
-
-/** GET / — list RuntimeInstances */
-openRoutes.get('/', defineRoute({ query: agentInstanceListQuerySchema }, async (req, _res, { query }) => {
-  const { page, limit } = parsePagination(req);
-
-  const result = await service.list({
-    status: query.status,
-    page,
-    limit,
-  });
-
-  return paginated(result.data, makePagination(page, limit, result.total));
-}));
-
-/** POST / — create RuntimeInstance */
-writeRoutes.post('/', defineRoute(
-  { body: createAgentInstanceBodySchema },
-  {
-    status: 201,
-    errors: [
-      { match: 'Foreign key constraint', status: 400, code: 'INVALID_REFERENCE' },
-      { match: 'P2003', status: 400, code: 'INVALID_REFERENCE' },
-    ],
-  },
-  async (_req, _res, { body }) => {
-    // z.infer 全字段退化可选（仓 strict:false），路由边界收回 service 必填入参
-    return service.create(body as CreateInstanceInput);
-  },
-));
-
-/** GET /:id — get RuntimeInstance by id */
-openRoutes.get('/:id', defineRoute({ params: agentInstanceIdParamsSchema }, async (_req, _res, { params }) => {
-  const instance = await service.getById(params.id);
-  if (!instance) {
-    throw new HttpError(404, 'NOT_FOUND', `RuntimeInstance ${params.id} not found`);
-  }
-  return instance;
-}));
-
-/** PATCH /:id — update RuntimeInstance */
-writeRoutes.patch('/:id', defineRoute(
-  { params: agentInstanceIdParamsSchema, body: updateAgentInstanceBodySchema },
-  {
-    errors: [
-      { match: 'Invalid status', status: 400, code: 'INVALID_INPUT' },
-      { match: 'not found', status: 404, code: 'NOT_FOUND' },
-    ],
-  },
-  async (_req, _res, { params, body }) => {
-    return service.update(params.id, body as UpdateInstanceInput);
-  },
-));
 
 /** POST /:id/terminate — 强制停止实例：unclaim 当前 WorkUnit 并置 blocked 转人工（2026-07 §4 语义修正，活 loop 不会重新认领）+ 实例置 terminated */
 adminRoutes.post('/:id/terminate', defineRoute(
@@ -93,4 +28,4 @@ adminRoutes.post('/:id/terminate', defineRoute(
   },
 ));
 
-export { openRoutes as agentInstanceOpenRoutes, writeRoutes as agentInstanceWriteRoutes, adminRoutes as agentInstanceAdminRoutes };
+export { adminRoutes as agentInstanceAdminRoutes };

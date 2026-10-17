@@ -10,11 +10,9 @@
  *   GET    /agent-profiles/:id       详情
  *   PATCH  /agent-profiles/:id       更新（只带脏字段；409 改名冲突同 create 口径）
  *   DELETE /agent-profiles/:id       删除（204；级联清频道成员/路由指名）
- *   GET    /agent-instances          实例列表（status 过滤 + 分页）
- *   POST   /agent-instances          创建实例（requireAuth + requireNotGuest）
- *   GET    /agent-instances/:id      实例详情
- *   PATCH  /agent-instances/:id      更新实例
- *   POST   /agent-instances/:id/terminate  强制停止（requireAuth + requireAdmin）
+ *   POST   /agent-instances/:id/terminate  强制停止（requireAuth + requireAdmin；
+ *          Phase 4 批5 后唯一活端点——管理面 GET/POST/PATCH 4 条孤儿端点已删，
+ *          agent-instance.service 由 ops/agent-loop 直调不经 HTTP）
  *
  * wire 形状（defineRoute 统一壳后）：
  * - GET 列表原 `{ data, pagination }` ≡ paginated 分页壳，形状不变
@@ -134,31 +132,8 @@ export type UpdateAgentProfileBody = z.infer<typeof updateAgentProfileBodySchema
 
 export const agentProfileIdParamsSchema = z.object({ id: z.string().min(1) });
 
-/** GET /agent-instances：status 自由串过滤 + 分页 */
-export const agentInstanceListQuerySchema = z.object({
-  status: z.string().optional(),
-  page: z.string().optional(),
-  limit: z.string().optional(),
-});
-export type AgentInstanceListQuery = z.infer<typeof agentInstanceListQuerySchema>;
-
-/** POST /agent-instances：roleId 必填收进 zod（原手写 400 INVALID_INPUT） */
-export const createAgentInstanceBodySchema = z.object({
-  roleId: z.string().min(1),
-  sessionId: z.string().optional(),
-  metadata: z.string().optional(),
-});
-export type CreateAgentInstanceBody = z.infer<typeof createAgentInstanceBodySchema>;
-
-/** PATCH /agent-instances/:id：status 词表校验在 service（'Invalid status' → 400 INVALID_INPUT） */
-export const updateAgentInstanceBodySchema = z.object({
-  status: z.string().optional(),
-  currentWorkUnitId: z.string().nullable().optional(),
-  sessionId: z.string().nullable().optional(),
-  metadata: z.string().nullable().optional(),
-});
-export type UpdateAgentInstanceBody = z.infer<typeof updateAgentInstanceBodySchema>;
-
+/** POST /agent-instances/:id/terminate 的 params（Phase 4 批5 后 instance 域唯一请求 schema——
+ * 管理面 list/create/update 三个 body/query schema 随孤儿端点同删） */
 export const agentInstanceIdParamsSchema = z.object({ id: z.string().min(1) });
 
 // ── 响应 ──
@@ -166,5 +141,4 @@ export const agentInstanceIdParamsSchema = z.object({ id: z.string().min(1) });
 export const agentProfileListResponseSchema = paginatedBodySchema(agentProfileListItemSchema);
 export const agentProfileResponseSchema = dataBodySchema(agentProfileSchema);
 export const rolePresetListResponseSchema = dataBodySchema(z.array(rolePresetSummarySchema));
-export const agentInstanceListResponseSchema = paginatedBodySchema(agentInstanceSchema);
 export const agentInstanceResponseSchema = dataBodySchema(agentInstanceSchema);

@@ -39,5 +39,4 @@ export * from './cso.js';
 export * from './mcp.js';
 export * from './discord.js';
 export * from './deploy.js';
-export * from './agents.js';
 export * from './agent-profiles.js';

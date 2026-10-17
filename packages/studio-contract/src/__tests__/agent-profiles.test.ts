@@ -20,14 +20,10 @@ import {
   createAgentProfileBodySchema,
   updateAgentProfileBodySchema,
   agentProfileIdParamsSchema,
-  agentInstanceListQuerySchema,
-  createAgentInstanceBodySchema,
-  updateAgentInstanceBodySchema,
   agentInstanceIdParamsSchema,
   agentProfileListResponseSchema,
   agentProfileResponseSchema,
   rolePresetListResponseSchema,
-  agentInstanceListResponseSchema,
   agentInstanceResponseSchema,
 } from '../agent-profiles.js';
 import * as contractIndex from '../index.js';
@@ -111,27 +107,21 @@ describe('请求 schema', () => {
     expect(agentProfileListQuerySchema.parse({})).toEqual({});
     expect(agentProfileListQuerySchema.parse({ status: 'active', includeSystem: 'true', limit: '200' }))
       .toEqual({ status: 'active', includeSystem: 'true', limit: '200' });
-    expect(agentInstanceListQuerySchema.parse({ status: 'idle' })).toEqual({ status: 'idle' });
   });
 
-  it('create body：name/roleId 必填（原手写 400 收 zod），其余可选', () => {
+  it('create body：name 必填（原手写 400 收 zod），其余可选', () => {
     expect(createAgentProfileBodySchema.parse({ name: 'a' })).toEqual({ name: 'a' });
     expect(() => createAgentProfileBodySchema.parse({})).toThrow();
     expect(() => createAgentProfileBodySchema.parse({ name: '' })).toThrow();
     expect(createAgentProfileBodySchema.parse({
       name: 'a', preset: 'qa', channels: ['ch-1'], skills: [], acceptedTypes: ['DEV'],
     })).toEqual({ name: 'a', preset: 'qa', channels: ['ch-1'], skills: [], acceptedTypes: ['DEV'] });
-
-    expect(createAgentInstanceBodySchema.parse({ roleId: 'p-1' })).toEqual({ roleId: 'p-1' });
-    expect(() => createAgentInstanceBodySchema.parse({})).toThrow();
   });
 
   it('update body：全可选；null 清空键合法', () => {
     expect(updateAgentProfileBodySchema.parse({})).toEqual({});
     expect(updateAgentProfileBodySchema.parse({ description: null, provider: null, persona: null }))
       .toEqual({ description: null, provider: null, persona: null });
-    expect(updateAgentInstanceBodySchema.parse({ status: 'idle', currentWorkUnitId: null }))
-      .toEqual({ status: 'idle', currentWorkUnitId: null });
   });
 
   it('params：id 必填非空', () => {
@@ -142,14 +132,12 @@ describe('请求 schema', () => {
 });
 
 describe('响应壳', () => {
-  it('列表分页壳 / 单实体壳 / presets 壳', () => {
+  it('列表分页壳 / 单实体壳 / presets 壳 / terminate 实体壳', () => {
     const page = { data: [listItem], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } };
     expect(agentProfileListResponseSchema.parse(page)).toEqual(page);
     expect(agentProfileResponseSchema.parse({ data: profile }).data.name).toBe('dev-agent');
     expect(rolePresetListResponseSchema.parse({ data: [preset] }).data[0].name).toBe('qa');
 
-    const instPage = { data: [instance], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } };
-    expect(agentInstanceListResponseSchema.parse(instPage)).toEqual(instPage);
     expect(agentInstanceResponseSchema.parse({ data: instance }).data.roleId).toBe('p-1');
   });
 });

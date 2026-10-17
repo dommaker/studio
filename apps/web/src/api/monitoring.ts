@@ -5,10 +5,8 @@
 // CacheHitRateStats=CacheHitRateMetrics、SectionTrimStats=SectionTrimMetrics、
 // EfficiencyStats=EfficiencyMetrics）；响应统一 `{ data }` 壳（原裸对象），消费方
 // 解包 res.data → res.data.data。
-// 契约驱动迁移（2026-10 批次 8/8）：terminateInstance/getAgentInstance 属
-// agents 域端点同批收口——本地 AgentInstanceInfo 删除改 contract AgentInstance
-// import，getAgentInstance 响应统一 `{ data }` 壳（无活体消费方，仅测试 mock 占位）；
-// MonitoringPage 多处直接调用只收口类型与解包，数据获取范式统一归 Phase 3。
+// Phase 4 批5（2026-10-17）：getAgentInstance 删除——后端 GET /agent-instances/:id
+// 孤儿端点已删（无活体消费方）；terminateInstance 保留（对应端点仍活，Admin 档）。
 import type {
   AgentCurrentWorkUnit,
   AgentPmoSummary,
@@ -26,7 +24,6 @@ import type {
   HumanInterventionMetrics,
   EfficiencyMetrics,
   OverviewMetrics,
-  AgentInstance,
 } from '@dommaker/studio-contract';
 import { api } from './index';
 
@@ -62,10 +59,7 @@ export const monitoringApi = {
   getOverview: () => api.get<{ data: OverviewMetrics }>('/monitoring/overview'),
   /** #120：输入缓存命中率（步/WU/角色/天）+ 段 trim 率（按段） */
   getEfficiency: () => api.get<{ data: EfficiencyMetrics }>('/monitoring/efficiency'),
-  /** 强制停止实例（当前任务转人工处理；AgentDashboardPage / AgentDetailPage 共用） */
+  /** 强制停止实例（当前任务转人工处理；AgentDashboardPage / AgentDetailPage 共用；Phase 4 批5 后 agents 域唯一活端点） */
   terminateInstance: (instanceId: string) =>
     api.post(`/agent-instances/${instanceId}/terminate`),
-  /** #290（清单 #24）：单个 RuntimeInstance 档案（负责人离线回退解析 roleId）；批次 8/8 起 `{ data }` 壳 */
-  getAgentInstance: (instanceId: string) =>
-    api.get<{ data: AgentInstance }>(`/agent-instances/${instanceId}`),
 };
