@@ -42,9 +42,21 @@
 
 ## Phase 4 — 孤儿端点收缩（逐模块确认消费方后删）
 
-- [ ] 待确认端点面：knowledge 域 ~13 条（inject-context/match-resolutions/record-outcome/flywheel/incident/trend/pattern/decay/merge/audit/health 等）、skills 7 条、evolution 5 条、harness iron-laws 4 条、散点（triggers/agent-instances/agent-profiles/audit-logs/export/admin/docs-freshness/workspaces/runtimes/token-usage/events agent-events）。
-- [ ] 每条确认路径：grep `apps/api/src/cli/`、`modules/mcp/`、`bin/studio`、studio-config 仓脚本、docs 消费方 → 无消费方：删端点 + 对应 contract schema + 测试；有消费方：在该模块 CONTEXT.md 记录消费方是谁。
-- [ ] 顺带处置 `POST /harness/check-constraints`（P0.6 删前端残桩后成孤儿）。
+勘察结论（2026-10-17，4 路消费面全查：web/cli/mcp/studio-config/跨模块 service 直调）：
+
+- **计划判断修正**：`POST /harness/check-constraints` **非孤儿**——CLI `studio test` live 冒烟（cli/dev.ts:118）在打它，留下并在 harness CONTEXT 记消费方。同函数 `${baseUrl}/harness/knowledge?limit=1`（dev.ts:131）是 harness knowledge 面活消费方，删 harness 子路由时勿误伤。
+- **留并记 CONTEXT（17 条）**：knowledge-service 的 entries/promote/demote；knowledge 的 unified×2/resolutions/search/gaps/:type/maintenance/run + 内部 sync-status/upsert（CLI）；skills 的列表/manifest/retract-decide；triggers 的 costs/fire；agent-instances terminate；audit-logs 5 条查询面；workspaces 3 条查询面；events GET+POST。
+- **删（约 48 条，service 层仍被内部直调的删端点留 service）**：knowledge-service 14、knowledge 10、skills 16、evolution 5、iron-laws 4、triggers 5、agent-instances 4、token-usage 1、audit-logs 2（:id 详情 + POST）、admin docs-freshness 1、workspaces 2、events agent-events 1（B9-014 外部 runtime 来源已断；session-summary 触发随之退役）。
+- **删除固定联动面**：studio-contract 对应域 schema、apps/api openapi/response-map.ts 映射、路由测试、route-registry 挂载与 assertRouteOrder（skills）、前端死 api 函数（如 monitoring.ts getAgentInstance）。
+- **附带发现（另票，不在本 Phase）**：① CLI `studio knowledge list|show|search` 拼的路径无对应路由（恒 404）；② skills demotion `?scan=true` 触发器随端点删除后，扫描入口保留 bootstrap bridges 侧直调。
+
+- [ ] P4.1 knowledge-service 域 14 条
+- [ ] P4.2 knowledge 域 10 条
+- [ ] P4.3 skills 域 16 条
+- [ ] P4.4 evolution 5 条 + iron-laws 4 条
+- [ ] P4.5 triggers 5 条 + agent-instances 4 条 + token-usage 1 条
+- [ ] P4.6 audit-logs 2 条 + admin docs-freshness 1 条 + workspaces 2 条 + events agent-events 1 条
+- [ ] P4.7 收尾：response-map 一致性复核 + 留用端点 CONTEXT 消费方记录补齐 + 全量门
 
 ## Phase 5 — SCC 第一刀：切 3 条单边（21→18 节点）
 
