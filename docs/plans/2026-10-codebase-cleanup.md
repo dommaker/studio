@@ -38,7 +38,7 @@
 ## Phase 3 — 复杂度热点拆分
 
 - [x] **前端**：`AuditLogsPage`(564，筛选栏/表格抽出 + StatCard 双份拷贝收敛为 components/ui 一份) → `WorkUnitDrawer`(464，按现成分隔注释拆 WuDetail/ReqChain) → `proposalCardConfigs.tsx`(530，按提案域拆 + index 合并注册表) → `KnowledgePage`/`MonitoringPage`（JSX 段抽子组件 + SectionError 重复模式收敛）→ `ChannelMessageItem`（renderCard 移出 + NEED_INPUT 回复块拆 ChannelNeedInputReply）。不拆清单（已判定内聚）：useStreamFollow、channelMessageStore、ChannelInput、ChannelActivityRail。
-- [ ] **后端**：`agent-loop/loop-step.ts agentStep`(492 行，按文件自带分段线切 worktree 解析/会话签发/prompt 组装/执行 4 段) → `ops/metrics-aggregate.ts aggregateOverview`(446，按指标组抽纯函数) → `loop-record-result.ts recordResult`(306，回帖/簿记/事件三阶段) → `ops/monitor-reports.ts dailyReflection`(291 行嵌套 7 层，6 个数据源各抽 collectXxxLines)。顺带把 `(s:any)` 泛滥的 session:summary payload 定型为共享类型。
+- [x] **后端**：`agent-loop/loop-step.ts agentStep`(492 行，按文件自带分段线切 worktree 解析/会话签发/prompt 组装/执行 4 段，d37f1dc3) → `ops/metrics-aggregate.ts aggregateOverview`(446，按指标组抽纯函数，26d067a0) → `loop-record-result.ts recordResult`(306，回帖/簿记/事件三阶段，06766f8f) → `ops/monitor-reports.ts dailyReflection`(291 行嵌套 7 层，6 个数据源各抽 collectXxxLines 落 monitor-reflection-collectors.ts，f453ed05)。session:summary payload 已定型共享类型 `SessionSummaryPayload`/`SessionPatternType`（studio-shared/studio-events.ts），读方 `(s:any)` 收敛（同 commit）。
 
 ## Phase 4 — 孤儿端点收缩（逐模块确认消费方后删）
 
