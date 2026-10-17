@@ -186,38 +186,9 @@ export type AuditLogStatsQuery = z.infer<typeof auditLogStatsQuerySchema>;
 export const auditLogExportQuerySchema = auditLogListQuerySchema.omit({ page: true, limit: true });
 export type AuditLogExportQuery = z.infer<typeof auditLogExportQuerySchema>;
 
-/** POST / 创建体（AuditLogInput；action/resource 由透传收紧为必填——落库行缺此二键即废行。
- * passthrough：buildRow 只取声明键，额外键透传无意义但历史调用方可能携带，放行不报错） */
-export const auditLogCreateBodySchema = z.object({
-  userId: z.string().optional(),
-  roleId: z.string().optional(),
-  companyId: z.string().optional(),
-  ipAddress: z.string().optional(),
-  userAgent: z.string().optional(),
-  action: z.string().min(1),
-  resource: z.string().min(1),
-  resourceId: z.string().optional(),
-  details: z.record(z.unknown()).optional(),
-  changes: z.object({
-    before: z.record(z.unknown()).optional(),
-    after: z.record(z.unknown()).optional(),
-    fields: z.array(z.string()).optional(),
-  }).optional(),
-  status: z.enum(['success', 'partial', 'failure']).optional(),
-  errorCode: z.string().optional(),
-  errorMessage: z.string().optional(),
-  sessionId: z.string().optional(),
-  requestId: z.string().optional(),
-  actorType: auditLogActorTypeSchema.optional(),
-}).passthrough();
-export type AuditLogCreateBody = z.infer<typeof auditLogCreateBodySchema>;
-
-export const auditLogIdParamsSchema = z.object({ id: z.string().min(1) });
-
 // ── 响应 ──
 
 export const auditLogListResponseSchema = paginatedBodySchema(auditLogRowSchema);
 export const auditLogStatsResponseSchema = dataBodySchema(auditLogStatsSchema);
 export const auditLogActionsResponseSchema = dataBodySchema(z.array(z.string()));
 export const auditLogResourcesResponseSchema = dataBodySchema(z.array(z.string()));
-export const auditLogGetResponseSchema = dataBodySchema(auditLogRowSchema);

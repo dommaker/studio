@@ -1,29 +1,23 @@
 // audit-logs/routes.ts - 审计日志 API (AR-012)
 //
 // 契约驱动迁移（2026-10 批次 6/7）：走 core/http.ts defineRoute——查询参数收进 zod
-// （actorType/source 由任意串透传收紧为词表，唯一消费方前端已在词表内；
-// POST / action/resource 由透传收紧为必填——缺此二键的落库行即废行）；分页壳
-// `{ data, pagination }` 原已同形不变；GET /stats 裸对象与 GET /:id 裸行进
-// `{ data }` 壳；GET /export 附件下载 handler 自写 res 不进壳；500 code 由
+// （actorType/source 由任意串透传收紧为词表，唯一消费方前端已在词表内）；
+// 分页壳 `{ data, pagination }` 原已同形不变；GET /stats 裸对象进 `{ data }` 壳；
+// GET /export 附件下载 handler 自写 res 不进壳；500 code 由
 // 'INTERNAL_ERROR' 归一为 INTERNAL（message 由固定串变为实际错误消息）。
+// P4.6（2026-10-17）：GET /:id 与 POST / 孤儿端点删除（仓内无消费方；审计写入
+// 走 registerAuditSink 直调 service，不经 HTTP）。
 import { Router } from 'express';
 import { AuditActions, AuditResources, getAuditService } from './audit-service.js';
-import type { AuditLogInput } from './audit-service.js';
 
-import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
-import { ERROR_CODES } from '@dommaker/studio-contract';
+import { defineRoute, paginated, makePagination } from '../../core/http.js';
 import {
   auditLogListQuerySchema,
   auditLogStatsQuerySchema,
   auditLogExportQuerySchema,
-  auditLogCreateBodySchema,
-  auditLogIdParamsSchema,
 } from '@dommaker/studio-contract';
 import { parsePagination } from '../../utils/pagination.js';
-import {
-  queryProposalDecisionRows,
-  getProposalDecisionRowById,
-} from './proposal-source.js';
+import { queryProposalDecisionRows } from './proposal-source.js';
 
 
 const router = Router();
@@ -111,8 +105,8 @@ router.get('/resources', defineRoute({}, async () => Object.values(AuditResource
  *
  * 过滤口径与 GET / 列表一致（E7 前端已带 action/resource/status，
  * 修复前路由层静默丢弃导致假过滤）。
- * 必须注册在 GET /:id 之前——否则 `/export` 被 `/:id` 遮蔽不可达
- * （历史 bug，2026-09-09 随过滤透传一并修复）。
+ * 历史 bug：/export 曾注册在 GET /:id 之后被遮蔽不可达，2026-09-09 修复。
+ * （GET /:id 已随 P4.6 删除，遮蔽前提不复存在。）
  * 附件下载（Content-Disposition）：handler 自写 res 不进 `{ data }` 壳。
  */
 router.get('/export', defineRoute(
@@ -145,37 +139,6 @@ router.get('/export', defineRoute(
     res.setHeader('Content-Disposition', `attachment; filename="audit-logs-${new Date().toISOString().split('T')[0]}.json"`);
 
     res.json(logs);
-  },
-));
-
-/**
- * GET /api/audit-logs/:id - 获取单条审计日志
- */
-router.get('/:id', defineRoute(
-  { params: auditLogIdParamsSchema },
-  async (_req, _res, { params }) => {
-    const service = getAuditService();
-    // #591：操作轨未命中时回查 review-proposal 聚合源（提案行 id = 提案 id）
-    const log = await service.getById(params.id)
-      ?? await getProposalDecisionRowById(params.id);
-
-    if (!log) {
-      throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Audit log not found');
-    }
-    return log;
-  },
-));
-
-/**
- * POST /api/audit-logs - 创建审计日志（201 空体：service.log 返回 void）
- */
-router.post('/', defineRoute(
-  { body: auditLogCreateBodySchema },
-  { status: 201 },
-  async (_req, _res, { body }) => {
-    const service = getAuditService();
-    // 路由边界显式收回（z.infer 在 strict:false 下字段退化可选，schema 已保必填）
-    await service.log(body as AuditLogInput);
   },
 ));
 

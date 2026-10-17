@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   // ── 结构 ──
   if (doc.openapi !== '3.0.3') fail('结构', `openapi 版本字段异常: ${doc.openapi}`);
   if (!doc.info || !doc.paths || !doc.components) fail('结构', 'info/paths/components 缺失');
-  if (routes.length < 200) fail('discover', `端点数异常偏少: ${routes.length}`);
+  if (routes.length < 150) fail('discover', `端点数异常偏少: ${routes.length}`);
 
   // ── 全量覆盖：每条 defineRoute 路由都进 paths ──
   for (const r of routes) {

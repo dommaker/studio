@@ -56,10 +56,6 @@ export const workspaceRuntimesResultSchema = z.object({
 });
 export type WorkspaceRuntimesResult = z.infer<typeof workspaceRuntimesResultSchema>;
 
-/** DELETE /:id 响应 data */
-export const deleteWorkspaceResultSchema = z.object({ deleted: z.boolean() });
-export type DeleteWorkspaceResult = z.infer<typeof deleteWorkspaceResultSchema>;
-
 // ── 请求 ──
 
 export const workspaceIdParamsSchema = z.object({ id: z.string().min(1) });
@@ -73,11 +69,5 @@ export const workspaceListResponseSchema = dataBodySchema(z.array(workspaceSchem
 /** GET /:id：`{ data: Workspace }`（原 `{success,data}`） */
 export const workspaceResponseSchema = dataBodySchema(workspaceSchema);
 
-/** GET /:id/runtimes：`{ data: WorkspaceRuntime[] }`（原 `{success,data,total}`；total 退役） */
-export const workspaceRuntimeListResponseSchema = dataBodySchema(z.array(workspaceRuntimeSchema));
-
 /** GET /runtimes：`{ data: WorkspaceRuntimesResult }`（原平铺 `{runtimes}`） */
 export const workspaceRuntimesResponseSchema = dataBodySchema(workspaceRuntimesResultSchema);
-
-/** DELETE /:id：`{ data: { deleted } }`（原 `{success,data}`） */
-export const deleteWorkspaceResponseSchema = dataBodySchema(deleteWorkspaceResultSchema);

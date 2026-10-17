@@ -1,12 +1,11 @@
 /**
- * workspace.routes 只读/删除端点的真实 HTTP 级测试（#481 消假绿：
+ * workspace.routes 只读端点的真实 HTTP 级测试（#481 消假绿：
  * 取代 workspace.test.ts 的自建内存 store 自证——那批用例不 import 任何生产代码）。
  *
  * 起 express app 直打请求：
  *   GET    /api/v1/workspaces            — list（createdAt desc）
  *   GET    /api/v1/workspaces/:id        — get one / 404
- *   GET    /api/v1/workspaces/:id/runtimes — 单台 runtimes / 404
- *   DELETE /api/v1/workspaces/:id        — 删除记录 + 附属 tasks 目录 / 404
+ * （DELETE /:id 与 GET /:id/runtimes 已随 P4.6 孤儿端点收缩删除）
  * auth 中间件 mock 放行；local-workspace.rescanLocalRuntimes mock 为 spy（不真扫 CLI）。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -118,52 +117,5 @@ describe('GET /api/v1/workspaces/:id（get one）', () => {
     expect(status).toBe(404);
     // 契约驱动迁移后错误壳统一 { error: { code, message } }（原平铺 { error: string, code }）
     expect(body.error).toEqual({ code: 'NOT_FOUND', message: 'Workspace not found' });
-  });
-});
-
-describe('GET /api/v1/workspaces/:id/runtimes', () => {
-  it('按 provider 字典序返回该记录的 runtimes', async () => {
-    seedWorkspace('ws_rt', {
-      runtimes: [
-        { id: 'r2', provider: 'kimi', version: '0.31.0' },
-        { id: 'r1', provider: 'claude', version: '2.1.80' },
-      ],
-    });
-
-    const { status, body } = await call('GET', '/ws_rt/runtimes');
-    expect(status).toBe(200);
-    expect(body.data.map((r: any) => r.provider)).toEqual(['claude', 'kimi']);
-  });
-
-  it('不存在 → 404', async () => {
-    const { status } = await call('GET', '/ws_ghost/runtimes');
-    expect(status).toBe(404);
-  });
-});
-
-describe('DELETE /api/v1/workspaces/:id', () => {
-  it('删除记录文件与附属 tasks 目录', async () => {
-    seedWorkspace('ws_del');
-    // 附属 tasks 目录（events/tasks jsonl）
-    const tasksDir = path.join(wsDir, 'ws_del');
-    fs.mkdirSync(tasksDir, { recursive: true });
-    fs.writeFileSync(path.join(tasksDir, 'events.jsonl'), '');
-    fs.writeFileSync(path.join(tasksDir, 'tasks.jsonl'), '');
-
-    const { status, body } = await call('DELETE', '/ws_del');
-    expect(status).toBe(200);
-    expect(body.data).toEqual({ deleted: true });
-    expect(fs.existsSync(path.join(wsDir, 'ws_del.json'))).toBe(false);
-    expect(fs.existsSync(tasksDir)).toBe(false);
-
-    // 删后 get → 404
-    const after = await call('GET', '/ws_del');
-    expect(after.status).toBe(404);
-  });
-
-  it('不存在 → 404', async () => {
-    const { status, body } = await call('DELETE', '/ws_ghost');
-    expect(status).toBe(404);
-    expect(body.error.code).toBe('NOT_FOUND');
   });
 });

@@ -156,9 +156,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // MCP routes (§12.9: 系统能力 MCP 化)
   const { default: mcpRoutes } = await import('./modules/mcp/routes.js') as { default: Router };
 
-  // Docs freshness routes (T-020)
-  const { default: docsFreshnessRoutes } = await import('./modules/admin/docs-freshness.routes.js') as { default: Router };
-
   // Event Stream SSE routes (HZ-028)
   const { default: sseRoutes } = await import('./modules/events/sse.routes.js') as { default: Router };
 
@@ -308,7 +305,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     // 运维
     { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Health check（运维探针面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
     { path: '/api/v1/audit-logs', router: auditLogRoutes, middleware: admin, comment: 'AR-012' },
-    { path: '/api/v1/admin/docs-freshness', router: docsFreshnessRoutes, middleware: admin, comment: 'T-020: CLAUDE.md 新鲜度检查' },
 
     // Discord（协议面例外：Ed25519 raw body 验签，固化于 PROTOCOL_SURFACE_EXCEPTIONS）
     { path: '/api/v1/discord', router: discordRoutes, comment: 'Discord Interactions（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
@@ -317,7 +313,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/deploy', router: deployWebhookRoutes, comment: 'GitHub push webhook → auto-deploy（协议面例外：HMAC raw body 验签，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
 
     // Workspace（AS-020 P2：只读查询 + 删除；token 管理已随 #481 退役——远程节点方向的纯残骸）
-    { path: '/api/v1/workspaces', router: workspaceRoutes, middleware: admin, comment: 'AS-020: Workspace read-only + delete（P2-e：原路由内 requireAuth+requireAdmin 等价上移）' },
+    { path: '/api/v1/workspaces', router: workspaceRoutes, middleware: admin, comment: 'AS-020: Workspace read-only（P2-e：原路由内 requireAuth+requireAdmin 等价上移；P4.6 删 DELETE /:id 与 /:id/runtimes）' },
   ];
 
   // 启动断言（fail-fast）：顺序敏感注册约束，顺序被改动破坏时启动即报错，

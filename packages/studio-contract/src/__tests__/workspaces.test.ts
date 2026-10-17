@@ -9,13 +9,10 @@ import {
   type Workspace,
   workspaceRuntimeSchema,
   workspaceRuntimesResultSchema,
-  deleteWorkspaceResultSchema,
   workspaceIdParamsSchema,
   workspaceListResponseSchema,
   workspaceResponseSchema,
-  workspaceRuntimeListResponseSchema,
   workspaceRuntimesResponseSchema,
-  deleteWorkspaceResponseSchema,
 } from '../workspaces.js';
 import * as contractIndex from '../index.js';
 
@@ -71,11 +68,8 @@ describe('请求与响应', () => {
   it('{ data } 统一壳', () => {
     expect(workspaceListResponseSchema.parse({ data: [workspaceRow] }).data).toHaveLength(1);
     expect(workspaceResponseSchema.parse({ data: workspaceRow }).data.id).toBe('ws_1');
-    expect(workspaceRuntimeListResponseSchema.parse({ data: [{ provider: 'claude' }] }).data).toHaveLength(1);
     expect(workspaceRuntimesResultSchema.parse({ runtimes: [] })).toEqual({ runtimes: [] });
     expect(workspaceRuntimesResponseSchema.parse({ data: { runtimes: [{ provider: 'kimi' }] } })).toBeTruthy();
-    expect(deleteWorkspaceResultSchema.parse({ deleted: true })).toEqual({ deleted: true });
-    expect(deleteWorkspaceResponseSchema.parse({ data: { deleted: true } })).toBeTruthy();
   });
 
   it('index.ts 出口包含 workspaces 域 schema', () => {

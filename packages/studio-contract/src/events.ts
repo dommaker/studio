@@ -58,12 +58,6 @@ export const createStudioEventResultSchema = z.object({
 });
 export type CreateStudioEventResult = z.infer<typeof createStudioEventResultSchema>;
 
-/** POST /agent-events 201 响应 data */
-export const ingestAgentEventsResultSchema = z.object({
-  ingested: z.number(),
-});
-export type IngestAgentEventsResult = z.infer<typeof ingestAgentEventsResultSchema>;
-
 // ── 请求 ──
 
 /** GET /（type/since/until/level/keyword/workUnitId 过滤 + 尾部倒读游标分页；
@@ -89,26 +83,10 @@ export const createStudioEventBodySchema = z.object({
 });
 export type CreateStudioEventBody = z.infer<typeof createStudioEventBodySchema>;
 
-/** B9-014 Agent Event Protocol 单条（四字段必填——原逐条手写校验收进 zod，
- * 「Validation failed + details[]」聚合错误体随之退役为 zod 首错格式） */
-export const agentEventSchema = z.object({
-  sessionId: z.string().min(1),
-  agentId: z.string().min(1),
-  timestamp: z.number(),
-  type: z.string().min(1),
-  payload: z.unknown().optional(),
-});
-export type AgentEventWire = z.infer<typeof agentEventSchema>;
-
-/** POST /agent-events（非空数组 + ≤500 上限——原手写 400 收进 zod） */
-export const agentEventBatchBodySchema = z.array(agentEventSchema).min(1).max(500);
-export type AgentEventBatchBody = z.infer<typeof agentEventBatchBodySchema>;
-
 // ── 响应（统一 `{ data }` 壳）──
 
 export const createStudioEventResponseSchema = dataBodySchema(createStudioEventResultSchema);
 export const eventSearchResponseSchema = dataBodySchema(eventSearchResultSchema);
-export const ingestAgentEventsResponseSchema = dataBodySchema(ingestAgentEventsResultSchema);
 
 // ── runtime 事件回调（POST /api/v1/executions/events）──
 // 自 executions.ts 迁入（2026-10 架构精简刀1：executions 模块整删，端点挪入 events 模块，

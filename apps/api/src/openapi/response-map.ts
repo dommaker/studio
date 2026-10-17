@@ -68,9 +68,7 @@ import {
   projectExcludeResponseSchema,
   workspaceListResponseSchema,
   workspaceResponseSchema,
-  workspaceRuntimeListResponseSchema,
   workspaceRuntimesResponseSchema,
-  deleteWorkspaceResponseSchema,
   // skills（P4.3 后剩 GET /、GET /manifest、POST /:id/retract/decide 三条端点）
   skillListResponseSchema,
   skillManifestResponseSchema,
@@ -107,7 +105,6 @@ import {
   libraryDocDetailResponseSchema,
   createStudioEventResponseSchema,
   eventSearchResponseSchema,
-  ingestAgentEventsResponseSchema,
   transcriptResponseSchema,
   agentSummaryResponseSchema,
   monitoringStatsResponseSchema,
@@ -125,7 +122,7 @@ import {
   clawbotBindStatusResponseSchema,
   notifyChannelsSuccessResponseSchema,
   notifySendResponseSchema,
-  // auth / audit-logs / admin
+  // auth / audit-logs
   authStatusResponseSchema,
   authResultResponseSchema,
   authMeResponseSchema,
@@ -136,8 +133,6 @@ import {
   auditLogStatsResponseSchema,
   auditLogActionsResponseSchema,
   auditLogResourcesResponseSchema,
-  auditLogGetResponseSchema,
-  docsFreshnessResponseSchema,
   // harness / cso
   traceListResponseSchema,
   traceRecordResponseSchema,
@@ -281,8 +276,6 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/workspaces': { response: workspaceListResponseSchema, summary: 'Workspace 列表' },
   'GET /api/v1/workspaces/:id': { response: workspaceResponseSchema, summary: 'Workspace 详情' },
   'GET /api/v1/workspaces/runtimes': { response: workspaceRuntimesResponseSchema, summary: '全部运行时清单' },
-  'GET /api/v1/workspaces/:id/runtimes': { response: workspaceRuntimeListResponseSchema, summary: 'Workspace 运行时清单' },
-  'DELETE /api/v1/workspaces/:id': { response: deleteWorkspaceResponseSchema, summary: '删除 Workspace' },
 
   // ── skills ──（P4.3：16 条孤儿端点删除，映射只留存活 3 条）
   'GET /api/v1/skills': { response: skillListResponseSchema, summary: '技能列表（分页）' },
@@ -329,7 +322,6 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/library/*splat': { response: libraryDocDetailResponseSchema, summary: '阅览室文档详情' },
   'GET /api/v1/events': { response: eventSearchResponseSchema, summary: '事件搜索（游标壳）' },
   'POST /api/v1/events': { response: createStudioEventResponseSchema, summary: '创建事件' },
-  'POST /api/v1/events/agent-events': { response: ingestAgentEventsResponseSchema, summary: 'Agent 事件批量写入' },
   'GET /api/v1/transcripts/:workUnitId': { response: transcriptResponseSchema, summary: 'WU transcript 只读查看' },
   'GET /api/v1/monitoring/agents': { response: agentSummaryResponseSchema, summary: 'Agent 摘要' },
   'GET /api/v1/monitoring/stats': { response: monitoringStatsResponseSchema, summary: '监控统计汇总' },
@@ -351,7 +343,7 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'POST /api/v1/notify-channels/clawbot/test': { response: notifyChannelsSuccessResponseSchema, summary: 'ClawBot 渠道测试' },
   'POST /api/v1/notify/send': { response: notifySendResponseSchema, summary: '出站推送（内部调用）' },
 
-  // ── auth / audit-logs / admin ──
+  // ── auth / audit-logs ──
   'GET /api/v1/auth/status': { response: authStatusResponseSchema, summary: '认证状态（含未登录 mode 提示）' },
   'POST /api/v1/auth/login': { response: authResultResponseSchema, summary: '登录' },
   'POST /api/v1/auth/register': { response: authResultResponseSchema, summary: '注册' },
@@ -364,8 +356,6 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/audit-logs/stats': { response: auditLogStatsResponseSchema, summary: '审计统计' },
   'GET /api/v1/audit-logs/actions': { response: auditLogActionsResponseSchema, summary: '操作类型词表' },
   'GET /api/v1/audit-logs/resources': { response: auditLogResourcesResponseSchema, summary: '资源词表' },
-  'GET /api/v1/audit-logs/:id': { response: auditLogGetResponseSchema, summary: '审计详情' },
-  'GET /api/v1/admin/docs-freshness': { response: docsFreshnessResponseSchema, summary: '文档新鲜度检查' },
 
   // ── harness / cso ──
   'GET /api/v1/harness/traces': { response: traceListResponseSchema, summary: '执行轨迹列表' },

@@ -33,7 +33,6 @@ export * from './notify-channels.js';
 export * from './outbound-notify.js';
 export * from './auth.js';
 export * from './audit-logs.js';
-export * from './admin.js';
 export * from './harness.js';
 export * from './cso.js';
 export * from './mcp.js';

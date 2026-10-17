@@ -11,11 +11,8 @@ import {
   createStudioEventBodySchema,
   createStudioEventResultSchema,
   listStudioEventsQuerySchema,
-  agentEventSchema,
-  agentEventBatchBodySchema,
   createStudioEventResponseSchema,
   eventSearchResponseSchema,
-  ingestAgentEventsResponseSchema,
 } from '../events.js';
 import * as contractIndex from '../index.js';
 
@@ -72,32 +69,9 @@ describe('listStudioEventsQuerySchema', () => {
   });
 });
 
-describe('agentEventBatchBodySchema（B9-014）', () => {
-  const ev = { sessionId: 's1', agentId: 'a1', timestamp: 1000, type: 'session:start' };
-
-  it('单条四字段必填（原逐条手写校验收进 zod）', () => {
-    expect(agentEventSchema.parse(ev)).toEqual(ev);
-    expect(() => agentEventSchema.parse({ ...ev, type: undefined })).toThrow();
-    expect(() => agentEventSchema.parse({ ...ev, timestamp: 'bad' })).toThrow();
-  });
-
-  it('非空数组 + ≤500 上限（原手写 400 收进 zod）', () => {
-    expect(agentEventBatchBodySchema.parse([ev])).toHaveLength(1);
-    expect(() => agentEventBatchBodySchema.parse([])).toThrow();
-    expect(() => agentEventBatchBodySchema.parse({ not: 'array' })).toThrow();
-    expect(() => agentEventBatchBodySchema.parse(Array.from({ length: 501 }, () => ev))).toThrow();
-    expect(agentEventBatchBodySchema.parse(Array.from({ length: 500 }, () => ev))).toHaveLength(500);
-  });
-
-  it('201 响应 { ingested } 壳', () => {
-    expect(ingestAgentEventsResponseSchema.parse({ data: { ingested: 2 } }).data.ingested).toBe(2);
-  });
-});
-
 describe('index.ts 出口', () => {
   it('events 域 schema 经 index 导出', () => {
     expect(contractIndex.studioEventItemSchema).toBeDefined();
     expect(contractIndex.eventSearchResponseSchema).toBeDefined();
-    expect(contractIndex.agentEventBatchBodySchema).toBeDefined();
   });
 });

@@ -2,7 +2,7 @@
 
 ### 职责
 
-提供全局事件系统：StudioEvent CRUD（G30）、AgentEvent 批量写入（B9-014）、SSE 实时流（HZ-028）、Session 摘要生成（B9-015）。
+提供全局事件系统：StudioEvent CRUD（G30）、SSE 实时流（HZ-028）、Session 摘要生成（B9-015）。AgentEvent 批量写入 HTTP 入口（B9-014）已随 P4.6 删除（无消费方）。
 
 ### 核心导出
 
@@ -11,7 +11,7 @@
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | event.routes.ts | POST /api/v1/events | 创建 StudioEvent |
 | event.routes.ts | GET /api/v1/events | 查询 StudioEvent（requireAuth；#180 起：type/since/until/level/keyword/workUnitId 过滤 + 尾部倒读游标分页 `cursor`→`nextCursor`，替代全文件线性扫 + 200 硬顶；level 缺省 ≥info，level=debug 看全部；倒读实现 `../../utils/studio-events-tail.ts`） |
-| event.routes.ts | POST /api/v1/events/agent-events | 批量写入 AgentEvent[] |
+| ~~event.routes.ts~~ | ~~POST /api/v1/events/agent-events~~ | 已随 P4.6（2026-10-17）删除：仓内无代码消费方（B9-014 外部 runtime 来源已断）；其挂的 session:end → session:summary 触发链随之无 HTTP 入口（session-summary-generator 本体与直测保留，恢复触发需另票） |
 | runtime-events.routes.ts | POST /api/v1/executions/events | runtime 事件回调（2026-10 架构精简刀1 自 executions 模块迁入，URL/请求/响应形状不变，同机 agent-runtime 零改动；requireLocalhost 留路由内；活逻辑 = eventBus 'events' 频道发布，原 executions.jsonl/data/tasks 死写未随迁） |
 | sse.routes.ts | GET /api/v1/events/stream | SSE 实时事件流（#491 起消费 Last-Event-ID：重连补发 replay buffer 窗口内遗漏事件） |
 | sse.routes.ts | GET /api/v1/events/clients | SSE 客户端列表 (debug) |
@@ -36,7 +36,7 @@
 | 文件 | 用例数 | 覆盖内容 |
 |------|--------|---------|
 | `__tests__/runtime-events.routes.test.ts` | 2 | POST /api/v1/executions/events（自 executions 迁入）：响应壳不变 + eventBus 信封 + 缺键兜底 |
-| `__tests__/event.routes.test.ts` | 30 | POST/GET/agent-events: 创建/查询/验证/空 payload 拒收（D18）/错误路径；#180 起 GET 用真临时文件 + STUDIO_EVENTS_FILE 缝（过滤/游标/鉴权栈） |
+| `__tests__/event.routes.test.ts` | 21 | POST/GET：创建/查询/验证/空 payload 拒收（D18）/错误路径；#180 起 GET 用真临时文件 + STUDIO_EVENTS_FILE 缝（过滤/游标/鉴权栈）；agent-events 用例随 P4.6 端点删除 |
 | `__tests__/session-summary-generator.test.ts` | 17 | classifyPattern 13种模式 + generateSessionSummary 边界情况 |
 | `__tests__/workunit-events-bridge.test.ts` | 3 | workunit.* + workunit:removed + requirement.* 事件转发 'events' 频道（信封形状）；桥 started 幂等是模块态，同文件后续用例 init 为 no-op 靠订阅残留生效 |
 | `__tests__/sse-routes.test.ts` | 13 | getTopicFromEventType 映射表锁定；#324 背压断开慢客户端；#491 重连 replay（按序补发/topics 过滤/不可解析游标/有洞不补发）；#524 stream chunk 不入 replay buffer；B6 广播每事件序列化一次 |
@@ -44,7 +44,7 @@
 
 ### 注意事项
 
-- **契约驱动迁移（2026-10 批次 5/7）**：event.routes.ts 三个 REST 端点 defineRoute 化——响应统一 `{ data }` 壳（原裸对象/平铺进壳），错误统一 `{ error: { code, message } }`（原 `{ error: string }` 与 agent-events 的 `{ error, details }` 退役；手写 guard 收进 zod，500 文案由固定串变为实际错误消息）；契约正本 = `packages/studio-contract/src/events.ts`。SSE /events/stream 不走 defineRoute（headersSent 长连接），但事件流 payload #665 起契约化（`packages/studio-contract/src/sse-events.ts`，ADR 2026-08-24 落地）：14 个事件词表 + payload 判别联合 + loose 信封兜底；发射点类型同源（import type 契约 payload），wire round-trip 行为测试 = `__tests__/sse-payload-contract.test.ts`（真实构造器产物 JSON round-trip 过 sseEventSchema）；前端本地事件类型声明清零
+- **契约驱动迁移（2026-10 批次 5/7）**：event.routes.ts REST 端点 defineRoute 化——响应统一 `{ data }` 壳（原裸对象/平铺进壳），错误统一 `{ error: { code, message } }`（原 `{ error: string }` 与 agent-events 的 `{ error, details }` 退役；手写 guard 收进 zod，500 文案由固定串变为实际错误消息）；契约正本 = `packages/studio-contract/src/events.ts`。SSE /events/stream 不走 defineRoute（headersSent 长连接），但事件流 payload #665 起契约化（`packages/studio-contract/src/sse-events.ts`，ADR 2026-08-24 落地）：14 个事件词表 + payload 判别联合 + loose 信封兜底；发射点类型同源（import type 契约 payload），wire round-trip 行为测试 = `__tests__/sse-payload-contract.test.ts`（真实构造器产物 JSON round-trip 过 sseEventSchema）；前端本地事件类型声明清零
 - StudioEvent 用 jsonl 文件存储（D18 起统一经 `@dommaker/studio-shared` 的 writeStudioEvent 写入；空 payload 拒绝落盘）
 - POST /api/v1/events 的 payload 为空（{} / null / 缺失 / '{}'）→ 400（D18：空事件不产信号只产噪音，调用方自查）
 - SSE 使用 EventBus pub/sub (B0-002)，不依赖数据库
@@ -53,7 +53,7 @@
 - **SSE replay（#491，2026-09-11）**：`id:` 行自本票起为服务端单调 seq（不再是信封 event_id；event_id 仍在 data 信封内供前端幂等去重）。事件广播时先入 `sseReplayBuffer`（sse-replay-buffer.ts，环形 500 条，进程级内存、不落盘、重启即清），重连带 `Last-Event-ID` 时按 seq 升序补发窗口内遗漏事件（按订阅 topics 过滤，补发先于 connection.established——后者以 currentSeq 为 id，先发会让游标越过补发事件）；游标早于 buffer 最老事件（有洞）或无法解析（旧版 uuid）则不补发，由前端 onReconnect 全量 refetch 兜底（决策 9）。**#524 P1-3（#516 项⑥）**：`workunit.execution.stream` chunk 不入 replay buffer（sse.routes.ts 入队处一处过滤，不占 seq）——补发价值最低流量最大（Layer B 不落盘、前端纯内存、重连走全量 refetch 兜底），关键事件独占 500 条补发窗口，高 stream 负载下重连补发恢复有效；直播广播照常（id 取 currentSeq，游标语义不变）
 - **SSE 与全局 compression（#263 / 根因 #259，2026-08-19）**：app.ts 全局 compression 中间件必须带 `filter: shouldCompress`（`apps/api/src/middleware/compression-filter.ts`）——默认 compressible 对 `text/event-stream` 经 `^text/` fallback 返回 true 会缓冲 SSE 流，频道实时推送全灭。/events/stream 与 /mcp/sse 均经此中间件覆盖；新增 SSE 端点只要走同一 app 即自动生效
 - patternType 分类规则：纯 deterministic，不调 LLM
-- **鉴权（2026-07-24 收紧；P2-e 声明式统一）**：event.routes 拆 open（GET /，registry 挂 auth）/ write（POST /、/agent-events，registry 挂 authNotGuest）双 router，路由内零鉴权挂载。GET /stream 保持公开（Lurk 设计有意放行，会广播内部事件总线）。
+- **鉴权（2026-07-24 收紧；P2-e 声明式统一）**：event.routes 拆 open（GET /，registry 挂 auth）/ write（POST /，registry 挂 authNotGuest）双 router，路由内零鉴权挂载。GET /stream 保持公开（Lurk 设计有意放行，会广播内部事件总线）。
 - **事件检索（#180 / #60 决策 Q3a，2026-08-16）**：GET / 改走 `../../utils/studio-events-tail.ts` 尾部倒读（字节层切行，0x0A 切分防 UTF-8 跨块截断），过滤下推到倒读循环、limit 按匹配数计、扫满即停；游标 = 已扫区间下界字节偏移，无效游标容错重扫最新。读取侧默认 level≥info（envelope 缺省 info），`level=debug` 看全部。Web 消费面 = MonitoringPage「事件检索」Tab。
 - **时间窗读口（#335，2026-08-25；#342 收敛全部度量读方，2026-08-27）**：`readStudioEventsSince({ sinceMs, file? })`（同在 studio-events-tail.ts，与 #180 共用字节层倒扫生成器）——尾部倒读、命中首个窗口外行即停扫，窗口外的行不 parse。**前提：文件 append-only 时间单调**（writeStudioEvent 恒追加、#173 轮转保序）；NaT 行跳过不停扫；返回文件序。已切换的读方：monitor-probes(1h)、monitor-reports×4(24h/7d)、auditor-reports(24h)、auditor-rules×2(28d)、evolution/signals(windowHours)、metrics.service×2(windowDays)、pattern-miner(24h)、wu-changed-files(30d 对齐热保留期)；#342 补齐：monitoring.service getOverheadStats(windowDays 默认 30d)、knowledge-metrics computeOutcomeMetrics/scanKnowledgeEvents(windowStart)、token-usage.service 三读点(30d，totals/树聚合/台账口径从「文件全量」收敛为 30d 窗口内、NaT 行不再计入累计)、session-summary-generator 两读点(30d，挂在 agent-events 批量写入 HTTP 路径上的读也随文件总量解耦)。**全量重写方已清零（#653，2026-09-29）**：monitor-lifecycle 原 precipitate 打标/7d 截断/30d 已沉淀清理三处整文件重写已删（与 #173 轮转冲突且非原子无锁），事件文件保留执法归 #173 轮转单口，append-only 单调前提不再有 monitor 侧破坏者。bench 数据集（bench/synthesize-dataset.ts）事件副本按 -k*12h 偏移保单调，否则早停前提在合成数据上不成立；fixture 里「窗口外噪音行」必须排文件头（最旧在前），同款微基准见 bench/read-since-windows-342.ts + report-read-sites-342.md。
 - **事件文件路径单点解析（#654，2026-09-29）**：全仓事件文件读写方一律**调用时** `resolveStudioEventsFile()`（认 `STUDIO_EVENTS_FILE`；legacy env `STUDIO_EVENTS_JSONL` 已删除，grep 零命中）。禁止模块加载期钉死路径常量（`const X = resolveStudioLogFile('studio-events.jsonl')` 形态）——import 后改 env 必须生效，回归锁定 `utils/__tests__/events-path-lazy-resolution.test.ts`（8 模块 import 后设 env 的读写证明）。GET /api/triggers/costs 改走 `readStudioEventsSince` 窗口读口，整文件 `readFileSync` 同步读退场。漏网补齐：system-executor（构造缺省改构造时解析）、evolution/signals（resolveEvolutionPaths 缺省值切正本解析）、knowledge-data-layer 死导出删除。

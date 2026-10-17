@@ -13,10 +13,8 @@ import {
   auditLogListQuerySchema,
   auditLogStatsQuerySchema,
   auditLogExportQuerySchema,
-  auditLogCreateBodySchema,
   auditLogListResponseSchema,
   auditLogStatsResponseSchema,
-  auditLogGetResponseSchema,
 } from '../audit-logs.js';
 import * as contractIndex from '../index.js';
 
@@ -67,7 +65,7 @@ describe('auditLogRowSchema', () => {
   });
 });
 
-describe('查询/创建边界', () => {
+describe('查询边界', () => {
   it('list query：全可选；actorType/source 收紧词表（原任意串透传）', () => {
     expect(auditLogListQuerySchema.parse({})).toEqual({});
     expect(auditLogListQuerySchema.parse({ source: 'all', actorType: 'agent', page: '2' }).source).toBe('all');
@@ -81,15 +79,6 @@ describe('查询/创建边界', () => {
     expect((parsed as Record<string, unknown>).page).toBeUndefined();
     expect(parsed.action).toBe('login');
   });
-
-  it('create body：action/resource 必填收紧（原透传落废行）；status/actorType 词表；passthrough 放行', () => {
-    expect(auditLogCreateBodySchema.parse({ action: 'create', resource: 'user' }))
-      .toEqual({ action: 'create', resource: 'user' });
-    expect(() => auditLogCreateBodySchema.parse({ resource: 'user' })).toThrow();
-    expect(() => auditLogCreateBodySchema.parse({ action: 'create', resource: 'user', status: 'ok' })).toThrow();
-    const withExtra = auditLogCreateBodySchema.parse({ action: 'a', resource: 'r', customKey: true });
-    expect((withExtra as Record<string, unknown>).customKey).toBe(true);
-  });
 });
 
 describe('响应壳', () => {
@@ -101,9 +90,8 @@ describe('响应壳', () => {
     expect(auditLogListResponseSchema.parse(body).pagination.total).toBe(1);
   });
 
-  it('GET /stats 与 /:id → { data } 壳', () => {
+  it('GET /stats → { data } 壳', () => {
     expect(auditLogStatsResponseSchema.parse({ data: stats }).data.totalLogs).toBe(100);
-    expect(auditLogGetResponseSchema.parse({ data: normalizedRow }).data.id).toBe('a1');
   });
 });
 
@@ -111,6 +99,5 @@ describe('index.ts 出口', () => {
   it('audit-logs 域 schema 经 index 导出', () => {
     expect(contractIndex.auditLogRowSchema).toBeDefined();
     expect(contractIndex.auditLogListQuerySchema).toBeDefined();
-    expect(contractIndex.auditLogCreateBodySchema).toBeDefined();
   });
 });
