@@ -24,7 +24,8 @@
 - `monitor-probes.ts` — WU 级探测（失败趋势/停滞/超时/池停滞/评审停滞/僵尸认领守卫——#464 起 stale_claim_guard 命中除告警外同步向 WU 所在频道发「已沉睡」milestone 提醒；#610 起 expireTriggerPendingWorkUnits——trigger 建单 pending 超期未确认自动关闭，阈值 TRIGGER_PENDING_EXPIRY_DAYS 默认 7 天，人工建的 pending 单不受影响，decision/spec/plan 豁免）
 - `monitor-system-probes.ts` — 系统/知识级探测与自修复（#409 起 worktree GC 唯一入口 gcStaleWorktrees——7d 阈值、prune 走 execAsync、不调 git worktree remove；#611 起 checkKnowledgeHealth 日级门控含 consumption 归零告警；harness 3.0.0/ADR-0041 起知识健康分与自动修复改判 KnowledgeAudit 唯一正本——healthScore.before，口径由「100 − error×3 − warn×1」换 audit 打分，阈值 60 不变）
 - `monitor-alerts.ts` — 告警分发/Triage 升级（指纹冷却去重 w4h/c1h）
-- `monitor-reports.ts` — 轨迹评估/每日洞察/交互观察
+- `monitor-reports.ts` — 轨迹评估 + dailyReflection 编排（采集段顺序调用 + 频道卡片/Discord/事件落盘；采集实现已抽出）
+- `monitor-reflection-collectors.ts` — dailyReflection 采集段（2026-10-17 自 monitor-reports 抽出，纯平移零行为变更）：会话活动 / 7 天交互模式（含 pattern_report 落盘 + 偏好更新）/ git 变更 / 知识积累 / 知识消费（含 .consumption-stats.json 落盘）/ 知识质量审计 / 知识索引快照 / 周日画像，各段自兜异常；session:summary payload 读口径经共享类型 `SessionSummaryPayload` 定型（studio-shared/studio-events.ts，写入方 session-summary-generator 同源）
 - `monitor-lifecycle.ts` — 知识沉淀闸门+每日 TTL 清理（#653 起 studio-events.jsonl 清理已删——事件保留执法归 studio-events-rotation 单口）
 - `lock-events-bridge.ts` — lock.* 事件 → Monitor 告警桥（#169；#687 自 events 模块迁入——桥消费的是 Monitor 能力，归属本模块，斩断 events 基础设施反向依赖）
 - `instance-timeout-scan.ts` — 心跳过期 5min 扫描+pid 复核（依赖 monitor-alerts；#363 统一回收 terminated 实例；2026-09-24 起 terminate 死实例后连带释放其持有的 active WU 回池）
@@ -57,7 +58,7 @@
 - **monitor-round 零同步子进程（#374）**：全部同步 exec 收口 `core/exec-async.ts`（gcStaleWorktrees `git worktree prune`、dailyReflection git log/diff 等；fail-open 语义与超时不变）
 - **decision/spec 豁免超时巡检（#553 裁决）**：checkTotalExecutionTime 跳过 DECISION_SPEC_TYPES——裁剪状态机无 closed、决策/成文单可等关键人多天，语义选「跳过巡检」
 - **WU 删除走 service.delete 单口（#538）**：monitor-lifecycle 每日 TTL 的筛选逻辑留调用方，删除循环改调 `service.delete(id, { reason })`；#540 起加终态守卫——仅删 done/closed。原 system-health runGC 同口径改造后仍无生产接线，已随 2026-10 死代码批次删除
-- **monitor-reports 知识质量审计构造（harness 1.8.0 / #134①；#559 收口）**：`new KnowledgeAudit(store, 阈值?)`——日兜底走 `sharedStore` 单例，调用点为类型完整动态导入（无 `as any`）
+- **monitor-reports 知识质量审计构造（harness 1.8.0 / #134①；#559 收口）**：实现现居 `monitor-reflection-collectors.ts`。`new KnowledgeAudit(store, 阈值?)`——日兜底走 `sharedStore` 单例，调用点为类型完整动态导入（无 `as any`）
 - **Idle 心跳 45s**，超时扫描 5min；**isOnline** = loop 存活+心跳新鲜（≤5min）；#345 起 isOnline/每角色最新 error 聚合单源 `summarizeRoleStates`（agents 模块 agent-instance.service），agent-profile list 与 instance-timeout-scan 的 5min 窗口同源（INSTANCE_ALIVE_TIMEOUT_MS）
 - **Ops 看门狗探针语义（2026-09-21，生产假阴性自杀循环事故修复）**：`ops.service getStatus()` 探针打免鉴权 `/health`（app.ts 注册于鉴权中间件之前，不依赖任何业务路由），**收到任何 HTTP 响应（含 401/403/5xx）即判活，只有连接失败/超时才判死**——严禁改回「业务路由 + statusCode===200」判定（防回归测试：`__tests__/ops-health-probe.test.ts`）。已知残留假阴性面（未修，仅记录）：判死后 daemon-busy 豁免检查的 `fileStore.getIndex` 读失败被 catch 静默吞掉 → 有活跃执行 session 也照 exit
 - **系统探测 /proc 单出口（#344）**：新探测先落 `core/proc-probes.ts`（零子进程）。磁盘 = statfs (blocks−bavail)/blocks；内存 = MemTotal−MemAvailable；僵尸 = /proc/<pid>/stat state=Z。#418 起命令行类探测同出口

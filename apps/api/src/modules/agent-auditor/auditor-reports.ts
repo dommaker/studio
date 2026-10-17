@@ -15,6 +15,7 @@ import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
 import { parseStudioEventPayload, getStudioEventTime } from '@dommaker/studio-shared';
+import type { SessionSummaryPayload } from '@dommaker/studio-shared';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { logger } from '@dommaker/studio-shared/node';
@@ -31,13 +32,13 @@ const SYSTEM_CHANNEL_NAME = '#系统';
  * 不自动进化约束 — 行为约束的执行机制（Claude Code hooks）与代码约束（harness check）不同。
  */
 export async function analyzeSessionTrends(since: Date): Promise<string[]> {
-  const events: Array<Record<string, any>> = [];
+  const events: SessionSummaryPayload[] = [];
   try {
     const sinceMs = since.getTime();
     const rows = await readStudioEventsSince({ sinceMs });
     for (const row of rows) {
       if (row.type !== 'session:summary' || getStudioEventTime(row) < sinceMs) continue;
-      events.push(parseStudioEventPayload(row) ?? {});
+      events.push(parseStudioEventPayload<SessionSummaryPayload>(row) ?? {});
     }
   } catch { return []; }
 
@@ -57,8 +58,8 @@ export async function analyzeSessionTrends(since: Date): Promise<string[]> {
     const turns = evt.eventCount ?? 0;
     if (evt.deepAnalysis) deepAnalysisCount++;
     if (evt.deepAnalysis && !evt.knowledgeCaptured) missingCaptureCount++;
-    if (evt.sensitiveOpsCount > 0) sensitiveOpsSessions++;
-    if (evt.sensitiveOpsCount >= 3) highSensitiveOpsCount++;
+    if ((evt.sensitiveOpsCount ?? 0) > 0) sensitiveOpsSessions++;
+    if ((evt.sensitiveOpsCount ?? 0) >= 3) highSensitiveOpsCount++;
     totalTurnCount += turns;
     if (turns > maxTurnCount) maxTurnCount = turns;
   }

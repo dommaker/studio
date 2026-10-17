@@ -79,6 +79,44 @@ export interface WriteStudioEventOptions {
 /** #172（#60 决策 Q2）：事件分级。缺省 info（envelope 无 level 字段即视为 info） */
 export type StudioEventLevel = 'debug' | 'info' | 'warning' | 'critical';
 
+/** session:summary 的 patternType 词表（写入方 session-summary-generator 的分类规则输出） */
+export type SessionPatternType =
+  | 'ci_fix'
+  | 'pr_review'
+  | 'changelog'
+  | 'doc_update'
+  | 'release_prep'
+  | 'debug_session'
+  | 'test_triage'
+  | 'refactor'
+  | 'config_change'
+  | 'skill_creation'
+  | 'knowledge_curation'
+  | 'architecture'
+  | 'unknown';
+
+/**
+ * session:summary 事件 payload 形状（唯一写入方 = apps/api modules/events/session-summary-generator，
+ * 经 parseStudioEventPayload<SessionSummaryPayload> 在读方统一取数）。
+ * sessionId/agentId/filesChanged/toolsUsed/patternType/eventCount 为写入方必落字段；
+ * 其余可选——durationMs 依赖 session:start/end 成对出现，deepAnalysis/knowledgeCaptured/
+ * sensitiveOpsCount/success/workflowType（patternType 历史别名）为读方兼容字段，generator 当前不落。
+ */
+export interface SessionSummaryPayload {
+  sessionId?: string;
+  agentId?: string;
+  filesChanged?: string[];
+  toolsUsed?: string[];
+  patternType?: string;
+  workflowType?: string;
+  eventCount?: number;
+  durationMs?: number;
+  deepAnalysis?: boolean;
+  knowledgeCaptured?: boolean;
+  sensitiveOpsCount?: number;
+  success?: boolean;
+}
+
 /**
  * 默认分级（#60 决策 Q2）：knowledge:* 与 tool:call 为噪声 → debug；其余 → info。
  * workunit:failed 等关键事件由调用方显式 opts.level='warning'；monitor:alert 经

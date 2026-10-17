@@ -222,6 +222,48 @@ describe('dailyReflection', () => {
     expect(posted[0]).toContain('知识消费');
   });
 
+  it('交互模式（7天）：≥5 个同型 session:summary → 模式行 + pattern_report 落盘 + 偏好更新', async () => {
+    const now = Date.now();
+    const rows = Array.from({ length: 5 }, (_, i) => ({
+      type: 'session:summary', source: 'claude',
+      payload: JSON.stringify({
+        sessionId: `p${i}`, agentId: 'claude', filesChanged: [], toolsUsed: ['Bash'],
+        patternType: 'ci_fix', eventCount: 10,
+      }),
+      createdAt: new Date(now - 3600_000).toISOString(),
+    }));
+    fs.writeFileSync(eventsFile, rows.map(r => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+
+    const posted: string[] = [];
+    const fileStore = makeFileStore({
+      listChannels: vi.fn(async () => [{ id: 'ch-sys', name: '#系统' }]),
+    });
+    vi.doMock('../../channels/channel-message.service.js', () => ({
+      getChannelMessageService: () => ({
+        createAgentMessage: vi.fn(async (_ch: string, _sender: string, content: string) => {
+          posted.push(content);
+        }),
+      }),
+    }));
+    vi.resetModules();
+    const { dailyReflection: dr } = await import('../monitor-reports.js');
+
+    await dr(fileStore, { lastDailyReflectionTs: 0 });
+
+    expect(posted.length).toBeGreaterThan(0);
+    expect(posted[0]).toContain('### 交互模式（7天）');
+    expect(posted[0]).toContain('**ci_fix**: 5 次, 成功率 100%');
+    expect(posted[0]).toContain('建议创建 Skill 自动化此模式');
+    // B9-025: pattern_report 落盘（fire-and-forget —— 等待）+ 偏好更新调用
+    await vi.waitFor(() => {
+      expect(readEventLines().some(l => l.type === 'pattern_report' && l.source === 'monitor')).toBe(true);
+    });
+    expect(mockUpdatePref).toHaveBeenCalledWith(
+      { ci_fix: 5 },
+      [{ type: 'ci_fix', count: 5, successRate: 1, lastSeen: expect.any(String) }],
+    );
+  });
+
   // #559 / harness#134①：审计段定点测试——绕开文件级 harness mock（其 stub 的
   // KnowledgeAudit 构造器忽略入参，掩盖构造形状），用真实 KnowledgeAudit +
   // 真实 FileKnowledgeStore 验证「store 首参」契约：签名漂移回 {baseDir} 旧形态

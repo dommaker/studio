@@ -6,6 +6,7 @@
  */
 
 import { eventBus } from '@dommaker/studio-shared';
+import type { SessionPatternType, SessionSummaryPayload } from '@dommaker/studio-shared';
 import * as os from 'os';
 import * as path from 'path';
 // #342：窗口读口（尾部倒读 + 窗口外早停）——两个事件读点切到此读口；
@@ -18,29 +19,14 @@ import { logger } from '@dommaker/studio-shared/node';
 /** #342：事件读窗口 30d——session 跨度 ≪ 窗口 */
 const EVENTS_WINDOW_MS = 30 * 86_400_000;
 
-type PatternType =
-  | 'ci_fix'
-  | 'pr_review'
-  | 'changelog'
-  | 'doc_update'
-  | 'release_prep'
-  | 'debug_session'
-  | 'test_triage'
-  | 'refactor'
-  | 'config_change'
-  | 'skill_creation'
-  | 'knowledge_curation'
-  | 'architecture'
-  | 'unknown';
-
-interface SessionSummary {
+/** generator 落盘形态：共享 payload 的必落字段收窄为必填 */
+interface SessionSummary extends SessionSummaryPayload {
   sessionId: string;
   agentId: string;
   filesChanged: string[];
   toolsUsed: string[];
-  patternType: PatternType;
+  patternType: SessionPatternType;
   eventCount: number;
-  durationMs?: number;
 }
 
 /**
@@ -146,9 +132,9 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
 
 /**
  * D3: Pattern type classification — pure rules, no LLM.
- * File paths + tool sequences + agentId → PatternType.
+ * File paths + tool sequences + agentId → SessionPatternType.
  */
-function classifyPattern(files: string[], tools: string[], _agentId: string): PatternType {
+function classifyPattern(files: string[], tools: string[], _agentId: string): SessionPatternType {
   const fileSet = new Set(files);
   const toolSet = new Set(tools);
 
