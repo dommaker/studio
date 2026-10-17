@@ -17,8 +17,10 @@
  *
  * wire 形状（defineRoute 统一壳后）：
  * - 全部 JSON 端点 `{ data: T }`（原平铺/裸对象/{ success } 全收进壳）
- * - GET /export 附件下载（md/json）handler 自写 res 不进壳（specs 先例）；
- *   GET /knowledge-service/events 301 跳转提示 handler 自写 res 不进壳
+ * - GET /export 附件下载（md/json）handler 自写 res 不进壳（specs 先例）
+ * - /api/v1/knowledge-service 自 P4.1（2026-10-17）只剩审核闭环 3 端点
+ *   （GET /entries、POST /promote、POST /demote），原 20 条孤儿端点及
+ *   配套 schema 已删（见 apps/api/src/modules/knowledge/CONTEXT.md）
  * - 错误统一 `{ error: { code, message } }`（原 `{ error: string }` 与
  *   `{ error: { message } }` 退役；500 文案由固定串变为实际错误消息）
  */
@@ -281,26 +283,7 @@ export const knowledgeMaintenanceResultSchema = z.object({
 });
 export type KnowledgeMaintenanceResult = z.infer<typeof knowledgeMaintenanceResultSchema>;
 
-// ── KnowledgeService 派生读（/knowledge-service 子路由）──
-
-/** GET /knowledge-service/stats 响应 data（tags[0] 分桶计数 + total） */
-export const knowledgeServiceStatsSchema = z.record(z.number());
-export type KnowledgeServiceStats = z.infer<typeof knowledgeServiceStatsSchema>;
-
-/** GET /knowledge-service/search 的 results 元素（knowledgeService.search） */
-export const knowledgeServiceSearchHitSchema = z.object({
-  entry: knowledgeEntrySchema,
-  score: z.number(),
-  highlights: z.array(z.string()),
-});
-export type KnowledgeServiceSearchHit = z.infer<typeof knowledgeServiceSearchHitSchema>;
-
-/** GET /knowledge-service/search 响应 data */
-export const knowledgeServiceSearchResultSchema = z.object({
-  results: z.array(knowledgeServiceSearchHitSchema),
-  total: z.number(),
-});
-export type KnowledgeServiceSearchResult = z.infer<typeof knowledgeServiceSearchResultSchema>;
+// ── KnowledgeService 派生读（/knowledge-service 子路由，P4.1 后仅剩审核闭环 3 端点）──
 
 /** GET /knowledge-service/entries 响应 data */
 export const knowledgeEntryListResultSchema = z.object({
@@ -309,104 +292,9 @@ export const knowledgeEntryListResultSchema = z.object({
 });
 export type KnowledgeEntryListResult = z.infer<typeof knowledgeEntryListResultSchema>;
 
-/** GET /knowledge-service/entries/stats 响应 data（stats 分桶 + healthScore ← HealthReport.score） */
-export const knowledgeEntryStatsResultSchema = z.record(z.unknown());
-export type KnowledgeEntryStatsResult = z.infer<typeof knowledgeEntryStatsResultSchema>;
-
-/** GET /knowledge-service/health 响应 data */
-export const knowledgeHealthReportSchema = z.object({
-  score: z.number(),
-  totalEntries: z.number(),
-  staleEntries: z.number(),
-  orphanEntries: z.number(),
-  duplicateEntries: z.number(),
-  timestamp: z.string(),
-});
-export type KnowledgeHealthReport = z.infer<typeof knowledgeHealthReportSchema>;
-
-/** GET /knowledge-service/flywheel 响应 data */
-export const knowledgeFlywheelMetricsSchema = z.object({
-  quality: z.number(),
-  hitRate: z.number(),
-  improvement: z.number(),
-  freshness: z.number(),
-  timestamp: z.string(),
-  /** 'events' = 实算；'insufficient-data' = 窗口内无 outcome 事件，0 占位而非编造 */
-  source: z.enum(['events', 'insufficient-data']).optional(),
-});
-export type KnowledgeFlywheelMetrics = z.infer<typeof knowledgeFlywheelMetricsSchema>;
-
-/** GET /knowledge-service/audit 响应 data */
-export const knowledgeAuditReportSchema = z.object({
-  findings: z.array(z.object({
-    type: z.string(),
-    severity: z.enum(['low', 'medium', 'high']),
-    description: z.string(),
-    entryId: z.string().optional(),
-  })),
-  trend: z.string(),
-  timestamp: z.string(),
-  eventCounts: z.object({
-    windowDays: z.number(),
-    consumption: z.number(),
-    outcomeSuccess: z.number(),
-    outcomeFailure: z.number(),
-    extraction: z.number(),
-    source: z.enum(['events', 'insufficient-data']),
-  }),
-  entries: z.object({
-    total: z.number(),
-    byMaturity: z.record(z.number()),
-    source: z.literal('store'),
-  }),
-  topReferenced: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-    references: z.number(),
-  })),
-  extractionActivity: z.object({
-    count: z.number(),
-    totalTokens: z.number(),
-    lastAt: z.string().nullable(),
-    source: z.enum(['events', 'insufficient-data']),
-  }),
-});
-export type KnowledgeAuditReport = z.infer<typeof knowledgeAuditReportSchema>;
-
-/** GET /knowledge-service/analyst-accuracy 响应 data（M1 诚实契约：无数据源 → available:false） */
-export const analystAccuracyReportSchema = z.object({
-  available: z.boolean(),
-  reason: z.string().optional(),
-  overallAccuracy: z.number().optional(),
-  byAnalyst: z.record(z.number()).optional(),
-  recentPredictions: z.array(z.record(z.unknown())).optional(),
-  timestamp: z.string(),
-});
-export type AnalystAccuracyReport = z.infer<typeof analystAccuracyReportSchema>;
-
-/** POST /knowledge-service/inject-context 响应 data */
-export const injectContextResultSchema = z.object({
-  context: z.string(),
-  injectedIds: z.array(z.string()),
-});
-export type InjectContextResult = z.infer<typeof injectContextResultSchema>;
-
-/** POST /knowledge-service/match-resolutions 响应 data */
-export const matchResolutionsResultSchema = z.object({
-  matched: z.boolean(),
-  resolutions: z.array(resolutionSchema),
-});
-export type MatchResolutionsResult = z.infer<typeof matchResolutionsResultSchema>;
-
-/** 各写端点的 `{ success }` / `{ success, id }` 响应 data */
+/** 写端点的 `{ success }` 响应 data（/promote /demote） */
 export const knowledgeSuccessResultSchema = z.object({ success: z.boolean() });
 export type KnowledgeSuccessResult = z.infer<typeof knowledgeSuccessResultSchema>;
-
-export const createKnowledgeEntryResultSchema = z.object({
-  success: z.boolean(),
-  id: z.string(),
-});
-export type CreateKnowledgeEntryResult = z.infer<typeof createKnowledgeEntryResultSchema>;
 
 // ── 请求：query / params ──
 
@@ -466,13 +354,6 @@ export const knowledgeFileQuerySchema = z.object({
 });
 export type KnowledgeFileQuery = z.infer<typeof knowledgeFileQuerySchema>;
 
-/** GET /knowledge-service/search（q 必填；limit clamp 走 parsePagination） */
-export const knowledgeServiceSearchQuerySchema = z.object({
-  q: z.string().min(1),
-  limit: z.string().optional(),
-});
-export type KnowledgeServiceSearchQuery = z.infer<typeof knowledgeServiceSearchQuerySchema>;
-
 /** GET /knowledge-service/entries（逗号分隔多值；limit clamp 走 parsePagination） */
 export const listKnowledgeEntriesQuerySchema = z.object({
   type: z.string().optional(),
@@ -482,9 +363,6 @@ export const listKnowledgeEntriesQuerySchema = z.object({
   offset: z.string().optional(),
 });
 export type ListKnowledgeEntriesQuery = z.infer<typeof listKnowledgeEntriesQuerySchema>;
-
-export const knowledgeEntryIdParamsSchema = z.object({ id: z.string().min(1) });
-export type KnowledgeEntryIdParams = z.infer<typeof knowledgeEntryIdParamsSchema>;
 
 // ── 请求：body ──
 
@@ -523,88 +401,13 @@ export const upsertKnowledgeBodySchema = z.object({
 });
 export type UpsertKnowledgeBody = z.infer<typeof upsertKnowledgeBodySchema>;
 
-/** POST /knowledge-service/entries（完整条目，四字段必填；passthrough 放行条目其余字段） */
-export const createKnowledgeEntryBodySchema = z.object({
-  id: z.string().min(1),
-  type: z.string().min(1),
-  title: z.string().min(1),
-  content: z.string().min(1),
-}).passthrough();
-export type CreateKnowledgeEntryBody = z.infer<typeof createKnowledgeEntryBodySchema>;
-
-/** PUT /knowledge-service/entries/:id（部分条目字段，任意键） */
-export const updateKnowledgeEntryBodySchema = z.record(z.unknown());
-export type UpdateKnowledgeEntryBody = z.infer<typeof updateKnowledgeEntryBodySchema>;
-
-/** POST /knowledge-service/pattern（origin 仅 human/agent 白名单生效，其余落 system 缺省） */
-export const recordPatternBodySchema = z.object({
-  type: z.string().min(1),
-  title: z.string().min(1),
-  content: z.string().min(1),
-  tags: z.array(z.string()).optional(),
-  origin: z.string().optional(),
-});
-export type RecordPatternBody = z.infer<typeof recordPatternBodySchema>;
-
-/** POST /knowledge-service/incident */
-export const recordIncidentBodySchema = z.object({
-  title: z.string().min(1),
-  content: z.string().min(1),
-  severity: z.string().min(1),
-  tags: z.array(z.string()).optional(),
-});
-export type RecordIncidentBody = z.infer<typeof recordIncidentBodySchema>;
-
-/** POST /knowledge-service/trend */
-export const recordTrendBodySchema = z.object({
-  title: z.string().min(1),
-  content: z.string().min(1),
-  metric: z.string().min(1),
-  tags: z.array(z.string()).optional(),
-});
-export type RecordTrendBody = z.infer<typeof recordTrendBodySchema>;
-
-/** POST /knowledge-service/inject-context */
-export const injectContextBodySchema = z.object({
-  agentType: z.string().min(1),
-  tags: z.array(z.string()).optional(),
-  maxTokens: z.number().optional(),
-  includeRules: z.boolean().optional(),
-});
-export type InjectContextBody = z.infer<typeof injectContextBodySchema>;
-
-/** POST /knowledge-service/match-resolutions */
-export const matchResolutionsBodySchema = z.object({
-  problem: z.string().min(1),
-});
-export type MatchResolutionsBody = z.infer<typeof matchResolutionsBodySchema>;
-
-/** POST /knowledge-service/record-outcome（success 原按 `=== undefined` 判缺 → zod boolean 必填） */
-export const recordOutcomeBodySchema = z.object({
-  executionId: z.string().min(1),
-  agentType: z.string().min(1),
-  success: z.boolean(),
-  consumedKnowledge: z.array(z.string()).optional(),
-  details: z.string().optional(),
-  timestamp: z.string().optional(),
-  mode: z.string().optional(),
-});
-export type RecordOutcomeBody = z.infer<typeof recordOutcomeBodySchema>;
-
-/** POST /knowledge-service/{promote,demote,decay} */
+/** POST /knowledge-service/{promote,demote} */
 export const knowledgeLifecycleBodySchema = z.object({
   entryId: z.string().min(1),
 });
 export type KnowledgeLifecycleBody = z.infer<typeof knowledgeLifecycleBodySchema>;
 
-/** POST /knowledge-service/merge */
-export const mergeKnowledgeBodySchema = z.object({
-  sourceId: z.string().min(1),
-  targetId: z.string().min(1),
-});
-export type MergeKnowledgeBody = z.infer<typeof mergeKnowledgeBodySchema>;
-
-// ── 响应（统一 `{ data }` 壳；GET /export 附件与 /events 301 不进壳）──
+// ── 响应（统一 `{ data }` 壳；GET /export 附件不进壳）──
 
 export const requirementDocListResponseSchema = dataBodySchema(requirementDocListResultSchema);
 export const readKnowledgeFileResponseSchema = dataBodySchema(readKnowledgeFileResultSchema);
@@ -621,16 +424,5 @@ export const crossSessionStatsResponseSchema = dataBodySchema(crossSessionStatsS
 export const knowledgeSyncStatusResponseSchema = dataBodySchema(knowledgeSyncStatusResultSchema);
 export const upsertKnowledgeResponseSchema = dataBodySchema(upsertKnowledgeResultSchema);
 export const knowledgeMaintenanceResponseSchema = dataBodySchema(knowledgeMaintenanceResultSchema);
-export const knowledgeServiceStatsResponseSchema = dataBodySchema(knowledgeServiceStatsSchema);
-export const knowledgeServiceSearchResponseSchema = dataBodySchema(knowledgeServiceSearchResultSchema);
 export const knowledgeEntryListResponseSchema = dataBodySchema(knowledgeEntryListResultSchema);
-export const knowledgeEntryResponseSchema = dataBodySchema(knowledgeEntrySchema);
-export const createKnowledgeEntryResponseSchema = dataBodySchema(createKnowledgeEntryResultSchema);
-export const knowledgeEntryStatsResponseSchema = dataBodySchema(knowledgeEntryStatsResultSchema);
-export const knowledgeHealthResponseSchema = dataBodySchema(knowledgeHealthReportSchema);
-export const knowledgeFlywheelResponseSchema = dataBodySchema(knowledgeFlywheelMetricsSchema);
-export const knowledgeAuditResponseSchema = dataBodySchema(knowledgeAuditReportSchema);
-export const analystAccuracyResponseSchema = dataBodySchema(analystAccuracyReportSchema);
-export const injectContextResponseSchema = dataBodySchema(injectContextResultSchema);
-export const matchResolutionsResponseSchema = dataBodySchema(matchResolutionsResultSchema);
 export const knowledgeSuccessResponseSchema = dataBodySchema(knowledgeSuccessResultSchema);

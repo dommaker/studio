@@ -1,5 +1,6 @@
 /**
  * #359: knowledge 分页入口统一走 parsePagination（clamp 1..100）
+ * （P4.1 后 /knowledge-service/search 端点已删，本文件只覆盖现存入口）
  *
  * 修复前三处三个口径（search clamp 50 / entries|unified clamp 100 / export 无 clamp）。
  * 行为口径变化（缺省值）：search 10→20、export 100→20、unified 50→20、
@@ -12,7 +13,6 @@ import { Router, type RequestHandler } from 'express';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────
 const mockSharedStoreList = vi.hoisted(() => vi.fn());
-const mockSearch = vi.hoisted(() => vi.fn());
 const mockList = vi.hoisted(() => vi.fn());
 const mockGapQuery = vi.hoisted(() => vi.fn());
 const mockListEntries = vi.hoisted(() => vi.fn());
@@ -21,7 +21,7 @@ vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: { list: mockSharedStoreList },
 }));
 vi.mock('../knowledge-service.js', () => ({
-  knowledgeService: { search: mockSearch, list: mockList },
+  knowledgeService: { list: mockList },
 }));
 vi.mock('../knowledge-query.service.js', () => ({
   knowledgeQuery: { query: mockGapQuery },
@@ -70,7 +70,6 @@ describe('knowledge 分页 clamp (#359)', () => {
     mockSharedStoreList.mockReturnValue(
       Array.from({ length: 150 }, (_, i) => ({ id: `e${i}`, title: `t${i}`, content: 'c' })),
     );
-    mockSearch.mockResolvedValue([]);
     mockList.mockResolvedValue([]);
     mockGapQuery.mockResolvedValue([]);
     mockListEntries.mockResolvedValue({ entries: [], total: 0 });
@@ -103,18 +102,6 @@ describe('knowledge 分页 clamp (#359)', () => {
 
     await getHandler(entriesRoutes, 'get', '/unified')(createReq({ limit: '9999' }), createRes(), () => undefined);
     expect(mockListEntries.mock.calls[1][0].limit).toBe(100);
-  });
-
-  it('GET /knowledge-service/search?limit=999 → clamp 100（修复前 clamp 50）', async () => {
-    const res = createRes();
-    await getHandler(knowledgeServiceRoutes, 'get', '/search')(createReq({ q: 'x', limit: '999' }), res, () => undefined);
-    expect(mockSearch.mock.calls[0][1].limit).toBe(100);
-  });
-
-  it('GET /knowledge-service/search 缺省 limit=20（原缺省 10）', async () => {
-    const res = createRes();
-    await getHandler(knowledgeServiceRoutes, 'get', '/search')(createReq({ q: 'x' }), res, () => undefined);
-    expect(mockSearch.mock.calls[0][1].limit).toBe(20);
   });
 
   it('GET /knowledge-service/entries 缺省 limit=20（修复前不设限）；limit=999 clamp 100', async () => {
