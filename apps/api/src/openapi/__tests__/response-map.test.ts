@@ -19,7 +19,7 @@ describe('RESPONSE_MAP 卫生', () => {
         expect(doc.response, key).toBeInstanceOf(z.ZodType);
       }
     }
-    expect(Object.keys(RESPONSE_MAP).length).toBeGreaterThan(200);
+    expect(Object.keys(RESPONSE_MAP).length).toBeGreaterThan(150);
   });
 
   it('关键域在场（workunit/channels/pmo/contract envelope 派生的代表性端点）', () => {

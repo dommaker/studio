@@ -58,16 +58,6 @@ export function downgradeAnnotation(strippedFlags: string[]): { strippedEvidence
 }
 
 /**
- * 降级检查项清单（AC2 三态不可混淆）：从检查结果中收 skipped 项，
- * 无论请求体是否带标志，证据不可得的检查项都在响应顶层显式可见。
- */
-export function degradedChecksOf(result: ConstraintCheckResult): Array<{ id: string; skipReason?: string }> {
-  return [...result.errors, ...result.warnings]
-    .filter((r) => r.skipped)
-    .map((r) => ({ id: r.id, skipReason: r.skipReason }));
-}
-
-/**
  * 违规部分视图（harness 1.15.0 block 模式适配，与 degradedChecks/strippedEvidenceFlags
  * 同族标注 → violationPartialView）。
  *

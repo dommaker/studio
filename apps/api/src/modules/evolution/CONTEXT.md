@@ -83,20 +83,22 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
   约束候选扫描（子项 7）显式装配才启用——`constraintCandidates.listEntries` 缺省不扫
   （测试封闭），生产单例 getEvolutionService 接 knowledge-singletons sharedStore；
   decide 对超期 pending/approved 拒决策并转 stale（#602 D2）
-- `evolution.routes.ts` — E1 约束进化 API
+- ~~evolution.routes.ts~~ — E1 约束进化 admin API，P4.4（2026-10-17）已整体删除（孤儿面，
+  无 HTTP 消费方；决策/扫描仍由 scheduler、review-adapter、audit-logs/proposal-source 直调
+  service），见注意事项删除清单条
 
 ### 依赖关系
 
 - 上游：`@dommaker/studio-shared`（eventBus、FileStore、logger）、review-proposal 正本（adapter 注册/发卡/通用审批端点）
-- 下游：apps/api 路由挂载；`evolution-daily-scan` trigger（agents/default-triggers）驱动每日扫描
+- 下游：review-proposal 正本（发卡/审批）；`evolution-daily-scan` trigger（agents/default-triggers）驱动每日扫描；bootstrap/handlers.ts:52 scheduler 与 audit-logs/proposal-source.ts 直调 service（原 /api/v1/evolution 挂载已随 P4.4 摘除）
 
 ### 注意事项
 
-- 保守策略：信号不足时零提案；`EVOLUTION_ENABLED=false` 关闭每日扫描 trigger（agents/default-triggers），不影响提案卡审批与 admin API
+- 保守策略：信号不足时零提案；`EVOLUTION_ENABLED=false` 关闭每日扫描 trigger（agents/default-triggers），不影响提案卡审批
 - **fs 直写保留理由（P2-e 登记）**：applier.ts / constraint-adapter.ts 的裸 fs 全部落在**目标仓 `.harness/`**（config.yml / constraints.yml / reports，非数据区）与 `~/.studio/prompt-overrides/*.md`（markdown 形态 FileStore 不管，路径经 studio-shared `resolvePromptOverridesDir()` 统一入口）；备份/回滚/写后验证纪律要求文件级操作，不收 FileStore。
 - **harness 0.17.1 适配（2026-08-09，ADR-0001）**：E1 完整保留仅拆弹——存量 source='harness-autoEvolve' 提案仅为兼容保留。harness 侧 /evolve /degrade /schedule 端点已删除（见本文 `apps/api/src/modules/harness` 锚点）
 - **#602 Phase 1 全链路打通（2026-09-21）**：四断点全修——(a) 链路改吃 usage report 退役候选（harness 仓 5d0d84a 加公共导出，**ship 前须发布 harness patch 并 bump 本仓 lockfile**）；(b) override 文件接生产读者（knowledge-service injectContext「## 系统约束」段经 renderWithOverride，D3）；EP-0002 自锁修（TTL→stale，D2）；tool:call 埋点写真值（D4，见 agents/loop 锚点）。验收：scratch 环境五步全链路绿（信号→提案→人审→override 落盘→injectContext 消费；当时人审走频道，#623 起走正本卡片）
-- **#623 归位正本卡片（2026-09-22）**：频道文本审核通道（人类回复 approve/reject + EP 编号的文本解析）整体退役，提案改发 review-proposal 正本卡（cardType `evolution_proposal`）到 #系统，审批走通用端点 `/api/v1/review-proposals/evolution/:id/{approve,reject,status}`；存量 `evolution/` 数据零迁移（EP 编号体系保留，admin API decide 路径不动）
+- **#623 归位正本卡片（2026-09-22）**：频道文本审核通道（人类回复 approve/reject + EP 编号的文本解析）整体退役，提案改发 review-proposal 正本卡（cardType `evolution_proposal`）到 #系统，审批走通用端点 `/api/v1/review-proposals/evolution/:id/{approve,reject,status}`；存量 `evolution/` 数据零迁移（EP 编号体系保留）
 - **harness 1.10.0 适配（2026-09-20，ADR-0029 / studio#606）**：applier 的内置定义查表从 IRON_LAWS/GUIDELINES/PROMPTS 三桶改为 CONSTRAINTS 单桶（行为不变）；targetType 'iron-law'/'guideline' 是 studio 提案自有词表，不随 harness 三层命名退役；约束类提案落点（custom-constraints.yml）已随 #606 从本仓退役（#602 D1 新落点 config.yml，见核心导出 applier 条）。
 - **约束类提案落点加闸（2026-09-21 上午加闸，同日 #602 D1 裁定新落点后收窄）**：落笔前抛错闸仍对存量历史词表（message/new-entry/exception）生效（无消费端）；M3.2 后词表收敛为 retire/disable，retire 走 harness CLI（M3.3）+ 生效自动 commit 留痕（M3.5，trailer `Governance-Approved: EP-XXXX`）。
 - **disable 直写豁免（#646 评审补记，2026-09-28）**：`applyConstraintDisable` 直写 config.yml `enabled:false`（及 applyRetire 内 disable→retire 升级的摘除标记）属 harness 公共面能力缺失的豁免——harness 无 disable 子命令/库导出，已立 dommaker/harness#190，落地后切换。spawn harness CLI 一律钉 `KNOWLEDGE_BASE_DIR=UNIFIED_KNOWLEDGE_DIR`（ADR-0034，retire 路径原有纪律，#646 rollback 同此）。
@@ -104,5 +106,5 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - traces 信号读取（#646，2026-09-28；harness 3.0.0/ADR-0041 起改 `readProjectTracesReport(repoRoot).traces`，兼容包装 readProjectTraces 出清）：constraint traces 走 harness 公共 API（缺失/坏行容错在 harness 侧），`EvolutionPaths.traceFile` 字段随之退役——traces 落点路径不再由 studio 拼，测试注入 tmp dir 用 `repoRoot` 即可（写 `<tmp>/.harness/logs/traces.log`）；`loadWindowSignals` 签名同步去掉不再使用的 fileStore 参数
 - 信号面无外部输入口：`loadWindowSignals` 只读三个固定文件源（traces.log + studio-events.jsonl 的 tool:call / knowledge:outcome:*），外部语义信号（如 distill 判出的「疑似过时约束」）要进飞轮须新建摄入机制，不是接线（#622 查实，2026-09-22）
 - 提案必须经人确认后才由 applier 生效，不做自动落地
-- **鉴权（2026-07-24 收紧）**：`/api/v1/evolution` 挂载级 `requireAuth()+requireAdmin()` —— approve/reject/run 直接让约束变更生效，此前仅 requireAuth。
-- **契约驱动（2026-10 批次 3/7）**：evolution.routes.ts 全端点走 core/http.ts defineRoute（契约 packages/studio-contract/src/evolution.ts）。wire 变化：`{ success: true, data }` 壳的 success 标志退役（`{ data }`）；`{ success: false, error: string }` 统一 `{ error: { code, message } }`，EvolutionError code 即 envelope code（NOT_FOUND→404 / CONFLICT→409 / APPLY_FAILED→500 保持）；decide body 的 reason/decidedBy 非字符串原静默忽略现 zod 400。通用提案卡审批端点 /api/v1/review-proposals/evolution/:id/* 归批次 4 未动。
+- **鉴权（2026-07-24 收紧；2026-10-17 P4.4 整体摘除）**：原 `/api/v1/evolution` 挂载级 `requireAuth()+requireAdmin()`——该 admin API（GET /proposals、GET /proposals/:id、POST /proposals/:id/approve|reject、POST /run 五端点）为孤儿面（前端只走 /review-proposals/evolution/:id/*，无 HTTP 消费方），同批删 evolution.routes.ts + 契约 evolution.ts + 路由测试 + response-map 映射 + route-registry 挂载；EvolutionService 本体全保留（scheduler/review-adapter/audit-logs 直调）。删后决策唯一入口 = review-proposal 正本卡。
+- **契约驱动（2026-10 批次 3/7；P4.4 随路由整体出清）**：evolution.routes.ts 曾全端点走 core/http.ts defineRoute（契约 packages/studio-contract/src/evolution.ts）。wire 变化：`{ success: true, data }` 壳的 success 标志退役（`{ data }`）；`{ success: false, error: string }` 统一 `{ error: { code, message } }`，EvolutionError code 即 envelope code（NOT_FOUND→404 / CONFLICT→409 / APPLY_FAILED→500 保持）；decide body 的 reason/decidedBy 非字符串原静默忽略现 zod 400。通用提案卡审批端点 /review-proposals/evolution/:id/* 归批次 4 未动，本批未触碰。

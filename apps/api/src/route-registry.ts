@@ -174,9 +174,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // WU transcript 只读查看 (#174, #60 C5)
   const { default: transcriptRoutes } = await import('./modules/transcripts/transcript.routes.js') as { default: Router };
 
-  // Iron Laws routes (ex-runtime-proxy, 2026-05-14)
-  const { default: ironLawsRoutes } = await import('./modules/harness/iron-laws.routes.js') as { default: Router };
-
   // Harness monitoring routes (T-015)
   const { default: harnessRoutes } = await import('./modules/harness/routes.js') as { default: Router };
 
@@ -236,9 +233,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Trigger routes (3.28c-4: REST API for trigger management)
   const { triggerRouter } = await import('./modules/triggers/trigger.routes.js') as { triggerRouter: Router };
 
-  // Evolution routes (E1 约束进化, vision §6)
-  const { default: evolutionRoutes } = await import('./modules/evolution/evolution.routes.js') as { default: Router };
-
   // Monitoring routes (MVP-2 + MVP-6)（#683 起归 ops 模块）
   const { default: monitoringRoutes } = await import('./modules/ops/monitoring.routes.js') as { default: Router };
 
@@ -284,7 +278,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/agent-instances', router: agentInstanceWriteRoutes, middleware: authNotGuest },
     { path: '/api/v1/agent-instances', router: agentInstanceAdminRoutes, middleware: admin, comment: 'terminate（原 requireAuth+requireAdmin，等价上移）' },
     { path: '/api/v1/triggers', router: triggerRouter, middleware: admin, comment: '3.28c-4: Trigger CRUD + status' },
-    { path: '/api/v1/evolution', router: evolutionRoutes, middleware: admin, comment: 'E1 约束进化：提案列表/审批/手动扫描 (vision §6)' },
     { path: '/api/v1/monitoring', router: monitoringRoutes, middleware: admin, comment: 'MVP-2/6: Agent + WorkUnit monitoring' },
     { path: '/api/v1/projects', router: projectRoutes, middleware: auth, comment: 'AC-D1+D3: Local project discovery（登录即可：PMO 新建表单工程下拉依赖）' },
 
@@ -295,7 +288,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/skills', router: skillsWriteRoutes, middleware: authNotGuest },
 
     // 运行时
-    { path: '/api/v1/iron-laws', router: ironLawsRoutes, comment: 'Iron Laws (ex-runtime-proxy)' },
     { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
     { path: '/api/v1/events', router: eventOpenRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD（读：登录即可）' },
     { path: '/api/v1/events', router: eventWriteRoutes, middleware: authNotGuest },

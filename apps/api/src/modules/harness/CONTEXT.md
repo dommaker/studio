@@ -21,8 +21,8 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 | `diagnostics.routes.ts` | 错误分类（/classify、/failures；/check-spec、/verify* 随 harness 1.2.0 ADR-0003 断链删除） |
 | `dashboard.routes.ts` | 健康检查（/health；/dashboard 随 harness 1.2.0 ADR-0003 断链删除） |
 | `cso.routes.ts` | CSO 验证（/validate——harness 3.0.0 起 CSOValidator.getInstance() 单例壳出清，路由改 new CSOValidator() 直建，可选链假绿分支已由构造计数测试钉住；2026-07 起 /api/v1/cso 只挂本文件，不再整挂 routes.ts 门面——否则 harness 的 Admin 收紧可被 /cso/* 双挂载绕过） |
-| `iron-laws.routes.ts` | Iron Laws（独立子路由，挂 /api/v1/iron-laws；#641 起 /check 与 /check-all 剥离请求体自报的 has* 证据标志，依赖项由 harness 降级 skip，响应以 strippedEvidenceFlags 标注降级；1.15.0 适配：/check-all 捕获 ConstraintViolationError → 200 部分视图数据（violationPartialView），500 只留真实 harness 故障；/check 走 checkConstraint(id) 不抛、违规天然走数据面） |
-| `sanitize-context.ts` | #641 证据标志信任边界唯一口（mcp/safety.tools 复用）：被检查者不能自证，sanitizeConstraintContext 剥离请求侧 has* 标志；harness 3.0.0/ADR-0041 起死证据标志管道自 ConstraintContext 类型面出清（仅剩 hasPlanApproval），本清单转 studio 本地 wire 卫生面、入参放宽为候选 context——客户端自报键仍被剥、绝不进 checkConstraints；downgradeAnnotation/degradedChecksOf 负责响应面降级标注（strippedEvidenceFlags + 顶层 degradedChecks 清单，三态不可混淆）；violationAsPartialView + VIOLATION_PARTIAL_VIEW 承接 block 模式违规 → 部分视图数据（仅首个违规，与 degradedChecks 同族口径） |
+| ~~iron-laws.routes.ts~~ | P4.4（2026-10-17）整体删除：/api/v1/iron-laws 四端点（GET /、GET /:id、POST /check、POST /check-all）为孤儿面（前端/CLI/MCP/studio-config 均无消费方；MCP checkConstraint 直连 @dommaker/harness 库不经 HTTP），路由文件 + 契约 iron-laws.ts + 路由测试 + response-map 映射 + route-registry 挂载一并摘除；sanitize-context.ts 保留（constraints.routes /check-constraints 与 mcp/safety.tools 消费） |
+| `sanitize-context.ts` | #641 证据标志信任边界唯一口（mcp/safety.tools 复用）：被检查者不能自证，sanitizeConstraintContext 剥离请求侧 has* 标志；harness 3.0.0/ADR-0041 起死证据标志管道自 ConstraintContext 类型面出清（仅剩 hasPlanApproval），本清单转 studio 本地 wire 卫生面、入参放宽为候选 context——客户端自报键仍被剥、绝不进 checkConstraints；downgradeAnnotation 负责响应面降级标注（strippedEvidenceFlags）；violationAsPartialView + VIOLATION_PARTIAL_VIEW 承接 block 模式违规 → 部分视图数据（与 strippedEvidenceFlags 同族口径；P4.4 起仅 constraints.routes /check-constraints 与 mcp/safety.tools 两处消费） |
 
 ### 核心导出
 
@@ -61,13 +61,14 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
   证据缺失 = error 级 fail（本仓暂无证据生产方，触发域含 code_implementation 的直调面会恒 fail，
   生产方建设待 harness 侧口径落定）。`sanitize-context.ts` 剥离清单同步缩为 7 项。
 - 违规数据面适配（2026-09-28，1.15.0 后续）：`checkConstraints` block 模式对首个 error 级违规
-  即抛 `ConstraintViolationError`（只带该条结果，后续 error/warning 未跑）。三个消费面
-  （iron-laws /check-all、constraints /check-constraints、MCP checkConstraint）统一
+  即抛 `ConstraintViolationError`（只带该条结果，后续 error/warning 未跑）。消费面
+  （constraints /check-constraints、MCP checkConstraint）统一
   `instanceof` 捕获 → 200 部分视图数据（`violationPartialView: {truncated, reason}` 标注，
-  与 degradedChecks/strippedEvidenceFlags 同族）；500/harnessUnavailable 只留给真实调不通
+  与 strippedEvidenceFlags 同族）；500/harnessUnavailable 只留给真实调不通
   harness。注意 `checkConstraint(id)` 单约束面不抛，无需处理；docs-freshness 传
   `module_modification`，不在该约束触发域（trigger=code_implementation），不受影响未改。
   真根因（本仓缺 .harness/evidence 证据生产方）另票处理。
 - listRetiredConstraints 已随 harness 1.15.0（#188/#192）成公共面（签名 target: RunTarget，
   无 cwd 默认值）；constraints.routes.ts 的 retired 墓碑直读豁免切换属后续单票，本仓当前零调用点。
 - **契约驱动迁移（2026-10 批次 6/7）**：harness 八子路由 + cso + iron-laws 全端点走 defineRoute——必填 guard 收进 zod（traces 三件套/knowledge budget+三件套/sessions id+event/agents id/diagnostics message/estimate-tokens 二选一 refine/propose-upgrade constraintId 字符集/check-constraints operation；iron-laws lawId/context，MISSING_LAW_ID/MISSING_CONTEXT 手写码退役）；列表壳内层 data 键改名词键进 `{ data }` 壳（traces/constraints/retired/knowledge entries/lint issues/agents，避免 data.data 双包，无消费方）；propose-upgrade success 标志与 iron-laws `{ success, data, count, source }` 壳退役；rollback rolledBack、check-constraints 与 iron-laws 标注键（strippedEvidenceFlags/degradedChecks/violationPartialView）收进 data 内；#641 证据标志剥离依赖 schema 声明保留 has* 键（check-constraints hasRequirement 声明、iron-laws context 用 record）；503 统一 code SERVICE_UNAVAILABLE（GET /health 的 status:'unknown' 兄弟键退役）；500 message 由固定串变为实际错误消息。cso /validate 恒 200 降级语义不变（原注释的前端 api.validateCSO() 死面清除）。
+- **活消费方台账（P4.4 补记，2026-10-17）**：`POST /harness/check-constraints`（constraints.routes.ts）有活消费方 = CLI `studio test` 冒烟（apps/api/src/cli/dev.ts:118 live 冒烟，删面禁区）；harness knowledge 面（GET/POST /harness/knowledge*）CLI 消费方 = `studio test` 冒烟（cli/dev.ts:131）。`/api/v1/iron-laws` 四端点无消费方已删（见路由表 iron-laws 条）；MCP checkConstraint（mcp/safety.tools.ts:17）直连 @dommaker/harness 库不经 HTTP，不受影响。

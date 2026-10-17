@@ -12,7 +12,8 @@
  *   提案是 `<dataDir>/evolution/EP-XXXX.json` 单提案文件 + flock 序号（Requirement 模式），
  *   故经 registry config.store 注入 EvolutionProposalStore 包现有 FileStore 读写，
  *   存量历史提案零迁移。
- * - EP 编号体系保留；admin API decide 路径（evolution.routes.ts）不动。
+ * - EP 编号体系保留；原 admin API decide 路径（evolution.routes.ts）已随 P4.4
+ *   孤儿端点批整体删除，审批唯一入口 = review-proposal 正本卡片。
  */
 import * as path from 'node:path';
 import {

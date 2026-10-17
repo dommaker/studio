@@ -84,7 +84,7 @@ import {
   specChangeListResponseSchema,
   changeStatsResponseSchema,
   importChangesResponseSchema,
-  // triggers / evolution
+  // triggers
   listTriggersResponseSchema,
   triggerCostsResponseSchema,
   triggerResponseSchema,
@@ -93,9 +93,6 @@ import {
   deleteTriggerResponseSchema,
   triggerLogsResponseSchema,
   triggerStatusResponseSchema,
-  evolutionProposalListResponseSchema,
-  evolutionProposalResponseSchema,
-  evolutionRunResponseSchema,
   // knowledge（/knowledge + /knowledge-service + /api/knowledge 内部）
   knowledgeGapsResponseSchema,
   unifiedKnowledgeListResponseSchema,
@@ -147,7 +144,7 @@ import {
   auditLogResourcesResponseSchema,
   auditLogGetResponseSchema,
   docsFreshnessResponseSchema,
-  // harness / cso / iron-laws
+  // harness / cso
   traceListResponseSchema,
   traceRecordResponseSchema,
   traceAnalysisResponseSchema,
@@ -176,10 +173,6 @@ import {
   failureRecordResponseSchema,
   harnessHealthResponseSchema,
   csoValidateResponseSchema,
-  ironLawListResponseSchema,
-  ironLawGetResponseSchema,
-  ironLawCheckResponseSchema,
-  ironLawCheckAllResponseSchema,
   // mcp / executions / agents / agent-profiles
   mcpToolListResponseSchema,
   mcpToolCallResponseSchema,
@@ -314,7 +307,7 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/specs/gates': { response: gatePolicyMapResponseSchema, summary: '门禁策略全表' },
   'GET /api/v1/specs/gates/:level': { response: gatePolicyResponseSchema, summary: '门禁策略（按级别）' },
 
-  // ── triggers / evolution ──
+  // ── triggers ──
   'GET /api/v1/triggers': { response: listTriggersResponseSchema, summary: '触发器列表' },
   'POST /api/v1/triggers': { response: saveTriggerResponseSchema, summary: '创建触发器' },
   'GET /api/v1/triggers/:id': { response: triggerResponseSchema, summary: '触发器详情' },
@@ -323,11 +316,6 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/triggers/:id/logs': { response: triggerLogsResponseSchema, summary: '触发日志' },
   'GET /api/v1/triggers/costs': { response: triggerCostsResponseSchema, summary: '触发成本' },
   'GET /api/v1/triggers/status': { response: triggerStatusResponseSchema, summary: '调度器状态' },
-  'GET /api/v1/evolution/proposals': { response: evolutionProposalListResponseSchema, summary: '进化提案列表' },
-  'GET /api/v1/evolution/proposals/:id': { response: evolutionProposalResponseSchema, summary: '进化提案详情' },
-  'POST /api/v1/evolution/proposals/:id/approve': { response: evolutionProposalResponseSchema, summary: '进化提案通过' },
-  'POST /api/v1/evolution/proposals/:id/reject': { response: evolutionProposalResponseSchema, summary: '进化提案拒绝' },
-  'POST /api/v1/evolution/run': { response: evolutionRunResponseSchema, summary: '手动扫描' },
 
   // ── knowledge（P4.2 后 /api/v1/knowledge 剩 7 端点 + maintenance 1 条）──
   'GET /api/v1/knowledge/gaps/:type': { response: knowledgeGapsResponseSchema, summary: '五类知识缺口查询（按类型）' },
@@ -393,7 +381,7 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/audit-logs/:id': { response: auditLogGetResponseSchema, summary: '审计详情' },
   'GET /api/v1/admin/docs-freshness': { response: docsFreshnessResponseSchema, summary: '文档新鲜度检查' },
 
-  // ── harness / cso / iron-laws ──
+  // ── harness / cso ──
   'GET /api/v1/harness/traces': { response: traceListResponseSchema, summary: '执行轨迹列表' },
   'POST /api/v1/harness/traces': { response: traceRecordResponseSchema, summary: '记录执行轨迹' },
   'GET /api/v1/harness/analysis': { response: traceAnalysisResponseSchema, summary: '轨迹分析' },
@@ -422,10 +410,6 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'POST /api/v1/harness/failures': { response: failureRecordResponseSchema, summary: '失败记录' },
   'GET /api/v1/harness/health': { response: harnessHealthResponseSchema, summary: 'harness 健康' },
   'GET /api/v1/cso/validate': { response: csoValidateResponseSchema, summary: 'CSO 验证（恒 200 降级三形态）' },
-  'GET /api/v1/iron-laws': { response: ironLawListResponseSchema, summary: 'Iron Laws 列表' },
-  'GET /api/v1/iron-laws/:id': { response: ironLawGetResponseSchema, summary: 'Iron Law 详情' },
-  'POST /api/v1/iron-laws/check': { response: ironLawCheckResponseSchema, summary: '单条检查' },
-  'POST /api/v1/iron-laws/check-all': { response: ironLawCheckAllResponseSchema, summary: '全量检查' },
 
   // ── mcp（REST 管理面；协议面不进文档）──
   'GET /api/v1/mcp/tools': { response: mcpToolListResponseSchema, summary: 'MCP 工具列表' },
