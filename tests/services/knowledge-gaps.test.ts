@@ -492,32 +492,17 @@ describe('PatternMiner (G-005)', () => {
 // ════════════════════════════════════════════
 
 describe('KnowledgeQueryService (S8)', () => {
-  it('五种类型都可查询', async () => {
+  it('query 是唯一查询面，getStats 已摘除', async () => {
     const { knowledgeQuery } = await import(
       '../../apps/api/src/modules/knowledge/knowledge-query.service.js'
     );
 
     expect(knowledgeQuery).toBeDefined();
     expect(typeof knowledgeQuery.query).toBe('function');
-    expect(typeof knowledgeQuery.getStats).toBe('function');
-  });
-
-  it('知识统计包含所有类型', async () => {
-    const { knowledgeQuery } = await import(
-      '../../apps/api/src/modules/knowledge/knowledge-query.service.js'
-    );
-
-    try {
-      const stats = await knowledgeQuery.getStats();
-      expect(stats).toHaveProperty('preference');
-      expect(stats).toHaveProperty('business_rule');
-      expect(stats).toHaveProperty('environment');
-      expect(stats).toHaveProperty('decision_chain');
-      expect(stats).toHaveProperty('interaction');
-    } catch {
-      // DB unavailable expected
-      expect(true).toBe(true);
-    }
+    // getStats（五类统计概览）随其唯一消费方 GET /knowledge/gaps 于 P4.2（2026-10-17）摘除，锁死不回面
+    expect((knowledgeQuery as Record<string, unknown>).getStats).toBeUndefined();
+    // 不在单测实跑 query()：decision_chain 支路走 sharedStore.list()，读开发机真实知识库，
+    // 索引漂移即抛（harness 3.0.0 起 list 对「在册但文件缺失/不可解析」抛出，修复入口 harness knowledge index）
   });
 });
 
