@@ -1,6 +1,6 @@
 preset: standard
 harness:
-  version: 4.0.0
+  version: 4.0.1
 governance:
   context_files:
     enabled: true

@@ -12,7 +12,7 @@
     "lint": "eslint src/**/*.ts"
   },
   "dependencies": {
-    "@dommaker/harness": "^4.0.0",
+    "@dommaker/harness": "^4.0.1",
     "@dommaker/studio-shared": "workspace:*",
     "@dommaker/studio-skill": "workspace:*",
     "uuid": "^9.0.0"
