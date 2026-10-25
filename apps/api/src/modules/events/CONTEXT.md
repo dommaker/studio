@@ -9,8 +9,8 @@
 | 模块 | 路由 | 用途 |
 |------|------|------|
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
-| event.routes.ts | POST /api/v1/events | 创建 StudioEvent |
-| event.routes.ts | GET /api/v1/events | 查询 StudioEvent（requireAuth；#180 起：type/since/until/level/keyword/workUnitId 过滤 + 尾部倒读游标分页 `cursor`→`nextCursor`，替代全文件线性扫 + 200 硬顶；level 缺省 ≥info，level=debug 看全部；倒读实现 `../../utils/studio-events-tail.ts`） |
+| event.routes.ts | POST /api/v1/events | 创建 StudioEvent（消费方 = 前端 `utils/clientPerf.ts:38` 性能上报） |
+| event.routes.ts | GET /api/v1/events | 查询 StudioEvent（requireAuth；#180 起：type/since/until/level/keyword/workUnitId 过滤 + 尾部倒读游标分页 `cursor`→`nextCursor`，替代全文件线性扫 + 200 硬顶；level 缺省 ≥info，level=debug 看全部；倒读实现 `../../utils/studio-events-tail.ts`；消费方 = 前端 `api/events.ts:31` EventSearchPanel/NeedsAttentionSection + `api/workunit.ts:273,280` listTokenEvents/listExecutionStepEvents） |
 | ~~event.routes.ts~~ | ~~POST /api/v1/events/agent-events~~ | 已随 P4.6（2026-10-17）删除：仓内无代码消费方（B9-014 外部 runtime 来源已断）；其挂的 session:end → session:summary 触发链随之无 HTTP 入口（session-summary-generator 本体与直测保留，恢复触发需另票） |
 | runtime-events.routes.ts | POST /api/v1/executions/events | runtime 事件回调（2026-10 架构精简刀1 自 executions 模块迁入，URL/请求/响应形状不变，同机 agent-runtime 零改动；requireLocalhost 留路由内；活逻辑 = eventBus 'events' 频道发布，原 executions.jsonl/data/tasks 死写未随迁） |
 | sse.routes.ts | GET /api/v1/events/stream | SSE 实时事件流（#491 起消费 Last-Event-ID：重连补发 replay buffer 窗口内遗漏事件） |

@@ -16,7 +16,6 @@
 | types | packages/studio-shared/src/types/ | Goal 状态类型 — SQLite 不支持 enum，用 TypeScript 类型守卫约束 |
 | utils | packages/studio-shared/src/utils/ | Shared Logger - 统一日志接口 |
 | src | packages/studio-skill/src/ | SkillLoader — 按 trigger 加载 Skill，注入 Agent prompt |
-| docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | auth | apps/api/src/modules/auth/ | POST /api/v1/auth/guest-session |
 | channels | apps/api/src/modules/channels/ | Seed default channels on startup (B1-001) |
@@ -61,9 +60,7 @@
 | prompt-section-roster | apps/api/src/modules/agent-loop/prompt-sections/prompt-section-roster.ts | roster 段（#671 自 prompt-composer.ts 拆出）：`## 频道成员与委派` 段组装。 |
 | prompt-section-skill | apps/api/src/modules/agent-loop/prompt-sections/prompt-section-skill.ts | skills 段（#671 自 prompt-composer.ts 拆出）：`## 本次任务 Skills` 段组装。 |
 | action-center | packages/studio-contract/src/action-center.ts | action-center 域契约——正本以 apps/api/src/modules/action-center/ |
-| admin | packages/studio-contract/src/admin.ts | admin 域契约（批次 6/7）——正本以 apps/api/src/modules/admin/ |
 | agent-profiles | packages/studio-contract/src/agent-profiles.ts | agent-profiles / agent-instances 域契约（批次 8/8）——实体类型与 studio-shared |
-| agents | packages/studio-contract/src/agents.ts | agents 域契约——§10.5 token-usage 面（/api/v1/agents 下唯一活面）。 |
 | audit-logs | packages/studio-contract/src/audit-logs.ts | audit-logs 域契约（批次 6/7）——正本以 apps/api/src/modules/audit-logs/ |
 | auth | packages/studio-contract/src/auth.ts | auth 域契约（批次 6/7；敏感域）——本文件 schema 即 wire 正本（#685 归一： |
 | channels | packages/studio-contract/src/channels.ts | channels 域契约——正本字段以 apps/api/src/modules/channels/channel.service.ts |
@@ -73,9 +70,7 @@
 | discord | packages/studio-contract/src/discord.ts | discord 域契约（批次 7/8）——**协议面例外，只做形状声明，路由保持原样**。 |
 | envelope | packages/studio-contract/src/envelope.ts | 统一响应壳（target-architecture.md §契约）： |
 | events | packages/studio-contract/src/events.ts | events 域契约——正本以 apps/api/src/modules/events/event.routes.ts 与 |
-| evolution | packages/studio-contract/src/evolution.ts | evolution 域契约——实体 EvolutionProposal 与 studio-shared file-store-types |
 | harness | packages/studio-contract/src/harness.ts | harness 域契约（批次 6/7）——正本以 apps/api/src/modules/harness/ |
-| iron-laws | packages/studio-contract/src/iron-laws.ts | iron-laws 域契约（批次 6/7）——正本以 apps/api/src/modules/harness/ |
 | knowledge | packages/studio-contract/src/knowledge.ts | knowledge 域契约——正本字段以 apps/api/src/modules/knowledge/ 实测 wire 为准： |
 | library | packages/studio-contract/src/library.ts | library 域契约——正本以 apps/api/src/modules/library/library.service.ts |
 | mcp | packages/studio-contract/src/mcp.ts | mcp 域契约（批次 7/8）——正本以 apps/api/src/modules/mcp/ 的 REST 管理面 |

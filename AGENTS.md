@@ -40,7 +40,7 @@ pnpm start  # 启动生产服务
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 38 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 37 个），改动代码时同步更新
 
 <!-- PRESERVE:governance -->
 ## 治理契约
@@ -121,7 +121,6 @@ pnpm start  # 启动生产服务
 | 目录 | 说明 |
 |------|------|
 | `apps/api/src/modules/action-center` | 统一行动中心（#468）：一个端点回答「现在需要我做什么」。GET /api/v1/action-center（requireAuth + requireNotGuest）返回三段：stateItems（状态派生：reply=bloc... |
-| `apps/api/src/modules/admin` | 提供 REST API 端点检查 CLAUDE.md 和 CAPABILITIES.md 的文档新鲜度，包括文件是否存在、最近修改时间、harness 约束检查结果，用于监控文档同步状态。 |
 | `apps/api/src/modules/agent-auditor` | Auditor Agent（P2-d 刀4 自 modules/agents/auditor 提升为顶层模块）：24h 日审跨任务审计——错误归类/技能建议/知识健康 → 低风险自动应用 / 人审确认卡片 / Resolution /... |
 | `apps/api/src/modules/agent-knowledge` | 知识维护 Agent（P2-d 刀7 自 modules/agents/knowledge 提升为顶层模块）：知识库冷启动导入 + 每日维护。命名 agent-knowledge 以区别于顶层 knowledge 模块（知识引擎：Pr... |
 | `apps/api/src/modules/agent-loop` | 决策循环与 WU 执行链（P2-d 刀5 自 modules/agents/loop 提升为顶层模块）：AgentLoop 循环编排（observe → 过滤 → claim → agentStep → recordResult →... |
@@ -133,7 +132,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/deploy` | Deploy Webhook：GitHub push 事件触发的自动部署入口（触发式部署，替代每分钟轮询的主通道）。仅接受 push 到 refs/heads/master，202 立即返回后异步触发部署脚本（幂等可重入，脚本内含方向... |
 | `apps/api/src/modules/discord` | 处理 Discord 集成，包括命令行 (studio run) 和 Discord 斜杠命令 (/studio run) 共享的命令运行逻辑，以及 Discord 交互端点（按钮点击回调）的路由处理。 |
 | `apps/api/src/modules/distill` | 蒸馏主链路：WU done 钩子跑门槛检测（纯确定性计数，零 LLM）-> 命中发 distill_proposal 卡到 #系统 -> approve 后 system-executor 执行蒸馏 -> 产物入库 + 原料 matu... |
-| `apps/api/src/modules/events` | 提供全局事件系统：StudioEvent CRUD（G30）、AgentEvent 批量写入（B9-014）、SSE 实时流（HZ-028）、Session 摘要生成（B9-015）。 |
+| `apps/api/src/modules/events` | 提供全局事件系统：StudioEvent CRUD（G30）、SSE 实时流（HZ-028）、Session 摘要生成（B9-015）。AgentEvent 批量写入 HTTP 入口（B9-014）已随 P4.6 删除（无消费方）。 |
 | `apps/api/src/modules/evolution` | E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：从执行 traces/outcomes 中加载信号，生成约束进化提案，经人审提案卡（review-propos... |
 | `apps/api/src/modules/harness` | Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生命周期、 |
 | `apps/api/src/modules/knowledge` | 知识引擎：让系统越来越聪明。三层分离架构（Producer → Engine → Consumer）。 |
@@ -151,7 +150,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/transcripts` | transcript 归档器（#97，#88 子票）：把会话原文落盘到数据区（经 studioDir()/studioPath()），供四个消费方共用——#99 WU 收尾批量提取（要全文）、handoff 摘要（要对话）、#85 执... |
 | `apps/api/src/modules/triage` | 错误分类（triage）与严重度评估 + Triage Agent 事件响应。两层同域合并（P2-d 刀2，agents 超级域拆分）： |
 | `apps/api/src/modules/triggers` | Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus）两类条件的触发器调度与持久化，动作包括 CREATE WorkUnit / UPDATE / EXECUTE。系统默... |
-| `apps/api/src/modules/workspaces` | 本机 Workspace 记录的自动注册与查询（只读 list/get + 删除）、CLI 运行时清单扫描。Token 管理已随 #481 退役删除。 |
+| `apps/api/src/modules/workspaces` | 本机 Workspace 记录的自动注册与查询（只读 list/get）、CLI 运行时清单扫描。Token 管理已随 #481 退役删除；DELETE /:id 与 GET /:id/runtimes 已随 P4.6（2026-10... |
 | `apps/api/src/modules/workunit` | WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 NEED_INPUT 挂起/恢复与超时提醒。 |
 | `packages/studio-agent` | Sub-agent 的完整生命周期管理：创建隔离 worktree → 传播 harness 配置 → spawn provider CLI（单 session）→ stream-json 解析与事件发射。完成判定/状态机不在本包，由... |
 | `packages/studio-contract` | API 契约唯一正本（docs/architecture/target-architecture.md）：按域一个文件的 zod schema，定义请求/响应形状；envelope.ts 定义统一响应壳（{ data } / { da... |

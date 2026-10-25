@@ -15,7 +15,6 @@ governance:
       - packages/studio-skill/src
       - apps/api/src/bootstrap
       - apps/api/src/modules/action-center
-      - apps/api/src/modules/admin
       - apps/api/src/modules/agent-auditor
       - apps/api/src/modules/agent-knowledge
       - apps/api/src/modules/agent-loop
