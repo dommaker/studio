@@ -4,12 +4,13 @@
  * paginated 直出 / 自定义状态码 / 204。
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { z } from 'zod';
 import { defineRoute, paginated, HttpError, requireHuman, resolveCallerAuthorType, makePagination } from '../http.js';
+import { logger } from '../../utils/logger.js';
 
 const itemSchema = z.object({ id: z.string(), title: z.string() });
 
@@ -38,13 +39,16 @@ function buildApp() {
       errors: [
         { match: 'not found', status: 404, code: 'NOT_FOUND' },
         { match: 'conflict', status: 409, code: 'CONFLICT' },
+        { match: 'mapped upstream', status: 502, code: 'BAD_GATEWAY' },
       ],
     },
     async (_req, _res, input) => {
       if (input.params.id === '404') throw new Error('item not found');
       if (input.params.id === '409') throw new Error('already exists, conflict');
       if (input.params.id === '403') throw new HttpError(403, 'FORBIDDEN', 'nope');
-      if (input.params.id === '500') throw new Error('boom');
+      if (input.params.id === '500') throw new Error('boom token=fake-secret /private/internal/path');
+      if (input.params.id === '501') throw new HttpError(500, 'INTERNAL', 'explicit token=fake-secret /private/internal/path');
+      if (input.params.id === '502') throw new Error('mapped upstream token=fake-secret /private/internal/path');
       return { id: input.params.id, title: 'x' };
     },
   ));
@@ -153,10 +157,85 @@ describe('defineRoute', () => {
     expect((await res.json()).error).toEqual({ code: 'FORBIDDEN', message: 'nope' });
   });
 
-  it('未命中映射 → 500 INTERNAL', async () => {
+  it('非生产未命中映射 → 500 INTERNAL，保留诊断 message', async () => {
     const res = await fetch(`${base}/items/500`);
     expect(res.status).toBe(500);
-    expect((await res.json()).error.code).toBe('INTERNAL');
+    expect((await res.json()).error).toEqual({
+      code: 'INTERNAL',
+      message: 'boom token=fake-secret /private/internal/path',
+    });
+  });
+
+  it('生产未处理 500 只回通用错误与 requestId，详细错误仅进日志', async () => {
+    const previousEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const log = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    try {
+      const res = await fetch(`${base}/items/500`, { headers: { 'x-request-id': 'req-sec09' } });
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({
+        error: { code: 'INTERNAL', message: 'Internal server error', requestId: 'req-sec09' },
+      });
+      expect(log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: 'req-sec09',
+          error: expect.objectContaining({ message: 'boom token=fake-secret /private/internal/path' }),
+        }),
+        'defineRoute: unhandled error',
+      );
+    } finally {
+      log.mockRestore();
+      if (previousEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousEnv;
+    }
+  });
+
+  it('生产显式 HttpError(500) 同样只回通用错误与 requestId', async () => {
+    const previousEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const log = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    try {
+      const res = await fetch(`${base}/items/501`, { headers: { 'x-request-id': 'req-sec09-http' } });
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({
+        error: { code: 'INTERNAL', message: 'Internal server error', requestId: 'req-sec09-http' },
+      });
+      expect(log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: 'req-sec09-http',
+          error: expect.objectContaining({ message: 'explicit token=fake-secret /private/internal/path' }),
+        }),
+        'defineRoute: unhandled error',
+      );
+    } finally {
+      log.mockRestore();
+      if (previousEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousEnv;
+    }
+  });
+
+  it('生产映射 5xx 保留状态与 code，但隐藏详细 message', async () => {
+    const previousEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const log = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    try {
+      const res = await fetch(`${base}/items/502`, { headers: { 'x-request-id': 'req-sec09-mapped' } });
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({
+        error: { code: 'BAD_GATEWAY', message: 'Internal server error', requestId: 'req-sec09-mapped' },
+      });
+      expect(log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: 'req-sec09-mapped',
+          error: expect.objectContaining({ message: 'mapped upstream token=fake-secret /private/internal/path' }),
+        }),
+        'defineRoute: unhandled error',
+      );
+    } finally {
+      log.mockRestore();
+      if (previousEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousEnv;
+    }
   });
 
   it('204 无响应体', async () => {

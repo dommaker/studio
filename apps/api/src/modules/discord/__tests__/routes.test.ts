@@ -23,6 +23,10 @@ const { mockFileStore, mockUnclaim, mockUpdateMetadata, mockClose, mockAgentStop
     updateMetadata: vi.fn(),
     commitSnapshot: vi.fn(),
     commitRemoval: vi.fn(),
+    getDataDir: vi.fn(() => '/unused'),
+    withLock: vi.fn(),
+    readJsonUncached: vi.fn(),
+    writeJson: vi.fn(),
   },
   mockUnclaim: vi.fn(),
   mockUpdateMetadata: vi.fn(),
@@ -83,6 +87,7 @@ function makeSnapshot(id: string, overrides: Record<string, unknown> = {}) {
 describe('discord interactions 路由（#538 写路径收口）', () => {
   let server: Server;
   let base: string;
+  let replayLedger: unknown = null;
 
   beforeAll(async () => {
     process.env.DISCORD_PUBLIC_KEY = PUBLIC_KEY_HEX;
@@ -104,14 +109,20 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    replayLedger = null;
+    mockFileStore.withLock.mockImplementation(async (_path, fn) => fn());
+    mockFileStore.readJsonUncached.mockImplementation(async () => structuredClone(replayLedger));
+    mockFileStore.writeJson.mockImplementation(async (_path, value) => {
+      replayLedger = structuredClone(value);
+    });
     mockClose.mockResolvedValue(true);
     mockUnclaim.mockResolvedValue({});
     mockUpdateMetadata.mockResolvedValue({});
   });
 
-  async function postInteraction(payload: unknown, opts?: { badSignature?: boolean }) {
+  async function postInteraction(payload: unknown, opts?: { badSignature?: boolean; timestamp?: string }) {
     const body = JSON.stringify(payload);
-    const timestamp = String(Math.floor(Date.now() / 1000));
+    const timestamp = opts?.timestamp ?? String(Math.floor(Date.now() / 1000));
     const signature = opts?.badSignature ? 'deadbeef' : signBody(body, timestamp);
     return fetch(`${base}/interactions`, {
       method: 'POST',
@@ -124,12 +135,23 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     });
   }
 
-  const button = (customId: string) => ({ type: 3, data: { component_type: 2, custom_id: customId } });
+  const button = (customId: string) => ({ id: `interaction-${customId}`, type: 3, data: { component_type: 2, custom_id: customId } });
 
   it('签名无效 → 401（签名验证优先于业务逻辑）', async () => {
     const res = await postInteraction(button('abandon:wu-1'), { badSignature: true });
     expect(res.status).toBe(401);
     expect(mockClose).not.toHaveBeenCalled();
+  });
+
+  it.each([-301, 301])('签名正确但 timestamp 超出五分钟（offset=%s）→ 401，零业务或台账副作用', async (offset) => {
+    const timestamp = String(Math.floor(Date.now() / 1000) + offset);
+    const res = await postInteraction(button('retry:wu-expired:3'), { timestamp });
+    expect(res.status).toBe(401);
+    expect(mockUnclaim).not.toHaveBeenCalled();
+    expect(mockUpdateMetadata).not.toHaveBeenCalled();
+    expect(mockClose).not.toHaveBeenCalled();
+    expect(mockFileStore.writeJson).not.toHaveBeenCalled();
+    expect(mockFileStore.commitSnapshot).not.toHaveBeenCalled();
   });
 
   it('retry 按钮 → unclaim 回池 + updateMetadata 语义口合并（resumeAfterRetry + extraRounds），零直写', async () => {
@@ -147,6 +169,115 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     expect(mockFileStore.updateMetadata).not.toHaveBeenCalled();
     expect(mockFileStore.commitSnapshot).not.toHaveBeenCalled();
     expect(mockFileStore.commitRemoval).not.toHaveBeenCalled();
+  });
+
+  it('同 interaction 重放复用首个响应，不重复业务写或改重放台账', async () => {
+    const interaction = button('retry:wu-replay:4');
+    const first = await postInteraction(interaction);
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    const ledgerBefore = structuredClone(replayLedger);
+
+    const replay = await postInteraction(interaction);
+
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual(firstBody);
+    expect(mockUnclaim).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMetadata).toHaveBeenCalledTimes(1);
+    expect(mockClose).not.toHaveBeenCalled();
+    expect(mockFileStore.commitSnapshot).not.toHaveBeenCalled();
+    expect(mockEventBusPublish).not.toHaveBeenCalled();
+    expect(replayLedger).toEqual(ledgerBefore);
+  });
+
+  it('慢处理超过旧 60s 租约仍拒绝在途重放，不重复业务副作用', async () => {
+    const realNow = Date.now;
+    let now = realNow();
+    Date.now = () => now;
+    let finishFirst!: () => void;
+    let calls = 0;
+    mockUnclaim.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) await new Promise<void>(resolve => { finishFirst = resolve; });
+      return {};
+    });
+    const interaction = button('retry:wu-slow:2');
+    const firstPromise = postInteraction(interaction);
+    while (mockUnclaim.mock.calls.length === 0) await new Promise(r => setTimeout(r, 5));
+    now += 61_000;
+
+    let replay: Response;
+    try {
+      replay = await postInteraction(interaction);
+    } finally {
+      finishFirst();
+      await firstPromise;
+      Date.now = realNow;
+    }
+
+    expect(replay.status).toBe(409);
+    expect(mockUnclaim).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMetadata).toHaveBeenCalledTimes(1);
+  });
+
+  it('业务副作用后 complete 失败返回 503 并保留 processing，重试 409 且零重复写', async () => {
+    let writes = 0;
+    mockFileStore.writeJson.mockImplementation(async (_path, value) => {
+      writes += 1;
+      if (writes === 2) throw new Error('complete failed');
+      replayLedger = structuredClone(value);
+    });
+    const interaction = button('retry:wu-complete-failed:2');
+    const first = await postInteraction(interaction);
+    const replay = await postInteraction(interaction);
+
+    expect(first.status).toBe(503);
+    expect(replay.status).toBe(409);
+    expect(mockUnclaim).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMetadata).toHaveBeenCalledTimes(1);
+    expect(writes).toBe(2);
+  });
+
+  it('业务异常可能部分成功时不释放，同 ID 重试不重复执行', async () => {
+    mockUnclaim.mockRejectedValueOnce(new Error('temporary failure')).mockResolvedValueOnce({});
+    const interaction = button('retry:wu-retry-after-failure:2');
+    const failed = await postInteraction(interaction);
+    expect(failed.status).toBe(200);
+    const failedBody = await failed.json();
+    expect(failedBody.data.content).toContain('temporary failure');
+
+    const retry = await postInteraction(interaction);
+
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual(failedBody);
+    expect(mockUnclaim).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMetadata).not.toHaveBeenCalled();
+  });
+
+  it('业务写入前的只读失败可释放，同 ID 重试允许继续', async () => {
+    const exec = makeSnapshot('exec-read-retry', { status: 'active' });
+    mockFileStore.getIndex
+      .mockRejectedValueOnce(new Error('read failed'))
+      .mockResolvedValue([exec]);
+    const interaction = {
+      id: 'interaction-read-retry',
+      type: 2,
+      data: {
+        name: 'studio',
+        options: [{ name: 'stop', options: [{ name: 'execution_id', value: exec.id }] }],
+      },
+    };
+    const failed = await postInteraction(interaction);
+    expect(failed.status).toBe(200);
+    expect((await failed.json()).data.content).toContain('read failed');
+
+    const retry = await postInteraction(interaction);
+
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).data.content).toContain('Stopped execution');
+    expect(mockFileStore.getIndex).toHaveBeenCalledTimes(3);
+    expect(mockClose).toHaveBeenCalledTimes(1);
+    expect(mockAgentStop).toHaveBeenCalledTimes(1);
   });
 
   it('retry-new 按钮 → unclaim + updateMetadata 语义口合并（resumeAfterRetry + freshPrompt）', async () => {
@@ -215,6 +346,7 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     mockFileStore.getIndex.mockResolvedValue([exec]);
 
     const res = await postInteraction({
+      id: 'interaction-studio-stop',
       type: 2,
       data: {
         name: 'studio',
@@ -237,6 +369,7 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     mockFileStore.getIndex.mockResolvedValue([exec]);
 
     const res = await postInteraction({
+      id: 'interaction-studio-stop',
       type: 2,
       data: {
         name: 'studio',

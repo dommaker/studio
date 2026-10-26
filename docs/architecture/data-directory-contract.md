@@ -41,7 +41,7 @@ data/
     REQ-0042.json    # RequirementData（每需求一个文件）
 ```
 
-现行扩展段（代码在用，同样属契约内）：`companies/`（companies/routes.ts、mcp/tool-store.ts）、`evolution/`（file-store.ts SeqEntryStore，E1 提案）、`resolutions/`、`trends/`（trend-data.ts，按日 md）、`tasks/`（executions 遗留接口仍活）、`spec-reviews/`（mcp/spec.tools.ts）、`users/`（ops.service/notification 写读）、`skills/`（skill-demotion.ts）、`attachments/`（channels/attachments.ts）。
+现行扩展段（代码在用，同样属契约内）：`companies/`（companies/routes.ts、mcp/tool-store.ts）、`evolution/`（file-store.ts SeqEntryStore，E1 提案）、`resolutions/`、`trends/`（trend-data.ts，按日 md）、`tasks/`（executions 遗留接口仍活）、`spec-reviews/`（mcp/spec.tools.ts）、`users/`（ops.service/notification 写读）、`skills/`（skill-demotion.ts）、`attachments/`（channels/attachments.ts）、`webhook-replays.json` + `webhook-replays.lock`（core/replay-guard.ts，SEC-09 重放台账与跨进程锁；delivery/interaction 完成项 24h TTL，deploy commit 完成项永久，processing 无 TTL，新 claim 仅清理有过期时间的完成项；v2 幂等迁移建立空台账，已有文件不覆盖）。
 
 ### ② 根级配置、索引与程序数据
 

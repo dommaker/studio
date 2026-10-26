@@ -4,7 +4,8 @@
  * 每条路由走 defineRoute：zod 校验入参 → handler 返回业务数据 → 统一 envelope
  * （成功 `{ data }` / 分页 `{ data, pagination }` / 失败 `{ error: { code, message } }`）。
  *
- * 错误翻译顺序：HttpError 直出 → 可选映射表（字符串/RegExp/Error 类首命中）→ 500 兜底。
+ * 错误翻译顺序：HttpError → 可选映射表（字符串/RegExp/Error 类首命中）→ 500 兜底。
+ * 4xx 与非生产诊断 message 直出；生产所有 5xx 只回通用 message + requestId。
  * 消灭三件套：手写 `if (!x) return 400`、`msg.includes('not found')` 散落各 handler、
  * 响应格式第三种形状。
  *
@@ -13,6 +14,7 @@
  */
 
 import type { NextFunction, Request, Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { ERROR_CODES, type Pagination, type PaginatedBody } from '@dommaker/studio-contract';
 import { getErrorMessage } from '../utils/errors.js';
@@ -119,8 +121,23 @@ function isPaginatedBody(value: unknown): value is PaginatedBody<unknown> {
     && typeof (value as PaginatedBody<unknown>).pagination === 'object';
 }
 
-function sendMappedError(res: Response, error: unknown, mappings: readonly ErrorMapping[]): void {
+function sendProduction5xx(req: Request, res: Response, error: unknown, status: number, code: string): void {
+  const header = req.headers['x-request-id'];
+  const requestId = (req as any).requestId
+    || (typeof header === 'string' && header.trim())
+    || randomUUID();
+  (req as any).requestId = requestId;
+  logger.error({ error, requestId }, 'defineRoute: unhandled error');
+  res.status(status).json({ error: { code, message: 'Internal server error', requestId } });
+}
+
+function sendMappedError(req: Request, res: Response, error: unknown, mappings: readonly ErrorMapping[]): void {
+  const production = process.env.NODE_ENV === 'production';
   if (error instanceof HttpError) {
+    if (production && error.status >= 500) {
+      sendProduction5xx(req, res, error, error.status, error.code);
+      return;
+    }
     res.status(error.status).json({ error: { code: error.code, message: error.message } });
     return;
   }
@@ -132,12 +149,20 @@ function sendMappedError(res: Response, error: unknown, mappings: readonly Error
         ? m.match.test(msg)
         : error instanceof m.match;
     if (hit) {
+      if (production && m.status >= 500) {
+        sendProduction5xx(req, res, error, m.status, m.code);
+        return;
+      }
       res.status(m.status).json({ error: { code: m.code, message: msg } });
       return;
     }
   }
-  logger.error({ error }, 'defineRoute: unhandled error');
-  res.status(500).json({ error: { code: ERROR_CODES.INTERNAL, message: msg } });
+  if (!production) {
+    logger.error({ error }, 'defineRoute: unhandled error');
+    res.status(500).json({ error: { code: ERROR_CODES.INTERNAL, message: msg } });
+    return;
+  }
+  sendProduction5xx(req, res, error, 500, ERROR_CODES.INTERNAL);
 }
 
 function formatZodError(error: z.ZodError): string {
@@ -187,7 +212,7 @@ export function defineRoute<S extends RouteSchema>(
         });
         return;
       }
-      sendMappedError(res, error, opts.errors ?? []);
+      sendMappedError(req, res, error, opts.errors ?? []);
     }
   };
   // OpenAPI 派生：schema/成功状态码随 handler 走，openapi/discover.ts 从路由栈读回

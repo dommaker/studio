@@ -145,10 +145,35 @@ const v1EmptyManifest: Migration = {
   apply: async () => {},
 };
 
-/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
-export const MIGRATIONS: Migration[] = [v1EmptyManifest];
+/** SEC-09：新增短期 webhook 重放台账；已有台账视为中断残留，不覆盖。 */
+const v2WebhookReplayLedger: Migration = {
+  version: 2,
+  name: 'v2-webhook-replay-ledger',
+  isApplied: async (rootDir) => fs.existsSync(path.join(dataDir(rootDir), 'webhook-replays.json')),
+  apply: async (rootDir) => {
+    const dir = dataDir(rootDir);
+    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
+    await fs.promises.chmod(dir, 0o700);
+    const target = path.join(dir, 'webhook-replays.json');
+    const tmp = `${target}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      await fs.promises.writeFile(tmp, JSON.stringify({ version: 1, entries: {} }, null, 2) + '\n', {
+        encoding: 'utf-8',
+        mode: 0o600,
+      });
+      await fs.promises.chmod(tmp, 0o600);
+      await fs.promises.rename(tmp, target);
+    } catch (error) {
+      await fs.promises.unlink(tmp).catch(() => {});
+      throw error;
+    }
+  },
+};
 
-export const CURRENT_SCHEMA_VERSION = 1;
+/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
+export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger];
+
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export interface RunMigrationsOptions {
   /** 测试注入用；缺省 = MIGRATIONS */

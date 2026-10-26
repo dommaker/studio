@@ -12,6 +12,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { WorkUnitService } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
+import { ReplayGuard, REPLAY_TTL_MS } from '../../core/replay-guard.js';
 
 const router = express.Router();
 const getWorkUnitService = createLazyService(() => new WorkUnitService(getStore()));
@@ -96,6 +97,12 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
     res.status(401).send('invalid request signature');
     return;
   }
+  const timestampSeconds = Number(timestamp);
+  if (!Number.isFinite(timestampSeconds)
+    || Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds) > 300) {
+    res.status(401).send('invalid request timestamp');
+    return;
+  }
 
   // 解析 JSON body
   let body: any;
@@ -106,9 +113,41 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
     return;
   }
 
+  const interactionId = typeof body.id === 'string' ? body.id.trim() : '';
+  if (!interactionId) {
+    res.status(400).send('Interaction id required');
+    return;
+  }
+  const guard = new ReplayGuard(getStore());
+  let claim;
+  try {
+    claim = await guard.claim([{ key: `discord-interaction:${interactionId}`, ttlMs: REPLAY_TTL_MS }]);
+  } catch (error) {
+    logger.error({ error: String(error) }, '[Discord] replay guard unavailable');
+    res.status(503).json({ error: 'replay guard unavailable' });
+    return;
+  }
+  if (claim.status === 'replayed') {
+    if (claim.response !== undefined) res.json(claim.response);
+    else res.status(409).json({ error: 'interaction in progress' });
+    return;
+  }
+  const respond = async (response: unknown, completed = true): Promise<void> => {
+    try {
+      if (completed) await guard.complete(claim.token, response);
+      else await guard.release(claim.token);
+    } catch (error) {
+      // complete 失败时业务可能已成功，保留 processing，禁止自动重试。
+      logger.error({ error: String(error) }, '[Discord] failed to finalize replay claim');
+      res.status(503).json({ error: 'replay guard unavailable' });
+      return;
+    }
+    res.json(response);
+  };
+
   // PING: URL 验证（签名已验证通过）
   if (body.type === InteractionType.PING) {
-    res.json({ type: ResponseType.PONG });
+    await respond({ type: ResponseType.PONG });
     return;
   }
 
@@ -126,15 +165,15 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
         if (subcommand === 'run') {
           const requirement = options?.[0]?.options?.find((o: any) => o.name === 'requirement')?.value;
           if (!requirement || !String(requirement).trim()) {
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: 'Usage: /studio run <requirement>' } });
+            await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: 'Usage: /studio run <requirement>' } });
             return;
           }
           try {
             const { triggerRequirement } = await import('./command-runner.js');
             const result = await triggerRequirement(String(requirement).trim());
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: result } });
+            await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: result } });
           } catch (err: any) {
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ Failed to submit: ${err.message?.slice(0, 300) || String(err)}` } });
+            await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ Failed to submit: ${err.message?.slice(0, 300) || String(err)}` } });
           }
           return;
         }
@@ -152,7 +191,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
               .slice(0, 5);
 
             if (runningExecs.length === 0) {
-              res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: 'No running executions.' } });
+              await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: 'No running executions.' } });
               return;
             }
 
@@ -188,9 +227,10 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
             }
 
             lines.push('Use `/studio stop <executionId>` to stop an execution.');
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: lines.join('\n') } });
+            await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: lines.join('\n') } });
           } catch (err: any) {
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ Error reading progress: ${err.message?.slice(0, 300) || String(err)}` } });
+            // progress 全分支只读，失败已证明无业务写，可释放重试。
+            await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ Error reading progress: ${err.message?.slice(0, 300) || String(err)}` } }, false);
           }
           return;
         }
@@ -198,35 +238,42 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
         if (subcommand === 'stop') {
           const executionId = options?.[0]?.options?.find((o: any) => o.name === 'execution_id')?.value;
           if (!executionId || !String(executionId).trim()) {
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: 'Usage: /studio stop <executionId>' } });
+            await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: 'Usage: /studio stop <executionId>' } });
             return;
           }
           const eid = String(executionId).trim();
 
+          let allSnapshots: any[];
           try {
-            const allSnapshots = await getStore().getIndex();
+            allSnapshots = await getStore().getIndex();
+          } catch (err: any) {
+            // 首个业务写之前的只读失败可安全重试。
+            await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ Failed to stop: ${err.message?.slice(0, 300) || String(err)}` } }, false);
+            return;
+          }
+          try {
             const exec = allSnapshots.find(s => s.id === eid);
             if (!exec) {
               // Try partial match
               const match = allSnapshots.find(s => s.id.startsWith(eid));
               if (match) {
                 if (match.status !== 'active' && match.status !== 'unassigned') {
-                  res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Cannot stop execution with status: ${match.status}` } });
+                  await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Cannot stop execution with status: ${match.status}` } });
                   return;
                 }
                 await closeWorkUnit(match.id, 'Stopped by user via Discord');
                 // Try to kill running child process (agentRunner 持有真实的 runningProcesses)
                 const { agentRunner } = await import('@dommaker/studio-agent');
                 await agentRunner.stop(match.id);
-                res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `✅ Stopped execution \`${match.id.slice(0, 8)}\`` } });
+                await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `✅ Stopped execution \`${match.id.slice(0, 8)}\`` } });
                 return;
               }
-              res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Execution not found: \`${eid}\`` } });
+              await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Execution not found: \`${eid}\`` } });
               return;
             }
 
             if (exec.status !== 'active' && exec.status !== 'unassigned') {
-              res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Cannot stop execution with status: ${exec.status}` } });
+              await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Cannot stop execution with status: ${exec.status}` } });
               return;
             }
 
@@ -236,17 +283,17 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
             const { agentRunner } = await import('@dommaker/studio-agent');
             await agentRunner.stop(exec.id);
 
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `✅ Stopped execution \`${exec.id.slice(0, 8)}\`` } });
+            await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `✅ Stopped execution \`${exec.id.slice(0, 8)}\`` } });
           } catch (err: any) {
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ Failed to stop: ${err.message?.slice(0, 300) || String(err)}` } });
+            await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ Failed to stop: ${err.message?.slice(0, 300) || String(err)}` } });
           }
           return;
         }
       }
 
-      res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Unknown command: /${name} ${subcommand}` } });
+      await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Unknown command: /${name} ${subcommand}` } });
     } catch (error) {
-      res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ Error: ${String(error).slice(0, 500)}` } });
+      await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ Error: ${String(error).slice(0, 500)}` } });
     }
     return;
   }
@@ -263,20 +310,20 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
     try {
       if (action === 'confirm' || action === 'reject') {
         logger.info({ action, targetId }, '[Discord] Meeting action ignored (meeting module removed)');
-        res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `会议操作已忽略（Meeting 模块已移除）` } });
+        await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `会议操作已忽略（Meeting 模块已移除）` } });
         return;
       }
 
       if (action === 'retry') {
         const extraRounds = parseInt(parts[2] || '2', 10);
         await resetForRetry(targetId, { extraRounds });
-        res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔁 已重置，再给 ${extraRounds} 轮` } });
+        await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔁 已重置，再给 ${extraRounds} 轮` } });
         return;
       }
 
       if (action === 'retry-new') {
         await resetForRetry(targetId, { freshPrompt: true });
-        res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔄 已重置，换了新方向` } });
+        await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔄 已重置，换了新方向` } });
         return;
       }
 
@@ -288,20 +335,22 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
           : result.error
             ? `⚠️ 关闭失败: ${result.error.slice(0, 300)}`
             : `WorkUnit not found: ${targetId}`;
-        res.json({
+        // 状态机/落库错误可能发生在部分写入后，缓存错误响应但不自动重试。
+        await respond({
           type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: { content },
         });
         return;
       }
 
-      res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `⚠️ 未知操作: ${action}` } });
+      await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `⚠️ 未知操作: ${action}` } });
     } catch (error) {
-      res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ 处理失败: ${String(error)}` } });
+      await respond({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ 处理失败: ${String(error)}` } });
     }
     return;
   }
 
+  await guard.release(claim.token);
   res.status(400).send('Unknown interaction type');
 });
 

@@ -24,6 +24,10 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
     upsertSnapshot = vi.fn().mockResolvedValue(undefined);
     // #170：close/update 走锁内成对原语
     commitSnapshot = vi.fn().mockResolvedValue(undefined);
+    getDataDir = vi.fn(() => '/unused');
+    withLock = vi.fn(async (_path, fn) => fn());
+    readJsonUncached = vi.fn(async () => null);
+    writeJson = vi.fn(async () => undefined);
   }
   return { ...orig, FileStore: MockFileStore };
 });
@@ -44,7 +48,7 @@ let base: string;
 
 function signedPost(path: string, body: unknown) {
   const bodyStr = JSON.stringify(body);
-  const timestamp = String(Date.now());
+  const timestamp = String(Math.floor(Date.now() / 1000));
   const signature = crypto.sign(null, Buffer.from(timestamp + bodyStr), privateKey).toString('hex');
   return fetch(`${base}${path}`, {
     method: 'POST',
@@ -59,6 +63,7 @@ function signedPost(path: string, body: unknown) {
 
 function stopCommand(executionId: string) {
   return {
+    id: `interaction-stop-${executionId}`,
     type: 2, // APPLICATION_COMMAND
     data: {
       name: 'studio',
