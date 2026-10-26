@@ -17,9 +17,9 @@ import { workUnitSchema } from './workunit.js';
 /** GET /costs 响应 data（byTrigger/bySource 为 token 数；callsBySource 为调用次数） */
 export const triggerCostsResultSchema = z.object({
   days: z.number(),
-  byTrigger: z.record(z.number()),
-  bySource: z.record(z.number()),
-  callsBySource: z.record(z.number()),
+  byTrigger: z.record(z.string(), z.number()),
+  bySource: z.record(z.string(), z.number()),
+  callsBySource: z.record(z.string(), z.number()),
 });
 export type TriggerCostsResult = z.infer<typeof triggerCostsResultSchema>;
 

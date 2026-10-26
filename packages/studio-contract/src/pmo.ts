@@ -136,7 +136,7 @@ export const okrKeyResultSchema = z.object({
   /** 度量类型（e.g. "pipeline_duration_p90"） */
   metricType: z.string().optional(),
   /** 度量查询参数（e.g. { days: 7 }） */
-  queryParams: z.record(z.unknown()).optional(),
+  queryParams: z.record(z.string(), z.unknown()).optional(),
 });
 export type OkrKeyResult = z.infer<typeof okrKeyResultSchema>;
 

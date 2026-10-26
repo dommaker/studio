@@ -40,9 +40,9 @@ export const specContentSchema = z.object({
       request: z.string().optional(),
       response: z.string().optional(),
     }).passthrough()).optional(),
-    schemas: z.record(z.object({
+    schemas: z.record(z.string(), z.object({
       type: z.string(),
-      properties: z.record(z.unknown()).optional(),
+      properties: z.record(z.string(), z.unknown()).optional(),
     }).passthrough()).optional(),
   }).passthrough().optional(),
   acceptance_criteria: z.array(z.object({
@@ -109,7 +109,7 @@ export type ChangeRecordWire = z.infer<typeof changeRecordSchema>;
 export const changeStatsSchema = z.object({
   total: z.number(),
   byLevel: z.object({ L1: z.number(), L2: z.number(), L3: z.number(), L4: z.number() }),
-  byStatus: z.record(z.number()),
+  byStatus: z.record(z.string(), z.number()),
   recentChanges: z.array(changeRecordSchema),
 });
 export type ChangeStatsWire = z.infer<typeof changeStatsSchema>;
@@ -120,7 +120,7 @@ export const checkResultSchema = z.object({
   type: z.string(),
   passed: z.boolean(),
   message: z.string(),
-  details: z.record(z.unknown()).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
 });
 export type CheckResultWire = z.infer<typeof checkResultSchema>;
 
@@ -195,11 +195,11 @@ export const validateChangeBodySchema = z.object({
   checkpoints: z.array(z.string()).optional(),
   harnessConfigs: z.array(z.object({
     type: z.string(),
-    harness: z.record(z.unknown()).optional(),
+    harness: z.record(z.string(), z.unknown()).optional(),
   }).passthrough().superRefine((entry, ctx) => {
     if (entry.type === 'command_success') {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         path: ['type'],
         message: 'Spec HTTP 门禁不接受宿主命令检查',
       });
@@ -207,7 +207,7 @@ export const validateChangeBodySchema = z.object({
     for (const field of ['command', 'workdir'] as const) {
       if (entry.harness && field in entry.harness) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: 'custom',
           path: ['harness', field],
           message: `Spec HTTP 门禁不接受 harness.${field}`,
         });
@@ -219,7 +219,7 @@ export const validateChangeBodySchema = z.object({
       const value = entry.harness?.[field];
       if (typeof value !== 'string' || value === '') {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: 'custom',
           path: ['harness', field],
           message: `${entry.type} 检查缺少必填配置项 harness.${field}`,
         });
@@ -242,7 +242,7 @@ export const analyzeChangeResponseSchema = dataBodySchema(analyzeChangeResultSch
 export const changeRecordResponseSchema = dataBodySchema(changeRecordSchema);
 export const validateChangeResponseSchema = dataBodySchema(validateChangeResultSchema);
 export const gatePolicyResponseSchema = dataBodySchema(gatePolicySchema);
-export const gatePolicyMapResponseSchema = dataBodySchema(z.record(gatePolicySchema));
+export const gatePolicyMapResponseSchema = dataBodySchema(z.record(z.string(), gatePolicySchema));
 export const specChangeListResponseSchema = paginatedBodySchema(changeRecordSchema);
 export const changeStatsResponseSchema = dataBodySchema(changeStatsSchema);
 export const importChangesResponseSchema = dataBodySchema(importChangesResultSchema);

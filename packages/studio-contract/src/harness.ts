@@ -154,8 +154,8 @@ export type TraceListResult = z.infer<typeof traceListResultSchema>;
 
 /** GET /analysis 响应 data（summaries/anomalies 为 harness 分析形状，宽声明） */
 export const traceAnalysisResultSchema = z.object({
-  summaries: z.array(z.record(z.unknown())),
-  anomalies: z.array(z.record(z.unknown())),
+  summaries: z.array(z.record(z.string(), z.unknown())),
+  anomalies: z.array(z.record(z.string(), z.unknown())),
   totalSummaries: z.number(),
   totalAnomalies: z.number(),
   skippedLines: z.number(),
@@ -164,7 +164,7 @@ export type TraceAnalysisResult = z.infer<typeof traceAnalysisResultSchema>;
 
 /** GET /analysis/anomalies 响应 data */
 export const traceAnomaliesResultSchema = z.object({
-  anomalies: z.array(z.record(z.unknown())),
+  anomalies: z.array(z.record(z.string(), z.unknown())),
   total: z.number(),
   skippedLines: z.number(),
 });
@@ -187,7 +187,7 @@ export type ConstraintListResult = z.infer<typeof constraintListResultSchema>;
 /** GET /constraints/stats 响应 data（0.17.0 起按 kind/severity 聚合；harness 3.0.0 kind 出清后仅 severity） */
 export const constraintStatsResultSchema = z.object({
   total: z.number(),
-  bySeverity: z.record(z.number()),
+  bySeverity: z.record(z.string(), z.number()),
 });
 export type ConstraintStatsResult = z.infer<typeof constraintStatsResultSchema>;
 
@@ -261,7 +261,7 @@ export type CheckConstraintsResult = z.infer<typeof checkConstraintsResultSchema
 /** budget 必填收进 zod（原手写 400；positive 对齐原 `!budget` 拒 0 语义） */
 export const knowledgeQueryBodySchema = z.object({
   budget: z.number().positive(),
-  filter: z.record(z.unknown()).optional(),
+  filter: z.record(z.string(), z.unknown()).optional(),
 });
 export type KnowledgeQueryBody = z.infer<typeof knowledgeQueryBodySchema>;
 
@@ -291,7 +291,7 @@ export const harnessKnowledgeListResultSchema = z.object({
 export type HarnessKnowledgeListResult = z.infer<typeof harnessKnowledgeListResultSchema>;
 
 export const harnessKnowledgeLintResultSchema = z.object({
-  issues: z.array(z.record(z.unknown())),
+  issues: z.array(z.record(z.string(), z.unknown())),
   total: z.number(),
 });
 export type HarnessKnowledgeLintResult = z.infer<typeof harnessKnowledgeLintResultSchema>;
@@ -337,7 +337,7 @@ export const harnessAgentRegisterBodySchema = z.object({
   type: z.string().optional(),
   name: z.string().optional(),
   capabilities: z.array(z.string()).optional(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
 });
 export type HarnessAgentRegisterBody = z.infer<typeof harnessAgentRegisterBodySchema>;
 
@@ -363,7 +363,7 @@ export const classifyBodySchema = z.object({
   message: z.string().min(1),
   name: z.string().optional(),
   stack: z.string().optional(),
-  context: z.record(z.unknown()).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
 });
 export type ClassifyBody = z.infer<typeof classifyBodySchema>;
 
@@ -371,7 +371,7 @@ export const failureRecordBodySchema = z.object({
   type: z.string().optional(),
   level: z.string().optional(),
   message: z.string().min(1),
-  context: z.record(z.unknown()).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
 });
 export type FailureRecordBody = z.infer<typeof failureRecordBodySchema>;
 
@@ -397,7 +397,7 @@ export const constraintGetResponseSchema = dataBodySchema(harnessConstraintSchem
 export const proposeUpgradeResponseSchema = dataBodySchema(proposeUpgradeResultSchema);
 export const rollbackConstraintResponseSchema = dataBodySchema(rollbackConstraintResultSchema);
 export const checkConstraintsResponseSchema = dataBodySchema(checkConstraintsResultSchema);
-export const harnessKnowledgeQueryResponseSchema = dataBodySchema(z.record(z.unknown()));
+export const harnessKnowledgeQueryResponseSchema = dataBodySchema(z.record(z.string(), z.unknown()));
 export const harnessKnowledgeListResponseSchema = dataBodySchema(harnessKnowledgeListResultSchema);
 export const harnessKnowledgeGetResponseSchema = dataBodySchema(harnessKnowledgeEntrySchema);
 export const harnessKnowledgeSaveResponseSchema = dataBodySchema(z.object({
@@ -409,10 +409,10 @@ export const harnessKnowledgeLintResponseSchema = dataBodySchema(harnessKnowledg
 export const estimateTokensResponseSchema = dataBodySchema(estimateTokensResultSchema);
 export const sessionCreateResponseSchema = dataBodySchema(sessionCreateResultSchema);
 export const sessionEventResponseSchema = dataBodySchema(z.object({ recorded: z.boolean() }));
-export const sessionGetResponseSchema = dataBodySchema(z.record(z.unknown()));
-export const sessionCheckpointResponseSchema = dataBodySchema(z.record(z.unknown()));
+export const sessionGetResponseSchema = dataBodySchema(z.record(z.string(), z.unknown()));
+export const sessionCheckpointResponseSchema = dataBodySchema(z.record(z.string(), z.unknown()));
 export const harnessAgentStateResponseSchema = dataBodySchema(harnessAgentStateSchema);
 export const harnessAgentListResponseSchema = dataBodySchema(harnessAgentListResultSchema);
-export const classifyResponseSchema = dataBodySchema(z.record(z.unknown()));
-export const failureRecordResponseSchema = dataBodySchema(z.record(z.unknown()));
+export const classifyResponseSchema = dataBodySchema(z.record(z.string(), z.unknown()));
+export const failureRecordResponseSchema = dataBodySchema(z.record(z.string(), z.unknown()));
 export const harnessHealthResponseSchema = dataBodySchema(harnessHealthResultSchema);

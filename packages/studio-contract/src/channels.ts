@@ -59,7 +59,7 @@ export const channelMessageSchema = z.object({
   /** Markdown */
   content: z.string(),
   replyToId: z.string().nullable(),
-  meta: z.record(z.unknown()),
+  meta: z.record(z.string(), z.unknown()),
   /** ISO 8601（路由层 Date 序列化回 string） */
   createdAt: z.string(),
 });

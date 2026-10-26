@@ -34,10 +34,11 @@ npm-debug.log*
 # PM2
 .pm2/
 
-# GitHub workflows should be tracked
-# .github/ is ignored except workflows
+# GitHub workflows and dependency update policy should be tracked
+# .github/ is ignored except workflows and Dependabot config
 .github/*
 !.github/workflows/
+!.github/dependabot.yml
 
 # Test coverage
 coverage/
@@ -63,6 +64,10 @@ apps/web/e2e/.auth.json
 # Spec source (ignored; docs/adr/ 豁免——决策记录是公共面永久导航件，须常规追踪，2026-08-21)
 docs/*
 !docs/adr/
+# 依赖更新纪律是公共协作文档；其余 docs/agents 本机资料仍忽略
+!docs/agents/
+docs/agents/*
+!docs/agents/dependency-maintenance.md
 # docs/visual-reports/ 豁免——#390 决议：截图 diff 报告入 git 作改版验收凭据（#391）
 !docs/visual-reports/
 # docs/specs/ui/style-guide.md 豁免——样式规范是唯一权威来源，须入 git 评审/回溯（批次 I-1 治理人闸当场过，2026-09-16）；其余 spec 源文件维持忽略

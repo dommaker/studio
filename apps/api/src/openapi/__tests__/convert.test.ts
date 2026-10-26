@@ -63,7 +63,7 @@ describe('zodToOpenAPISchema 复合结构', () => {
     expect(zodToOpenAPISchema(z.record(z.string(), z.number()))).toEqual({
       type: 'object', additionalProperties: { type: 'number' },
     });
-    expect(zodToOpenAPISchema(z.record(z.unknown()))).toEqual({ type: 'object', additionalProperties: {} });
+    expect(zodToOpenAPISchema(z.record(z.string(), z.unknown()))).toEqual({ type: 'object', additionalProperties: {} });
   });
 
   it('union → anyOf；discriminatedUnion → oneOf + discriminator', () => {

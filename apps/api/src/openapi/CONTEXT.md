@@ -6,7 +6,7 @@ OpenAPI 文档派生与 /api/docs 挂载（Phase 4 复活 Phase 0 删掉的死�
 
 ## 核心导出
 
-- `convert.ts`：`zodToOpenAPISchema` + `OpenAPISchema` —— zod → OpenAPI 3.0 SchemaObject 轻量转换器（覆盖仓内所用 zod 子集；#685 自 studio-contract 搬入，唯一消费方在本目录，contract 回归纯 schema 正本）
+- `convert.ts`：`zodToOpenAPISchema` + `OpenAPISchema` —— zod → OpenAPI 3.0 SchemaObject 轻量转换器（覆盖仓内所用 zod 子集；#685 自 studio-contract 搬入，唯一消费方在本目录，contract 回归纯 schema 正本）；SEC-08 起读取 Zod 4 `_zod.def`（type/checks/entries/element/catchall 等新形状），refine 直接留在原 schema 的 checks 中，不再按 ZodEffects 解包
 
 - `discover.ts`：`discoverRoutes(table)` —— 走 Express Router 栈还原「方法+完整路径+defineRoute schema+鉴权姿态」；只收带 ROUTE_SCHEMA_META 的 defineRoute 路由，原始 handler（协议面/SSE/文件流）入 skipped；嵌套挂载：根挂载探测 matcher，静态路径挂载查 NESTED_MOUNT_HINTS 签名表（Express 5.2 layer 不留挂载路径字符串）
 - `build.ts`：`buildOpenApiDocument(routes, skipped)` —— 装配文档：params/query 参数、requestBody、成功响应（response-map 命中用 contract schema，未命中退化通用 { data } 壳如实标注）、400/401/403/500 错误壳、bearerAuth security、x-studio-undocumented

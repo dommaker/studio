@@ -49,7 +49,7 @@ export const agentProfileSchema = z.object({
   persona: z.string().optional(),
   skills: z.array(z.string()).optional(),
   tools: z.array(z.string()).optional(),
-  constraints: z.record(z.unknown()).optional(),
+  constraints: z.record(z.string(), z.unknown()).optional(),
   kind: z.enum(['system', 'user']).optional(),
 });
 const _assertAgentProfile: MutualExtends<z.infer<typeof agentProfileSchema>, AgentProfileData> = true;

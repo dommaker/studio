@@ -46,12 +46,12 @@ const auditLogRowBaseSchema = z.object({
   action: z.string(),
   resource: z.string(),
   resourceId: z.string().optional(),
-  details: z.union([z.string(), z.record(z.unknown())]).nullish(),
+  details: z.union([z.string(), z.record(z.string(), z.unknown())]).nullish(),
   changes: z.union([
     z.string(),
     z.object({
-      before: z.record(z.unknown()).optional(),
-      after: z.record(z.unknown()).optional(),
+      before: z.record(z.string(), z.unknown()).optional(),
+      after: z.record(z.string(), z.unknown()).optional(),
       fields: z.array(z.string()).optional(),
     }),
   ]).nullish(),

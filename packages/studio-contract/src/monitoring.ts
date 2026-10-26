@@ -164,13 +164,13 @@ export type Percentile = z.infer<typeof percentileSchema>;
 
 export const taskFlowMetricsSchema = z.object({
   description: z.string(),
-  byStatus: z.record(z.number()),
+  byStatus: z.record(z.string(), z.number()),
   dwell: percentileSchema.extend({ description: z.string() }),
   createToClaim: percentileSchema.extend({ description: z.string() }),
   claimToComplete: percentileSchema.extend({ description: z.string() }),
   failuresByErrorType: z.object({
     description: z.string(),
-    buckets: z.record(z.number()),
+    buckets: z.record(z.string(), z.number()),
   }),
   steps: z.object({
     description: z.string(),
@@ -269,7 +269,7 @@ export const alertMetricsSchema = z.object({
   /** 近 24h 告警数（信噪比基础数据） */
   last24h: z.number(),
   inWindow: z.number(),
-  byLevel: z.record(z.number()),
+  byLevel: z.record(z.string(), z.number()),
 });
 export type AlertMetrics = z.infer<typeof alertMetricsSchema>;
 
@@ -305,7 +305,7 @@ export const evidenceMetricsSchema = z.object({
   needsHuman: z.number(),
   /** 双轨比对：派生列 ≠ 存储状态的 WU 数 */
   derivedMismatch: z.number(),
-  derivedByColumn: z.record(z.number()),
+  derivedByColumn: z.record(z.string(), z.number()),
 });
 export type EvidenceMetrics = z.infer<typeof evidenceMetricsSchema>;
 

@@ -13,7 +13,9 @@ catalog:
   '@types/node': ^20.0.0
   fastify: ^4.24.0
   typescript: ^5.3.0
-  vitest: ^4.1.2
-  zod: ^3.22.0
+  vitest: ^4.1.12
+  zod: ^4.6.7
 
-overrides: {}
+# jsdom@29.1.1 仍允许含公告的 undici 7.29.0；同 major 安全底线，上游提高下限后可移除
+overrides:
+  undici: ^7.30.1

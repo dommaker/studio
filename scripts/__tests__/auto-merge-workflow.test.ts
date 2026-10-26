@@ -6,7 +6,13 @@ import yaml from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 
 const workflowsDir = join(process.cwd(), '.github/workflows');
-type Step = { run?: string; env?: Record<string, string> };
+type Step = {
+  name?: string;
+  uses?: string;
+  run?: string;
+  env?: Record<string, string>;
+  with?: Record<string, string | number>;
+};
 type Workflow = {
   jobs?: Record<
     string,
@@ -75,6 +81,52 @@ describe('workflow 静态安全门', () => {
           );
         }
       }
+    }
+  });
+
+  it('所有第三方 Actions 固定到完整 commit SHA', () => {
+    for (const filename of readdirSync(workflowsDir).filter((name) => name.endsWith('.yml'))) {
+      const workflow = loadWorkflow(filename);
+      for (const job of Object.values(workflow.jobs ?? {})) {
+        for (const step of job.steps ?? []) {
+          if (step.uses) expect(step.uses, `${filename}:${step.uses}`).toMatch(/^[^@]+@[0-9a-f]{40}$/);
+        }
+      }
+    }
+  });
+
+  it.each(['ci.yml', 'release.yml', 'perf-gate.yml'])('%s 使用 corepack、固定 pnpm 和 frozen lockfile', (filename) => {
+    const rootManifest = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as { packageManager?: string };
+    expect(rootManifest.packageManager).toMatch(/^pnpm@\d+\.\d+\.\d+$/);
+    const workflow = loadWorkflow(filename);
+    const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job.steps ?? []);
+    const commands = steps.map((step) => step.run ?? '');
+    expect(commands.some((command) => command.includes('corepack enable'))).toBe(true);
+    expect(commands.join('\n')).not.toContain('npm install -g pnpm');
+    const installs = commands.flatMap((command) => command.split('\n').filter((line) => line.includes('pnpm install')));
+    expect(installs.length).toBeGreaterThan(0);
+    for (const install of installs) expect(install).toContain('--frozen-lockfile');
+  });
+
+  it.each(['ci.yml', 'release.yml'])('%s 保留生产依赖 audit 和全历史 secret scan', (filename) => {
+    const workflow = loadWorkflow(filename);
+    const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job.steps ?? []);
+    const checkout = steps.find((step) => step.uses?.startsWith('actions/checkout@'));
+    expect(checkout?.with?.['fetch-depth']).toBe(0);
+    expect(steps.some((step) => step.uses?.startsWith('gitleaks/gitleaks-action@'))).toBe(true);
+    expect(steps.some((step) => step.run?.includes(
+      'pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org',
+    ))).toBe(true);
+  });
+
+  it('Dependabot 每周持续更新 npm 与 GitHub Actions', () => {
+    const config = yaml.load(readFileSync(join(process.cwd(), '.github/dependabot.yml'), 'utf8')) as {
+      updates?: Array<{ 'package-ecosystem'?: string; schedule?: { interval?: string } }>;
+    };
+    for (const ecosystem of ['npm', 'github-actions']) {
+      expect(config.updates?.some((update) =>
+        update['package-ecosystem'] === ecosystem && update.schedule?.interval === 'weekly',
+      )).toBe(true);
     }
   });
 

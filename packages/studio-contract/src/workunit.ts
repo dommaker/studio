@@ -140,11 +140,11 @@ export type ListMessagesQuery = z.infer<typeof listMessagesQuerySchema>;
 // ── 请求：body ──
 
 /** 宿主执行记录只能由服务端执行链落档，不能经普通 REST metadata 伪造。 */
-const restWorkUnitMetadataSchema = z.record(z.unknown()).superRefine((metadata, ctx) => {
+const restWorkUnitMetadataSchema = z.record(z.string(), z.unknown()).superRefine((metadata, ctx) => {
   for (const key of ['worktreePath', 'verifyCommands'] as const) {
     if (key in metadata) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         path: [key],
         message: `metadata.${key} 只能由服务端执行链写入`,
       });
@@ -287,7 +287,7 @@ export type PostMessageBody = z.infer<typeof postMessageBodySchema>;
 /** PATCH /:id/messages/:messageId（content/meta 至少其一——handler 守卫） */
 export const patchMessageBodySchema = z.object({
   content: z.string().optional(),
-  meta: z.union([z.string(), z.record(z.unknown())]).optional(),
+  meta: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
 });
 export type PatchMessageBody = z.infer<typeof patchMessageBodySchema>;
 

@@ -47,6 +47,7 @@ API 契约唯一正本（docs/architecture/target-architecture.md）：按域一
 
 - 运行时只依赖 zod；禁止引入 Node 内置模块依赖（前端 apps/web 也 import 本包）。#685 起允许对 `@dommaker/studio-shared/types`（纯类型入口，harness 类型经其中转）做 `import type`——编译期整体擦除，不带运行时依赖。注意：shared 挂在 devDependencies，当前消费方全为 workspace 源码直引无碍；若本包日后真发 npm，外部消费者 typecheck 需把 shared 提为正式依赖。
 - schema 即正本：改字段 = 改这里，前后端编译期同时报错，这是本包存在的意义。
+- SEC-08 起运行时统一 Zod 4（≥4.6.6 修复线）：`z.record` 必须显式传 key/value 两个 schema；自定义 issue 用 `code: 'custom'`。Zod 4 不再接受无限 number、可选/default 的缺省求值及 UUID 校验更严格，迁移时保留契约行为回归，不能靠放宽断言适配。
 - **#685 解三角（2026-10-09）**：strict:false 时代兜 z.infer 退化的手写 interface + parity 双写互验层整体退役（strict:true 已于 2026-10-07 落地，退役前提成立）。归一后三种形态：①实体类型 = `z.infer<typeof schema>` alias（schema 单一正本，漂移在编译期不可能发生）；②正本在 shared/harness 且同构的（AgentProfileData/RuntimeStateData/EvolutionProposalData 等）= `import type` 同源 + `MutualExtends` 编译期互锚（type-assert.ts）；③wire 与内存型**有意不同构**的（ChangeRecord/通知项/ConstraintResult 的 Date→ISO、Resolution 宽松读 + tags 双重编码）= schema 即正本并在注记写明不同构点。历史背景：strict:false 时 z.infer 字段全可选、判别联合失 narrowing，消费方按必填消费的实体曾必须手写 interface + parity 测试互验。
 - **defineRoute 配套两坑**（channels 迁移实测）：①handler 里要读「zod 已剥掉的未知键」时（如退役字段守卫 defaultProfileId），schema 须 `.passthrough()` 否则守卫永远看不到；②二进制流 handler（pipe res）必须等 finish 再返回——handler 同步返回时 headersSent 尚未置位，defineRoute 会 res.end() 截断流。
 - OpenAPI 文档由本包派生，不手写 yaml：转换层 = apps/api/src/openapi/convert.ts（zodToOpenAPISchema，#685 自本包搬入——唯一消费方在 api，本包回归纯 schema 正本），装配/挂载 = apps/api/src/openapi/（GET /api/docs，Phase 4 已复活）。

@@ -15,19 +15,19 @@ jobs:
       # （缺失即 fail-closed，PR #651 首次撞出）；push 事件不需要，故 master 推送一直绿。
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # 全历史机密扫描（下述 gitleaks 步骤）需要完整 clone
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - run: npm install -g pnpm@latest
-      - run: pnpm install --no-frozen-lockfile
-      # 依赖漏洞门（ADR-0031 / wayfinder harness-repositioning 票08 P0-2）：SecurityGate 包 npm audit，
-      # 默认 high 阈值不过即 fail。装完依赖先跑，fail fast。
+      - name: Enable the packageManager-pinned pnpm
+        run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # 生产依赖 high/critical 漏洞门；使用带公告数据的官方 registry，fail fast。
       - name: Security (dependency audit)
-        run: npx harness security
+        run: pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
       # 全历史机密扫描门（ADR-0031 / wayfinder harness-repositioning 票08 P1-8）：
       # gitleaks 官方 action 对完整历史（fetch-depth: 0）扫描，命中即 fail，是硬保险。
       # npx harness security secrets 包装步 2026-10 随 #694 删除（三重扫描去重）：

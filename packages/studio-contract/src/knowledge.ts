@@ -40,7 +40,7 @@ import { dataBodySchema } from './envelope.js';
  * 不与 harness SourceRef 锚定：SourceRef 是 interface（无索引签名），
  * 无法对 Record<string, unknown> 做 extends 断言，schema 即正本。
  */
-export const knowledgeSourceRefSchema = z.record(z.unknown());
+export const knowledgeSourceRefSchema = z.record(z.string(), z.unknown());
 
 /** harness ExecutionResult 同源（source 联合 'human'|'auto' 收窄为 string，单向锚定兜历史数据） */
 export const knowledgeExecutionResultSchema = z.object({
@@ -155,7 +155,7 @@ export type KnowledgeGapType = z.infer<typeof knowledgeGapTypeSchema>;
 /** GET /knowledge/gaps/:type 响应 data */
 export const knowledgeGapsResultSchema = z.object({
   type: z.string(),
-  data: z.array(z.record(z.unknown())),
+  data: z.array(z.record(z.string(), z.unknown())),
   total: z.number(),
 });
 export type KnowledgeGapsResult = z.infer<typeof knowledgeGapsResultSchema>;
@@ -179,7 +179,7 @@ export type CreateUnifiedEntryResult = z.infer<typeof createUnifiedEntryResultSc
 export const resolutionListResultSchema = z.object({
   resolutions: z.array(resolutionSchema),
   total: z.number(),
-  byStatus: z.record(z.number()),
+  byStatus: z.record(z.string(), z.number()),
 });
 export type ResolutionListResult = z.infer<typeof resolutionListResultSchema>;
 
@@ -193,8 +193,8 @@ export type KnowledgeSearchListResult = z.infer<typeof knowledgeSearchListResult
 /** GET /api/knowledge/sync-status 响应 data（internal，本机回环限定） */
 export const knowledgeSyncStatusResultSchema = z.object({
   trackedScopes: z.array(z.string()),
-  stale: z.array(z.record(z.unknown())),
-  unmonitored: z.array(z.record(z.unknown())),
+  stale: z.array(z.record(z.string(), z.unknown())),
+  unmonitored: z.array(z.record(z.string(), z.unknown())),
   healed: z.array(z.string()),
 });
 export type KnowledgeSyncStatusResult = z.infer<typeof knowledgeSyncStatusResultSchema>;

@@ -46,7 +46,7 @@ export const channelMessageUpdatedPayloadSchema = z.object({
   channelId: z.string(),
   messageId: z.string(),
   content: z.string().optional(),
-  meta: z.record(z.unknown()).optional(),
+  meta: z.record(z.string(), z.unknown()).optional(),
   workUnitId: z.string().nullable().optional(),
   message: channelMessageSchema,
 });
