@@ -11,7 +11,7 @@ API 契约唯一正本（docs/architecture/target-architecture.md）：按域一
 - `workunit.ts`：workunit 域（首个迁移域，后续 30+ 域的模板）——WorkUnit 实体 + 各端点请求（body/query/params）+ 响应 schema 与类型
 - `channels.ts`：channels 域——Channel/ChannelMessage 实体 + 派生读形状（current-pmo/pmo-candidates/suggestions/merge-target/file-vocabulary）+ 端点请求/响应；消息分页 `{ messages, total, hasMore }`（cursor 壳）；ChannelMessage.meta 恒 object（#693 自 Record|string union 收窄——后端出口全走 shapeMessageData 单点解析，string 为存储层存量兼容位、契约不声明；sse-events 的 message_updated meta 同步收窄）
 - `requirements.ts`：requirements 域——Requirement 实体（含 B3a projectId）+ chain/chain-stats 形状 + 端点请求/响应
-- `pmo.ts`：pmo 域（批次 2/7）——Project（= ProjectData 全字段）/ PmoMap / DeliveryLeg / DeliveryStatus / Okr 实体 + deliver/mark-delivered/publish/parse-command/sdd 结果形状 + 端点请求/响应；deliver/mark-delivered 的 409 是错误壳扩展 `{ error: { code, message, missing?, conflictFiles? } }`（handler 自写 res，HttpError 承载不了扩展字段）
+- `pmo.ts`：pmo 域（批次 2/7）——Project（= ProjectData 全字段）/ PmoMap / DeliveryLeg / DeliveryStatus / Okr 实体 + deliver/mark-delivered/publish/parse-command/sdd 结果形状 + 端点请求/响应；deliver/mark-delivered 的 409 是错误壳扩展 `{ error: { code, message, missing?, conflictFiles? } }`（handler 自写 res，HttpError 承载不了扩展字段）；SEC-03 起 create/update 的 `gitBranch` 与 `deliveryLegSchema.branch` 共用严格 `gitBranchSchema`（Git ref 结构 + shell 元字符安全子集，null 仍表示未配置，执行端仍须预检/`check-ref-format` 复核）
 - `companies.ts`：companies 域——Company 实体 + sizes-config/hall-stats 派生读 + 端点请求/响应
 - `projects.ts`：projects 域——LocalProject 实体 + exclude 清单形状 + 端点请求/响应
 - `workspaces.ts`：workspaces 域——Workspace（schemaless 记录，schema passthrough 放行历史扩展字段）/ WorkspaceRuntime 实体 + 端点请求/响应；list/runtimes 的 total 随 `{success,data,total}` 壳一并退役（无消费方）；P4.6 起 DELETE /:id 与 /:id/runtimes 配套 schema 删除（端点同删）

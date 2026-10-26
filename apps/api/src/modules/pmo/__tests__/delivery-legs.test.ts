@@ -18,10 +18,16 @@ import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { getDeliveryStatus, deliverProject } from '../delivery.js';
 import type { ProjectData } from '../project.service.js';
 
-const { mockExecSh, mockGetDefaultBranch } = vi.hoisted(() => ({
+const { mockExecSh, mockExecFile, mockGetDefaultBranch } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
+  mockExecFile: vi.fn(),
   mockGetDefaultBranch: vi.fn(),
 }));
+
+vi.mock('child_process', async (importOriginal) => {
+  const orig = await importOriginal() as Record<string, unknown>;
+  return { ...orig, execFile: mockExecFile };
+});
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -84,6 +90,17 @@ beforeEach(() => {
   vi.clearAllMocks();
   seq = 0;
   mockExecSh.mockResolvedValue({ stdout: '', stderr: '' });
+  mockExecFile.mockImplementation((
+    _cmd: string,
+    args: string[],
+    opts: { cwd: string; timeout: number },
+    cb: (error: Error | null, stdout: string, stderr: string) => void,
+  ) => {
+    mockExecSh(`git ${args.join(' ')}`, { cwd: opts.cwd, timeoutMs: opts.timeout }).then(
+      (result: { stdout: string; stderr: string }) => cb(null, result.stdout, result.stderr),
+      (error: Error) => cb(error, '', ''),
+    );
+  });
   mockGetDefaultBranch.mockReturnValue('master');
 });
 

@@ -210,6 +210,35 @@ describe('请求 schema', () => {
     expect(updateProjectBodySchema.parse({ deliveredAt: null, map: null })).toEqual({ deliveredAt: null, map: null });
   });
 
+  it('gitBranch：严格拒绝危险 ref 与 option injection，接受正常分支', () => {
+    const dangerous = [
+      'feature";id',
+      'feature$(id)',
+      'feature`id`',
+      'feature;id',
+      'feature\nid',
+      '--upload-pack=id',
+      '-D',
+      'feature..main',
+      'feature@{main}',
+      'feature.lock',
+      'feature/',
+      '.hidden',
+    ];
+    for (const gitBranch of dangerous) {
+      expect(createProjectBodySchema.safeParse({ title: 't', gitBranch }).success, gitBranch).toBe(false);
+      expect(updateProjectBodySchema.safeParse({ gitBranch }).success, gitBranch).toBe(false);
+      expect(deliveryLegSchema.safeParse({ gitRepo: '/repo', branch: gitBranch, status: 'pending' }).success, gitBranch).toBe(false);
+      expect(updateProjectBodySchema.safeParse({ deliveries: [{ gitRepo: '/repo', branch: gitBranch, status: 'pending' }] }).success, gitBranch).toBe(false);
+    }
+    for (const gitBranch of ['PMO-11', 'feature/sec-03', 'release-1.2.3']) {
+      expect(createProjectBodySchema.parse({ title: 't', gitBranch }).gitBranch).toBe(gitBranch);
+      expect(updateProjectBodySchema.parse({ gitBranch }).gitBranch).toBe(gitBranch);
+      expect(deliveryLegSchema.parse({ gitRepo: '/repo', branch: gitBranch, status: 'pending' }).branch).toBe(gitBranch);
+    }
+    expect(deliveryLegSchema.parse({ gitRepo: null, branch: null, status: 'pending' }).branch).toBeNull();
+  });
+
   it('status / publish / parse-command / mark-delivered body 边界', () => {
     expect(updateProjectStatusBodySchema.parse({ status: 'active' })).toEqual({ status: 'active' });
     expect(updateProjectStatusBodySchema.safeParse({}).success).toBe(false);

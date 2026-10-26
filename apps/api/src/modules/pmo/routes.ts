@@ -33,9 +33,8 @@ import { logger } from '../../utils/logger.js';
 import { type AuthRequest } from '../../middleware/auth.js';
 import { apiCache, CACHE_CONFIG, clearCache } from '../../middleware/api-cache.js';
 import { defineRoute, HttpError, requireHuman } from '../../core/http.js';
-import * as fs from 'fs';
-import * as path from 'path';
 import { parsePagination } from '../../utils/pagination.js';
+import { validateExecutionRepo } from '../../utils/execution-repo-policy.js';
 
 // P2-e 鉴权声明式统一：open（GET 读 + parse-command，生产 Lurk Wall 兜底）/ write（registry 挂
 // authNotGuest）/ admin（DELETE，registry 挂 requireAuth+requireAdmin）三档拆 router，
@@ -51,41 +50,36 @@ const DELIVERY_HUMAN_ONLY_MESSAGE = 'Delivery is human-only (authorType=agent re
 // gitRepo 会被下游 git 操作（deliver/merge、spec 物化、agent-loop 执行根）消费，
 // 写入前必须限制在允许的根目录之下，防任意路径入项目配置。
 
-/**
- * 收集请求里的 gitRepo/gitRepos 候选（仅非空字符串；空串视为未传，与既有口径一致）
- */
-function collectGitRepos(gitRepo: unknown, gitRepos: unknown): string[] {
+/** 收集顶层与嵌套交付腿里的仓库候选（仅非空字符串；空串视为未传）。 */
+function collectGitRepos(body: {
+  gitRepo?: unknown;
+  gitRepos?: unknown;
+  deliveries?: Array<{ gitRepo?: unknown }>;
+}): string[] {
   const repos: string[] = [];
-  if (typeof gitRepo === 'string' && gitRepo.trim()) repos.push(gitRepo);
-  if (Array.isArray(gitRepos)) {
-    for (const r of gitRepos) if (typeof r === 'string' && r.trim()) repos.push(r);
+  if (typeof body.gitRepo === 'string' && body.gitRepo.trim()) repos.push(body.gitRepo);
+  if (Array.isArray(body.gitRepos)) {
+    for (const repo of body.gitRepos) if (typeof repo === 'string' && repo.trim()) repos.push(repo);
+  }
+  if (Array.isArray(body.deliveries)) {
+    for (const leg of body.deliveries) {
+      if (typeof leg?.gitRepo === 'string' && leg.gitRepo.trim()) repos.push(leg.gitRepo);
+    }
   }
   return repos;
 }
 
-/**
- * gitRepo 白名单校验：path.resolve 后必须落在允许的根目录
- * （PMO_GIT_REPO_ROOTS 冒号分隔多根，缺省 /root/projects）之下且为已存在目录。
- * 合法返回 null，否则返回错误消息。
- */
-export function validateGitRepo(repo: string): string | null {
-  const roots = (process.env.PMO_GIT_REPO_ROOTS || '/root/projects')
-    .split(':').map(r => r.trim()).filter(Boolean);
-  const resolved = path.resolve(repo);
-  const allowed = roots.some(root => {
-    const r = path.resolve(root);
-    return resolved === r || resolved.startsWith(r + path.sep);
-  });
-  if (!allowed || !fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
-    return `gitRepo must be an existing directory under an allowed root (${roots.join(':')}), got: ${repo}`;
-  }
-  return null;
-}
+/** 保留既有导出面；实现与 channel.defaultPath 共用执行根策略。 */
+export const validateGitRepo = validateExecutionRepo;
 
-/** gitRepo/gitRepos 白名单守卫（POST/PUT 共用；失败抛 HttpError 400 INVALID_INPUT，文案不变） */
-function assertGitReposAllowed(body: { gitRepo?: unknown; gitRepos?: unknown }): void {
-  for (const repo of collectGitRepos(body.gitRepo, body.gitRepos)) {
-    const invalid = validateGitRepo(repo);
+/** gitRepo/gitRepos/deliveries[].gitRepo 白名单守卫（POST/PUT 共用）。 */
+export function assertGitReposAllowed(body: {
+  gitRepo?: unknown;
+  gitRepos?: unknown;
+  deliveries?: Array<{ gitRepo?: unknown }>;
+}): void {
+  for (const repo of collectGitRepos(body)) {
+    const invalid = validateExecutionRepo(repo);
     if (invalid) throw new HttpError(400, 'INVALID_INPUT', invalid);
   }
 }

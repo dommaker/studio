@@ -8,18 +8,25 @@
  *   3. 无归属 → 显式配置的共享工作目录（REPO_DIR，执行时现场读，单一来源）；
  *      未配置/不存在 → 隔离 scratch（绝不猜一个真实仓）
  *
- * Strategy: mock external deps (fs, execSh, studio-dir), let real code run.
+ * Strategy: mock external deps (fs, child_process, execSh, studio-dir), let real code run.
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { mockExistsSync, mockExecSh, mockReadFileSync, mockMkdirSync, mockWriteFile, mockStudioPath } = vi.hoisted(() => ({
+const { mockExistsSync, mockExecSh, mockExecFile, mockExecFileSync, mockReadFileSync, mockMkdirSync, mockWriteFile, mockStudioPath } = vi.hoisted(() => ({
   mockExistsSync: vi.fn(),
   mockExecSh: vi.fn(),
+  mockExecFile: vi.fn(),
+  mockExecFileSync: vi.fn(),
   mockReadFileSync: vi.fn(),
   mockMkdirSync: vi.fn(),
   mockWriteFile: vi.fn().mockResolvedValue(undefined),
   mockStudioPath: vi.fn((...parts: string[]) => ['/.studio', ...parts].join('/')),
+}));
+
+vi.mock('child_process', () => ({
+  execFile: mockExecFile,
+  execFileSync: mockExecFileSync,
 }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -77,6 +84,8 @@ beforeEach(() => {
   // Default: return true for .git checks (repoDir validation), false otherwise
   mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
   mockExecSh.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => cb(null, '', ''));
+  mockExecFileSync.mockImplementation(() => { throw new Error('off-git'); });
   // 缺省无共享工作目录配置（REPO_DIR 未设）→ 无归属落 scratch
   savedRepoDir = process.env.REPO_DIR;
   delete process.env.REPO_DIR;
@@ -116,9 +125,8 @@ describe('resolveWorkspace()', () => {
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/worktrees/exec-1');
-    expect(mockExecSh).toHaveBeenCalledWith(
-      expect.stringContaining('git worktree add'),
-      expect.anything(),
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'git', expect.arrayContaining(['worktree', 'add']), expect.anything(), expect.any(Function),
     );
   });
 
@@ -128,11 +136,9 @@ describe('resolveWorkspace()', () => {
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/worktrees/exec-1');
-    expect(mockExecSh).toHaveBeenCalledWith(
-      expect.stringContaining('git worktree add'),
-      expect.objectContaining({
-        cwd: '/custom/repo',
-      }),
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'git', expect.arrayContaining(['worktree', 'add']),
+      expect.objectContaining({ cwd: '/custom/repo' }), expect.any(Function),
     );
   });
 
@@ -142,9 +148,9 @@ describe('resolveWorkspace()', () => {
     await resolveWorkspace({ task, ...baseOpts });
 
     // getDefaultBranch is inlined — falls back to 'master' when repo doesn't exist
-    expect(mockExecSh).toHaveBeenCalledWith(
-      expect.stringContaining('git worktree add'),
-      expect.objectContaining({ cwd: '/repo' }),
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'git', expect.arrayContaining(['worktree', 'add']),
+      expect.objectContaining({ cwd: '/repo' }), expect.any(Function),
     );
   });
 

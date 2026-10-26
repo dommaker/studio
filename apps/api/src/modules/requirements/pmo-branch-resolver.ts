@@ -18,6 +18,7 @@
  * 命中腿 branch）；未命中任何腿回落项目级分支，单腿项目行为不变。
  */
 import { FileStore } from '@dommaker/studio-shared';
+import { isValidGitBranch } from '@dommaker/studio-contract';
 import type { DeliveryPolicy, ProjectData } from '../pmo/index.js';
 // P2-c 拆环：projectService/resolveDeliveries/resolveDeliveryPolicy/matchWuToLeg
 // 值引用转函数内动态 import（requirements→pmo 静态值边清零，类型边保留）
@@ -87,11 +88,12 @@ export async function resolvePmoBranchForWU(
   if (legs.length > 1) {
     const leg = legs.find(l => matchWuToLeg(wu.metadata, l));
     if (leg?.branch) {
+      if (!isValidGitBranch(leg.branch)) return null;
       return { projectId: project.id, branch: leg.branch, deliveryPolicy: resolveDeliveryPolicy(project) };
     }
   }
   const branch = project.gitBranch || project.pmoNumber;
-  if (!branch) return null;
+  if (!branch || !isValidGitBranch(branch)) return null;
   return { projectId: project.id, branch, deliveryPolicy: resolveDeliveryPolicy(project) };
 }
 

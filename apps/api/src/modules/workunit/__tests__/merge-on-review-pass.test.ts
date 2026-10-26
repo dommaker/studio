@@ -1,5 +1,5 @@
 // B3b-ii: 评审通过后自动合并（决策 D1/D3 后半）
-// 真实 FileStore（tmpdir）+ 真实 WorkUnitService；git 调用（execSh）全部 mock。
+// 真实 FileStore（tmpdir）+ 真实 WorkUnitService；git 调用（execSh/execFile）全部 mock。
 // 覆盖：合并成功 / 冲突后 rebase 重试成功 / 重试仍冲突转人工（rebase 失败 & 二次 merge 失败）
 //       / 防重（mergedAt 哨兵）/ 无 worktree 旁路 / reviewPassed 收口触发与旁路集成
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -12,13 +12,19 @@ import type { WorkUnitMetadata } from '../workunit.types.js';
 import type { WorkUnitData } from '../workunit-crud.js';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from '../merge-on-review-pass.js';
 
-const { mockExecSh, mockPostWuSystemMessage, mockResolvePmoProjectId, mockSystemExecRun, mockLoadSingleSkill } = vi.hoisted(() => ({
+const { mockExecSh, mockExecFile, mockPostWuSystemMessage, mockResolvePmoProjectId, mockSystemExecRun, mockLoadSingleSkill } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
+  mockExecFile: vi.fn(),
   mockPostWuSystemMessage: vi.fn(),
   mockResolvePmoProjectId: vi.fn(),
   mockSystemExecRun: vi.fn(),
   mockLoadSingleSkill: vi.fn(),
 }));
+
+vi.mock('child_process', async (importOriginal) => {
+  const orig = await importOriginal() as Record<string, unknown>;
+  return { ...orig, execFile: mockExecFile };
+});
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -84,6 +90,18 @@ function mockGit(): void {
   mockExecSh.mockImplementation(async (cmd: string) => {
     if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
     return { stdout: '', stderr: '' };
+  });
+  // studio-agent 已改 execFile 参数数组；桥到本测试既有 execSh 场景表，保持合并行为断言聚焦。
+  mockExecFile.mockImplementation((
+    _cmd: string,
+    args: string[],
+    opts: { cwd: string; timeout: number },
+    cb: (error: Error | null, stdout: string, stderr: string) => void,
+  ) => {
+    mockExecSh(`git ${args.join(' ')}`, { cwd: opts.cwd, timeoutMs: opts.timeout }).then(
+      (result: { stdout: string; stderr: string }) => cb(null, result.stdout, result.stderr),
+      (error: Error) => cb(error, '', ''),
+    );
   });
 }
 
@@ -190,6 +208,22 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect((await wuService.getById(wu.id))!.status).toBe('blocked');
   });
 
+  it('危险 worktree/base/PMO 分支在 status/rev-parse/merge 前零子进程拒绝', async () => {
+    const scenarios: Array<Partial<WorkUnitMetadata>> = [
+      ...['feature";id', 'feature$(id)', 'feature`id`', 'feature;id', 'feature\nid', '--upload-pack=id'].map(worktreeBranch => ({ worktreeBranch })),
+      { worktreeBaseBranch: '--upload-pack=id' },
+      { pmoBranch: 'feature$(id)', pmoId: 'proj-1' },
+    ];
+    for (const metadata of scenarios) {
+      const wu = await createWu(worktreeMeta(metadata));
+      const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+      expect(outcome).toMatchObject({ attempted: true, merged: false, reason: 'conflict' });
+      expect(mockExecSh).not.toHaveBeenCalled();
+      expect(mockExecFile).not.toHaveBeenCalled();
+      expect(mockSystemExecRun).not.toHaveBeenCalled();
+    }
+  });
+
   it('PMO-b：落档 pmoBranch → 合到 PMO 分支的集成交合（不动 baseRepo checkout）', async () => {
     // 2026-08 归因统一：项目 id 不再读 pmoProjectId 缓存，由创建期戳 pmoId 经 resolver 重解析
     const wu = await createWu(worktreeMeta({ pmoBranch: 'PMO-11', pmoId: 'proj-1' }));
@@ -206,6 +240,11 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(mergeCmd).toBeDefined();
     expect(mergeCmd).toContain('pmo-proj-1');
     expect(mergeCmd).not.toContain(`git -C '${REPO}'`);
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'git',
+      ['-C', expect.stringContaining('pmo-proj-1'), 'merge', '--no-ff', '-m', `merge: ${wu.id} 实现登录接口`, '--', BRANCH],
+      expect.objectContaining({ cwd: expect.stringContaining('pmo-proj-1') }), expect.any(Function),
+    );
     // mergeCommit 读集成交合 HEAD
     expect(cmds.some(c => c.includes('rev-parse HEAD') && c.includes('pmo-proj-1'))).toBe(true);
     // 频道通知说 PMO 分支
@@ -268,7 +307,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(mergeCmd).toBeDefined();
     expect(mergeCmd).toContain(REPO);
     expect(mergeCmd).toContain(BRANCH);
-    expect(mergeCmd).toContain(`-m 'merge: ${wu.id}`);
+    expect(mergeCmd).toContain(`-m merge: ${wu.id}`);
     // 无冲突 → 不走 rebase / abort
     expect(cmds.some(c => c.includes('rebase'))).toBe(false);
     expect(cmds.some(c => c.includes('merge --abort'))).toBe(false);
@@ -311,13 +350,13 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(outcome).toEqual({ attempted: true, merged: true, mergeCommit: HEAD });
     expect(mergeAttempts).toBe(2);
     const cmds = calledCommands();
-    const rebaseCmd = cmds.find(c => c.includes(`rebase '${BASE}'`));
+    const rebaseCmd = cmds.find(c => c.includes(`rebase -- ${BASE}`));
     expect(rebaseCmd).toBeDefined();
     expect(rebaseCmd).toContain(WT);
     // 命令顺序：merge → abort → rebase → merge
     const mergeIdx = cmds.map((c, i) => c.includes('merge --no-ff') ? i : -1).filter(i => i >= 0);
     const abortIdx = cmds.findIndex(c => c.includes('merge --abort'));
-    const rebaseIdx = cmds.findIndex(c => c.includes(`rebase '${BASE}'`));
+    const rebaseIdx = cmds.findIndex(c => c.includes(`rebase -- ${BASE}`));
     expect(mergeIdx).toHaveLength(2);
     expect(abortIdx).toBeGreaterThan(mergeIdx[0]);
     expect(rebaseIdx).toBeGreaterThan(abortIdx);
@@ -332,7 +371,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
   it('冲突兜底转人工（rebase 冲突，LLM 解后仍有残留冲突）：LLM 尝试过 → 清理现场 → WU blocked + 频道转人工', async () => {
     mockExecSh.mockImplementation(async (cmd: string) => {
       if (cmd.includes('merge --no-ff')) throw new Error('CONFLICT: content');
-      if (cmd.includes(`rebase '${BASE}'`)) throw new Error('rebase conflict');
+      if (cmd.includes(`rebase -- ${BASE}`)) throw new Error('rebase conflict');
       if (cmd.includes('diff --name-only --diff-filter=U')) {
         return { stdout: 'src/a.ts\nsrc/b.ts\n', stderr: '' };
       }
@@ -395,7 +434,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(outcome).toEqual({ attempted: true, merged: false, conflictFiles: ['src/x.ts'] });
     expect(mergeAttempts).toBe(2);
     const cmds = calledCommands();
-    expect(cmds.some(c => c.includes(`rebase '${BASE}'`))).toBe(true);
+    expect(cmds.some(c => c.includes(`rebase -- ${BASE}`))).toBe(true);
     expect(cmds.filter(c => c.includes('merge --abort'))).not.toHaveLength(0);
 
     const updated = await wuService.getById(wu.id);
@@ -417,7 +456,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
         if (mergeAttempts === 1) throw new Error('CONFLICT: content');
         return { stdout: '', stderr: '' }; // LLM 解完 rebase 后重放成功
       }
-      if (cmd.includes(`rebase '${BASE}'`)) throw new Error('rebase conflict');
+      if (cmd.includes(`rebase -- ${BASE}`)) throw new Error('rebase conflict');
       if (cmd.includes('diff --name-only --diff-filter=U')) {
         // LLM 调用前：rebase 现场有冲突；LLM 调用后：已解清
         return { stdout: llmCalled ? '' : 'src/a.ts\nsrc/b.ts\n', stderr: '' };
@@ -502,7 +541,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     mockSystemExecRun.mockRejectedValue(new Error('LLM session timeout'));
     mockExecSh.mockImplementation(async (cmd: string) => {
       if (cmd.includes('merge --no-ff')) throw new Error('CONFLICT: content');
-      if (cmd.includes(`rebase '${BASE}'`)) throw new Error('rebase conflict');
+      if (cmd.includes(`rebase -- ${BASE}`)) throw new Error('rebase conflict');
       if (cmd.includes('diff --name-only --diff-filter=U')) return { stdout: 'src/a.ts\n', stderr: '' };
       return { stdout: '', stderr: '' };
     });
@@ -532,7 +571,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     mockLoadSingleSkill.mockReturnValue(null);
     mockExecSh.mockImplementation(async (cmd: string) => {
       if (cmd.includes('merge --no-ff')) throw new Error('CONFLICT: content');
-      if (cmd.includes(`rebase '${BASE}'`)) throw new Error('rebase conflict');
+      if (cmd.includes(`rebase -- ${BASE}`)) throw new Error('rebase conflict');
       if (cmd.includes('diff --name-only --diff-filter=U')) return { stdout: 'src/a.ts\n', stderr: '' };
       return { stdout: '', stderr: '' };
     });
@@ -673,7 +712,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
   it('reviewPassed 合并冲突：done 迁移完成后 WU 被置 blocked 转人工', async () => {
     mockExecSh.mockImplementation(async (cmd: string) => {
       if (cmd.includes('merge --no-ff')) throw new Error('CONFLICT');
-      if (cmd.includes(`rebase '${BASE}'`)) throw new Error('rebase conflict');
+      if (cmd.includes(`rebase -- ${BASE}`)) throw new Error('rebase conflict');
       if (cmd.includes('diff --name-only --diff-filter=U')) return { stdout: 'src/a.ts\n', stderr: '' };
       return { stdout: '', stderr: '' };
     });

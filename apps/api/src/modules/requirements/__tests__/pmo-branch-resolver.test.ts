@@ -86,6 +86,27 @@ describe('resolvePmoBranchForWU（PMO-b 决策 3）', () => {
     expect(r?.deliveryPolicy).toBe('auto-merge');
   });
 
+  it('存量非法 gitBranch / delivery branch 不进入执行链', async () => {
+    for (const gitBranch of ['feature";id', 'feature$(id)', 'feature`id`', 'feature;id', 'feature\nid', '-D']) {
+      const topLevel = await resolvePmoBranchForWU(
+        { metadata: JSON.stringify({ pmoId: 'proj-1' }) },
+        undefined,
+        { getProject: async () => project({ gitBranch }) },
+      );
+      expect(topLevel, gitBranch).toBeNull();
+
+      const nested = await resolvePmoBranchForWU(
+        { metadata: JSON.stringify({ pmoId: 'proj-1', workspaceRoot: '/repo/a' }) },
+        undefined,
+        { getProject: async () => project({ deliveries: [
+          { gitRepo: '/repo/a', branch: gitBranch, status: 'pending' },
+          { gitRepo: '/repo/b', branch: 'PMO-11-b', status: 'pending' },
+        ] }) },
+      );
+      expect(nested, gitBranch).toBeNull();
+    }
+  });
+
   it('无关联 / 项目不存在 / metadata 损坏 → null（调用方回落现状）', async () => {
     expect(await resolvePmoBranchForWU({}, undefined, { getProject: async () => null })).toBeNull();
     expect(

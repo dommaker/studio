@@ -40,6 +40,7 @@ import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
 import { logger } from '@dommaker/studio-shared/node';
+import { validateExecutionRepo } from '../../utils/execution-repo-policy.js';
 
 // P2-e 鉴权声明式统一：read（GET 读，registry 挂 requireAuth）/ write（registry 挂 authNotGuest）拆 router，
 // 路由内不再挂鉴权。唯一例外 = 附件 GET（channelAttachmentRoutes，文件尾部）：<img> 的 ?token= 需
@@ -70,6 +71,12 @@ async function translating<T>(p: Promise<T>): Promise<T> {
   }
 }
 
+function assertDefaultPathAllowed(defaultPath: string | null): void {
+  if (!defaultPath) return;
+  const invalid = validateExecutionRepo(defaultPath);
+  if (invalid) throw new HttpError(400, 'INVALID_INPUT', invalid);
+}
+
 // GET /api/v1/channels — list all non-archived channels
 // 2026-09-14：读侧与写侧对称补 requireAuth（P2-e 起挂载上移至 route-registry）
 readRoutes.get('/', apiCache(CACHE_CONFIG.medium), defineRoute({}, async () => {
@@ -81,6 +88,7 @@ readRoutes.get('/', apiCache(CACHE_CONFIG.medium), defineRoute({}, async () => {
 // #272（决策 #251 Q7）：创建表单可选「默认工程」（本地 repo 路径，可留空）
 writeRoutes.post('/', defineRoute({ body: createChannelBodySchema }, { status: 201 }, async (_req, _res, { body }) => {
   const defaultPathValue = typeof body.defaultPath === 'string' && body.defaultPath.trim() ? body.defaultPath.trim() : null;
+  assertDefaultPathAllowed(defaultPathValue);
   return translating(getChannelService().create({
     name: body.name,
     type: body.type,
@@ -266,7 +274,10 @@ writeRoutes.patch('/:id', defineRoute(
       }
       data.defaultWorkspaceId = validated.value;
     }
-    if (body.defaultPath !== undefined) data.defaultPath = body.defaultPath;
+    if (body.defaultPath !== undefined) {
+      assertDefaultPathAllowed(body.defaultPath);
+      data.defaultPath = body.defaultPath;
+    }
     // #466: 阶段→角色路由表（吞并 defaultPipeline）；值须为 active profile id，'' / null 清除该档
     if (body.routing !== undefined) {
       const validated = await validateRouting(getStore(), body.routing);

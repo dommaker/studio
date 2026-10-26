@@ -39,8 +39,10 @@
  * 频道系统消息走 wu-messenger 统一出口（eventBus + SSE）。
  */
 import { type FileStore } from '@dommaker/studio-shared';
-import { logger, execSh } from '@dommaker/studio-shared/node';
+import { isValidGitBranch } from '@dommaker/studio-contract';
+import { logger } from '@dommaker/studio-shared/node';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { execFileAsync } from '../../core/exec-async.js';
 import { ensurePmoIntegrationWorktree } from '@dommaker/studio-agent';
 import type { WorkUnitService } from './workunit-review.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
@@ -76,16 +78,11 @@ export type MergeResolutionAudit = NonNullable<WorkUnitMetadata['mergeResolution
 /** LLM 输出摘要截断（mergeResolution.summary） */
 const MERGE_LLM_SUMMARY_CHARS = 500;
 
-/** shell 单引号转义（branch/路径/提交信息统一过它进 bash -c） */
-function shq(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
 /** worktree 是否有未提交改动（git 失败按 dirty 处理——宁可转人工也不丢数据） */
 async function listDirtyFiles(worktreePath: string, cwd: string): Promise<string[] | null> {
   try {
-    const { stdout } = await execSh(`git -C ${shq(worktreePath)} status --porcelain`, {
-      cwd, timeoutMs: GIT_OP_TIMEOUT_MS,
+    const stdout = await execFileAsync('git', ['-C', worktreePath, 'status', '--porcelain'], {
+      cwd, timeout: GIT_OP_TIMEOUT_MS,
     });
     return stdout.split('\n').map(l => l.trim()).filter(Boolean);
   } catch {
@@ -96,10 +93,9 @@ async function listDirtyFiles(worktreePath: string, cwd: string): Promise<string
 /** 取冲突文件清单（merge/rebase 冲突现场，diff-filter=U；失败返回 []） */
 async function listConflictFiles(dir: string, cwd: string): Promise<string[]> {
   try {
-    const { stdout } = await execSh(
-      `git -C ${shq(dir)} diff --name-only --diff-filter=U`,
-      { cwd, timeoutMs: GIT_OP_TIMEOUT_MS },
-    );
+    const stdout = await execFileAsync('git', ['-C', dir, 'diff', '--name-only', '--diff-filter=U'], {
+      cwd, timeout: GIT_OP_TIMEOUT_MS,
+    });
     return stdout.split('\n').map(l => l.trim()).filter(Boolean);
   } catch {
     return [];
@@ -109,14 +105,14 @@ async function listConflictFiles(dir: string, cwd: string): Promise<string[]> {
 /** best-effort 清理 merge/rebase 现场（无现场时命令失败，吞掉） */
 async function abortMergeAndRebase(baseRepo: string, worktreePath?: string): Promise<void> {
   try {
-    await execSh(`git -C ${shq(baseRepo)} merge --abort 2>/dev/null || true`, {
-      cwd: baseRepo, timeoutMs: GIT_OP_TIMEOUT_MS,
+    await execFileAsync('git', ['-C', baseRepo, 'merge', '--abort'], {
+      cwd: baseRepo, timeout: GIT_OP_TIMEOUT_MS,
     });
   } catch { /* best-effort */ }
   if (worktreePath) {
     try {
-      await execSh(`git -C ${shq(worktreePath)} rebase --abort 2>/dev/null || true`, {
-        cwd: baseRepo, timeoutMs: GIT_OP_TIMEOUT_MS,
+      await execFileAsync('git', ['-C', worktreePath, 'rebase', '--abort'], {
+        cwd: baseRepo, timeout: GIT_OP_TIMEOUT_MS,
       });
     } catch { /* best-effort */ }
   }
@@ -167,6 +163,16 @@ export async function mergeWorktreeBranchOnReviewPass(
     return { attempted: false, reason: 'already-merged' };
   }
 
+  // 存量 metadata 纵深防线：在任何 status/rev-parse/merge 子进程之前拒绝危险 ref。
+  if (!isValidGitBranch(branch) || !isValidGitBranch(baseBranch)
+    || (meta.pmoBranch !== undefined && !isValidGitBranch(meta.pmoBranch))) {
+    await wuService.markMergeConflict(wu.id, []);
+    logger.warn('[MergeOnReviewPass] invalid git branch rejected before spawn', {
+      wuId: wu.id, branch, baseBranch, pmoBranch: meta.pmoBranch,
+    });
+    return { attempted: true, merged: false, conflictFiles: [], reason: 'conflict' };
+  }
+
   const title = String(meta.title ?? wu.scope ?? '').slice(0, 50);
   const scopeSummary = (wu.scope ?? '').replace(/\s+/g, ' ').trim().slice(0, 50);
 
@@ -193,8 +199,6 @@ export async function mergeWorktreeBranchOnReviewPass(
     }
   }
 
-  const mergeCmd = `git -C ${shq(baseRepo)} merge --no-ff ${shq(branch)} -m ${shq(`merge: ${wu.id} ${scopeSummary}`)}`;
-
   // PMO-b（决策 3）：落档 pmoBranch 的 WU 合到 PMO 分支的集成交合 worktree
   // （不动 baseRepo 当前 checkout；冲突集中在单一合并点）。无落档 → 现状（合 baseRepo 当前分支）。
   // 2026-08 归因统一：agent-loop 不再随 pmoBranch 缓存落档 pmoProjectId，项目 id 合并时经
@@ -214,7 +218,7 @@ export async function mergeWorktreeBranchOnReviewPass(
     }
   }
 
-  let mergeContext: { cmd: string; cwd: string; targetBranch: string };
+  let mergeContext: { args: string[]; cwd: string; targetBranch: string };
   if (meta.pmoBranch && !pmoProjectId) {
     // pmoBranch 落档但归属项目解析不出（项目被删等）→ 转人工，不静默回落错误目标
     await wuService.markMergeConflict(wu.id, []);
@@ -249,15 +253,19 @@ export async function mergeWorktreeBranchOnReviewPass(
       return { attempted: true, merged: false, conflictFiles: [], reason: 'conflict' };
     }
     mergeContext = {
-      cmd: `git -C ${shq(integration.worktreePath)} merge --no-ff ${shq(branch)} -m ${shq(`merge: ${wu.id} ${scopeSummary}`)}`,
+      args: ['-C', integration.worktreePath, 'merge', '--no-ff', '-m', `merge: ${wu.id} ${scopeSummary}`, '--', branch],
       cwd: integration.worktreePath,
       targetBranch: meta.pmoBranch,
     };
   } else {
-    mergeContext = { cmd: mergeCmd, cwd: baseRepo, targetBranch: baseBranch };
+    mergeContext = {
+      args: ['-C', baseRepo, 'merge', '--no-ff', '-m', `merge: ${wu.id} ${scopeSummary}`, '--', branch],
+      cwd: baseRepo,
+      targetBranch: baseBranch,
+    };
   }
 
-  const merged = await tryMergeWithRebaseRetry(mergeContext.cmd, mergeContext.cwd, mergeContext.targetBranch, branch, worktreePath);
+  const merged = await tryMergeWithRebaseRetry(mergeContext.args, mergeContext.cwd, mergeContext.targetBranch, branch, worktreePath);
   // 注：本包 tsconfig 未开 strict，真值判断不收窄可辨识联合，须用 === false 字面量比较
   if (merged.ok === false) {
     // 冲突现场已保留（tryMergeWithRebaseRetry 不再先 abort）→ spawn 一次性 LLM 会话解冲突；
@@ -267,7 +275,7 @@ export async function mergeWorktreeBranchOnReviewPass(
       meta,
       scene: merged.scene,
       conflictFiles: merged.conflictFiles,
-      mergeCmd: mergeContext.cmd,
+      mergeArgs: mergeContext.args,
       mergeCwd: mergeContext.cwd,
       sourceBranch: branch,
       targetBranch: mergeContext.targetBranch,
@@ -300,8 +308,8 @@ export async function mergeWorktreeBranchOnReviewPass(
   // 合并成功：记录 mergeCommit（PMO-b：读集成交合 HEAD）→ 清理 worktree/分支 → 落档 metadata → 频道通知
   let mergeCommit = '';
   try {
-    const { stdout } = await execSh(`git -C ${shq(mergeContext.cwd)} rev-parse HEAD`, {
-      cwd: mergeContext.cwd, timeoutMs: GIT_OP_TIMEOUT_MS,
+    const stdout = await execFileAsync('git', ['-C', mergeContext.cwd, 'rev-parse', 'HEAD'], {
+      cwd: mergeContext.cwd, timeout: GIT_OP_TIMEOUT_MS,
     });
     mergeCommit = stdout.trim();
   } catch (err) {
@@ -331,8 +339,8 @@ export async function mergeWorktreeBranchOnReviewPass(
 
   if (worktreePath) {
     try {
-      await execSh(`git -C ${shq(baseRepo)} worktree remove --force ${shq(worktreePath)}`, {
-        cwd: baseRepo, timeoutMs: GIT_OP_TIMEOUT_MS,
+      await execFileAsync('git', ['-C', baseRepo, 'worktree', 'remove', '--force', '--', worktreePath], {
+        cwd: baseRepo, timeout: GIT_OP_TIMEOUT_MS,
       });
     } catch (err) {
       logger.warn('[MergeOnReviewPass] worktree remove failed (non-blocking)', { wuId: wu.id, worktreePath, error: String(err) });
@@ -340,8 +348,8 @@ export async function mergeWorktreeBranchOnReviewPass(
   }
   // 分支已合并（--no-ff 后是 HEAD 祖先），用安全删除 -d；失败仅留分支不阻断
   try {
-    await execSh(`git -C ${shq(baseRepo)} branch -d ${shq(branch)}`, {
-      cwd: baseRepo, timeoutMs: GIT_OP_TIMEOUT_MS,
+    await execFileAsync('git', ['-C', baseRepo, 'branch', '-d', '--', branch], {
+      cwd: baseRepo, timeout: GIT_OP_TIMEOUT_MS,
     });
   } catch (err) {
     logger.warn('[MergeOnReviewPass] branch delete failed (non-blocking)', { wuId: wu.id, branch, error: String(err) });
@@ -371,14 +379,14 @@ export async function mergeWorktreeBranchOnReviewPass(
  * 兜底清理由调用方在 LLM 解失败后做（abortMergeAndRebase）。
  */
 async function tryMergeWithRebaseRetry(
-  mergeCmd: string,
+  mergeArgs: string[],
   mergeCwd: string,
   baseBranch: string,
   branch: string,
   worktreePath?: string,
 ): Promise<{ ok: true } | { ok: false; conflictFiles: string[]; scene: ConflictScene }> {
   try {
-    await execSh(mergeCmd, { cwd: mergeCwd, timeoutMs: MERGE_TIMEOUT_MS });
+    await execFileAsync('git', mergeArgs, { cwd: mergeCwd, timeout: MERGE_TIMEOUT_MS });
     return { ok: true };
   } catch { /* 进入重试 */ }
 
@@ -391,8 +399,8 @@ async function tryMergeWithRebaseRetry(
   // 清理首次 merge 现场（rebase 重试的前提；终态失败现场在下方保留）
   await abortMergeAndRebase(mergeCwd);
   try {
-    await execSh(`git -C ${shq(worktreePath)} rebase ${shq(baseBranch)}`, {
-      cwd: mergeCwd, timeoutMs: REBASE_TIMEOUT_MS,
+    await execFileAsync('git', ['-C', worktreePath, 'rebase', '--', baseBranch], {
+      cwd: mergeCwd, timeout: REBASE_TIMEOUT_MS,
     });
   } catch {
     // rebase 冲突：取清单后保留现场（worktree）交 LLM 解，不再 abort
@@ -402,7 +410,7 @@ async function tryMergeWithRebaseRetry(
   }
 
   try {
-    await execSh(mergeCmd, { cwd: mergeCwd, timeoutMs: MERGE_TIMEOUT_MS });
+    await execFileAsync('git', mergeArgs, { cwd: mergeCwd, timeout: MERGE_TIMEOUT_MS });
     return { ok: true };
   } catch {
     // 二次 merge 冲突：取清单后保留现场（合并目标目录）交 LLM 解，不再 abort
@@ -423,13 +431,13 @@ async function resolveConflictSceneWithLlm(args: {
   meta: WorkUnitMetadata;
   scene: ConflictScene;
   conflictFiles: string[];
-  mergeCmd: string;
+  mergeArgs: string[];
   mergeCwd: string;
   sourceBranch: string;
   targetBranch: string;
   scopeSummary: string;
 }): Promise<{ audit: MergeResolutionAudit; resolved: boolean }> {
-  const { wu, meta, scene, conflictFiles, mergeCmd, mergeCwd, sourceBranch, targetBranch, scopeSummary } = args;
+  const { wu, meta, scene, conflictFiles, mergeArgs, mergeCwd, sourceBranch, targetBranch, scopeSummary } = args;
   const startMs = Date.now();
   const base = {
     attemptedAt: new Date().toISOString(),
@@ -477,7 +485,7 @@ async function resolveConflictSceneWithLlm(args: {
   // rebase 现场：LLM 完成 rebase（--continue 直到落完）后重放 merge（rebase 后应为干净合并）
   if (scene.state === 'rebase') {
     try {
-      await execSh(mergeCmd, { cwd: mergeCwd, timeoutMs: MERGE_TIMEOUT_MS });
+      await execFileAsync('git', mergeArgs, { cwd: mergeCwd, timeout: MERGE_TIMEOUT_MS });
     } catch (err) {
       return fail(`rebase 解完后重放 merge 仍失败: ${getErrorMessage(err).slice(0, 200)}`);
     }
@@ -573,8 +581,8 @@ export async function cleanupPrototypeWorktreeOnReviewPass(
   }
 
   try {
-    await execSh(`git -C ${shq(baseRepo)} worktree remove --force ${shq(worktreePath)}`, {
-      cwd: baseRepo, timeoutMs: GIT_OP_TIMEOUT_MS,
+    await execFileAsync('git', ['-C', baseRepo, 'worktree', 'remove', '--force', '--', worktreePath], {
+      cwd: baseRepo, timeout: GIT_OP_TIMEOUT_MS,
     });
     logger.info('[MergeOnReviewPass] prototype worktree removed (branch kept)', {
       wuId: wu.id, worktreePath, branch: meta.worktreeBranch,

@@ -4,7 +4,7 @@
  * 覆盖：getDeliveryStatus 汇总（WU 完结/三层证据缺口/自评计数/deliverable）
  *       deliverProject 全分支（branch-only / not-ready / no-repo / checkout-mismatch
  *       / conflict / 成功合并 + 交付落档）与 human-only 由 routes 层兜底（不在此测）。
- * git 调用（execSh）与 getDefaultBranch 全部 mock。
+ * git 调用（execFile，桥接既有 execSh 场景表）与 getDefaultBranch 全部 mock。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'node:fs';
@@ -13,10 +13,16 @@ import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { getDeliveryStatus, deliverProject, markProjectDelivered } from '../delivery.js';
 import type { ProjectData } from '../project.service.js';
 
-const { mockExecSh, mockGetDefaultBranch } = vi.hoisted(() => ({
+const { mockExecSh, mockExecFile, mockGetDefaultBranch } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
+  mockExecFile: vi.fn(),
   mockGetDefaultBranch: vi.fn(),
 }));
+
+vi.mock('child_process', async (importOriginal) => {
+  const orig = await importOriginal() as Record<string, unknown>;
+  return { ...orig, execFile: mockExecFile };
+});
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -74,6 +80,17 @@ beforeEach(() => {
   vi.clearAllMocks();
   seq = 0;
   mockExecSh.mockResolvedValue({ stdout: '', stderr: '' });
+  mockExecFile.mockImplementation((
+    _cmd: string,
+    args: string[],
+    opts: { cwd: string; timeout: number },
+    cb: (error: Error | null, stdout: string, stderr: string) => void,
+  ) => {
+    mockExecSh(`git ${args.join(' ')}`, { cwd: opts.cwd, timeoutMs: opts.timeout }).then(
+      (result: { stdout: string; stderr: string }) => cb(null, result.stdout, result.stderr),
+      (error: Error) => cb(error, '', ''),
+    );
+  });
   mockGetDefaultBranch.mockReturnValue('master');
 });
 
@@ -245,6 +262,32 @@ describe('deliverProject（PMO-b 交付守卫）', () => {
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
+  it('顶层与嵌套腿危险分支均在 rev-parse/diff 前零子进程拒绝', async () => {
+    for (const branch of ['feature";id', 'feature$(id)', 'feature`id`', 'feature;id', 'feature\nid', '--upload-pack=id']) {
+      const topLevel = await deliverProject('proj-1', 'Alice', undefined, makeDeps({
+        project: project({ deliveryPolicy: 'auto-merge', gitBranch: branch }), snapshots: [readyWu()],
+      }));
+      expect(topLevel, branch).toMatchObject({ delivered: false, reason: 'conflict' });
+
+      const nested = await deliverProject('proj-1', 'Alice', undefined, makeDeps({
+        project: project({
+          deliveryPolicy: 'auto-merge', gitRepo: null, gitBranch: null,
+          deliveries: [
+            { gitRepo: '/repo/a', branch, status: 'pending' },
+            { gitRepo: '/repo/b', branch: 'PMO-11-b', status: 'pending' },
+          ],
+        }),
+        snapshots: [wu({ metadataObj: {
+          workspaceRoot: '/repo/a',
+          attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') },
+        } })],
+      }));
+      expect(nested, branch).toMatchObject({ delivered: false, reason: 'conflict' });
+      expect(mockExecSh, branch).not.toHaveBeenCalled();
+      expect(mockExecFile, branch).not.toHaveBeenCalled();
+    }
+  });
+
   it('auto-merge 证据齐 → 合并到默认分支并落档交付记录', async () => {
     mockExecSh.mockImplementation(async (cmd: string) => {
       if (cmd.includes('abbrev-ref')) return { stdout: 'master\n', stderr: '' };
@@ -257,6 +300,10 @@ describe('deliverProject（PMO-b 交付守卫）', () => {
     expect(r).toMatchObject({ delivered: true, deliverCommit: 'feedbeef' });
     const cmds = mockExecSh.mock.calls.map(c => c[0] as string);
     expect(cmds.some(c => c.includes('merge --no-ff') && c.includes('PMO-11') && c.includes('deliver: PMO-11'))).toBe(true);
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'git', ['-C', '/repo/x', 'merge', '--no-ff', '-m', 'deliver: PMO-11', '--', 'PMO-11'],
+      expect.objectContaining({ cwd: '/repo/x' }), expect.any(Function),
+    );
     expect(deps.updateProject).toHaveBeenCalledWith('proj-1', expect.objectContaining({
       deliveredBy: 'Alice',
       deliverCommit: 'feedbeef',

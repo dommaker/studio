@@ -51,6 +51,8 @@ worktree/
 
 > #562 前此处还列 `REQUIREMENTS.md`（AC + 约束文件桥）与根级 `.prompt.md`：前者由已删除的 runner-briefing 写入、后者是旧 loop 的 prompt 落点，两条路径都不再产生它们。
 
+**Git 参数边界（SEC-03，2026-10-26）**：`worktree-resolver.ts` 的 Git 调用统一经 `execFile`/`execFileSync` 参数数组，不再拼 `execSh` 字符串；分支先过零子进程严格形状预检，再执行 `git check-ref-format --branch`，危险输入在任何 worktree/branch 副作用前失败。`ensureBranchExists` 只把明确 unknown revision 视为不存在并建支；超时、权限、仓库损坏等错误保留 stderr 诊断并原样上抛。正常 worktree 创建、复用与失败清理由既有 mock 测试和真实临时仓测试覆盖。
+
 #### .progress.json 格式
 
 由 skill prompt 指示 agent 自己维护（内置 skill 正本随 `@dommaker/studio-skill` 包分发，首启经 bootstrap `seedBuiltinSkillsStep` 落盘），读方：`output-capture.ts readProgress()`、discord 进度查询、monitor 停滞判定。executor 侧不再据此判定完成（那是 agent-loop 的 completion-gates 职责）。

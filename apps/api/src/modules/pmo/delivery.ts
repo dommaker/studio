@@ -19,7 +19,8 @@
  * 单腿（无 deliveries / 合成单腿）：不输出 legs 字段，行为与现状逐字节一致。
  */
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { execSh } from '@dommaker/studio-shared/node';
+import { isValidGitBranch } from '@dommaker/studio-contract';
+import { execFileAsync } from '../../core/exec-async.js';
 import { projectService, resolveDeliveries, resolveDeliveryPolicy, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type DeliveryLegStatus, type DeliveryPolicy, type ProjectData } from './project.service.js';
 import { RequirementService } from '../requirements/index.js';
 import { selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg, type EvidenceSummary } from './evidence-summary.js';
@@ -102,10 +103,6 @@ export interface DeliveryDeps {
   updateProject?: (id: string, input: Record<string, unknown>) => Promise<ProjectData>;
   /** token 聚合注入点（测试用；缺省走 token-usage.service 的 sumTokensForWorkUnits） */
   sumTokens?: (workUnitIds: Set<string>) => Promise<number>;
-}
-
-function shq(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
 /** WU 展示名：metadata.title 优先（metadata 是 JSON 字符串，解析失败/缺失回退 scope） */
@@ -280,9 +277,13 @@ type MergeResult =
  * 然后 branch → 默认分支本地合并（--no-ff，不 push）；冲突不自动 rebase，转人工。
  */
 async function mergeBranchIntoDefault(repo: string, branch: string, message: string): Promise<MergeResult> {
+  // 存量数据纵深防线：必须在首个 rev-parse/diff 之前失败，危险分支零子进程。
+  if (!isValidGitBranch(branch)) {
+    return { ok: false, reason: 'conflict', detail: `非法 PMO 分支名，拒绝交付: ${branch}` };
+  }
   let currentBranch = '';
   try {
-    const { stdout } = await execSh(`git -C ${shq(repo)} rev-parse --abbrev-ref HEAD`, { cwd: repo, timeoutMs: GIT_OP_TIMEOUT_MS });
+    const stdout = await execFileAsync('git', ['-C', repo, 'rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repo, timeout: GIT_OP_TIMEOUT_MS });
     currentBranch = stdout.trim();
   } catch (err) {
     return { ok: false, reason: 'no-repo', detail: `git 仓库不可用: ${getErrorMessage(err)}` };
@@ -295,14 +296,11 @@ async function mergeBranchIntoDefault(repo: string, branch: string, message: str
   }
 
   try {
-    await execSh(
-      `git -C ${shq(repo)} merge --no-ff ${shq(branch)} -m ${shq(message)}`,
-      { cwd: repo, timeoutMs: MERGE_TIMEOUT_MS },
-    );
+    await execFileAsync('git', ['-C', repo, 'merge', '--no-ff', '-m', message, '--', branch], { cwd: repo, timeout: MERGE_TIMEOUT_MS });
   } catch (err) {
     let conflictFiles: string[] = [];
     try {
-      const { stdout } = await execSh(`git -C ${shq(repo)} diff --name-only --diff-filter=U`, { cwd: repo, timeoutMs: GIT_OP_TIMEOUT_MS });
+      const stdout = await execFileAsync('git', ['-C', repo, 'diff', '--name-only', '--diff-filter=U'], { cwd: repo, timeout: GIT_OP_TIMEOUT_MS });
       conflictFiles = stdout.split('\n').map(l => l.trim()).filter(Boolean);
     } catch { /* best-effort */ }
     return {
@@ -315,7 +313,7 @@ async function mergeBranchIntoDefault(repo: string, branch: string, message: str
 
   let deliverCommit = '';
   try {
-    const { stdout } = await execSh(`git -C ${shq(repo)} rev-parse HEAD`, { cwd: repo, timeoutMs: GIT_OP_TIMEOUT_MS });
+    const stdout = await execFileAsync('git', ['-C', repo, 'rev-parse', 'HEAD'], { cwd: repo, timeout: GIT_OP_TIMEOUT_MS });
     deliverCommit = stdout.trim();
   } catch { /* 空字符串兜底 */ }
   return { ok: true, deliverCommit };

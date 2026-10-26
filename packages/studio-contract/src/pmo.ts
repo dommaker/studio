@@ -20,6 +20,21 @@ import { workUnitSchema } from './workunit.js';
 export const deliveryPolicySchema = z.enum(['auto-merge', 'branch-only']);
 export type DeliveryPolicy = z.infer<typeof deliveryPolicySchema>;
 
+/**
+ * PMO 分支名的严格安全子集。除 Git ref 结构规则外，主动拒绝 shell 元字符，
+ * 让危险输入在 HTTP/解析边界即失败；执行端仍须用 git check-ref-format 复核。
+ */
+export function isValidGitBranch(branch: string): boolean {
+  if (!branch || branch === '@' || branch.startsWith('-') || branch.endsWith('/') || branch.endsWith('.')) return false;
+  if (branch.includes('..') || branch.includes('@{') || branch.includes('//')) return false;
+  if (/[\x00-\x20\x7f~^:?*\[\\"'`$;]/.test(branch)) return false;
+  return branch.split('/').every(part => part.length > 0
+    && !part.startsWith('.')
+    && !part.endsWith('.lock'));
+}
+
+export const gitBranchSchema = z.string().refine(isValidGitBranch, 'Invalid git branch name');
+
 /** 决策落地记录（decision 单人工确认时填写的一句话结论，机制原样存） */
 export const pmoDecisionSchema = z.object({
   wuId: z.string(),
@@ -59,7 +74,7 @@ export type DeliveryLegStatus = z.infer<typeof deliveryLegStatusSchema>;
 /** 交付腿（多腿交付按腿独立台账/合并/状态） */
 export const deliveryLegSchema = z.object({
   gitRepo: z.string().nullable(),
-  branch: z.string().nullable(),
+  branch: gitBranchSchema.nullable(),
   status: deliveryLegStatusSchema,
   deliveredAt: z.string().nullable().optional(),
   deliverCommit: z.string().nullable().optional(),
@@ -362,7 +377,7 @@ export const createProjectBodySchema = z.object({
   requirement: z.string().optional(),
   okrId: z.string().optional(),
   priority: z.string().optional(),
-  gitBranch: z.string().optional(),
+  gitBranch: gitBranchSchema.optional(),
   gitRepo: z.string().optional(),
   /** #114 T8：多工程入参（非空字符串数组；空数组 = 未传，走旧单选行为） */
   gitRepos: z.array(z.string()).optional(),
@@ -383,7 +398,7 @@ export const updateProjectBodySchema = z.object({
   status: z.string().optional(),
   priority: z.string().optional(),
   progress: z.number().optional(),
-  gitBranch: z.string().optional(),
+  gitBranch: gitBranchSchema.optional(),
   gitRepo: z.string().optional(),
   gitRepos: z.array(z.string()).optional(),
   startedAt: z.string().nullable().optional(),
