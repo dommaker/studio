@@ -113,6 +113,11 @@ export class FileStore {
     return this.ctx.io.readJson<T>(filePath);
   }
 
+  /** 锁内/跨进程实时路径专用：绕过读穿缓存，直接读取磁盘真值 */
+  readJsonUncached<T>(filePath: string): Promise<T | null> {
+    return this.ctx.base.readJson<T>(filePath);
+  }
+
   /** 写入 JSON 文件（原子写），写后失效缓存 */
   writeJson(filePath: string, data: unknown): Promise<void> {
     return this.ctx.io.writeJson(filePath, data);

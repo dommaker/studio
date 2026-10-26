@@ -63,6 +63,7 @@ vi.mock('@dommaker/studio-shared', () => ({
 import * as authService from '../service.js';
 import routes from '../routes.js';
 import { registerAuthAuditSink } from '../audit-sink.js';
+import { RefreshTokenRetryError } from '../auth-session-store.js';
 // auth middleware imports use the same mock paths as routes.ts
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -424,6 +425,19 @@ describe('auth routes', () => {
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.json).toHaveBeenCalledWith({ error: { code: 'UNAUTHORIZED', message: 'Invalid refresh token' } });
+    });
+
+    it('returns a retryable conflict for an already consumed refresh token', async () => {
+      vi.mocked(authService.exchangeRefreshToken).mockRejectedValue(new RefreshTokenRetryError());
+
+      const { res } = await invokeRoute(routes, 'post', '/refresh', {
+        body: { refreshToken: 'consumed-rt' },
+      });
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json).toHaveBeenCalledWith({
+        error: { code: 'CONFLICT', message: 'Refresh token already rotated; retry with the latest credentials' },
+      });
     });
 
     it('returns 200 with new tokens on valid refresh', async () => {

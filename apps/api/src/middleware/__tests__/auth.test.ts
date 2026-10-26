@@ -335,6 +335,27 @@ describe('STUDIO_AUTH env var', () => {
       );
       expect(next).not.toHaveBeenCalled();
     });
+
+    it('STUDIO_AUTH=on: rejects a revoked session even before its idle expiry', async () => {
+      process.env.STUDIO_AUTH = 'on';
+      const { default: jwt } = await import('jsonwebtoken');
+      const { JWT_SECRET } = await import('../../modules/auth/service.js');
+      const token = jwt.sign({ sid: 'sess-revoked', uid: 'user-1' }, JWT_SECRET);
+      req.headers = { authorization: `Bearer ${token}` };
+      mockReadJson
+        .mockResolvedValueOnce([{
+          id: 'sess-revoked', userId: 'user-1', revokedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+        }])
+        .mockResolvedValueOnce([{ id: 'user-1', role: 'User', name: 'U' }]);
+
+      const mw = requireAuth();
+      await mw(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+      expect((req as any).user).toBeUndefined();
+    });
   });
 });
 describe('generateAnonymousId', () => {

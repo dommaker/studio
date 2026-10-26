@@ -10,6 +10,7 @@ import {
   refreshRateLimit,
 } from "../../middleware/rate-limit.js";
 import * as authService from "./service.js";
+import { RefreshTokenRetryError } from "./auth-session-store.js";
 import { logAuthAudit } from "./audit-sink.js"; // 🆕 SEC-010（Phase 5 #1：audit 实现经装配注入）
 
 import { logger } from "@dommaker/studio-shared/node";
@@ -219,15 +220,22 @@ router.post(
 router.post("/refresh", refreshRateLimit, defineRoute(
   { body: refreshBodySchema },
   async (_req, _res, { body }) => {
-    const result = await authService.exchangeRefreshToken(body.refreshToken);
-    if (!result) {
-      throw new HttpError(401, ERROR_CODES.UNAUTHORIZED, "Invalid refresh token");
+    try {
+      const result = await authService.exchangeRefreshToken(body.refreshToken);
+      if (!result) {
+        throw new HttpError(401, ERROR_CODES.UNAUTHORIZED, "Invalid refresh token");
+      }
+      return {
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        userId: result.userId,
+      };
+    } catch (error) {
+      if (error instanceof RefreshTokenRetryError) {
+        throw new HttpError(409, ERROR_CODES.CONFLICT, error.message);
+      }
+      throw error;
     }
-    return {
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      userId: result.userId,
-    };
   },
 ));
 

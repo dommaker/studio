@@ -22,8 +22,8 @@ const USERS_FILE = path.join(STUDIO_DIR, 'users.json');
 const SESSIONS_FILE = path.join(STUDIO_DIR, 'sessions.json');
 
 // ─── 本地类型（替代 Prisma model 类型） ───
-// UserData / SessionData 单一来源在 modules/auth/service.ts（users.json/sessions.json
-// 的唯一写入方），此处 re-export 保持既有 import 路径可用。
+// UserData / SessionData 单一来源在 modules/auth/auth-session-store.ts（users.json/sessions.json
+// 的唯一写入方），service.ts re-export 保持既有 import 路径可用。
 
 export type { UserData, SessionData };
 
@@ -205,7 +205,7 @@ export function optionalAuth() {
       // 查询 Session（FileStore）
       const session = await findSessionWithUser(payload.sessionId);
 
-      if (!session || new Date(session.expiresAt) < new Date()) {
+      if (!session || session.revokedAt || new Date(session.expiresAt) <= new Date()) {
         return next();
       }
 
@@ -272,7 +272,7 @@ export function requireAuth() {
         });
       }
 
-      if (new Date(session.expiresAt) < new Date()) {
+      if (session.revokedAt || new Date(session.expiresAt) <= new Date()) {
         return res.status(401).json({
           error: '登录已过期，请重新登录',
           code: 'SESSION_EXPIRED',

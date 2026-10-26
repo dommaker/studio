@@ -182,6 +182,25 @@ describe('api interceptor', () => {
       expect(localStorageMock.removeItem).toHaveBeenCalledWith('auth-storage');
     });
 
+    it('keeps stored credentials when a rotation conflict is still retryable', async () => {
+      setAuthStorage('old-token', 'old-refresh');
+      const { api } = await import('../index.js');
+
+      api.defaults.adapter = async (config) => {
+        const err = new Error('Unauthorized') as AxiosError;
+        err.response = { status: 401, data: { error: 'Unauthorized' } };
+        err.config = { ...config, _retry: false };
+        throw err;
+      };
+      const conflict = new Error('Already rotated') as AxiosError;
+      conflict.response = { status: 409, data: { error: { code: 'CONFLICT' } } };
+      vi.spyOn(axios, 'post').mockRejectedValue(conflict);
+
+      await expect(api.get('/tasks')).rejects.toThrow('Already rotated');
+      expect(localStorageMock.removeItem).not.toHaveBeenCalledWith('auth-storage');
+      expect(JSON.parse(store['auth-storage']).state).toMatchObject({ token: 'old-token', refreshToken: 'old-refresh' });
+    });
+
     it('passes through non-401 errors', async () => {
       setAuthStorage('token', 'refresh');
       const { api } = await import('../index.js');
@@ -308,6 +327,33 @@ describe('api interceptor', () => {
         { refreshToken: 'my-refresh-token' }
       );
       expect(result).toEqual({ accessToken: 'new-access', refreshToken: 'new-refresh' });
+    });
+
+    it('retries a consumed token conflict with the latest credentials from another tab', async () => {
+      setAuthStorage('old-access', 'old-refresh');
+      const { refreshToken } = await import('../index.js');
+
+      const postSpy = vi.spyOn(axios, 'post').mockImplementation(async (url: string, data?: unknown) => {
+        const value = (data as { refreshToken: string }).refreshToken;
+        if (value === 'old-refresh') {
+          setAuthStorage('new-access', 'new-refresh');
+          const error = new Error('Already rotated') as AxiosError;
+          error.response = { status: 409, data: { error: { code: 'CONFLICT' } } };
+          throw error;
+        }
+        return {
+          data: { data: { accessToken: 'new-access', refreshToken: 'new-refresh' } },
+        } as AxiosResponse;
+      });
+
+      await expect(refreshToken('old-refresh')).resolves.toEqual({
+        accessToken: 'new-access', refreshToken: 'new-refresh',
+      });
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      expect(postSpy).toHaveBeenLastCalledWith(
+        expect.stringContaining('/auth/refresh'),
+        { refreshToken: 'old-refresh' },
+      );
     });
 
     it('uses standalone axios, not the api instance', async () => {
