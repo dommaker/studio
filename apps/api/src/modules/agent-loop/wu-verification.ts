@@ -9,6 +9,7 @@
 
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { withDirectoryCapability } from '@dommaker/studio-shared/node';
 import { assertTrustedWuWorktree, HOST_CHECK_TIMEOUT_MS, runHostCheck } from '../../core/host-execution-policy.js';
 import { resolveWorktreesDir } from './agent-loop-parsers.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
@@ -75,15 +76,20 @@ export async function runWuVerification(
   const trustedCwd = options?.cwdProvenance === 'merge-target'
     ? worktreePath
     : assertTrustedWuWorktree(wu.id, worktreePath, resolveWorktreesDir());
-  const { commands, source } = await resolveVerifyCommands(wu, metadata, trustedCwd);
-  const ran: string[] = [];
-  for (const command of commands) {
-    try {
-      await runHostCheck(command, trustedCwd);
-      ran.push(command);
-    } catch (err) {
-      return { ran, source, failure: { command, tail: extractExecOutputTail(err, VERIFY_FAIL_TAIL_CHARS) } };
+  const verify = async (capabilityCwd: string): Promise<WuVerifyOutcome> => {
+    const { commands, source } = await resolveVerifyCommands(wu, metadata, capabilityCwd);
+    const ran: string[] = [];
+    for (const command of commands) {
+      try {
+        await runHostCheck(command, capabilityCwd);
+        ran.push(command);
+      } catch (err) {
+        return { ran, source, failure: { command, tail: extractExecOutputTail(err, VERIFY_FAIL_TAIL_CHARS) } };
+      }
     }
-  }
-  return { ran, source };
+    return { ran, source };
+  };
+  // merge-on-review-pass 已持有 capability 时直接复用，不能嵌套 realpath/open。
+  if (new RegExp(`^/proc/${process.pid}/fd/\\d+$`).test(trustedCwd)) return verify(trustedCwd);
+  return withDirectoryCapability(trustedCwd, verify);
 }

@@ -95,6 +95,7 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
   let worktreeDir: string; // 当前 WU 的受控 worktree
   let worktreesRoot: string;
   let previousWorktreesDir: string | undefined;
+  let previousGitRoots: string | undefined;
 
   const WT = () => worktreeDir;
 
@@ -124,6 +125,8 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     fs.mkdirSync(worktreeDir);
     previousWorktreesDir = process.env.WORKTREES_DIR;
     process.env.WORKTREES_DIR = worktreesRoot;
+    previousGitRoots = process.env.PMO_GIT_REPO_ROOTS;
+    process.env.PMO_GIT_REPO_ROOTS = os.tmpdir();
 
     // 默认：git 干净；ensureWuWorktree 返回专属 worktree；CLI 成功
     mockExecSync.mockImplementation((cmd: string) =>
@@ -135,9 +138,16 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
       baseBranch: baseBranch ?? 'main',
       baseRepo: repoDir,
     }));
-    mockExecuteLightweight.mockResolvedValue({
-      success: true, outputText: 'ACTION: PROGRESS:继续',
-      logFile: '/tmp/log', worktree: WT(), outputFiles: [], sessionCount: 1,
+    mockExecuteLightweight.mockImplementation(async (task: { parameters?: Record<string, unknown> }) => {
+      const workspaceRoot = task.parameters?.workspaceRoot;
+      if (typeof workspaceRoot === 'string' && workspaceRoot.startsWith(`/proc/${process.pid}/fd/`)) {
+        // 在 capability 仍有效时解析，后续断言继续检查语义目录而非 fd 编号。
+        task.parameters!.workspaceRoot = fs.realpathSync(workspaceRoot);
+      }
+      return {
+        success: true, outputText: 'ACTION: PROGRESS:继续',
+        logFile: '/tmp/log', worktree: WT(), outputFiles: [], sessionCount: 1,
+      };
     });
     mockExecSh.mockResolvedValue({ stdout: 'ok', stderr: '' });
     mockResolveWorkspaceRoot.mockResolvedValue(null);
@@ -147,6 +157,8 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
   afterEach(() => {
     if (previousWorktreesDir === undefined) delete process.env.WORKTREES_DIR;
     else process.env.WORKTREES_DIR = previousWorktreesDir;
+    if (previousGitRoots === undefined) delete process.env.PMO_GIT_REPO_ROOTS;
+    else process.env.PMO_GIT_REPO_ROOTS = previousGitRoots;
     fs.rmSync(testDir, { recursive: true, force: true });
     fs.rmSync(repoRoot, { recursive: true, force: true });
     fs.rmSync(worktreesRoot, { recursive: true, force: true });
@@ -201,7 +213,7 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
 
     expect(mockEnsureWuWorktree).toHaveBeenCalledWith(expect.objectContaining({
       wuId: wu.id,
-      repoDir: repoRoot,
+      repoDir: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/),
       baseBranch: undefined,
     }));
     const task = mockExecuteLightweight.mock.calls[0][0];
@@ -213,6 +225,33 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
       worktreeBaseBranch: 'main',
       worktreeBaseRepo: repoRoot,
     });
+  });
+
+  it('配置后到 worktree 使用前 repo 被替换时仍使用固定 capability，metadata 保留原路径', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-capability-outside-'));
+    const original = `${repoRoot}-original`;
+    const oldRoots = process.env.PMO_GIT_REPO_ROOTS;
+    process.env.PMO_GIT_REPO_ROOTS = os.tmpdir();
+    mockEnsureWuWorktree.mockImplementation(async ({ wuId, repoDir, baseBranch }: { wuId: string; repoDir: string; baseBranch?: string }) => {
+      fs.renameSync(repoRoot, original);
+      fs.symlinkSync(outside, repoRoot);
+      fs.writeFileSync(path.join(repoDir, 'capability-marker'), 'safe');
+      return { worktreePath: WT(), branch: `task/${wuId}`, baseBranch: baseBranch ?? 'main', baseRepo: repoDir };
+    });
+    try {
+      const wu = await createWu('task', { workspaceRoot: repoRoot });
+      const step = await loop().agentStep({ workUnit: wu });
+
+      expect(fs.existsSync(path.join(outside, 'capability-marker'))).toBe(false);
+      expect(fs.readFileSync(path.join(original, 'capability-marker'), 'utf8')).toBe('safe');
+      expect(step.metadataUpdates?.worktreeBaseRepo).toBe(repoRoot);
+    } finally {
+      fs.rmSync(repoRoot, { force: true });
+      if (fs.existsSync(original)) fs.renameSync(original, repoRoot);
+      if (oldRoots === undefined) delete process.env.PMO_GIT_REPO_ROOTS;
+      else process.env.PMO_GIT_REPO_ROOTS = oldRoots;
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it('同一 WU 后续 step：复用 metadata 中的 worktree（不重复落档，baseBranch 沿用记录）', async () => {
@@ -279,7 +318,7 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
 
     expect(mockEnsureWuWorktree).toHaveBeenCalledWith(expect.objectContaining({
       wuId: wu.id,
-      repoDir: repoRoot,
+      repoDir: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/),
       branchPrefix: 'prototype',
     }));
     const task = mockExecuteLightweight.mock.calls[0][0];
@@ -359,13 +398,45 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       'git',
       ['status', '--porcelain'],
-      expect.objectContaining({ cwd: WT() }),
+      expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }),
       expect.any(Function),
     );
     expect((await wuService.getById(wu.id))!.status).toBe('active'); // 打回 progress
   });
 
   // ─── 改造项 2：COMPLETE 前自动验证 ───
+
+  it('代码类 WU 校验后替换 worktree：验证 fail-closed，零 spawn 零越界读取', async () => {
+    const outside = path.join(testDir, 'verify-outside');
+    const original = `${WT()}-original`;
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(WT(), 'package.json'), JSON.stringify({ scripts: { test: 'safe-test' } }));
+    fs.writeFileSync(path.join(outside, 'package.json'), JSON.stringify({ scripts: { test: 'outside-test' } }));
+    const realpath = fs.realpathSync.bind(fs);
+    let checks = 0;
+    vi.spyOn(fs, 'realpathSync').mockImplementation(candidate => {
+      const resolved = realpath(candidate);
+      checks += 1;
+      if (checks === 2) {
+        fs.renameSync(WT(), original);
+        fs.symlinkSync(outside, WT());
+      }
+      return resolved;
+    });
+    const readSpy = vi.spyOn(fs, 'readFileSync');
+    const wu = await createWu('task', { workspaceRoot: repoRoot, worktreePath: WT() });
+
+    try {
+      await expect(loop().recordResult({ workUnit: wu }, { action: 'complete', summary: '做完了' })).rejects.toThrow();
+      expect(readSpy.mock.calls.filter(call => String(call[0]).startsWith(outside))).toEqual([]);
+      expect(mockExecSh).not.toHaveBeenCalled();
+      expect((await wuService.getById(wu.id))!.status).toBe('active');
+    } finally {
+      vi.restoreAllMocks();
+      fs.rmSync(WT(), { force: true });
+      if (fs.existsSync(original)) fs.renameSync(original, WT());
+    }
+  });
 
   it('metadata/workspace 自定义命令不生效：固定模板全绿 → in_review + verifyReport + 频道简报', async () => {
     fs.writeFileSync(path.join(WT(), 'package.json'), JSON.stringify({ scripts: { test: 'x', typecheck: 'x' } }));
@@ -378,8 +449,8 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     await loop().recordResult({ workUnit: wu }, { action: 'complete', summary: '做完了' });
 
     expect(mockExecSh).toHaveBeenCalledTimes(2);
-    expect(mockExecSh).toHaveBeenNthCalledWith(1, 'npm run test', expect.objectContaining({ cwd: WT(), timeoutMs: 600_000 }));
-    expect(mockExecSh).toHaveBeenNthCalledWith(2, 'npm run typecheck', expect.objectContaining({ cwd: WT(), timeoutMs: 600_000 }));
+    expect(mockExecSh).toHaveBeenNthCalledWith(1, 'npm run test', expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/), timeoutMs: 600_000 }));
+    expect(mockExecSh).toHaveBeenNthCalledWith(2, 'npm run typecheck', expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/), timeoutMs: 600_000 }));
     expect((await wuService.getById(wu.id))!.status).toBe('in_review');
     const meta = await metaOf(wu.id);
     expect(meta.verifyReport).toMatchObject({ commands: ['npm run test', 'npm run typecheck'], source: 'convention' });
@@ -492,7 +563,7 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     await loop().recordResult({ workUnit: wu }, { action: 'progress', summary: '继续中' });
 
     expect(mockExecSh).toHaveBeenCalledTimes(1);
-    expect(mockExecSh).toHaveBeenCalledWith('npm run test', expect.objectContaining({ cwd: WT(), timeoutMs: 600_000 }));
+    expect(mockExecSh).toHaveBeenCalledWith('npm run test', expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/), timeoutMs: 600_000 }));
     expect((await wuService.getById(wu.id))!.status).toBe('in_review');
     const meta = await metaOf(wu.id);
     expect(meta.attestations?.l1?.verdict).toBe('approved');

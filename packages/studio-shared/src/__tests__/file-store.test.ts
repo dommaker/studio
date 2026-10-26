@@ -1479,7 +1479,7 @@ describe('FileStore readDoc 读穿缓存 (#321)', () => {
   it('文档未变化时重复 readDoc 不重读文件（stat 校验命中缓存）', async () => {
     await store.writeDoc(docsDir(), 'hello', { title: 'T' }, '正文 body');
     const readSpy = vi.spyOn(fs.promises, 'readFile');
-    const docReads = () => readSpy.mock.calls.filter(c => String(c[0]) === docPath()).length;
+    const docReads = () => readSpy.mock.calls.filter(c => String(c[0]) === docPath() || String(c[0]).startsWith(`/proc/${process.pid}/fd/`)).length;
 
     const first = await store.readDoc(docsDir(), 'hello');
     expect(first?.meta.title).toBe('T');

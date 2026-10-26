@@ -60,11 +60,16 @@ describe('validateGitRepo（PMO gitRepo 白名单）', () => {
       gitRepos: [repoDir],
       deliveries: [{ gitRepo: repoDir }],
     })).not.toThrow();
+    const outside = path.join(tmpRoot, 'outside');
+    fs.mkdirSync(outside);
+    const symlinkRepo = path.join(tmpRoot, 'symlink-repo');
+    fs.symlinkSync(outside, symlinkRepo);
     for (const body of [
       { gitRepo: '/etc' },
       { gitRepos: ['/etc'] },
       { deliveries: [{ gitRepo: '/etc' }] },
       { deliveries: [{ gitRepo: repoDir }, { gitRepo: '/etc' }] },
+      { deliveries: [{ gitRepo: symlinkRepo }] },
     ]) {
       expect(() => assertGitReposAllowed(body)).toThrowError(expect.objectContaining({ status: 400 }));
     }

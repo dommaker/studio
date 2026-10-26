@@ -47,6 +47,7 @@ function makeDeps(overrides: Partial<CompletionGuardDeps> = {}): CompletionGuard
     listUnfinishedChildren: vi.fn().mockResolvedValue([]),
     hasUncommittedChanges: vi.fn().mockResolvedValue(false),
     readHeadHash: vi.fn().mockResolvedValue('h1'),
+    withDirectory: async <T>(cwd: string, callback: (capabilityPath: string) => Promise<T>): Promise<T> => callback(cwd),
     runVerification: vi.fn().mockResolvedValue({ ran: [], source: 'convention' }),
     ...overrides,
   } as ReturnType<typeof makeDeps>;

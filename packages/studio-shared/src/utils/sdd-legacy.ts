@@ -176,7 +176,7 @@ export async function listLegacySddDocs(baseDir: string): Promise<string[]> {
  */
 export async function readLegacySddDoc(baseDir: string, slug: string, layer: LegacySddLayer): Promise<{ meta: Partial<SddFrontmatter>; body: string } | null> {
   requireBaseDir(baseDir);
-  const doc = await getDefaultFileStore().readDoc(baseDir, `${slug}/${layer}`);
+  const doc = await getDefaultFileStore().readDoc(`${baseDir}/${slug}`, layer);
   if (!doc) return null;
   return { meta: doc.meta as Partial<SddFrontmatter>, body: doc.body };
 }

@@ -48,8 +48,8 @@
 - **#635 stop 语义收窄**：`AgentLoop.stop()` 只置退出意图（alive=false），不停租约心跳、不清租约轨道——在飞 step 全程租约保护；停心跳收尾统一在 runLoop 主循环退出点
 - **step-guards 需求/AC 前置守卫（#585）**：仅实现类系统派生 WU 受检；豁免 = from-message/manual、metadata.triggerSource、requirementOverride=true；判定 = reqId + metadata.ac[] 缺一即 need_input 挂起；总开关 `STUDIO_REQUIREMENT_GUARD=false`（测试环境默认关）
 - **认领门槛**：纯显式三门槛（assigneeId 排他+excludeAssignee+blockedBy）+ 决策 14 适任判断；#579 总开关 `STUDIO_CLAIM_FITNESS=false`
-- **completion-gates 零同步子进程（#374 口径延伸）**：全部走 `core/exec-async.ts` 的 execFileAsync，fail-open 语义不变
-- **执行根目录（#481）**：`resolveExecutionWorkspaceRoot` 唯一来源 = `metadata.workspaceRoot`；`wu.workspaceId` 无执行语义
+- **completion-gates 零同步子进程（#374 + SEC-04）**：全部走 `core/exec-async.ts` 的 execFileAsync。dirty/HEAD 在 recordResult 同一 `withDirectoryCapability` 回调内完成；rev-list/git log/analysis report 同样走通用 capability（服务端 WORKTREES_DIR 下 worktree 不受 PMO 允许根限制）。capability 创建失败向外抛出、危险替换 fail-closed；capability 内普通 Git 故障保持原 fail-open 口径。
+- **执行根目录（#481 + SEC-04）**：`resolveExecutionWorkspaceRoot` 唯一来源 = `metadata.workspaceRoot`；`wu.workspaceId` 无执行语义。worktree 创建/PMO 建支经统一 `withExecutionRepo` 持 repo fd；LocalExecutor 在 runner/CLI 全周期经 `withDirectoryCapability` 持最终工作目录 fd，返回的 worktree/logFile/outputFiles 恢复原路径，capability 不落 metadata。自动验证在 `assertTrustedWuWorktree` 后同样持 capability 完成 package.json 读取、模板选择与 `runHostCheck`，校验后替换 fail-closed 且零 spawn/零越界读取。
 - **会话术语（#637/#639）**：档案会话号（metadata.sessionId）vs CLI 会话号（metadata.cliSessionId）；续用一律按 CLI 会话号 id 形态点名（无则新建；失效走 #94 降级 + #95 前序进展段交接）
 - **子 WU 不继承会话簿记**：clearSessionBookkeeping 清除 14 字段；新增簿记字段必须同步
 - **#467 裁决轮 / #567 方向锁定协议**：RULING/DIRECTION 行 → StepResult.rulings/directions → metadata.planRulings/planDirections；提交落地在 pmo/plan-ruling.ts、pmo/plan-direction.ts

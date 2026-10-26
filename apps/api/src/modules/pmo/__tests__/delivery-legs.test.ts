@@ -83,6 +83,7 @@ function makeDeps(input: {
     getIndex: async () => input.snapshots ?? [],
     updateProject: vi.fn(async (id: string, patch: Record<string, unknown>) => project({ id, ...patch } as ProjectData)),
     sumTokens: async () => 0,
+    withRepo: async <T>(repo: string, callback: (capabilityPath: string) => Promise<T>): Promise<T> => callback(repo),
   };
 }
 
@@ -287,5 +288,52 @@ describe('deliverProject 多腿 auto-merge（#113 T7）', () => {
     const r = await deliverProject('proj-1', 'Alice', undefined, deps);
     expect(r).toMatchObject({ delivered: false, reason: 'branch-only' });
     expect(mockExecSh).not.toHaveBeenCalled();
+  });
+
+  it('嵌套 delivery 在配置校验后被替换时，实际 Git 仍使用固定目录 capability', async () => {
+    const { withExecutionRepo } = await import('../../../utils/execution-repo-policy.js');
+    const root = fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'delivery-capability-'));
+    const repoA = path.join(root, 'a');
+    const repoB = path.join(root, 'b');
+    const originalB = path.join(root, 'b-original');
+    const outside = path.join(root, 'outside');
+    for (const dir of [repoA, repoB, outside]) fs.mkdirSync(dir);
+    const oldRoots = process.env.PMO_GIT_REPO_ROOTS;
+    process.env.PMO_GIT_REPO_ROOTS = root;
+    try {
+      const deps = makeDeps({
+        project: project({ deliveryPolicy: 'auto-merge', deliveries: [
+          { gitRepo: repoA, branch: 'PMO-11-a', status: 'pending' },
+          { gitRepo: repoB, branch: 'PMO-11-b', status: 'pending' },
+        ] }),
+        snapshots: [
+          wu({ metadataObj: { workspaceRoot: repoA, ...fullEvidence } }),
+          wu({ metadataObj: { workspaceRoot: repoB, ...fullEvidence } }),
+        ],
+      });
+      Object.assign(deps, { withRepo: withExecutionRepo });
+      let calls = 0;
+      mockExecSh.mockImplementation(async (cmd: string, opts: { cwd: string }) => {
+        calls += 1;
+        if (calls === 4) {
+          fs.renameSync(repoB, originalB);
+          fs.symlinkSync(outside, repoB);
+          fs.writeFileSync(path.join(opts.cwd, 'capability-marker'), 'safe');
+        }
+        if (cmd.includes('abbrev-ref')) return { stdout: 'master\n', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      await deliverProject('proj-1', 'Alice', undefined, deps);
+      expect(fs.existsSync(path.join(outside, 'capability-marker'))).toBe(false);
+      expect(fs.readFileSync(path.join(originalB, 'capability-marker'), 'utf8')).toBe('safe');
+      for (const call of mockExecSh.mock.calls.slice(3)) {
+        expect(call[1].cwd).not.toBe(repoB);
+      }
+    } finally {
+      if (oldRoots === undefined) delete process.env.PMO_GIT_REPO_ROOTS;
+      else process.env.PMO_GIT_REPO_ROOTS = oldRoots;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

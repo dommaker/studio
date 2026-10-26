@@ -17,8 +17,10 @@ import { clearCache } from '../../../middleware/api-cache.js';
 let server: Server;
 let baseUrl: string;
 
+let quarterSeq = 0;
 function uniqueQuarter(): string {
-  return `2099-Q${Math.floor(Math.random() * 4) + 1}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const seq = quarterSeq++;
+  return `${2200 + Math.floor(seq / 4)}-Q${(seq % 4) + 1}`;
 }
 
 beforeAll(async () => {
@@ -148,5 +150,28 @@ describe('#448 问题2: OKR 撞重返回 409', () => {
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('INTERNAL');
+  });
+});
+
+describe('SEC-04 OKR quarter 严格格式', () => {
+  const invalidQuarters = ['../outside', '2026-Q0', '2026-Q5', '2026-q1', '26-Q1', '2026-Q1-extra', '2026-Q1\n'];
+
+  it('HTTP 拒绝所有非 YYYY-Qn 输入', async () => {
+    for (const quarter of invalidQuarters) {
+      const res = await createOkr(quarter);
+      expect(res.status, JSON.stringify(quarter)).toBe(400);
+    }
+  });
+
+  it('service 自身也拒绝非法 quarter，不能依赖 HTTP 校验', async () => {
+    for (const quarter of invalidQuarters) {
+      await expect(getOkrService().create({
+        companyId: 'co-sec04',
+        title: 'invalid quarter',
+        quarter,
+        objectives: [],
+        keyResults: [],
+      })).rejects.toThrow('quarter must match');
+    }
   });
 });

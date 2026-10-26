@@ -29,6 +29,7 @@ import { resolveWorkspaceRoot as defaultResolveWorkspaceRoot } from '../workspac
 import { listChannelReqPmoProjects, type ChannelReqPmoLink, type ProjectLike } from '../requirements/index.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
+import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
 
 export { listChannelReqPmoProjects };
 export type { ChannelReqPmoLink, ProjectLike };
@@ -102,16 +103,16 @@ export function invalidateFileRefVocabularyCache(): void {
 
 /** 默认词表来源：git ls-files（原样相对路径，一行一条） */
 function gitLsFiles(repo: string): Promise<string[]> {
-  return new Promise((resolve, reject) => {
+  return withExecutionRepo(repo, capabilityRepo => new Promise((resolve, reject) => {
     execFile(
       'git', ['ls-files'],
-      { cwd: repo, maxBuffer: 64 * 1024 * 1024 },
+      { cwd: capabilityRepo, maxBuffer: 64 * 1024 * 1024 },
       (err, stdout) => {
         if (err) return reject(err);
         resolve(stdout.split('\n').map(l => l.trim()).filter(Boolean));
       },
     );
-  });
+  }));
 }
 
 async function getRepoFiles(repo: string, deps: FileRefVocabularyDeps): Promise<string[]> {

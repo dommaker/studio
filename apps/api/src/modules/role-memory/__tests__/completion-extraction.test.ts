@@ -13,7 +13,7 @@
  * mock getSystemExecutor（真实 LLM 不可测）；readTranscript/appendTranscriptStep 与
  * roleMemoryStore 走真实实现（测试环境隔离目录）。
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -44,6 +44,14 @@ vi.mock('../review-adapter.js', () => ({
 }));
 
 import { WuCompletionExtractor, buildTranscriptText, normalizeDraftInput, MEMORY_EXTRACTION_SYSTEM_PROMPT } from '../completion-extraction.js';
+
+// 仅在直接依赖测试消除 barrel 冷启动；生产加载顺序与 AC 的 3s 窗口均不变。
+beforeAll(async () => {
+  await Promise.all([
+    import('../../agent-loop/index.js'),
+    import('../../agents/index.js'),
+  ]);
+});
 
 const ROLE_MEMORY_TEST_ROOT = roleMemoryRoot();
 const TRANSCRIPTS_TEST_DIR = transcriptsDir();

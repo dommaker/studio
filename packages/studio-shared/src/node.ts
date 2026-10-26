@@ -22,3 +22,4 @@ export type { ConstraintSeverity, ConstraintContext, ConstraintResult } from '@d
 export * from './studio-events';
 export * from './log-path';
 export * from './resolutions';
+export * from './directory-capability';

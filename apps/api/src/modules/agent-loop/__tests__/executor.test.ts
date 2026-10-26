@@ -58,6 +58,37 @@ describe('LocalExecutor', () => {
     expect(mockExecuteLightweight).toHaveBeenCalledWith(task);
     expect(out).toBe(result); // 同一引用 — 结果形状原样透传，零行为变化
   });
+
+  it('defaultPath 执行期间持固定目录 capability，返回路径不泄露已关闭 fd', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'local-executor-capability-'));
+    const repo = path.join(root, 'repo');
+    const original = path.join(root, 'repo-original');
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(repo);
+    fs.mkdirSync(outside);
+    try {
+      mockExecuteLightweight.mockImplementation(async (task: AgentTask) => {
+        const capabilityPath = task.parameters!.workspaceRoot as string;
+        expect(capabilityPath).toMatch(new RegExp(`^/proc/${process.pid}/fd/\\d+$`));
+        fs.renameSync(repo, original);
+        fs.symlinkSync(outside, repo);
+        fs.writeFileSync(path.join(capabilityPath, 'safe.txt'), 'safe');
+        return makeResult({ worktree: capabilityPath, logFile: path.join(capabilityPath, '.agent.log') });
+      });
+      const task = {
+        id: 't-cap', executionId: 'e-cap', provider: 'claude', prompt: 'do it',
+        parameters: { workspaceRoot: repo }, timeoutMs: 1000,
+      } as unknown as AgentTask;
+      const out = await new LocalExecutor().execute(task);
+
+      expect(fs.existsSync(path.join(outside, 'safe.txt'))).toBe(false);
+      expect(fs.readFileSync(path.join(original, 'safe.txt'), 'utf8')).toBe('safe');
+      expect(out.worktree).toBe(repo);
+      expect(out.logFile).toBe(path.join(repo, '.agent.log'));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('AgentLoop agentStep via Executor interface', () => {

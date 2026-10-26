@@ -8,6 +8,7 @@ import { resolveExecutionWorkspaceRoot, resolveParentWorktreePath } from '../exe
 import type { StepResult } from '../agent-loop.types.js';
 import type { AgentLoopHost } from './loop-host.js';
 import { logger } from '@dommaker/studio-shared/node';
+import { withExecutionRepo } from '../../../utils/execution-repo-policy.js';
 
 export interface StepWorktreeInput {
   wu: WorkUnitData;
@@ -48,49 +49,53 @@ export async function resolveStepWorktree(
     || (wu.type === 'analysis' && metadata.prototype === true);
   if (wantsWuWorktree && workspaceRoot && isGitRepoRoot(workspaceRoot)) {
     try {
-      // PMO-b（决策 3）：WU 归属 PMO → base 从默认分支改为 PMO 分支（分支名 = PMO id），
-      // per-WU 临时分支从 PMO 分支拉、向 PMO 分支合（merge-on-review-pass 消费 pmoBranch 落档）。
-      // 解析/建支失败回落默认 base，绝不阻断执行。
-      let pmoBaseBranch: string | null = null;
-      const pmoResolution = await resolvePmoBranchForWU(wu, host.fileStore).catch(() => null);
-      if (pmoResolution) {
-        try {
-          await ensureBranchExists({
-            repoDir: workspaceRoot,
-            branch: pmoResolution.branch,
-            baseBranch: typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
+      const configuredRepo = workspaceRoot;
+      await withExecutionRepo(configuredRepo, async capabilityRepo => {
+        // PMO-b（决策 3）：WU 归属 PMO → base 从默认分支改为 PMO 分支（分支名 = PMO id），
+        // per-WU 临时分支从 PMO 分支拉、向 PMO 分支合（merge-on-review-pass 消费 pmoBranch 落档）。
+        // 解析/建支失败回落默认 base，绝不阻断执行。
+        let pmoBaseBranch: string | null = null;
+        const pmoResolution = await resolvePmoBranchForWU(wu, host.fileStore).catch(() => null);
+        if (pmoResolution) {
+          try {
+            await ensureBranchExists({
+              repoDir: capabilityRepo,
+              branch: pmoResolution.branch,
+              baseBranch: typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
+                ? metadata.worktreeBaseBranch
+                : getDefaultBranch(capabilityRepo),
+            });
+            pmoBaseBranch = pmoResolution.branch;
+          } catch (err) {
+            logger.warn(`[AgentLoop] PMO branch ensure failed, falling back to default base: ${getErrorMessage(err)}`, { traceId });
+          }
+        }
+        const info = await ensureWuWorktree({
+          wuId: wu.id,
+          repoDir: capabilityRepo,
+          worktreesDir: resolveWorktreesDir(),
+          baseBranch: pmoBaseBranch
+            ?? (typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
               ? metadata.worktreeBaseBranch
-              : getDefaultBranch(workspaceRoot),
-          });
-          pmoBaseBranch = pmoResolution.branch;
-        } catch (err) {
-          logger.warn(`[AgentLoop] PMO branch ensure failed, falling back to default base: ${getErrorMessage(err)}`, { traceId });
+              : undefined),
+          // #157（T6）：analysis 原型单分支 = prototype/<wuId>（永不合并）
+          branchPrefix: wu.type === 'analysis' ? 'prototype' : undefined,
+        });
+        if (metadata.worktreePath !== info.worktreePath) {
+          metadataUpdates.worktreePath = info.worktreePath;
+          metadataUpdates.worktreeBranch = info.branch;
+          metadataUpdates.worktreeBaseBranch = info.baseBranch;
+          // capability 仅在本回调有效；持久化必须保留配置原路径。
+          metadataUpdates.worktreeBaseRepo = configuredRepo;
+          if (pmoResolution && pmoBaseBranch) {
+            // 2026-08 归因统一：只落 pmoBranch（merge-on-review-pass 的合并目标）；
+            // 项目 id 不再缓存落档（原 pmoProjectId 为冗余缓存），消费方经
+            // resolvePmoProjectIdForWU 从创建期戳（metadata.pmoId / reqId）重解析
+            metadataUpdates.pmoBranch = pmoResolution.branch;
+          }
         }
-      }
-      const info = await ensureWuWorktree({
-        wuId: wu.id,
-        repoDir: workspaceRoot,
-        worktreesDir: resolveWorktreesDir(),
-        baseBranch: pmoBaseBranch
-          ?? (typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
-            ? metadata.worktreeBaseBranch
-            : undefined),
-        // #157（T6）：analysis 原型单分支 = prototype/<wuId>（永不合并）
-        branchPrefix: wu.type === 'analysis' ? 'prototype' : undefined,
+        workspaceRoot = info.worktreePath;
       });
-      if (metadata.worktreePath !== info.worktreePath) {
-        metadataUpdates.worktreePath = info.worktreePath;
-        metadataUpdates.worktreeBranch = info.branch;
-        metadataUpdates.worktreeBaseBranch = info.baseBranch;
-        metadataUpdates.worktreeBaseRepo = info.baseRepo;
-        if (pmoResolution && pmoBaseBranch) {
-          // 2026-08 归因统一：只落 pmoBranch（merge-on-review-pass 的合并目标）；
-          // 项目 id 不再缓存落档（原 pmoProjectId 为冗余缓存），消费方经
-          // resolvePmoProjectIdForWU 从创建期戳（metadata.pmoId / reqId）重解析
-          metadataUpdates.pmoBranch = pmoResolution.branch;
-        }
-      }
-      workspaceRoot = info.worktreePath;
     } catch (err) {
       const message = getErrorMessage(err);
       logger.error(`[AgentLoop] Worktree creation failed for ${wu.id}: ${message}`, { traceId });

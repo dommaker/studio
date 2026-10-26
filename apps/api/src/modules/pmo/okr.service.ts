@@ -1,7 +1,7 @@
 // OKR Service - PMO 模块核心服务
 import { FileStore } from '@dommaker/studio-shared';
+import { isValidOkrQuarter } from '@dommaker/studio-contract';
 import { studioDir } from '@dommaker/studio-shared/studio-dir';
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
@@ -94,6 +94,9 @@ export class OKRService {
    * 创建 OKR
    */
   async create(input: CreateOKRInput) {
+    if (!isValidOkrQuarter(input.quarter)) {
+      throw new Error('quarter must match ^\\d{4}-Q[1-4]$');
+    }
     // 检查是否已存在相同 quarter 的 OKR
     const existing = await this.readOKR(input.quarter);
     if (existing) {
@@ -276,8 +279,8 @@ export class OKRService {
     // 解除项目关联（改由 pmo 自身项目存储：executions.jsonl 解关联已随 executions 模块整删退役）
     const unlinked = await projectService.unlinkOkr(id);
 
-    // 删除 OKR 文件
-    await fs.promises.unlink(path.join(OKR_DIR, `${key}.md`));
+    // 删除 OKR 文件（与读写共用 FileStore 文档键/no-follow 边界）
+    await this.fileStore.deleteDoc(OKR_DIR, key);
 
     logger.info('OKR deleted', { okrId: id, executionCount: unlinked });
     return { success: true, unlinkedProjects: unlinked };

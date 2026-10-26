@@ -442,13 +442,18 @@ export const markDeliveredBodySchema = z.object({
 });
 export type MarkDeliveredBody = z.infer<typeof markDeliveredBodySchema>;
 
+/** OKR quarter 唯一运行时校验：service 与 HTTP schema 共用，含尾换行拒绝。 */
+export function isValidOkrQuarter(quarter: string): boolean {
+  return quarter.length === 7 && /^\d{4}-Q[1-4]$/.test(quarter);
+}
+
 /** POST /okr 创建（objectives/keyResults 缺省原 500，zod 收紧为必填 400；每季度唯一约束撞重 → 409 在映射表） */
 export const createOkrBodySchema = z.object({
   companyId: z.string().optional(),
   title: z.string().min(1),
   objectives: z.array(okrObjectiveSchema),
   keyResults: z.array(okrKeyResultSchema),
-  quarter: z.string().min(1),
+  quarter: z.string().refine(isValidOkrQuarter),
 });
 export type CreateOkrBody = z.infer<typeof createOkrBodySchema>;
 

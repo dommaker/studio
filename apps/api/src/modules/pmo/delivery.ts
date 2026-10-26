@@ -29,6 +29,7 @@ import { postProjectMilestone } from './delivery-notify.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
+import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
 
 
 const GIT_OP_TIMEOUT_MS = 15_000;
@@ -103,6 +104,8 @@ export interface DeliveryDeps {
   updateProject?: (id: string, input: Record<string, unknown>) => Promise<ProjectData>;
   /** token 聚合注入点（测试用；缺省走 token-usage.service 的 sumTokensForWorkUnits） */
   sumTokens?: (workUnitIds: Set<string>) => Promise<number>;
+  /** 执行根 capability 注入点；生产缺省统一 execution-repo-policy，测试可传原路径 passthrough。 */
+  withRepo?: <T>(repo: string, callback: (capabilityPath: string) => Promise<T>) => Promise<T>;
 }
 
 /** WU 展示名：metadata.title 优先（metadata 是 JSON 字符串，解析失败/缺失回退 scope） */
@@ -276,7 +279,16 @@ type MergeResult =
  * 单仓库合并：当前 checkout 必须是默认分支（防打扰闸，人不欠 studio 一个干净主仓），
  * 然后 branch → 默认分支本地合并（--no-ff，不 push）；冲突不自动 rebase，转人工。
  */
-async function mergeBranchIntoDefault(repo: string, branch: string, message: string): Promise<MergeResult> {
+async function mergeBranchIntoDefault(
+  repo: string,
+  branch: string,
+  message: string,
+  withRepo: NonNullable<DeliveryDeps['withRepo']> = withExecutionRepo,
+): Promise<MergeResult> {
+  return withRepo(repo, capabilityRepo => mergeBranchIntoDefaultCapability(capabilityRepo, branch, message));
+}
+
+async function mergeBranchIntoDefaultCapability(repo: string, branch: string, message: string): Promise<MergeResult> {
   // 存量数据纵深防线：必须在首个 rev-parse/diff 之前失败，危险分支零子进程。
   if (!isValidGitBranch(branch)) {
     return { ok: false, reason: 'conflict', detail: `非法 PMO 分支名，拒绝交付: ${branch}` };
@@ -393,7 +405,7 @@ export async function deliverProject(
         newLegs.push({ gitRepo: leg.gitRepo, branch: leg.branch, status: leg.status });
         continue;
       }
-      const merge = await mergeBranchIntoDefault(leg.gitRepo, leg.branch, `deliver: ${status.pmoNumber} [${leg.branch}]`);
+      const merge = await mergeBranchIntoDefault(leg.gitRepo, leg.branch, `deliver: ${status.pmoNumber} [${leg.branch}]`, deps?.withRepo);
       // 注：本包 tsconfig 未开 strict，可辨识联合须用 === 字面量比较收窄（routes.ts 同款）
       if (merge.ok === true) {
         results.push({ gitRepo: leg.gitRepo, branch: leg.branch, delivered: true, deliverCommit: merge.deliverCommit });
@@ -439,7 +451,7 @@ export async function deliverProject(
     return { delivered: false, reason: 'no-repo' };
   }
 
-  const merge = await mergeBranchIntoDefault(status.gitRepo, status.branch, `deliver: ${status.pmoNumber}`);
+  const merge = await mergeBranchIntoDefault(status.gitRepo, status.branch, `deliver: ${status.pmoNumber}`, deps?.withRepo);
   if (merge.ok === false) {
     return {
       delivered: false,

@@ -37,6 +37,7 @@
 - `readIndex`/`readDraft`/`readTopic` 不存在文件返回 `''`/`[]`/`null`（不抛）。
 - #404：模块内裸 fs 读清零——索引/topic 正文走 FileStore 读穿 seam（`readDoc`/mdCache，mtime 校验），目录清单走 `store.readdir`（dirCache）；命中返回结构克隆（#343 语义基线）。P2-e：topic 正文写也收口 `writeDoc` seam（写后失效缓存）；仅存裸 fs 写 = `rebuildIndex` 的 MEMORY.md 索引——无 frontmatter，`writeDoc` 会强加空 fence 改变形态，保留并在 rebuildIndex 注释注明。
 - `appendDraft` 写盘失败抛出，调用方 fire-and-forget 兜底。
+- **完成提取冷启动（SEC-04 回归根因，2026-10-26）**：AC1 超时不是 FileStore 数据隔离问题，而是 budget/agents barrel 串行动态首载叠加。生产加载顺序不为此改变；仅 `completion-extraction.test.ts` 在 `beforeAll` 预载真实依赖，消除测试环境冷启动，既有 3s 窗口和全部 AC 断言不变。
 
 ### 依赖关系
 

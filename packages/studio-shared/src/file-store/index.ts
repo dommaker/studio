@@ -391,6 +391,10 @@ export class FileStore {
     return this.docsStore.writeDoc(dir, key, meta, body);
   }
 
+  deleteDoc(dir: string, key: string): Promise<void> {
+    return this.docsStore.deleteDoc(dir, key);
+  }
+
   buildIndex(dir: string, fields: string[]): Promise<void> {
     return this.docsStore.buildIndex(dir, fields);
   }

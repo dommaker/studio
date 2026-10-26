@@ -7,6 +7,8 @@
  */
 import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
+import { withDirectoryCapability } from '@dommaker/studio-shared/node';
+import path from 'node:path';
 
 /** 执行器接口：输入 AgentTask（agent-loop 已构建的形状），输出 ExecutionResult。 */
 export interface Executor {
@@ -19,8 +21,26 @@ export interface Executor {
  * P0: 本地执行器 — 原样委托现有 agentRunner.executeLightweight 路径（纯重构，零行为变化）。
  */
 export class LocalExecutor implements Executor {
-  execute(task: AgentTask): Promise<ExecutionResult> {
-    return agentRunner.executeLightweight(task);
+  async execute(task: AgentTask): Promise<ExecutionResult> {
+    const workspaceRoot = task.parameters?.workspaceRoot;
+    if (typeof workspaceRoot !== 'string' || !workspaceRoot) {
+      return agentRunner.executeLightweight(task);
+    }
+    return withDirectoryCapability(workspaceRoot, async capabilityPath => {
+      const result = await agentRunner.executeLightweight({
+        ...task,
+        parameters: { ...task.parameters, workspaceRoot: capabilityPath },
+      });
+      const restore = (value: string) => value === capabilityPath || value.startsWith(capabilityPath + path.sep)
+        ? path.join(workspaceRoot, path.relative(capabilityPath, value))
+        : value;
+      return {
+        ...result,
+        worktree: restore(result.worktree),
+        logFile: restore(result.logFile),
+        outputFiles: result.outputFiles.map(restore),
+      };
+    });
   }
 
   async stopProcessGroup(executionId: string): Promise<void> {

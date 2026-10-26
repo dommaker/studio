@@ -64,6 +64,8 @@ const HEAD = 'deadbeefcafe1234567890';
 let tmpDir: string;
 let fileStore: FileStore;
 let wuService: WorkUnitService;
+let previousGitRoots: string | undefined;
+let previousWorktreesDir: string | undefined;
 
 function worktreeMeta(extra?: Partial<WorkUnitMetadata>): WorkUnitMetadata {
   return {
@@ -127,7 +129,11 @@ beforeEach(async () => {
   // LLM 解冲突默认实现：skill 可用 + spawn 成功（是否"解完"由各用例的 diff-filter=U mock 决定）
   mockLoadSingleSkill.mockReturnValue({ id: 'resolving-merge-conflicts', name: 'resolving-merge-conflicts', prompt: 'SKILL 流程卡全文' });
   mockSystemExecRun.mockResolvedValue({ output: 'resolved; typecheck+test green', usage: undefined, durationMs: 1234 });
+  previousGitRoots = process.env.PMO_GIT_REPO_ROOTS;
+  previousWorktreesDir = process.env.WORKTREES_DIR;
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-on-review-pass-'));
+  process.env.PMO_GIT_REPO_ROOTS = tmpDir;
+  process.env.WORKTREES_DIR = path.join(tmpDir, 'worktrees');
   REPO = path.join(tmpDir, 'repo');
   WT = path.join(tmpDir, 'worktrees', 'wu-x');
   fs.mkdirSync(REPO, { recursive: true });
@@ -150,6 +156,10 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  if (previousGitRoots === undefined) delete process.env.PMO_GIT_REPO_ROOTS;
+  else process.env.PMO_GIT_REPO_ROOTS = previousGitRoots;
+  if (previousWorktreesDir === undefined) delete process.env.WORKTREES_DIR;
+  else process.env.WORKTREES_DIR = previousWorktreesDir;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -225,6 +235,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
   });
 
   it('PMO-b：落档 pmoBranch → 合到 PMO 分支的集成交合（不动 baseRepo checkout）', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'worktrees', 'pmo-proj-1'), { recursive: true });
     // 2026-08 归因统一：项目 id 不再读 pmoProjectId 缓存，由创建期戳 pmoId 经 resolver 重解析
     const wu = await createWu(worktreeMeta({ pmoBranch: 'PMO-11', pmoId: 'proj-1' }));
 
@@ -305,7 +316,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     const cmds = calledCommands();
     const mergeCmd = cmds.find(c => c.includes('merge --no-ff'));
     expect(mergeCmd).toBeDefined();
-    expect(mergeCmd).toContain(REPO);
+    expect(mergeCmd).toMatch(/-C \/proc\/\d+\/fd\/\d+ /);
     expect(mergeCmd).toContain(BRANCH);
     expect(mergeCmd).toContain(`-m merge: ${wu.id}`);
     // 无冲突 → 不走 rebase / abort
@@ -526,7 +537,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(mergeAttempts).toBe(2); // LLM 解 merge 现场后无重放（merge 由 LLM commit）
     // spawn cwd = 合并目标目录（baseRepo），prompt 指明 merge 现场
     const [prompt, spawnOpts] = mockSystemExecRun.mock.calls[0] as [string, Record<string, unknown>];
-    expect(spawnOpts).toEqual(expect.objectContaining({ cwd: REPO }));
+    expect(spawnOpts).toEqual(expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
     expect(prompt).toContain('merge 进行中');
     const cmds = calledCommands();
     // 现场保留：LLM 调用后不再有 merge --abort（仅 rebase 重试前清首次现场那一次）
@@ -534,7 +545,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
 
     const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
     expect(meta.mergedAt).toBeDefined();
-    expect(meta.mergeResolution).toEqual(expect.objectContaining({ ok: true, state: 'merge', cwd: REPO }));
+    expect(meta.mergeResolution).toEqual(expect.objectContaining({ ok: true, state: 'merge', cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
   });
 
   it('LLM 解冲突失败/超时 → 回退现有 abort + markMergeConflict 转人工（兜底不变）', async () => {
@@ -606,7 +617,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     const cmds = calledCommands();
     // merge 成功 + verify 在合并目标目录跑过；红 → 不删 worktree、不删分支
     expect(cmds.some(c => c.includes('merge --no-ff'))).toBe(true);
-    expect(mockExecSh).toHaveBeenCalledWith('pnpm run typecheck', expect.objectContaining({ cwd: REPO }));
+    expect(mockExecSh).toHaveBeenCalledWith('pnpm run typecheck', expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
     expect(cmds.some(c => c.includes('worktree remove'))).toBe(false);
     expect(cmds.some(c => c.includes('branch -d'))).toBe(false);
     // 无冲突 → 不走 LLM 解冲突
@@ -634,10 +645,43 @@ describe('B3b-ii: 评审通过后自动合并', () => {
 
     expect(outcome).toEqual({ attempted: true, merged: true, mergeCommit: HEAD });
     // verify 命令在合并目标目录（非 worktree）依次跑过
-    expect(mockExecSh).toHaveBeenCalledWith('pnpm run test', expect.objectContaining({ cwd: REPO }));
-    expect(mockExecSh).toHaveBeenCalledWith('pnpm run typecheck', expect.objectContaining({ cwd: REPO }));
+    expect(mockExecSh).toHaveBeenCalledWith('pnpm run test', expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
+    expect(mockExecSh).toHaveBeenCalledWith('pnpm run typecheck', expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
     const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
     expect(meta.mergedAt).toBeDefined();
+  });
+
+  it('baseRepo 在合并前被替换时，后续 Git/verify 仍使用固定 capability', async () => {
+    const outside = path.join(tmpDir, 'outside');
+    const original = path.join(tmpDir, 'repo-original');
+    fs.mkdirSync(outside);
+    const oldRoots = process.env.PMO_GIT_REPO_ROOTS;
+    process.env.PMO_GIT_REPO_ROOTS = tmpDir;
+    let replaced = false;
+    mockExecSh.mockImplementation(async (cmd: string, opts: { cwd: string }) => {
+      if (!replaced) {
+        replaced = true;
+        fs.renameSync(REPO, original);
+        fs.symlinkSync(outside, REPO);
+        fs.writeFileSync(path.join(opts.cwd, 'capability-marker'), 'safe');
+      }
+      if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    try {
+      const wu = await createWu(worktreeMeta());
+      const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+      expect(outcome).toEqual({ attempted: true, merged: true, mergeCommit: HEAD });
+      expect(fs.existsSync(path.join(outside, 'capability-marker'))).toBe(false);
+      expect(fs.readFileSync(path.join(original, 'capability-marker'), 'utf8')).toBe('safe');
+      for (const call of mockExecSh.mock.calls) expect(call[1].cwd).not.toBe(REPO);
+    } finally {
+      fs.rmSync(REPO, { force: true });
+      if (fs.existsSync(original)) fs.renameSync(original, REPO);
+      if (oldRoots === undefined) delete process.env.PMO_GIT_REPO_ROOTS;
+      else process.env.PMO_GIT_REPO_ROOTS = oldRoots;
+    }
   });
 
   it('防重：metadata.mergedAt 已存在 → 跳过，无任何 git 调用', async () => {

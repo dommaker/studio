@@ -25,7 +25,7 @@ const store = new FileStore();
 beforeAll(async () => {
   mkdirSync(TEST_BASE_DIR, { recursive: true });
 
-  await store.writeDoc(TEST_BASE_DIR, 'legacy-doc-1/requirement', {
+  await store.writeDoc(join(TEST_BASE_DIR, 'legacy-doc-1'), 'requirement', {
     id: 'doc-aaa-111',
     workUnitId: 'goal-xxx-001',
     slug: 'legacy-doc-1',
@@ -41,7 +41,7 @@ beforeAll(async () => {
     updatedAt: '2026-01-01T00:00:00Z',
   }, '## Requirement\n\nLegacy content');
 
-  await store.writeDoc(TEST_BASE_DIR, 'legacy-doc-2/requirement', {
+  await store.writeDoc(join(TEST_BASE_DIR, 'legacy-doc-2'), 'requirement', {
     id: 'doc-bbb-222',
     slug: 'legacy-doc-2',
     title: 'Legacy Doc 2',

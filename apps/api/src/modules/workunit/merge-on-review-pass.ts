@@ -50,6 +50,7 @@ import type { WorkUnitData } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
 
 /** worktrees 根目录（与 agent-loop.resolveWorktreesDir 同口径：WORKTREES_DIR > studioPath('worktrees')，契约 §8 双口径收编） */
 function resolveWorktreesDir(): string {
@@ -139,7 +140,7 @@ export async function mergeWorktreeBranchOnReviewPass(
 ): Promise<MergeOnReviewPassOutcome> {
   const meta = parseWuMetadata(wu.metadata);
   const branch = meta.worktreeBranch;
-  const baseRepo = meta.worktreeBaseRepo;
+  const configuredBaseRepo = meta.worktreeBaseRepo;
   const baseBranch = meta.worktreeBaseBranch;
   const worktreePath = meta.worktreePath;
 
@@ -150,7 +151,7 @@ export async function mergeWorktreeBranchOnReviewPass(
     return { attempted: false, reason: 'analysis-bypass' };
   }
   // 旁路：无 worktree 落档（普通 analysis 等非代码类 WU）→ 无需合并；补一条完成里程碑出声
-  if (!branch || !baseRepo || !baseBranch) {
+  if (!branch || !configuredBaseRepo || !baseBranch) {
     await postSystemMessage(
       fileStore,
       wu,
@@ -173,6 +174,7 @@ export async function mergeWorktreeBranchOnReviewPass(
     return { attempted: true, merged: false, conflictFiles: [], reason: 'conflict' };
   }
 
+  return withExecutionRepo(configuredBaseRepo, async baseRepo => {
   const title = String(meta.title ?? wu.scope ?? '').slice(0, 50);
   const scopeSummary = (wu.scope ?? '').replace(/\s+/g, ' ').trim().slice(0, 50);
 
@@ -371,6 +373,7 @@ export async function mergeWorktreeBranchOnReviewPass(
   ).catch(err => logger.warn('[MergeOnReviewPass] post merged message failed', { wuId: wu.id, error: String(err) }));
   logger.info('[MergeOnReviewPass] branch merged', { wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, mergeCommit });
   return { attempted: true, merged: true, mergeCommit };
+  });
 }
 
 /**
@@ -572,22 +575,23 @@ export async function cleanupPrototypeWorktreeOnReviewPass(
   const baseRepo = meta.worktreeBaseRepo;
   if (!worktreePath || !baseRepo) return { attempted: false, reason: 'not-analysis-prototype' };
 
-  const dirtyFiles = await listDirtyFiles(worktreePath, baseRepo);
-  if (dirtyFiles === null || dirtyFiles.length > 0) {
-    logger.warn('[MergeOnReviewPass] prototype worktree dirty at review-pass cleanup — kept for human', {
-      wuId: wu.id, worktreePath, branch: meta.worktreeBranch, dirtyCount: dirtyFiles?.length ?? -1,
-    });
-    return { attempted: true, removed: false };
-  }
-
   try {
-    await execFileAsync('git', ['-C', baseRepo, 'worktree', 'remove', '--force', '--', worktreePath], {
-      cwd: baseRepo, timeout: GIT_OP_TIMEOUT_MS,
+    return await withExecutionRepo(baseRepo, async capabilityRepo => {
+      const dirtyFiles = await listDirtyFiles(worktreePath, capabilityRepo);
+      if (dirtyFiles === null || dirtyFiles.length > 0) {
+        logger.warn('[MergeOnReviewPass] prototype worktree dirty at review-pass cleanup — kept for human', {
+          wuId: wu.id, worktreePath, branch: meta.worktreeBranch, dirtyCount: dirtyFiles?.length ?? -1,
+        });
+        return { attempted: true as const, removed: false };
+      }
+      await execFileAsync('git', ['-C', capabilityRepo, 'worktree', 'remove', '--force', '--', worktreePath], {
+        cwd: capabilityRepo, timeout: GIT_OP_TIMEOUT_MS,
+      });
+      logger.info('[MergeOnReviewPass] prototype worktree removed (branch kept)', {
+        wuId: wu.id, worktreePath, branch: meta.worktreeBranch,
+      });
+      return { attempted: true as const, removed: true };
     });
-    logger.info('[MergeOnReviewPass] prototype worktree removed (branch kept)', {
-      wuId: wu.id, worktreePath, branch: meta.worktreeBranch,
-    });
-    return { attempted: true, removed: true };
   } catch (err) {
     logger.warn('[MergeOnReviewPass] prototype worktree remove failed (non-blocking)', {
       wuId: wu.id, worktreePath, error: String(err),

@@ -73,6 +73,7 @@ function makeDeps(input: {
     getIndex: async () => input.snapshots ?? [],
     updateProject: vi.fn(async (id: string, patch: Record<string, unknown>) => project({ id, ...patch } as ProjectData)),
     sumTokens: input.sumTokens ?? (async () => 0),
+    withRepo: async <T>(repo: string, callback: (capabilityPath: string) => Promise<T>): Promise<T> => callback(repo),
   };
 }
 

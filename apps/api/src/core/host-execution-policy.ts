@@ -64,11 +64,12 @@ export function resolveHostPath(projectRoot: string, candidate: string): string 
   return resolved;
 }
 
-/** 仅执行服务端登记的固定检查；命令、环境、超时与输出上限均不接受调用方覆盖。 */
+/** 仅执行服务端登记的固定检查；命令、环境、超时与输出上限均不接受调用方覆盖。
+ * cwd 必须来自已校验目录 capability，禁止再 realpath 回原始路径。 */
 export async function runHostCheck(command: string, cwd: string): Promise<void> {
   if (!REGISTERED_COMMANDS.has(command)) throw new Error(`未登记的宿主检查命令: ${command}`);
   await execSh(command, {
-    cwd: fs.realpathSync(cwd),
+    cwd,
     timeoutMs: HOST_CHECK_TIMEOUT_MS,
     maxBuffer: HOST_CHECK_MAX_BUFFER,
     killProcessGroup: true,

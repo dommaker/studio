@@ -7,7 +7,8 @@ import os from 'os';
 import path from 'path';
 
 const { mockExecSh } = vi.hoisted(() => ({ mockExecSh: vi.fn() }));
-vi.mock('@dommaker/studio-shared/node', () => ({
+vi.mock('@dommaker/studio-shared/node', async importOriginal => ({
+  ...await importOriginal<typeof import('@dommaker/studio-shared/node')>(),
   execSh: mockExecSh,
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -101,7 +102,7 @@ describe('runWuVerification', () => {
     expect(r).toEqual({ ran: ['npm run test', 'npm run typecheck'], source: 'convention' });
     expect(mockExecSh).toHaveBeenCalledTimes(2);
     expect(mockExecSh.mock.calls[0][0]).toBe('npm run test');
-    expect(mockExecSh.mock.calls[0][1].cwd).toBe(fs.realpathSync(worktree));
+    expect(mockExecSh.mock.calls[0][1].cwd).toMatch(/^\/proc\/\d+\/fd\/\d+$/);
   });
 
   it('篡改项目 scripts 与 Agent metadata 仍不能注入自定义命令、cwd 或 env', async () => {
@@ -118,7 +119,7 @@ describe('runWuVerification', () => {
     expect(r).toEqual({ ran: ['npm run test'], source: 'convention' });
     expect(mockExecSh).toHaveBeenCalledTimes(1);
     expect(mockExecSh).toHaveBeenCalledWith('npm run test', expect.objectContaining({
-      cwd: fs.realpathSync(worktree),
+      cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/),
       inheritProcessEnv: false,
     }));
     expect(mockExecSh.mock.calls[0][1].env).not.toHaveProperty('INJECTED');

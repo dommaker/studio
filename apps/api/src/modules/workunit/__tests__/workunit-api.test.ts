@@ -753,7 +753,7 @@ describe('WorkUnit API service', () => {
       if (result.kind !== 'verified') return;
       expect(result.report).toMatchObject({ commands: ['npm run test'], source: 'convention' });
       expect(mockExecSh).toHaveBeenCalledWith('npm run test', expect.objectContaining({
-        cwd: fs.realpathSync(worktreePath),
+        cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/),
         inheritProcessEnv: false,
       }));
 
