@@ -2,7 +2,7 @@ name: Auto Merge
 
 # CI 通过后自动启用 auto-merge（避免 CI pending 时设置导致漏合并）
 # 首次由 studio-ship 脚本手动设置，后续由本 workflow 在 CI 通过后重新触发
-# 优先使用 PR_TOKEN secret（有 merge 权限的 PAT），缺省时回退到 GITHUB_TOKEN
+# 仅处理同仓 PR 的 CI；fork PR 不自动合并，使用 GITHUB_TOKEN 最小权限
 
 on:
   workflow_run:
@@ -12,21 +12,23 @@ on:
 jobs:
   enable-auto-merge:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' }}
     permissions:
       contents: write
       pull-requests: write
     steps:
-      - name: Enable auto-merge on all open PRs from the head branch
+      - name: Enable auto-merge on the exact open PR
         run: |
-          HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
           echo "CI passed for branch: $HEAD_BRANCH"
-          PR_NUMBER=$(gh pr list --repo "${{ github.repository }}" --head "$HEAD_BRANCH" --json number --jq '.[0].number')
+          PRS=$(gh pr list --repo "${{ github.repository }}" --head "$HEAD_BRANCH" --state all --json number,state,headRefOid,headRepository,isCrossRepository)
+          PR_NUMBER=$(printf '%s' "$PRS" | jq -r --arg repo "${{ github.repository }}" --arg sha "$HEAD_SHA" '[.[] | select(.state == "OPEN" and .headRepository.nameWithOwner == $repo and (.isCrossRepository | not) and .headRefOid == $sha)] | if length == 1 then .[0].number else empty end')
           if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
             gh pr merge "$PR_NUMBER" --auto --merge --delete-branch -R "${{ github.repository }}"
             echo "Auto-merge enabled for PR #$PR_NUMBER"
           else
-            echo "No open PR for branch $HEAD_BRANCH, skipping"
+            echo "No uniquely matching open PR for branch $HEAD_BRANCH at $HEAD_SHA, skipping"
           fi
         env:
-          GH_TOKEN: ${{ secrets.PR_TOKEN || github.token }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
