@@ -3,7 +3,7 @@
 // 其余文本段走 renderWithMentions 原语义。agent 侧经 MarkdownBody img 渲染器出图（同 resolveAttachmentSrc）。
 import { Fragment, type ReactNode } from 'react';
 import { renderWithMentions } from './mentions';
-import { resolveAttachmentSrc } from './attachmentUrl';
+import { AttachmentImage } from './AttachmentImage';
 
 const IMAGE_MD_RE = /!\[([^\]]*)\]\((\/api\/v1\/channels\/[^)\s]+\/attachments\/[^)\s]+)\)/g;
 
@@ -16,9 +16,9 @@ export function renderWithMentionsAndImages(text: string): ReactNode[] {
       out.push(<Fragment key={`t${m.index}`}>{renderWithMentions(text.slice(last, m.index))}</Fragment>);
     }
     out.push(
-      <img
+      <AttachmentImage
         key={`i${m.index}`}
-        src={resolveAttachmentSrc(m[2])}
+        src={m[2]}
         alt={m[1]}
         className="max-w-full rounded my-2"
       />,

@@ -21,10 +21,27 @@ import {
   registerBodySchema,
   loginBodySchema,
   refreshBodySchema,
+  streamTicketBodySchema,
 } from "@dommaker/studio-contract";
+import { issueStreamTicket, STREAM_TICKET_TTL_MS } from "../../middleware/stream-ticket.js";
 
 
 const router = Router();
+
+/** Issue short-lived, single-use credentials only for an explicitly bound stream resource. */
+router.post("/stream-ticket", requireAuth(), requireRole("Admin"), defineRoute(
+  { body: streamTicketBodySchema },
+  { errors: [{ match: "Stream tickets", status: 400, code: ERROR_CODES.BAD_REQUEST }] },
+  async (req, _res, { body }) => {
+    const authInfo = getAuthInfo(req);
+    const sessionId = authInfo.sessionId || ((process.env.STUDIO_AUTH || 'none') === 'none' ? 'local' : '');
+    if (!sessionId) throw new HttpError(401, ERROR_CODES.UNAUTHORIZED, "Operator session required");
+    return {
+      token: issueStreamTicket({ sessionId, resource: body.resource }),
+      expiresIn: STREAM_TICKET_TTL_MS / 1000,
+    };
+  },
+));
 
 /**
  * GET /api/v1/auth/status
@@ -67,7 +84,7 @@ router.post("/guest-session", defineRoute(
  * 用户注册
  * 🆕 SEC-010: 记录审计日志
  */
-router.post("/register", authRateLimit, defineRoute(
+router.post("/register", requireAuth(), requireRole("Admin"), authRateLimit, defineRoute(
   { body: registerBodySchema },
   async (req, _res, { body }) => {
     // 2026-08-25 收口：单租户自托管口径，注册默认关闭，

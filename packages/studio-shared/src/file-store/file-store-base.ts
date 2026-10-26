@@ -99,12 +99,24 @@ export class FileStoreBase {
 
   /** 确保目录存在（#681：转 public 供组合结构各域 store 经 FileStoreCore.base 调用） */
   public async ensureDir(dir: string): Promise<void> {
-    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
+    await fs.promises.chmod(dir, 0o700);
   }
 
-  /** 读取 JSON 文件，不存在或损坏返回 null */
+  /** 修复历史宽松权限；公共缓存读与锁内裸读共用，缓存命中也执行。 */
+  public async repairFilePermissions(filePath: string): Promise<void> {
+    try {
+      await fs.promises.chmod(path.dirname(filePath), 0o700);
+      await fs.promises.chmod(filePath, 0o600);
+    } catch (err) {
+      if (!isErrnoError(err) || err.code !== 'ENOENT') throw err;
+    }
+  }
+
+  /** 读取 JSON 文件，不存在或损坏返回 null；同时修复历史宽松权限。 */
   public async readJson<T>(filePath: string): Promise<T | null> {
     try {
+      await this.repairFilePermissions(filePath);
       const content = await fs.promises.readFile(filePath, 'utf-8');
       try {
         return JSON.parse(content) as T;
@@ -126,9 +138,10 @@ export class FileStoreBase {
     await this.ensureDir(path.dirname(filePath));
     const tmpPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
     try {
-      const fh = await fs.promises.open(tmpPath, 'w');
+      const fh = await fs.promises.open(tmpPath, 'w', 0o600);
       try {
         await fh.writeFile(JSON.stringify(data, null, 2), 'utf-8');
+        await fh.chmod(0o600);
         await fh.sync();
       } finally {
         await fh.close();
@@ -143,7 +156,13 @@ export class FileStoreBase {
   /** 追加一行 JSONL */
   public async appendJsonl(filePath: string, data: unknown): Promise<void> {
     await this.ensureDir(path.dirname(filePath));
-    await fs.promises.appendFile(filePath, JSON.stringify(data) + '\n', 'utf-8');
+    const fh = await fs.promises.open(filePath, 'a', 0o600);
+    try {
+      await fh.writeFile(JSON.stringify(data) + '\n', 'utf-8');
+      await fh.chmod(0o600);
+    } finally {
+      await fh.close();
+    }
   }
 
   /** 写入全部 JSONL 行（覆盖，原子写：同目录 tmp + rename，崩溃/并发读不见撕裂内容） */
@@ -152,9 +171,10 @@ export class FileStoreBase {
     const content = data.map(item => JSON.stringify(item)).join('\n') + (data.length > 0 ? '\n' : '');
     const tmpPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
     try {
-      const fh = await fs.promises.open(tmpPath, 'w');
+      const fh = await fs.promises.open(tmpPath, 'w', 0o600);
       try {
         await fh.writeFile(content, 'utf-8');
+        await fh.chmod(0o600);
         await fh.sync();
       } finally {
         await fh.close();
@@ -169,6 +189,7 @@ export class FileStoreBase {
   /** 读取全部 JSONL 行（跳过解析失败的行） */
   public async readJsonl<T>(filePath: string): Promise<T[]> {
     try {
+      await this.repairFilePermissions(filePath);
       const content = await fs.promises.readFile(filePath, 'utf-8');
       const lines = content.split('\n').filter(l => l.trim().length > 0);
       const results: T[] = [];

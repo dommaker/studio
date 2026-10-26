@@ -60,10 +60,18 @@ function buildApp() {
     res.set('Content-Type', 'text/plain').send('raw-ok');
   }));
 
-  // human-only 守卫（requireHuman 中间件，A2A §4.4）
-  app.post('/human-only', requireHuman('Review actions are human-only (authorType=agent rejected)'), defineRoute(
+  // human-only 守卫：测试用 header 模拟上游认证中间件的安全投影。
+  app.use('/human-only', (req, _res, next) => {
+    const actorType = req.headers['x-test-principal'];
+    if (typeof actorType === 'string') (req as any).user = { id: 'principal-1', actorType };
+    next();
+  });
+  app.post('/human-only', requireHuman('Operator action required'), defineRoute(
     { body: z.object({}).passthrough().optional() },
-    async () => ({ ok: true }),
+    async () => {
+      humanSideEffects += 1;
+      return { ok: true };
+    },
   ));
 
   return app;
@@ -170,7 +178,9 @@ describe('defineRoute', () => {
   });
 });
 
-describe('requireHuman / resolveCallerAuthorType（A2A §4.4 human-only 守卫）', () => {
+let humanSideEffects = 0;
+
+describe('requireHuman / resolveCallerAuthorType（认证 Principal 与业务元数据分离）', () => {
   let server: Server;
   let base: string;
 
@@ -193,24 +203,33 @@ describe('requireHuman / resolveCallerAuthorType（A2A §4.4 human-only 守卫�
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
 
-  it('body.authorType=agent → 403 FORBIDDEN + 定制 message', async () => {
-    const res = await post({ body: { authorType: 'agent' } });
-    expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({
-      error: { code: 'FORBIDDEN', message: 'Review actions are human-only (authorType=agent rejected)' },
-    });
-  });
-
-  it('x-author-type: agent header → 403', async () => {
-    const res = await post({ headers: { 'x-author-type': 'agent' } });
-    expect(res.status).toBe(403);
-  });
-
-  it('body.authorType 优先于 header；human/缺省放行', async () => {
-    const res = await post({ body: { authorType: 'human' }, headers: { 'x-author-type': 'agent' } });
+  it('Operator 可执行人工动作，自声明 agent 只是业务元数据', async () => {
+    const before = humanSideEffects;
+    const res = await post({ headers: { 'x-test-principal': 'Operator' }, body: { authorType: 'agent' } });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { ok: true } });
-    expect((await post()).status).toBe(200);
+    expect(humanSideEffects).toBe(before + 1);
+  });
+
+  it.each(['Agent', 'System'])('%s 不能靠省略或伪造 authorType 获得 Operator 权限', async (actorType) => {
+    const before = humanSideEffects;
+    for (const init of [
+      { headers: { 'x-test-principal': actorType } },
+      { headers: { 'x-test-principal': actorType }, body: { authorType: 'human' } },
+      { headers: { 'x-test-principal': actorType, 'x-author-type': 'human' } },
+    ]) {
+      const res = await post(init);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: { code: 'FORBIDDEN', message: 'Operator action required' } });
+    }
+    expect(humanSideEffects).toBe(before);
+  });
+
+  it('没有认证 Principal 时不执行 handler', async () => {
+    const before = humanSideEffects;
+    const res = await post({ body: { authorType: 'human' } });
+    expect(res.status).toBe(403);
+    expect(humanSideEffects).toBe(before);
   });
 
   it('resolveCallerAuthorType：非字符串 body.authorType 忽略，缺省 human', async () => {

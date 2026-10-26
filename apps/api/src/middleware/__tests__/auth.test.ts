@@ -39,6 +39,7 @@ vi.mock('../../../utils/logger.js', () => ({
 
 import { requireNotGuest, requireLocalhost, generateAnonymousId, optionalAuth, requireAuth, requireRole, requireAdmin, agentServiceEndpointAllowlist } from '../auth.js';
 import { issueAgentServiceIdentity } from '@dommaker/studio-shared/node';
+import { requireHuman } from '../../core/http.js';
 
 // ---------------------------------------------------------------------------
 // requireRole none 模式修复 + requireAdmin（2026-07）
@@ -112,7 +113,7 @@ describe('requireRole / requireAdmin', () => {
   it('requireAdmin: 认证开启时 Admin 角色放行', async () => {
     process.env.STUDIO_AUTH = 'on';
     (req as any).session = { id: 's1', userId: 'u1' };
-    (req as any).user = { id: 'u1', role: 'Admin' };
+    (req as any).user = { id: 'u1', role: 'Admin', actorType: 'Operator' };
     const middleware = requireAdmin();
     await middleware(req as Request, res as Response, next);
 
@@ -162,18 +163,19 @@ describe('requireNotGuest', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('calls next() when user has User role', async () => {
+  it('legacy User 不映射新 Principal，拒绝且不调用后续 handler', async () => {
     process.env.STUDIO_AUTH = 'on';
     (req as any).user = { id: 'u1', role: 'User' };
     const middleware = requireNotGuest();
     await middleware(req as Request, res as Response, next);
 
-    expect(next).toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
   });
 
   it('calls next() when user has Admin role', async () => {
     process.env.STUDIO_AUTH = 'on';
-    (req as any).user = { id: 'u1', role: 'Admin' };
+    (req as any).user = { id: 'u1', role: 'Admin', actorType: 'Operator' };
     const middleware = requireNotGuest();
     await middleware(req as Request, res as Response, next);
 
@@ -228,7 +230,7 @@ describe('STUDIO_AUTH env var', () => {
       await mw(req as Request, res as Response, next);
 
       const authReq = req as any;
-      expect(authReq.user).toEqual({ id: 'local', role: 'Admin', name: 'Local User' });
+      expect(authReq.user).toMatchObject({ id: 'local', role: 'Admin', name: 'Local User', actorType: 'Operator' });
       expect(next).toHaveBeenCalled();
     });
 
@@ -259,25 +261,21 @@ describe('STUDIO_AUTH env var', () => {
       const mw = optionalAuth();
       await mw(req as Request, res as Response, next);
 
-      expect((req as any).user).toEqual({ id: 'local', role: 'Admin', name: 'Local User' });
+      expect((req as any).user).toMatchObject({ id: 'local', role: 'Admin', name: 'Local User', actorType: 'Operator' });
       expect(next).toHaveBeenCalled();
     });
 
-    // 2026-08-25：?token= query 兜底（SSE EventSource 无法设 Authorization 头）
-    it('STUDIO_AUTH=on: 有效 ?token= 解析出用户（EventSource 场景）', async () => {
+    it('STUDIO_AUTH=on: 长期 JWT 放 query 不再认证，也不读取 Session', async () => {
       process.env.STUDIO_AUTH = 'on';
       const { default: jwt } = await import('jsonwebtoken');
       const { JWT_SECRET } = await import('../../modules/auth/service.js');
-      const token = jwt.sign({ sid: 'sess-1', uid: 'user-1' }, JWT_SECRET);
-      (req as any).query = { token };
-      mockReadJson
-        .mockResolvedValueOnce([{ id: 'sess-1', userId: 'user-1', expiresAt: new Date(Date.now() + 3600_000).toISOString() }])
-        .mockResolvedValueOnce([{ id: 'user-1', role: 'User', name: 'U' }]);
+      (req as any).query = { token: jwt.sign({ sid: 'sess-1', uid: 'user-1' }, JWT_SECRET) };
 
       const mw = optionalAuth();
       await mw(req as Request, res as Response, next);
 
-      expect((req as any).user?.id).toBe('user-1');
+      expect((req as any).user).toBeUndefined();
+      expect(mockReadJson).not.toHaveBeenCalled();
       expect(next).toHaveBeenCalled();
     });
 
@@ -311,7 +309,7 @@ describe('STUDIO_AUTH env var', () => {
       const mw = requireAuth();
       await mw(req as Request, res as Response, next);
 
-      expect((req as any).user).toEqual({ id: 'local', role: 'Admin', name: 'Local User' });
+      expect((req as any).user).toMatchObject({ id: 'local', role: 'Admin', name: 'Local User', actorType: 'Operator' });
       expect(next).toHaveBeenCalled();
     });
 
@@ -353,6 +351,50 @@ describe('STUDIO_AUTH env var', () => {
       await mw(req as Request, res as Response, next);
 
       expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+      expect((req as any).user).toBeUndefined();
+    });
+
+    it('Admin Session 投影为 Operator，req.user/session 不携带存储秘密', async () => {
+      process.env.STUDIO_AUTH = 'on';
+      const { default: jwt } = await import('jsonwebtoken');
+      const { JWT_SECRET } = await import('../../modules/auth/service.js');
+      req.headers = { authorization: `Bearer ${jwt.sign({ sid: 'sess-admin', uid: 'admin-1' }, JWT_SECRET)}` };
+      mockReadJson
+        .mockResolvedValueOnce([{
+          id: 'sess-admin', userId: 'admin-1', token: 'stored-access', refreshTokenHash: 'stored-refresh',
+          expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+        }])
+        .mockResolvedValueOnce([{
+          id: 'admin-1', role: 'Admin', name: 'Owner', email: 'owner@example.test', avatar: null,
+          passwordHash: 'stored-password-hash',
+        }]);
+
+      await requireAuth()(req as Request, res as Response, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect((req as any).user).toEqual({
+        id: 'admin-1', role: 'Admin', actorType: 'Operator', name: 'Owner',
+        email: 'owner@example.test', avatar: null,
+      });
+      expect((req as any).session).toEqual({ id: 'sess-admin', userId: 'admin-1' });
+      expect(JSON.stringify(req)).not.toContain('stored-password-hash');
+      expect(JSON.stringify(req)).not.toContain('stored-refresh');
+    });
+
+    it.each(['User', 'Guest'])('legacy %s Session 默认撤销，不进入后续 handler', async (role) => {
+      process.env.STUDIO_AUTH = 'on';
+      const { default: jwt } = await import('jsonwebtoken');
+      const { JWT_SECRET } = await import('../../modules/auth/service.js');
+      req.headers = { authorization: `Bearer ${jwt.sign({ sid: 'sess-legacy', uid: 'legacy-1' }, JWT_SECRET)}` };
+      mockReadJson
+        .mockResolvedValueOnce([{ id: 'sess-legacy', userId: 'legacy-1', expiresAt: new Date(Date.now() + 3600_000).toISOString() }])
+        .mockResolvedValueOnce([{ id: 'legacy-1', role, name: 'Legacy' }]);
+
+      await requireAuth()(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'LEGACY_SESSION_REVOKED' }));
       expect(next).not.toHaveBeenCalled();
       expect((req as any).user).toBeUndefined();
     });
@@ -494,6 +536,19 @@ describe('requireLocalhost', () => {
 
     expect(next).toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('direct internal loopback calls project System; forged human metadata cannot become Operator', async () => {
+    (req as any).ip = '127.0.0.1';
+    req.headers = { 'x-author-type': 'human' };
+    (req as any).body = { authorType: 'human' };
+    await requireLocalhost()(req as Request, res as Response, next);
+
+    expect((req as any).user).toMatchObject({ id: 'system:localhost', role: 'System', actorType: 'System' });
+    const operatorOnlyNext = vi.fn();
+    requireHuman('Operator action required')(req as Request, res as Response, operatorOnlyNext);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(operatorOnlyNext).not.toHaveBeenCalled();
   });
 });
 

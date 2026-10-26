@@ -5,7 +5,7 @@
 // 等手写 guard 收进 schema）、统一 envelope（{ data }）、错误映射 options.errors。
 // 鉴权已随 P2-e 声明式统一上移至 route-registry（open/write/admin 三 entry），路由内不再挂载；
 // local 复制的 authorType 守卫删除，改用 core/http.ts 的 requireHuman（deliver/mark-delivered
-// human-only，挂在 defineRoute 之前读原始 body.authorType）。
+// 只认 Operator Principal，挂在 defineRoute 之前）。
 // deliver/mark-delivered 的 409 拒绝体带 missing/conflictFiles 扩展字段（前端 DeliveryPanel
 // 消费），HttpError 承载不了 → handler 自写 res（defineRoute 见 headersSent 跳过代写）。
 import { Router } from 'express';
@@ -44,7 +44,7 @@ const writeRoutes = Router();
 const adminRoutes = Router();
 
 /** deliver/mark-delivered 共用的 human-only 守卫文案（原内联守卫同款） */
-const DELIVERY_HUMAN_ONLY_MESSAGE = 'Delivery is human-only (authorType=agent rejected)';
+const DELIVERY_HUMAN_ONLY_MESSAGE = 'Delivery requires Operator authentication';
 
 // ─── gitRepo 白名单（2026-08-25 安全收口） ───
 // gitRepo 会被下游 git 操作（deliver/merge、spec 物化、agent-loop 执行根）消费，

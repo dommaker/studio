@@ -14,6 +14,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { createLazyService } from '../../utils/services.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
+import { redactSensitive } from '../../utils/redact.js';
 
 // ========== 常量 ==========
 
@@ -166,8 +167,8 @@ function buildRow(input: AuditLogInput): AuditLogRow {
     action: input.action,
     resource: input.resource,
     resourceId: input.resourceId,
-    details: input.details ? JSON.stringify(input.details) : null,
-    changes: input.changes ? JSON.stringify(input.changes) : null,
+    details: input.details ? JSON.stringify(redactSensitive(input.details)) : null,
+    changes: input.changes ? JSON.stringify(redactSensitive(input.changes)) : null,
     status: input.status || 'success',
     errorCode: input.errorCode,
     errorMessage: input.errorMessage,

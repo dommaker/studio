@@ -10,6 +10,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { MarkdownBody } from '../MarkdownBody';
 import { useAuthStore } from '../../../stores/authStore';
 
+const fetchStreamTicket = vi.hoisted(() => vi.fn());
+vi.mock('../../../utils/streamTicket', () => ({ fetchStreamTicket }));
+
 const renderBody = (content: string, props?: Partial<Parameters<typeof MarkdownBody>[0]>) =>
   render(
     <MemoryRouter>
@@ -116,14 +119,16 @@ describe('MarkdownBody', () => {
     expect(container.querySelectorAll('button')).toHaveLength(1);
   });
 
-  it('2026-09 截图粘贴：频道附件 img src 渲染时现拼 ?token=（buildSseUrl 同款取 token）', () => {
+  it('频道附件使用短期票据，长期 JWT 不进入 img src', async () => {
     useAuthStore.setState({ token: 'tok-abc' });
+    fetchStreamTicket.mockResolvedValue('short-ticket');
     const { container } = renderBody('![shot](/api/v1/channels/ch1/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png)');
     const img = container.querySelector('img');
     expect(img).not.toBeNull();
-    expect(img!.getAttribute('src')).toBe(
-      '/api/v1/channels/ch1/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png?token=tok-abc',
-    );
+    await waitFor(() => expect(img!.getAttribute('src')).toBe(
+      '/api/v1/channels/ch1/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png?token=short-ticket',
+    ));
+    expect(img!.getAttribute('src')).not.toContain('tok-abc');
     expect(img!.getAttribute('alt')).toBe('shot');
   });
 

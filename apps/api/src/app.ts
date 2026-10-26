@@ -14,6 +14,8 @@ import { mountApiDocs } from './openapi/index.js';
 import { isAllowedOrigin } from './cors-origin.js';
 import { apiRateLimit } from './middleware/rate-limit.js';
 import { isReady, readyTimestamp } from './bootstrap/readiness.js';
+import { localNetworkGuard } from './middleware/local-network.js';
+import { streamTicketAuth } from './middleware/stream-ticket.js';
 
 export const app = express();
 
@@ -51,6 +53,7 @@ app.use(cookieParser());
 app.use(requestLogger);
 app.use(auditLogger());
 app.use(agentServiceEndpointAllowlist());
+app.use(localNetworkGuard);
 
 // 健康检查（免认证）——liveness：只证进程在服务，deploy/ops 判活用
 app.get('/health', (req: any, res: any) => {
@@ -85,24 +88,19 @@ app.get('/metrics', async (req: any, res: any) => {
  * 注册所有 API 路由（异步，启动时调用一次）
  */
 export async function registerRoutes(): Promise<void> {
+  // 限定 SSE/附件 GET 的单用途票据先于 Lurk Wall 投影 Session；其他 query token 一律忽略。
+  app.use('/api/v1', streamTicketAuth);
   // Lurk Wall: read-gate — production only, skip in dev/test
   if (process.env.NODE_ENV === 'production') {
     const PUBLIC_API = new Set([
       '/auth/login',
-      '/auth/register',
       '/auth/guest-session',
       '/auth/refresh',
       '/auth/status',         // 前端检测登录状态（未登录返回 mode:on + user:null）
-      '/auth/google',
-      '/auth/github',
-      '/auth/callback/google',
-      '/auth/callback/github',
       '/discord/interactions',
       '/deploy/webhook',     // GitHub webhook（HMAC 即认证）
       '/cso/validate',
-      // 2026-08-25：/events/stream 移出白名单——此前匿名可挂流旁观全部内部事件
-      // 信封（工单内容/错误堆栈/prompt 片段）。现经 ?token= 认证（optionalAuth
-      // 支持 query token，EventSource 无法设置 Authorization 头）。
+      // /events/stream 不在白名单：只接受上方已消费的资源绑定流式票据或 Bearer。
       // Public read-only endpoints (Lurk Wall bypass)
       // 2026-09-14：'/channels' 移出——读路由已挂 requireAuth（见 channel.routes.ts），
       // 前缀放行会让 /channels/* 全部子路径匿名穿透到路由层

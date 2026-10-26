@@ -75,6 +75,22 @@ describe('notify-channels config-store (#525 P2-6)', () => {
     expect(loadNotifyChannelsConfig().wecom?.webhookUrl).toBe('https://qyapi.weixin.qq.com/x');
   });
 
+  it('umask 022 下配置文件 0600/目录 0700，读取时修复既有文件', () => {
+    const previousUmask = process.umask(0o022);
+    try {
+      fs.chmodSync(tmpDir, 0o755);
+      fs.writeFileSync(notifyChannelsConfigPath(), '{}', { mode: 0o644 });
+      fs.chmodSync(notifyChannelsConfigPath(), 0o644);
+      expect(loadNotifyChannelsConfig()).toEqual({});
+      expect(fs.statSync(tmpDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(notifyChannelsConfigPath()).mode & 0o777).toBe(0o600);
+      saveNotifyChannelsConfig({ wecom: { webhookUrl: 'https://qyapi.weixin.qq.com/x' } });
+      expect(fs.statSync(notifyChannelsConfigPath()).mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(previousUmask);
+    }
+  });
+
   it('损坏 JSON → 记日志降级空配置，不抛错', () => {
     fs.writeFileSync(notifyChannelsConfigPath(), '{not json', 'utf-8');
     expect(loadNotifyChannelsConfig()).toEqual({});

@@ -9,6 +9,7 @@ import { getAuthInfo } from './auth.js';
 import { getAuditService, type AuditLogInput } from '../modules/audit-logs/index.js';
 
 import { logger } from '../utils/logger.js';
+import { redactSensitive } from '../utils/redact.js';
 
 
 /**
@@ -127,7 +128,7 @@ export async function recordAuditLog(
       details: {
         anonymousId: authInfo.anonymousId,  // 🆕 SEC-009
         path: req.path,
-        query: req.query,
+        query: redactSensitive(req.query),
         method: req.method,
       },
       status: isSuccess ? 'success' : 'failure',

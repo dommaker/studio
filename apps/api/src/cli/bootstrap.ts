@@ -13,11 +13,21 @@ import { randomBytes } from 'node:crypto';
 /** run web / up 启动所需的数据根子目录（布局契约：docs/architecture/data-directory-contract.md §2） */
 const DATA_SUBDIRS = ['data', '.analyst', '.daemon', 'knowledge', 'worktrees'] as const;
 
-/** 创建数据根及子目录，幂等 */
+function secureDirectory(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(dir, 0o700);
+}
+
+function secureExistingFile(file: string): void {
+  fs.chmodSync(file, 0o600);
+}
+
+/** 创建数据根及子目录，幂等；密钥目录无论新旧均收紧为 0700。 */
 export function ensureDataDirs(studioDirPath: string): void {
   for (const d of DATA_SUBDIRS) {
     const dir = path.join(studioDirPath, d);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    if (d === '.daemon') secureDirectory(dir);
+    else if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   }
 }
 
@@ -28,15 +38,22 @@ export interface DaemonSecretsResult {
 }
 
 function ensureSecret(daemonDir: string, fileName: string, envKey: 'JWT_SECRET' | 'ENCRYPTION_KEY', env: NodeJS.ProcessEnv): 'env' | 'loaded' | 'generated' {
-  if (env[envKey]) return 'env';
+  secureDirectory(daemonDir);
   const file = path.join(daemonDir, fileName);
+  if (fs.existsSync(file)) secureExistingFile(file);
+  if (env[envKey]) return 'env';
   if (fs.existsSync(file)) {
     env[envKey] = fs.readFileSync(file, 'utf-8').trim();
     return 'loaded';
   }
-  fs.mkdirSync(daemonDir, { recursive: true });
   const secret = randomBytes(32).toString('hex');
-  fs.writeFileSync(file, secret, 'utf-8');
+  const fd = fs.openSync(file, 'w', 0o600);
+  try {
+    fs.writeFileSync(fd, secret, 'utf-8');
+    fs.fchmodSync(fd, 0o600);
+  } finally {
+    fs.closeSync(fd);
+  }
   env[envKey] = secret;
   console.log(`Generated ${envKey} (stored in ${file})`);
   return 'generated';

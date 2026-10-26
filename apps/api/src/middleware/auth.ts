@@ -7,7 +7,6 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../utils/logger.js';
 import { verifyToken, type UserData, type SessionData } from '../modules/auth/index.js';
 import crypto from 'crypto';
@@ -27,25 +26,62 @@ const SESSIONS_FILE = path.join(STUDIO_DIR, 'sessions.json');
 
 export type { UserData, SessionData };
 
+export type ActorType = 'Operator' | 'Agent' | 'System';
+
+/** Authenticated, storage-secret-free identity exposed to route handlers. */
+export interface AuthPrincipal {
+  id: string;
+  email: string;
+  name: string | null;
+  avatar: string | null;
+  role: 'Admin' | 'Agent' | 'System';
+  actorType: ActorType;
+}
+
+export interface AuthSessionProjection {
+  id: string;
+  userId: string | null;
+}
+
+const LOCAL_OPERATOR: AuthPrincipal = {
+  id: 'local', email: '', name: 'Local User', avatar: null, role: 'Admin', actorType: 'Operator',
+};
+
+function operatorPrincipal(user: UserData): AuthPrincipal | null {
+  if (user.role !== 'Admin') return null;
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    avatar: user.avatar,
+    role: 'Admin',
+    actorType: 'Operator',
+  };
+}
+
+function sessionProjection(session: SessionData): AuthSessionProjection {
+  return { id: session.id, userId: session.userId };
+}
+
 // 扩展 Request 类型
 declare global {
   namespace Express {
     interface Request {
-      user?: UserData | null;
-      session?: SessionData | null;
-      anonymousId?: string;  // 🆕 SEC-009: 匿名用户标识
+      user?: AuthPrincipal | null;
+      session?: AuthSessionProjection | null;
+      anonymousId?: string;
+      streamSessionId?: string;
     }
   }
 }
 
-/**
- * 扩展请求，添加 auth 信息
- */
+/** 扩展请求，添加 auth 信息。 */
 export interface AuthRequest extends Request {
-  user?: UserData | null;
-  session?: SessionData | null;
-  anonymousId?: string;  // 🆕 SEC-009
+  user?: AuthPrincipal | null;
+  session?: AuthSessionProjection | null;
+  anonymousId?: string;
   agentExecutionId?: string;
+  streamSessionId?: string;
 }
 
 // ─── 内部查询工具 ───
@@ -146,7 +182,12 @@ export function requireAgentService() {
     if (!identity || !marker || source?.executionId !== identity.executionId) return denyAgent(res);
     const claimedExecution = (req.body as { executionId?: unknown } | undefined)?.executionId;
     if (typeof claimedExecution !== 'string' || claimedExecution !== identity.executionId) return denyAgent(res);
-    (req as AuthRequest).agentExecutionId = identity.executionId;
+    const authReq = req as AuthRequest;
+    authReq.agentExecutionId = identity.executionId;
+    authReq.user = {
+      id: `agent:${identity.executionId}`, email: '', name: 'Agent', avatar: null,
+      role: 'Agent', actorType: 'Agent',
+    };
     next();
   };
 }
@@ -172,124 +213,67 @@ export function requireRuntimeCallback() {
  * 🆕 SEC-009: 匿名用户自动生成 anonymousId
  */
 export function optionalAuth() {
-  return async (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, _res: Response, next: NextFunction) => {
     const authReq = req as AuthRequest;
-
-    // STUDIO_AUTH=none: 本地免登录模式，跳过所有认证
     if ((process.env.STUDIO_AUTH || 'none') === 'none') {
-      authReq.user = { id: 'local', role: 'Admin', name: 'Local User' } as UserData;
+      authReq.user = { ...LOCAL_OPERATOR };
       return next();
     }
 
-    // 🆕 SEC-009: 始终生成匿名标识（用于审计）
-    const ip = getClientIP(req);
-    const ua = req.headers['user-agent'] || 'unknown';
-    authReq.anonymousId = generateAnonymousId(ip, ua);
-    
+    authReq.anonymousId = generateAnonymousId(getClientIP(req), req.headers['user-agent'] || 'unknown');
     try {
-      // 2026-08-25：EventSource 无法设置 Authorization 头，/events/stream 经
-      // ?token= 携带 JWT。req.path 不含 query，应用层访问日志（request-logger
-      // 记 req.path）不落 token；nginx access.log 会记完整 URI，单用户部署可接受。
-      const queryToken = typeof (req as any).query?.token === 'string' ? (req as any).query.token : null;
-      const token = parseAuthHeader(req) || queryToken;
-
-      if (!token) {
-        return next();
-      }
-      
-      const payload = verifyToken(token);
-      if (!payload) {
-        return next();
-      }
-      
-      // 查询 Session（FileStore）
-      const session = await findSessionWithUser(payload.sessionId);
-
-      if (!session || session.revokedAt || new Date(session.expiresAt) <= new Date()) {
-        return next();
-      }
-
-      // 附加到请求
-      authReq.user = session.User;
-      authReq.session = session;
-
+      const token = parseAuthHeader(req);
+      const payload = token ? verifyToken(token) : null;
+      const sessionId = authReq.streamSessionId ?? payload?.sessionId;
+      if (!sessionId) return next();
+      const session = await findSessionWithUser(sessionId);
+      if (!session || session.revokedAt || new Date(session.expiresAt) <= new Date()) return next();
+      const principal = operatorPrincipal(session.User);
+      if (!principal) return next();
+      authReq.user = principal;
+      authReq.session = sessionProjection(session);
       next();
-    } catch (error) {
-      // 错误时不阻塞，继续执行
+    } catch {
       next();
     }
   };
 }
 
-/**
- * 强制认证 - 要求登录
- * 未登录返回 401
- *
- * 🆕 SEC-009: 登录用户也会生成 anonymousId（备用）
- */
+/** 强制认证 - 仅已认证 Operator Session；legacy User/Guest 不获得新 Principal。 */
 export function requireAuth() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const authReq = req as AuthRequest;
     const bearer = parseAuthHeader(req);
     if (brokerMarker(req) || (bearer && isAgentServiceToken(bearer))) return denyAgent(res);
-
-    // STUDIO_AUTH=none: 本地免登录模式，跳过所有认证
     if ((process.env.STUDIO_AUTH || 'none') === 'none') {
-      authReq.user = { id: 'local', role: 'Admin', name: 'Local User' } as UserData;
+      authReq.user = { ...LOCAL_OPERATOR };
       return next();
     }
 
-    // 🆕 SEC-009: 始终生成匿名标识
-    const ip = getClientIP(req);
-    const ua = req.headers['user-agent'] || 'unknown';
-    authReq.anonymousId = generateAnonymousId(ip, ua);
-
+    authReq.anonymousId = generateAnonymousId(getClientIP(req), req.headers['user-agent'] || 'unknown');
     try {
-      const token = parseAuthHeader(req);
-
-      if (!token) {
-        return res.status(401).json({
-          error: '未登录',
-          code: 'UNAUTHORIZED',
-        });
+      const payload = bearer ? verifyToken(bearer) : null;
+      const sessionId = authReq.streamSessionId ?? payload?.sessionId;
+      if (!sessionId) {
+        return res.status(401).json({ error: '未登录', code: 'UNAUTHORIZED' });
       }
-
-      const payload = verifyToken(token);
-      if (!payload) {
-        return res.status(401).json({
-          error: '登录已过期，请重新登录',
-          code: 'TOKEN_EXPIRED',
-        });
-      }
-
-      // 查询 Session（FileStore）
-      const session = await findSessionWithUser(payload.sessionId);
-
+      const session = await findSessionWithUser(sessionId);
       if (!session) {
-        return res.status(401).json({
-          error: 'Session 不存在',
-          code: 'SESSION_NOT_FOUND',
-        });
+        return res.status(401).json({ error: 'Session 不存在', code: 'SESSION_NOT_FOUND' });
       }
-
       if (session.revokedAt || new Date(session.expiresAt) <= new Date()) {
-        return res.status(401).json({
-          error: '登录已过期，请重新登录',
-          code: 'SESSION_EXPIRED',
-        });
+        return res.status(401).json({ error: '登录已过期，请重新登录', code: 'SESSION_EXPIRED' });
       }
-
-      // 附加到请求
-      authReq.user = session.User;
-      authReq.session = session;
-      
+      const principal = operatorPrincipal(session.User);
+      if (!principal) {
+        return res.status(401).json({ error: 'Legacy session revoked', code: 'LEGACY_SESSION_REVOKED' });
+      }
+      authReq.user = principal;
+      authReq.session = sessionProjection(session);
       next();
     } catch (error) {
       logger.error({ error }, 'Auth middleware error');
-      return res.status(500).json({
-        error: '认证失败',
-        code: 'AUTH_ERROR',
-      });
+      return res.status(500).json({ error: '认证失败', code: 'AUTH_ERROR' });
     }
   };
 }
@@ -307,7 +291,7 @@ export function requireRole(...roles: string[]) {
 
     // STUDIO_AUTH=none: 本地免登录模式，直接放行
     if ((process.env.STUDIO_AUTH || 'none') === 'none') {
-      authReq.user = authReq.user ?? ({ id: 'local', role: 'Admin', name: 'Local User' } as UserData);
+      authReq.user = authReq.user ?? { ...LOCAL_OPERATOR };
       return next();
     }
 
@@ -327,7 +311,7 @@ export function requireRole(...roles: string[]) {
       });
     }
 
-    if (!roles.includes(user.role)) {
+    if (user.actorType !== 'Operator' || !roles.includes(user.role)) {
       return res.status(403).json({
         error: '权限不足',
         code: 'FORBIDDEN',
@@ -352,11 +336,11 @@ export function requireNotGuest() {
 
     // STUDIO_AUTH=none: 本地免登录模式，直接放行
     if ((process.env.STUDIO_AUTH || 'none') === 'none') {
-      authReq.user = authReq.user ?? ({ id: 'local', role: 'Admin', name: 'Local User' } as UserData);
+      authReq.user = authReq.user ?? { ...LOCAL_OPERATOR };
       return next();
     }
 
-    if (!authReq.user || authReq.user.role === 'Guest') {
+    if (!authReq.user || authReq.user.actorType !== 'Operator') {
       return res.status(403).json({
         error: '访客无权执行此操作，请先登录',
         code: 'GUEST_FORBIDDEN',
@@ -408,6 +392,11 @@ export function requireLocalhost() {
     const normalized = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
 
     if (normalized === '127.0.0.1' || normalized === '::1') {
+      const authReq = req as AuthRequest;
+      authReq.user ??= {
+        id: 'system:localhost', email: '', name: 'System', avatar: null,
+        role: 'System', actorType: 'System',
+      };
       return next();
     }
 

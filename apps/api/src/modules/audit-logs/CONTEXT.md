@@ -39,6 +39,7 @@ agent 自主决策埋点的 action/resource 词表：
 - 查询参数 `anonymousId` 为 SEC-009 新增字段，需确保前端传递正确。
 - #591：`actorType`（human/agent，human 归一匹配存量无字段行）与 `source`（operation|proposal|all，缺省 operation 保持既有行为）两个维度；source 含 proposal 时合并 review-proposal 聚合行统一排序分页；stats 端点维持操作轨口径不混提案源。
 - 所有错误场景统一返回 `{ error: { code, message } }` 格式，内部日志使用 `logger.error`。
+- **SEC-07 凭证脱敏**：`utils/redact.ts` 对 token/access_token/refresh_token/authorization（含 camelCase、大小写变体）递归返回脱敏副本；audit middleware 的 query、AuditService 的 details/changes 落盘前及 error-handler 的 Error.config/body/query 均强制经过它，原请求与 Error 不被改写。仓内没有反向 proxy access_log 实现；requestLogger 只记 path/method/status，不记 query 或 Authorization。外部反代必须自行对完整 URL/access log 脱敏；应用 URL 的凭证只可能是 60 秒单用途票据，不再出现长期 JWT。
 - 审计服务通过 `createLazyService` 延迟初始化，避免启动时加载依赖。
 - 分页默认值为 page=1, limit=20（上限 100），统一走 `parsePagination`（#359：堵 limit=999999 直通豁口，原缺省 50 无 clamp）。
 - **鉴权（2026-07-24 收紧）**：`/api/v1/audit-logs` 挂载级 `requireAuth()+requireAdmin()` —— 日志含 IP/UA/email（PII）。`GET /export` 曾注册在 `GET /:id` 之后被遮蔽不可达（历史 bug），2026-09-09 已修复并补 action/resource/status 过滤透传（与列表口径一致，E7 前端已带参）；`GET /:id` 与 `POST /` 已随 P4.6 删除，遮蔽前提不复存在。

@@ -168,6 +168,18 @@ describe('AuditService', () => {
       expect(typeof lines[0].details).toBe('string');
       expect(JSON.parse(lines[0].details as string)).toEqual({ reason: 'promotion' });
     });
+
+    it('details/changes 中嵌套凭证落盘前递归脱敏', async () => {
+      await service.log({
+        action: 'update', resource: 'role',
+        details: { token: 'detail-secret', nested: [{ authorization: 'Bearer secret', keep: 1 }] },
+        changes: { before: { access_token: 'before-secret' }, after: { refresh_token: 'after-secret' } },
+      });
+      const lines = readLines();
+      expect(JSON.parse(lines[0].details as string)).toEqual({ token: '[REDACTED]', nested: [{ authorization: '[REDACTED]', keep: 1 }] });
+      expect(JSON.parse(lines[0].changes as string)).toEqual({ before: { access_token: '[REDACTED]' }, after: { refresh_token: '[REDACTED]' } });
+      expect(fs.readFileSync(jsonlPath, 'utf8')).not.toContain('secret');
+    });
   });
 
   // ============================================

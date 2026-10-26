@@ -10,8 +10,8 @@
  * describeEntryAuth 派生姿态声明，再功能验证该 entry 的 middleware 行为与姿态一致：
  * - open：无 entry 级 middleware；
  * - auth（requireAuth）：恰 1 个 middleware，无 token → 401；
- * - authNotGuest：恰 2 个，第一无 token → 401，第二对 Member 放行；
- * - admin：恰 2 个，第一无 token → 401，第二对 Member → 403；
+ * - authNotGuest：恰 2 个，第一无 token → 401，第二对 Operator 放行；
+ * - admin：恰 2 个，第一无 token → 401，第二对 legacy 身份 → 403；
  * - localhost：恰 1 个，非回环来源 → 403，回环放行。
  * 有 middleware 却派生不出姿态（describeEntryAuth 兜底 open）= 绕过姿态声明数组 → fail。
  * 注册顺序约束不在此断言（buildRouteTable 内 assertRouteOrder 启动断言 +
@@ -45,10 +45,15 @@ function fail(label: string, detail: string): never {
 }
 
 const UNAUTHENTICATED = { headers: {}, socket: { remoteAddress: '127.0.0.1' } };
-const MEMBER = {
+const OPERATOR = {
   headers: {},
-  user: { id: 'u1', role: 'Member', name: 'M' },
+  user: { id: 'u1', role: 'Admin', actorType: 'Operator', name: 'M' },
   session: { userId: 'u1' },
+};
+const LEGACY_MEMBER = {
+  headers: {},
+  user: { id: 'u2', role: 'Member', name: 'Legacy' },
+  session: { userId: 'u2' },
 };
 
 async function expectPosture(entry: RouteEntry, posture: AuthPosture, label: string): Promise<void> {
@@ -74,11 +79,11 @@ async function expectPosture(entry: RouteEntry, posture: AuthPosture, label: str
   if (mw.length !== 2) fail(label, `${posture} entry 应恰 2 个 middleware（实 ${mw.length} 个）`);
   const r1 = await runMw(mw[0], UNAUTHENTICATED);
   if (r1.statusCode !== 401 || r1.passed) fail(label, '第一 middleware 不是 requireAuth 行为（无 token 未 401）');
-  const r2 = await runMw(mw[1], MEMBER);
+  const r2 = await runMw(mw[1], posture === 'authNotGuest' ? OPERATOR : LEGACY_MEMBER);
   if (posture === 'authNotGuest') {
-    if (!r2.passed) fail(label, '第二 middleware 应为 requireNotGuest（Member 应放行）');
+    if (!r2.passed) fail(label, '第二 middleware 应为 requireNotGuest（Operator 应放行）');
   } else {
-    if (r2.passed || r2.statusCode !== 403) fail(label, '第二 middleware 应为 requireAdmin（Member 应 403）');
+    if (r2.passed || r2.statusCode !== 403) fail(label, '第二 middleware 应为 requireAdmin（legacy 身份应 403）');
   }
 }
 

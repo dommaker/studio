@@ -48,9 +48,11 @@ export interface SessionInput {
   userAgent?: string;
 }
 
+export type PublicSession = Pick<SessionData, 'id' | 'userId' | 'guestId' | 'expiresAt' | 'createdAt'>;
+
 export interface AuthResult {
   user?: SafeUser;
-  session: SessionData;
+  session: PublicSession;
   token: string;
   isNewUser?: boolean;
   refreshToken?: string;
@@ -107,16 +109,15 @@ function sanitizeUser(user: UserData): SafeUser {
   return safe;
 }
 
-/** Session 内的 refresh hash、消费记录和撤销元数据只属于存储层。 */
-function sanitizeSession(session: SessionData): SessionData {
-  const {
-    refreshTokenHash: _refreshTokenHash,
-    consumedRefreshTokenHash: _consumedRefreshTokenHash,
-    consumedAt: _consumedAt,
-    refreshRetryUntil: _refreshRetryUntil,
-    ...safe
-  } = session;
-  return { ...safe, refreshToken: null };
+/** 响应只暴露 Session 元数据；access/refresh 凭证仅走约定顶层字段。 */
+function sanitizeSession(session: SessionData): PublicSession {
+  return {
+    id: session.id,
+    userId: session.userId,
+    guestId: session.guestId,
+    expiresAt: session.expiresAt,
+    createdAt: session.createdAt,
+  };
 }
 
 function makeId(): string {
@@ -177,7 +178,7 @@ export async function login(input: LoginInput): Promise<AuthResult> {
   if (!user.passwordHash) throw new Error("该用户未设置密码，请使用其他方式登录");
 
   const pwResult = verifyPassword(input.password, user.passwordHash);
-  if (!pwResult.valid) throw new Error("邮箱或密码错误");
+  if (!pwResult.valid || user.role !== 'Admin') throw new Error("邮箱或密码错误");
   const upgradedPasswordHash = pwResult.needsRehash ? hashPassword(input.password) : undefined;
 
   const id = makeId();
@@ -248,12 +249,13 @@ export type SafeUser = Omit<UserData, "passwordHash">;
 
 export async function getCurrentUser(
   sessionId: string,
-): Promise<{ user: SafeUser | null; session: SessionData | null }> {
+): Promise<{ user: SafeUser | null; session: PublicSession | null }> {
   const session = await authSessions.findSessionById(sessionId);
   if (!session || session.revokedAt || new Date(session.expiresAt) <= new Date()) {
     return { user: null, session: null };
   }
   const user = session.userId ? await authSessions.findUserById(session.userId) : null;
+  if (session.userId && (!user || user.role !== 'Admin')) return { user: null, session: null };
   return { user: user ? sanitizeUser(user) : null, session: sanitizeSession(session) };
 }
 
@@ -272,7 +274,9 @@ export async function generateRefreshToken(sessionId: string): Promise<string> {
 export async function exchangeRefreshToken(
   refreshToken: string,
 ): Promise<{ accessToken: string; refreshToken: string; userId: string } | null> {
-  const result = await authSessions.rotateRefreshToken(refreshToken, generateToken);
+  const result = await authSessions.rotateRefreshToken(refreshToken, generateToken, async (userId, users) => {
+    return users.find((user) => user.id === userId)?.role === 'Admin';
+  });
   if (!result) return null;
   return {
     accessToken: result.accessToken,

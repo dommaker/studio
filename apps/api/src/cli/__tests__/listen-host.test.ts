@@ -12,9 +12,8 @@ describe('resolveListenHost', () => {
     expect(resolveListenHost({ HOST: '::', STUDIO_AUTH: 'on' })).toBe('::');
   });
 
-  it('STUDIO_AUTH 未设置（默认 none）+ 非回环 HOST → 拒启', () => {
-    expect(() => resolveListenHost({ HOST: '0.0.0.0' })).toThrow(/STUDIO_AUTH=none/);
-    expect(() => resolveListenHost({ HOST: '49.232.195.87' })).toThrow();
+  it('只解析监听地址；组合安全性由统一 ExposurePolicy 判定', () => {
+    expect(resolveListenHost({ HOST: '0.0.0.0' })).toBe('0.0.0.0');
   });
 
   it('STUDIO_AUTH=none + 回环 HOST → 放行', () => {

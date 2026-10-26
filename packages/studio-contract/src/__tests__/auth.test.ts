@@ -41,20 +41,17 @@ const user: AuthUser = {
 const session: AuthSession = {
   id: 's1',
   userId: 'u1',
-  token: 'jwt',
   guestId: null,
-  ipAddress: null,
-  userAgent: null,
   expiresAt: '2026-09-08T00:00:00.000Z',
   createdAt: '2026-09-01T00:00:00.000Z',
-  refreshToken: null,
 };
 
 describe('实体 schema 边界', () => {
-  it('AuthUser/AuthSession 必填字段缺失即拒', () => {
+  it('AuthUser/AuthSession 必填字段缺失即拒，Session 投影不保留凭证字段', () => {
     expect(() => authUserSchema.parse({ ...user, id: undefined })).toThrow();
     expect(() => authUserSchema.parse({ ...user, role: undefined })).toThrow();
     expect(() => authSessionSchema.parse({ ...session, expiresAt: undefined })).toThrow();
+    expect(authSessionSchema.parse({ ...session, token: 'jwt', refreshToken: 'rt' })).toEqual(session);
   });
 
   it('AuthResult：login/register 带 user+refreshToken；guest-session 可无 user/refreshToken', () => {
@@ -116,5 +113,7 @@ describe('index.ts 出口', () => {
     expect(contractIndex.authResultSchema).toBeDefined();
     expect(contractIndex.loginBodySchema).toBeDefined();
     expect(contractIndex.authRefreshResponseSchema).toBeDefined();
+    expect(contractIndex.streamTicketBodySchema.parse({ resource: '/api/v1/events/stream' })).toEqual({ resource: '/api/v1/events/stream' });
+    expect(contractIndex.streamTicketResponseSchema.parse({ data: { token: 'ticket', expiresIn: 60 } }).data.expiresIn).toBe(60);
   });
 });

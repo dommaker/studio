@@ -19,7 +19,7 @@ vi.mock('../delivery.js', () => ({
 import { pmoWriteRoutes as router } from '../routes.js';
 
 function createReq(body: Record<string, unknown>, headers: Record<string, unknown> = {}) {
-  return { method: 'POST', url: '/project/p1/mark-delivered', headers, query: {}, params: { id: 'p1' }, body, get: () => undefined } as any;
+  return { method: 'POST', url: '/project/p1/mark-delivered', headers, query: {}, params: { id: 'p1' }, body, user: { id: 'operator-1', actorType: 'Operator' }, get: () => undefined } as any;
 }
 function createRes() {
   const res: Record<string, any> = {};
@@ -85,9 +85,9 @@ describe('POST /pmo/project/:id/mark-delivered（#469）', () => {
     expect(res.json.mock.calls[0][0].error.code).toBe('ALREADY_DELIVERED');
   });
 
-  it('authorType=agent → 403（交付权只在人，同 deliver 路由）', async () => {
+  it('Operator 的 authorType 只是业务元数据，不参与交付授权', async () => {
     const res = await invoke({ commit: 'c0ffee', authorType: 'agent' });
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(mockMark).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockMark).toHaveBeenCalled();
   });
 });

@@ -31,6 +31,7 @@ export class CachedFileIo {
 
   /** 读取 JSON 文件（mtime 校验读穿缓存）；不存在或损坏返回 null；命中返回结构克隆 */
   public async readJson<T>(filePath: string): Promise<T | null> {
+    await this.base.repairFilePermissions(filePath);
     const t = readMetricsBegin();
     const t0 = t?.() ?? 0;
     const mtimeMs = await statMtimeMs(filePath);
@@ -85,6 +86,7 @@ export class CachedFileIo {
 
   /** 读取全部 JSONL 行（mtime 校验读穿缓存；跳过解析失败的行）；命中返回结构克隆 */
   public async readJsonl<T>(filePath: string): Promise<T[]> {
+    await this.base.repairFilePermissions(filePath);
     const t = readMetricsBegin();
     const t0 = t?.() ?? 0;
     const mtimeMs = await statMtimeMs(filePath);

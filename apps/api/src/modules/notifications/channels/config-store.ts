@@ -71,10 +71,17 @@ function sanitize(parsed: unknown): NotifyChannelsConfig {
   return config;
 }
 
+function repairPermissions(file: string): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.chmodSync(path.dirname(file), 0o700);
+  if (fs.existsSync(file)) fs.chmodSync(file, 0o600);
+}
+
 /** 读配置：文件不存在/损坏/形状不符 → 记日志降级为空配置（通知渠道不受损，仅视为未配置） */
 export function loadNotifyChannelsConfig(): NotifyChannelsConfig {
   try {
     const file = notifyChannelsConfigPath();
+    repairPermissions(file);
     if (!fs.existsSync(file)) return {};
     return sanitize(JSON.parse(fs.readFileSync(file, 'utf-8')));
   } catch (error) {
@@ -83,11 +90,17 @@ export function loadNotifyChannelsConfig(): NotifyChannelsConfig {
   }
 }
 
-/** 写配置（全量替换；写前 mkdir -p） */
+/** 写配置（全量替换；写后 fchmod，避免依赖进程 umask）。 */
 export function saveNotifyChannelsConfig(config: NotifyChannelsConfig): void {
   const file = notifyChannelsConfigPath();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(config, null, 2), 'utf-8');
+  repairPermissions(file);
+  const fd = fs.openSync(file, 'w', 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(config, null, 2), 'utf-8');
+    fs.fchmodSync(fd, 0o600);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 export interface WeComWebhookResolution {

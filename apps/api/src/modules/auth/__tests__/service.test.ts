@@ -151,14 +151,22 @@ describe('login', () => {
     const hash = hashPassword(TEST_PW);
     setupStore([{
       id: 'u1', email: TEST_EMAIL, passwordHash: hash, name: 'Test',
-      role: 'User', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      role: 'Admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }], []);
   });
-  it('returns token for valid credentials', async () => {
+  it('Admin 登录只返回约定凭证字段，Session 不重复携带 token', async () => {
     const result = await login({ email: TEST_EMAIL, password: TEST_PW });
     expect(result.user.email).toBe(TEST_EMAIL);
     expect(result.token).toBeTruthy();
     expect(result.refreshToken).toBeTruthy();
+    expect(result.session).not.toHaveProperty('token');
+    expect(result.session).not.toHaveProperty('refreshToken');
+    expect(result.user).not.toHaveProperty('passwordHash');
+  });
+  it('legacy User 即使密码正确也不能创建 Session', async () => {
+    setupStore([{ ...storeUsers[0], role: 'User' }], []);
+    await expect(login({ email: TEST_EMAIL, password: TEST_PW })).rejects.toThrow('邮箱或密码错误');
+    expect(storeSessions).toEqual([]);
   });
   it('throws for unknown email', async () => {
     await expect(login({ email: 'unknown@test.com', password: TEST_PW })).rejects.toThrow('邮箱或密码错误');
@@ -182,7 +190,7 @@ describe('logout', () => {
 
 describe('getCurrentUser', () => {
   it('returns user and session when session valid', async () => {
-    const user = { id: 'u1', email: TEST_EMAIL, name: 'Test', role: 'User' };
+    const user = { id: 'u1', email: TEST_EMAIL, name: 'Test', role: 'Admin' };
     setupStore([user], [{
       id: 's1', userId: 'u1', token: 't',
       expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
@@ -217,7 +225,7 @@ describe('cleanupExpiredSessions', () => {
 
 describe('sessions.json 写路径 prune 过期条目 (#525 P2-3)', () => {
   it('写操作后文件不含过期条目，未过期条目原样保留', async () => {
-    setupStore([], [
+    setupStore([{ id: 'u3', role: 'Admin' }], [
       { id: 's-expired-1', userId: 'u1', token: 't1', guestId: null, ipAddress: null, userAgent: null,
         expiresAt: new Date(Date.now() - 86400000).toISOString(), createdAt: new Date().toISOString(), refreshToken: null },
       { id: 's-expired-2', userId: 'u2', token: 't2', guestId: null, ipAddress: null, userAgent: null,
@@ -259,7 +267,7 @@ describe('sessions.json 写路径 prune 过期条目 (#525 P2-3)', () => {
 
 describe('generateRefreshToken + exchange + revoke', () => {
   it('generateRefreshToken binds the explicit session instead of the user latest session', async () => {
-    setupStore([], [{
+    setupStore([{ id: 'u1', role: 'Admin' }], [{
       id: 's1', userId: 'u1', token: 't1',
       expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
     }, {
@@ -273,7 +281,7 @@ describe('generateRefreshToken + exchange + revoke', () => {
   });
   it('exchangeRefreshToken returns new token pair', async () => {
     const oldRt = 'rt-old';
-    setupStore([], [{
+    setupStore([{ id: 'u1', role: 'Admin' }], [{
       id: 's1', userId: 'u1', token: 'access-token-old',
       expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
       refreshToken: oldRt,
@@ -284,6 +292,16 @@ describe('generateRefreshToken + exchange + revoke', () => {
     expect(result!.accessToken).toBeTruthy();
     expect(result!.refreshToken).toBeTruthy();
     expect(result!.refreshToken).not.toBe(oldRt);
+  });
+  it('legacy User refresh 失败且旧 Session 不被轮换或撤销', async () => {
+    const legacySession = {
+      id: 's-legacy', userId: 'u1', token: 'access-old', refreshToken: 'rt-legacy',
+      expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
+    };
+    setupStore([{ id: 'u1', role: 'User' }], [legacySession]);
+    const before = structuredClone(storeSessions);
+    await expect(exchangeRefreshToken('rt-legacy')).resolves.toBeNull();
+    expect(storeSessions).toEqual(before);
   });
   it('exchangeRefreshToken returns null for invalid token', async () => {
     const result = await exchangeRefreshToken('bad-token');
@@ -308,7 +326,7 @@ describe('generateRefreshToken + exchange + revoke', () => {
 describe('SEC-06 refresh lifecycle and atomic writes', () => {
   const user = {
     id: 'u1', email: TEST_EMAIL, passwordHash: null, name: 'Test', avatar: null,
-    role: 'User', emailVerified: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    role: 'Admin', emailVerified: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   };
   const session = (id: string, refreshToken: string, patch: Record<string, unknown> = {}) => ({
     id, userId: 'u1', token: `access-${id}`, guestId: null, ipAddress: null, userAgent: null,

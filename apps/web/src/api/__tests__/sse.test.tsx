@@ -3,7 +3,7 @@
  * 应用根部有且仅有一个 EventSource（/events/stream），事件统一经 context.onEvent 分发
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, act } from '@testing-library/react';
+import { render, act, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 
 class FakeEventSource {
@@ -37,6 +37,9 @@ import { SseProvider } from '../sse';
 import { useSseContext } from '../sseHooks';
 import { useAuthStore } from '../../stores/authStore';
 
+const fetchStreamTicket = vi.hoisted(() => vi.fn());
+vi.mock('../../utils/streamTicket', () => ({ fetchStreamTicket }));
+
 let ctx: ReturnType<typeof useSseContext> | null = null;
 
 function Probe() {
@@ -67,12 +70,15 @@ describe('SseProvider — 单连接不变量', () => {
     expect(FakeEventSource.instances[0].url).toMatch(/\/events\/stream$/);
   });
 
-  it('登录后 SSE URL 携带 ?token=（2026-08-25 SSE 移出 PUBLIC_API，EventSource 无头可用）', () => {
+  it('登录后 SSE 使用短期票据，长期 JWT 不进入 URL', async () => {
     useAuthStore.setState({ token: 'test-jwt-abc' } as any);
+    fetchStreamTicket.mockResolvedValue('short-ticket');
     try {
       renderProvider();
-      expect(FakeEventSource.instances).toHaveLength(1);
-      expect(FakeEventSource.instances[0].url).toContain('/events/stream?token=test-jwt-abc');
+      await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
+      expect(FakeEventSource.instances[0].url).toContain('/events/stream?token=short-ticket');
+      expect(FakeEventSource.instances[0].url).not.toContain('test-jwt-abc');
+      expect(fetchStreamTicket).toHaveBeenCalledWith('/api/v1/events/stream');
     } finally {
       useAuthStore.setState({ token: null } as any);
     }
@@ -175,5 +181,31 @@ describe('SseProvider — 单连接不变量', () => {
     act(() => { es.readyState = FakeEventSource.CONNECTING; es.onerror?.(); });
     act(() => { es.readyState = FakeEventSource.OPEN; es.onopen?.(); });
     expect(calls).toEqual([]);
+  });
+
+  it('带票 SSE 断线后另取新票，不重放已消费票据', async () => {
+    vi.useFakeTimers();
+    useAuthStore.setState({ token: 'test-jwt-abc' } as any);
+    fetchStreamTicket.mockReset().mockResolvedValueOnce('ticket-1').mockResolvedValueOnce('ticket-2');
+    try {
+      renderProvider();
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(FakeEventSource.instances).toHaveLength(1);
+      const first = FakeEventSource.instances[0];
+      act(() => { first.readyState = FakeEventSource.OPEN; first.onopen?.(); });
+      act(() => { first.onerror?.({} as Event); });
+      expect(first.closed).toBe(true);
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(FakeEventSource.instances).toHaveLength(2);
+      expect(FakeEventSource.instances[1].url).toContain('token=ticket-2');
+      expect(fetchStreamTicket).toHaveBeenCalledTimes(2);
+    } finally {
+      useAuthStore.setState({ token: null } as any);
+      vi.useRealTimers();
+    }
   });
 });

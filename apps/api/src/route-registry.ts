@@ -177,8 +177,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // CSO 验证子路由（2026-07 收紧：/api/v1/cso 只挂 validate，不再整挂 harness router——否则 /harness 的 Admin 收紧可被 /cso/* 双挂载绕过）
   const { csoRoutes } = await import('./modules/harness/cso.routes.js') as { csoRoutes: Router };
 
-  // Channel routes (B1-001)——P2-e 拆 attachment/read/write 三 router（鉴权挂 registry entry；
-  // attachment 单条保 ?token= 前置 tokenQueryToHeader，鉴权留路由内）
+  // Channel routes (B1-001)——P2-e 拆 attachment/read/write 三 router；
+  // 附件流式票据在 app/Lurk Wall 前消费，路由内只做 Session 认证。
   const { channelReadRoutes, channelWriteRoutes, channelAttachmentRoutes } = await import('./modules/channels/channel.routes.js');
 
   // Review proposal routes (#351: 人审提案卡通用端点，kind 走注册表分发；取代 #143/#144/#146 专有端点)
@@ -251,8 +251,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     // runtime 事件回调（events 模块；POST /events 路由内 legacy localhost / Agent 服务身份，粒度混合不上移）
     { path: '/api/v1/executions', router: runtimeEventRoutes, comment: 'agent-runtime 事件回调（自 executions 模块迁入，URL 不变）' },
 
-    { path: '/api/v1/channels', router: channelAttachmentRoutes, comment: '附件 GET：?token= 需 tokenQueryToHeader 先于 requireAuth（registry 无 per-route 前置 middleware 能力，单条鉴权保留路由内）' },
-    { path: '/api/v1/channels', router: channelReadRoutes, middleware: auth, comment: 'B1-001: Channel chat interface（读：登录即可，Guest 可读）' },
+    { path: '/api/v1/channels', router: channelAttachmentRoutes, comment: '附件 GET：流式票据先于 Lurk Wall 消费，路由内 requireAuth' },
+    { path: '/api/v1/channels', router: channelReadRoutes, middleware: auth, comment: 'B1-001: Channel chat interface（读：Operator 认证）' },
     { path: '/api/v1/channels', router: channelWriteRoutes, middleware: authNotGuest },
     // P2-e：PMO 拆 open（GET + POST parse-command）/ write / admin（DELETE project/okr）三档，
     // 鉴权全部上移（原 POST 挂 GET 不挂的双轨消除；DELETE 姿态等价变化见 agents 条注释同款说明）
@@ -278,7 +278,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/skills', router: skillsWriteRoutes, middleware: authNotGuest },
 
     // 运行时
-    { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
+    { path: '/api/v1/events', router: sseRoutes, middleware: auth, comment: 'HZ-028: Event Stream SSE（协议面例外，流式票据在 Lurk Wall 前认证）' },
     { path: '/api/v1/events', router: eventOpenRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD（读：登录即可）' },
     { path: '/api/v1/events', router: eventWriteRoutes, middleware: authNotGuest },
     { path: '/api/v1/transcripts', router: transcriptRoutes, middleware: auth, comment: '#174: WU transcript 只读查看（#60 C5）' },

@@ -75,8 +75,8 @@ export interface RouteSchemaMeta {
 }
 
 /**
- * A2A §4.4: 调用方 authorType 识别（body.authorType 优先，其次 x-author-type header）。
- * 与讨论空间发帖的 authorType 字段同约定；UI/人类调用不发送该字段 → 'human'。
+ * A2A 业务 authorType 解析（body.authorType 优先，其次 x-author-type header）。
+ * 仅作展示/路由元数据，不得用于授权；UI/人类调用不发送该字段 → 'human'。
  * （自 workunit/http-helpers.ts 上浮——workunit 域迁移契约驱动后，human-only 守卫
  * 与 defineRoute 同属 HTTP 边界通用件，供后续域复用。）
  */
@@ -86,13 +86,10 @@ export function resolveCallerAuthorType(req: Request): string {
   return fromBody ?? (typeof fromHeader === 'string' ? fromHeader : 'human');
 }
 
-/**
- * A2A §4.4-2 / §8-Q3 human-only 守卫：agent 身份调用一律 403（验收权只在人）；
- * message 按端点动作定制。须在 defineRoute 之前挂载（读原始 body）。
- */
+/** Operator-only 守卫：业务 authorType 不参与授权；须在认证中间件之后挂载。 */
 export function requireHuman(message: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (resolveCallerAuthorType(req) === 'agent') {
+    if (req.user?.actorType !== 'Operator') {
       res.status(403).json({ error: { code: 'FORBIDDEN', message } });
       return;
     }

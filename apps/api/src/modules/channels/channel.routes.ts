@@ -42,10 +42,8 @@ import { createLazyService } from '../../utils/services.js';
 import { logger } from '@dommaker/studio-shared/node';
 import { validateExecutionRepo } from '../../utils/execution-repo-policy.js';
 
-// P2-e 鉴权声明式统一：read（GET 读，registry 挂 requireAuth）/ write（registry 挂 authNotGuest）拆 router，
-// 路由内不再挂鉴权。唯一例外 = 附件 GET（channelAttachmentRoutes，文件尾部）：<img> 的 ?token= 需
-// tokenQueryToHeader 先于 requireAuth 执行，route-registry 无 per-route 前置 middleware 能力，
-// 该单条鉴权保留路由内（registry 先挂 attachment 小 router 再挂 read router，姿态注释见 entry）。
+// P2-e 鉴权声明式统一：read（GET 读，registry 挂 requireAuth）/ write（registry 挂 authNotGuest）拆 router。
+// 附件 GET 的流式票据由 app 在 Lurk Wall 前消费，channelAttachmentRoutes 只保留 requireAuth。
 const readRoutes = Router();
 const writeRoutes = Router();
 const getConvertToTaskService = createLazyService(() => new ConvertToTaskService(getStore()));
@@ -359,25 +357,11 @@ writeRoutes.post('/:id/messages/:messageId/convert-to-task/suggest', defineRoute
   },
 ));
 
-/** <img>/EventSource 无法带 Authorization 头：?token= → header 后走 requireAuth（optionalAuth 同款先例） */
-function tokenQueryToHeader(req: import('express').Request, _res: import('express').Response, next: import('express').NextFunction) {
-  if (!req.headers.authorization && typeof req.query.token === 'string' && req.query.token) {
-    req.headers.authorization = `Bearer ${req.query.token}`;
-  }
-  next();
-}
-
-/**
- * 附件 GET 专用小 router（P2-e）：?token= 需 tokenQueryToHeader 先于 requireAuth，
- * route-registry 支持不了 per-route 前置 middleware，此单条鉴权保留路由内。
- * registry 须先于 channelReadRoutes 挂载。
- */
+/** 附件 GET 专用小 router：流式票据由 app 在 Lurk Wall 前消费，本路由只认安全 Session 投影。 */
 export const channelAttachmentRoutes = Router();
-// <img> 无法带 Authorization 头：?token= 携带 JWT（SSE /events/stream 同款），
-// 映射进 header 后复用 requireAuth 语义；id 白名单校验防路径穿越（attachments.ts）。
-// 二进制流例外路径：handler 自写响应（pipe 至 finish 才返回，否则 defineRoute 会在
-// headersSent 之前 end() 截断流），defineRoute 见 headersSent 直返。
-channelAttachmentRoutes.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), defineRoute({ params: attachmentParamsSchema }, async (_req, res, { params }) => {
+// id 白名单校验防路径穿越（attachments.ts）。二进制流例外路径：handler 自写响应
+// （pipe 至 finish 才返回，否则 defineRoute 会在 headersSent 之前 end() 截断流）。
+channelAttachmentRoutes.get('/:id/attachments/:attachmentId', requireAuth(), defineRoute({ params: attachmentParamsSchema }, async (_req, res, { params }) => {
   const resolved = await resolveChannelImage(params.id, params.attachmentId);
   if (!resolved.ok) {
     throw new HttpError(resolved.status!, resolved.status === 404 ? ERROR_CODES.NOT_FOUND : ERROR_CODES.BAD_REQUEST, resolved.error!);

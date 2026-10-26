@@ -40,3 +40,4 @@
 - **失败分级**：迁移失败 = 拒启（外层 catch exit 1）；reconcile/seed/warmup/bridges/核心服务/handlers 单项失败只 log 不阻断——#686 起该纪律唯一固化在 `soft-steps.ts`，新增 listen 后步骤走 runSoftSteps/mountSoftSteps 即自带纪律，不再各自手写 try/catch
 - **优雅关闭逆序**：unmount AgentLoop → 杀在飞 CLI 进程组（#179）→ stopTunnel → stopEvolutionScheduler → monitor.stop → auditor.stop → server.close → 5s 强制 exit 兜底；顺序由 `__tests__/lifecycle.test.ts` 钉死
 - 测试：`__tests__/` 每文件一个同名测试，装配顺序/拒启/关闭逆序三条核心语义均有断言
+- **SEC-07 启动暴露策略**：`exposure-policy.ts` 在 `initConfig()` 完成 `.env` 加载后统一校验 auth × HOST × tunnel × production × registration × `STUDIO_EXTERNAL_EXPOSURE` / `STUDIO_TRUSTED_REVERSE_PROXY`；外部暴露必须 `STUDIO_AUTH=on`，且禁止 `REGISTER_ENABLED=true`，模糊布尔声明和未知 auth mode fail-closed。`listen-host.ts` 只解析地址，不再分散做安全判定。免登录本地模式另由 `middleware/local-network.ts` 校验回环 Host/Origin，回环 socket 不作为浏览器来源证明。

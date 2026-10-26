@@ -4,7 +4,8 @@
  * service.ts 的 SafeUser/SessionData/AuthResult 对齐，经 routes.ts 实测 wire
  * 与前端 authStore 实际消费双端核对）。
  *
- * 八个端点（route-registry /api/v1/auth 公开挂载，路由内自挂中间件）：
+ * 九个端点（route-registry /api/v1/auth 公开挂载，路由内自挂中间件）：
+ *   POST /stream-ticket  requireAuth + requireRole('Admin')；短期资源绑定票据
  *   GET  /status         optionalAuth；STUDIO_AUTH=none 短路本地用户
  *   POST /guest-session  创建或复用 Guest Session
  *   POST /register       authRateLimit；REGISTER_ENABLED!=true → 403
@@ -44,19 +45,13 @@ export const authUserSchema = z.object({
 });
 export type AuthUser = z.infer<typeof authUserSchema>;
 
-/** SessionData wire（AuthResult.session / GET /me 的 session）；
- * 前端 authStore 按必填消费 id/expiresAt */
+/** PublicSession wire：只含元数据，凭证仅走约定顶层字段。 */
 export const authSessionSchema = z.object({
   id: z.string(),
   userId: z.string().nullable(),
-  token: z.string(),
   guestId: z.string().nullable(),
-  ipAddress: z.string().nullable(),
-  userAgent: z.string().nullable(),
   expiresAt: z.string(),
   createdAt: z.string(),
-  /** 响应面恒 null（refreshToken 落最近 session 存储，不回读进响应对象） */
-  refreshToken: z.string().nullable(),
 });
 export type AuthSession = z.infer<typeof authSessionSchema>;
 
@@ -130,11 +125,23 @@ export const refreshBodySchema = z.object({
 });
 export type RefreshBody = z.infer<typeof refreshBodySchema>;
 
+export const streamTicketBodySchema = z.object({
+  resource: z.string().min(1),
+});
+export type StreamTicketBody = z.infer<typeof streamTicketBodySchema>;
+
+export const streamTicketResultSchema = z.object({
+  token: z.string(),
+  expiresIn: z.number().int().positive(),
+});
+export type StreamTicketResult = z.infer<typeof streamTicketResultSchema>;
+
 // ── 响应（统一 `{ data }` 壳）──
 
 export const authStatusResponseSchema = dataBodySchema(authStatusResultSchema);
 export const authResultResponseSchema = dataBodySchema(authResultSchema);
 export const authMeResponseSchema = dataBodySchema(authMeResultSchema);
 export const authRefreshResponseSchema = dataBodySchema(authRefreshResultSchema);
+export const streamTicketResponseSchema = dataBodySchema(streamTicketResultSchema);
 export const logoutResponseSchema = dataBodySchema(z.object({ success: z.boolean() }));
 export const cleanupResponseSchema = dataBodySchema(z.object({ cleaned: z.number() }));

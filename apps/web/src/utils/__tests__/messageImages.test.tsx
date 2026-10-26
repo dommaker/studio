@@ -1,6 +1,9 @@
 // messageImages — 2026-09 截图粘贴：纯文本侧消息正文 附件图片 + mention chip 拆分
-import { describe, it, expect, afterEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, waitFor } from '@testing-library/react';
+
+const fetchStreamTicket = vi.hoisted(() => vi.fn());
+vi.mock('../streamTicket', () => ({ fetchStreamTicket }));
 import { renderWithMentionsAndImages } from '../messageImages';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -15,12 +18,14 @@ describe('renderWithMentionsAndImages', () => {
     useAuthStore.setState({ token: null });
   });
 
-  it('附件图片语法 → <img>（src 现拼 token），前后文本保留', () => {
+  it('附件图片使用短期票据，长期 JWT 不进入 src', async () => {
     useAuthStore.setState({ token: 't1' });
+    fetchStreamTicket.mockResolvedValue('short-ticket');
     const { container } = renderNodes(`前文\n![截图](${ATT})\n后文`);
     const img = container.querySelector('img');
     expect(img).not.toBeNull();
-    expect(img!.getAttribute('src')).toBe(`${ATT}?token=t1`);
+    await waitFor(() => expect(img!.getAttribute('src')).toBe(`${ATT}?token=short-ticket`));
+    expect(img!.getAttribute('src')).not.toContain('t1');
     expect(img!.getAttribute('alt')).toBe('截图');
     expect(container.textContent).toContain('前文');
     expect(container.textContent).toContain('后文');

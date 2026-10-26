@@ -2,17 +2,13 @@
 // 使 sse.tsx 只保留 SseProvider 组件导出
 import { useState, useRef, useEffect, createContext, useContext, useCallback } from 'react';
 import { useAuthStore } from '../stores/authStore';
+import { fetchStreamTicket } from '../utils/streamTicket';
 
-/**
- * 构建 SSE URL（每次连接时现取 token，登录/登出后重连即生效）。
- * 2026-08-25：/events/stream 已移出 PUBLIC_API，需 ?token= 携带 JWT
- * （EventSource 无法设置 Authorization 头）。
- */
-function buildSseUrl(): string {
+/** 长期 JWT 只经 API client 换取单用途票据，不进入 EventSource URL。 */
+function buildSseUrl(ticket?: string): string {
   const apiUrl = import.meta.env.VITE_API_URL || '/api/v1';
   const base = apiUrl.startsWith('http') ? apiUrl : `${window.location.origin}${apiUrl}`;
-  const token = useAuthStore.getState().token;
-  return token ? `${base}/events/stream?token=${encodeURIComponent(token)}` : `${base}/events/stream`;
+  return ticket ? `${base}/events/stream?token=${encodeURIComponent(ticket)}` : `${base}/events/stream`;
 }
 
 // SseMessage/SseStatus：P3-a 迁至 src/types/sse.ts（api 层不声明导出类型），
@@ -51,7 +47,9 @@ export function useSse(options: UseSSEOptions = {}) {
   const esRef = useRef<EventSource | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 首次 onopen 不算重连；之后每次 onopen（EventSource 内建自动重连成功）触发 onReconnect
+  const ticketRequest = useRef(0);
+  const connectingRef = useRef(false);
+  // 首次 onopen 不算重连；之后每次 onopen 触发 onReconnect。
   const hasOpenedRef = useRef(false);
 
   // Stabilize callbacks with refs to avoid SSE reconnect loop
@@ -61,52 +59,82 @@ export function useSse(options: UseSSEOptions = {}) {
   });
 
   const disconnect = useCallback(() => {
+    ticketRequest.current += 1;
+    connectingRef.current = false;
     if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+    reconnectTimeout.current = null;
     esRef.current?.close();
     esRef.current = null;
     setStatus('disconnected');
   }, []);
 
   const connect = useCallback(() => {
-    if (esRef.current) return;
+    if (esRef.current || connectingRef.current) return;
+    connectingRef.current = true;
     setStatus('connecting');
+    const requestId = ++ticketRequest.current;
+    const token = useAuthStore.getState().token;
 
-    const es = new EventSource(buildSseUrl());
-    esRef.current = es;
-
-    es.onopen = () => {
-      setStatus('connected');
-      reconnectAttempts.current = 0;
-      callbacksRef.current.onConnect?.();
-      // 决策 9：非首次 onopen = 断线重连成功 → 触发一次性 refetch 回调
-      if (hasOpenedRef.current) callbacksRef.current.onReconnect?.();
-      hasOpenedRef.current = true;
+    const scheduleReconnect = () => {
+      if (!reconnect || reconnectAttempts.current >= maxReconnectAttempts) return;
+      reconnectAttempts.current += 1;
+      reconnectTimeout.current = setTimeout(() => {
+        reconnectTimeout.current = null;
+        connect();
+      }, reconnectInterval);
     };
 
-    es.onmessage = (event) => {
-      let raw: unknown;
-      try {
-        raw = JSON.parse(event.data);
-      } catch {
-        // SSE heartbeat comments are not JSON, skip silently
-        return;
-      }
-      // #690：sseEventSchema 单点校验——词表内畸形负载可见 log + 丢弃；词表外 loose 透传
-      const message = parseSseMessage(raw);
-      if (message) callbacksRef.current.onMessage?.(message);
+    const open = (ticket?: string) => {
+      if (requestId !== ticketRequest.current) return;
+      connectingRef.current = false;
+      const es = new EventSource(buildSseUrl(ticket));
+      esRef.current = es;
+
+      es.onopen = () => {
+        setStatus('connected');
+        reconnectAttempts.current = 0;
+        callbacksRef.current.onConnect?.();
+        if (hasOpenedRef.current) callbacksRef.current.onReconnect?.();
+        hasOpenedRef.current = true;
+      };
+
+      es.onmessage = (event) => {
+        let raw: unknown;
+        try {
+          raw = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        const message = parseSseMessage(raw);
+        if (message) callbacksRef.current.onMessage?.(message);
+      };
+
+      es.onerror = (event) => {
+        callbacksRef.current.onError?.(event);
+        // 票据已消费，任何失败都必须另取新票；无凭证本地流保留原生重连。
+        if (token || es.readyState === EventSource.CLOSED) {
+          es.close();
+          if (esRef.current === es) esRef.current = null;
+          connectingRef.current = false;
+          setStatus('disconnected');
+          callbacksRef.current.onDisconnect?.();
+          scheduleReconnect();
+        } else if (es.readyState === EventSource.CONNECTING) {
+          setStatus('connecting');
+        }
+      };
     };
 
-    es.onerror = () => {
-      // EventSource has built-in auto-reconnect. Don't manually reconnect.
-      if (es.readyState === EventSource.CLOSED) {
-        setStatus('disconnected');
-        callbacksRef.current.onDisconnect?.();
-        esRef.current = null;
-        // Let EventSource handle its own reconnection
-      } else if (es.readyState === EventSource.CONNECTING) {
-        setStatus('connecting');
-      }
-    };
+    if (!token) {
+      open();
+      return;
+    }
+    void fetchStreamTicket('/api/v1/events/stream').then(open).catch(() => {
+      if (requestId !== ticketRequest.current) return;
+      connectingRef.current = false;
+      setStatus('disconnected');
+      scheduleReconnect();
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reconnect, reconnectInterval, maxReconnectAttempts]);
 

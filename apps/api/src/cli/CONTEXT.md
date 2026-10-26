@@ -11,9 +11,9 @@
 
 - `studio-cli.ts`：入口/分发/帮助文本；`run web [--port <n>]` 动词。
 - `run-web.ts`：`studioRunWeb()`——启动链：ensureDataDirs/ensureDaemonSecrets → 端口解析 → 首启面板 → preflight（存储探针 + frontend dist）→ ensureDefaults → `await import('../index.js')`。数据区迁移钩子接入点（#572）在其 preflight 之前。
-- `bootstrap.ts`：ensureDataDirs / ensureDaemonSecrets（env > .daemon/ 文件 > 生成落盘）/ probeStorageWritable；run web 与 up 共用。
+- `bootstrap.ts`：ensureDataDirs / ensureDaemonSecrets（env > .daemon/ 文件 > 生成落盘）/ probeStorageWritable；run web 与 up 共用。SEC-07 起 `.daemon` 恒 0700、密钥文件恒 0600，写后 `fchmod` 并修历史权限。
 - `port-probe.ts`：probePortFree（net 模块探测，跨平台不走 lsof）/ resolvePort（默认 3001 起顺延上限 +100；显式 --port/PORT 占用即拒启）/ parsePortFlag / explicitPortFromEnv。
-- `listen-host.ts`：resolveListenHost / isLoopbackHost（监听地址解析，2026-08-25 安全收口：默认 127.0.0.1，STUDIO_AUTH=none 禁绑非回环；2026-10-16 批次 F 自 utils/ 归位，消费方 server.ts/run-web.ts + bootstrap/config.ts）。
+- `listen-host.ts`：resolveListenHost / isLoopbackHost（只解析监听地址，默认 127.0.0.1；组合安全判定归 `bootstrap/exposure-policy.ts`，消费方 server.ts/run-web.ts + bootstrap/config.ts）。
 - `first-run-panel.ts`：buildFirstRunPanel()——Node 版本对 engines>=20、cli-scanner 全 provider 探测结果、数据根、实际监听地址；零 provider 只提示不阻断。
 - `mcp-install.ts`（#566 P3）：`studio mcp install <agent> [--url] [--print] [--uninstall]`——把对外只读 MCP 入口（/api/v1/mcp/external/sse）幂等合入 agent 用户级配置（claude `~/.claude.json` / kimi `~/.kimi-code/mcp.json` / opencode `~/.config/opencode/opencode.json`，均只动 `studio` key、写前 .bak 备份、JSON 损坏拒写）；URL 缺省探测 3001 /mcp/health，不通报错提示 --url；codex 不支持 SSE 报错（Q2 不架 mcp-remote 桥）。
 - `workflow.ts`：审批域 `studio approve/reject`（list 离线扫描频道待审卡；approve 走频道消息 actions 端点）。skill 提案 CLI 审批已随 #648 退役（旧 `/harness/proposals` 面删除），approve skill 给明确不支持提示，走频道卡片（review-proposal 正本）。

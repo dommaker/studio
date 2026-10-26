@@ -226,6 +226,20 @@ describe('recordAuditLog', () => {
     await recordAuditLog(req, res, authInfo, '10.0.0.1', 'agent', {});
     expect(mockAuditLogFn.mock.calls[0][0].requestId).toMatch(/^[0-9a-f-]{36}$/);
   });
+
+  it('query 中嵌套凭证递归脱敏，普通字段保留', async () => {
+    req.query = {
+      token: 'query-secret',
+      nested: [{ access_token: 'access-secret', refresh_token: 'refresh-secret', authorization: 'Bearer secret', keep: 'yes' }],
+    } as any;
+    await recordAuditLog(req, res, authInfo, '10.0.0.1', 'agent', {});
+    const query = mockAuditLogFn.mock.calls[0][0].details.query;
+    expect(query).toEqual({
+      token: '[REDACTED]',
+      nested: [{ access_token: '[REDACTED]', refresh_token: '[REDACTED]', authorization: '[REDACTED]', keep: 'yes' }],
+    });
+    expect(JSON.stringify(query)).not.toContain('secret');
+  });
 });
 
 describe('auditLogger middleware', () => {

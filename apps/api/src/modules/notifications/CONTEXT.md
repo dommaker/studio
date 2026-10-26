@@ -37,7 +37,7 @@
 - **企微 URL 解析**（#525 P2-6）：配置存储优先、env 兜底（`resolveWeComWebhookUrl` 带 source）；`POST /wecom/test` 只判 HTTP 2xx 不解析业务 errcode——「测试成功」≠ key 有效。
 - **ClawBot 能力约束（公开协议拆解，未真机验证）**：接入域 `ilinkai.weixin.qq.com`；主动推送受限——用户最后一条消息后 24h 内最多 10 条；仅文本；errcode=-14 = 会话过期需重新扫码绑定。
 - **渠道配置掩码口径**：`maskValue`（length<=8 → `****`，否则 first4...last4）与 CLI config.ts 同款；响应永不出现完整 webhookUrl/botToken/ilinkUserId。
-- **fs 直写保留理由（P2-e 登记）**：`channels/config-store.ts` 持久化根级 `notify-channels.json`（用户配置面，契约 §2② 登记；studioPath 拼接），同步读写自持 store，不收 FileStore。
+- **fs 直写保留理由（P2-e 登记）**：`channels/config-store.ts` 持久化根级 `notify-channels.json`（用户配置面，契约 §2② 登记；studioPath 拼接），同步读写自持 store，不收 FileStore。SEC-07 起配置目录强制 0700、文件 0600，写后 `fchmod`，读取时修复历史宽松权限；umask 022 回归在 `channels/__tests__/config-store.test.ts`。
 - **discord-notifier 测试隔离**：NODE_ENV=test 且未显式设 OPENCLAW_CONFIG_PATH 时不读用户真实 openclaw 配置（防生产凭证进测试进程）。
 - 通知服务通过 `createLazyService` 延迟初始化，底层依赖 `FileStore` 存储
 - `CreateNotificationInput` 的 `type` 为 `review_request | review_approved | review_rejected | system | auditor_suggestion | wu_milestone | monitor_alert | incident | gate_reminder`（wu_milestone/monitor_alert/incident 为 #468 行动中心追加，gate_reminder 为 #523 人闸催办/认领滞留 tier1 提醒）；数据行可选 `wuId/channelId` 结构化直链字段，查询透出（无则 null）。

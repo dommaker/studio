@@ -1,7 +1,10 @@
 // ChannelMessageItem — 2026-09 截图粘贴：人类/系统消息（纯文本 pre-wrap 侧）内联渲染频道附件图片。
 // 只识别本系统附件 URL 的 markdown 图片语法（任意外链图不渲染）；mention chip 同内容共存不回归。
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+
+const fetchStreamTicket = vi.hoisted(() => vi.fn());
+vi.mock('../../../utils/streamTicket', () => ({ fetchStreamTicket }));
 import { MemoryRouter } from 'react-router-dom';
 import type { ChannelMessage } from '../../../api/channel';
 import { ChannelMessageEnvProvider } from '../ChannelMessageEnv';
@@ -32,12 +35,14 @@ describe('ChannelMessageItem — 人类消息附件图片（2026-09）', () => {
     useAuthStore.setState({ token: null });
   });
 
-  it('附件 markdown 语法 → <img>（src 现拼 ?token=），前后文本与 mention chip 共存', () => {
+  it('附件 markdown 使用短期票据，长期 JWT 不进入 src', async () => {
     useAuthStore.setState({ token: 'tok-xyz' });
+    fetchStreamTicket.mockResolvedValue('short-ticket');
     const { container } = renderItem(humanMsg(`@dev 看这个\n![shot](${ATT})\n就是这样`));
     const img = container.querySelector('img');
     expect(img).not.toBeNull();
-    expect(img!.getAttribute('src')).toBe(`${ATT}?token=tok-xyz`);
+    await waitFor(() => expect(img!.getAttribute('src')).toBe(`${ATT}?token=short-ticket`));
+    expect(img!.getAttribute('src')).not.toContain('tok-xyz');
     expect(img!.getAttribute('alt')).toBe('shot');
     // 文本段 mention chip 不回归
     expect(screen.getByText('@dev').className).toContain('mc-mention-chip');

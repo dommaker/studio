@@ -78,7 +78,7 @@ export const channelApi = {
   getFileVocabulary: (channelId: string) =>
     api.get<{ data: ChannelFileVocabulary }>(`/channels/${channelId}/file-vocabulary`),
 
-  /** 2026-09 截图粘贴：频道图片上传（JSON base64；返回相对 URL，渲染时现拼 ?token=） */
+  /** 频道图片上传（JSON base64；返回相对 URL，渲染时异步换取单用途票据） */
   uploadAttachment: (channelId: string, data: { mime: string; dataBase64: string }) =>
     api.post<{ data: SavedImage }>(
       `/channels/${channelId}/attachments`,

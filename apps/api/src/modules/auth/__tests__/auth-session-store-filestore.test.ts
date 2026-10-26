@@ -8,6 +8,7 @@ import {
   type SessionData,
   type UserData,
 } from "../auth-session-store.js";
+import { exchangeRefreshToken } from "../service.js";
 
 const NOW = new Date("2026-02-01T12:00:00.000Z");
 const SESSIONS_FILE = path.join(studioDir(), "sessions.json");
@@ -184,6 +185,27 @@ describe("AuthSessionStore with real FileStore", () => {
       code: "REFRESH_ALREADY_ROTATED",
     });
     expect(readDisk<SessionData[]>(SESSIONS_FILE)).toEqual(beforeRetry);
+  });
+
+  it.each(['downgraded', 'deleted'] as const)('refresh authorization re-reads a same-mtime externally %s Operator inside AUTH_LOCK', async (change) => {
+    const now = Date.now();
+    const activeSession: SessionData = {
+      ...session(`s-refresh-${change}`, `rt-refresh-${change}`),
+      expiresAt: new Date(now + 86400000).toISOString(),
+      createdAt: new Date(now - 1000).toISOString(),
+    };
+    const operator = { ...user('u1', 'operator@example.test'), role: 'Admin' };
+    await getStore().writeJson(USERS_FILE, [operator]);
+    await getStore().writeJson(SESSIONS_FILE, [activeSession]);
+    pinMtimeToWholeSecond(USERS_FILE);
+    const cachedReader = new AuthSessionStore();
+    await expect(cachedReader.findUserById('u1')).resolves.toMatchObject({ role: 'Admin' });
+    replaceFilePreservingMtime(USERS_FILE, change === 'downgraded' ? [{ ...operator, role: 'User' }] : []);
+    const before = readDisk<SessionData[]>(SESSIONS_FILE);
+
+    await expect(exchangeRefreshToken(`rt-refresh-${change}`)).resolves.toBeNull();
+
+    expect(readDisk<SessionData[]>(SESSIONS_FILE)).toEqual(before);
   });
 });
 

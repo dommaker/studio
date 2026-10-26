@@ -93,7 +93,7 @@ const getService = createLazyService(() => new WorkUnitService(getStore()));
 const MAX_BATCH_IDS = 100;
 
 /** human-only 端点的 403 文案（A2A §4.4-2，沿用原内联守卫措辞） */
-const REVIEW_HUMAN_ONLY = 'Review actions are human-only (authorType=agent rejected)';
+const REVIEW_HUMAN_ONLY = 'Review actions require Operator authentication';
 
 /** getById 或抛 404——各端点「WU 必须存在」前置守卫的统一写法 */
 async function mustGetWu(id: string): Promise<WorkUnitData> {
@@ -358,7 +358,7 @@ writeRoutes.post('/:id/review-rejected', requireHuman(REVIEW_HUMAN_ONLY), define
  * #551：业务下沉 WorkUnitService.verifyManually（脱 HTTP 可直测），本层只映射 kind → 响应。
  * no-commands 是 422 业务结果（非异常），handler 自写响应（同样包 { data } 壳）。
  */
-writeRoutes.post('/:id/verify', requireHuman('Verify actions are human-only (authorType=agent rejected)'), defineRoute(
+writeRoutes.post('/:id/verify', requireHuman('Verify actions require Operator authentication'), defineRoute(
   { params: wuIdParamsSchema, body: verifyBodySchema },
   async (req, res, input) => {
     const result = await getService().verifyManually(input.params.id, {
@@ -525,7 +525,7 @@ writeRoutes.post('/:id/close', defineRoute(
  * reviewPassed/reviewRejected 落账），故收口。agent 内部合法迁移走服务层
  * transitionStatus，不经 REST，不受影响。
  */
-writeRoutes.post('/:id/status', requireHuman('Status transitions are human-only (authorType=agent rejected)'), defineRoute(
+writeRoutes.post('/:id/status', requireHuman('Status transitions require Operator authentication'), defineRoute(
   { params: wuIdParamsSchema, body: transitionStatusBodySchema },
   {
     errors: [

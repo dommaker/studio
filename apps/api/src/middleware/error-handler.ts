@@ -1,6 +1,7 @@
 // 错误处理中间件
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger.js';
+import { redactSensitive } from '../utils/redact.js';
 
 export function errorHandler(
   error: any,
@@ -9,11 +10,11 @@ export function errorHandler(
   next: NextFunction
 ) {
   logger.error({
-    error,
+    error: redactSensitive(error),
     method: req.method,
     path: req.path,
-    body: req.body,
-    query: req.query,
+    body: redactSensitive(req.body),
+    query: redactSensitive(req.query),
   }, 'Unhandled error');
 
   // 验证错误

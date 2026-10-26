@@ -42,7 +42,11 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
       const role = req.header('x-test-role');
       if ((role === 'User' || role === 'Admin') && req.user) req.user.role = role;
       next();
-    }, requireNotGuest(), workunitWriteRoutes);
+    }, requireNotGuest(), (req, _res, next) => {
+      const actorType = req.header('x-test-principal');
+      if (actorType) (req as any).user = { id: `test-${actorType}`, actorType };
+      next();
+    }, workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });
@@ -60,9 +64,12 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
   });
 
   function post(path: string, init?: { body?: unknown; headers?: Record<string, string> }) {
+    const body = init?.body as { authorType?: unknown } | undefined;
+    const actorType = init?.headers?.['x-test-principal']
+      ?? (body?.authorType === 'agent' || init?.headers?.['x-author-type'] === 'agent' ? 'Agent' : undefined);
     return fetch(`${base}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...init?.headers },
+      headers: { 'Content-Type': 'application/json', ...init?.headers, ...(actorType ? { 'x-test-principal': actorType } : {}) },
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
   }

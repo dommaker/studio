@@ -230,12 +230,13 @@ export class AuthSessionStore {
   rotateRefreshToken(
     oldToken: string,
     createAccessToken: (sessionId: string, userId: string) => string,
+    authorizeUser?: (userId: string, users: UserData[]) => Promise<boolean>,
   ): Promise<RefreshRotation | null> {
     const tokenHash = hashRefreshToken(oldToken);
     const pending = this.rotations.get(tokenHash);
     if (pending) return pending;
 
-    const rotation = this.rotateOnce(oldToken, tokenHash, createAccessToken);
+    const rotation = this.rotateOnce(oldToken, tokenHash, createAccessToken, authorizeUser);
     this.rotations.set(tokenHash, rotation);
     void rotation.finally(() => {
       if (this.rotations.get(tokenHash) === rotation) this.rotations.delete(tokenHash);
@@ -247,6 +248,7 @@ export class AuthSessionStore {
     oldToken: string,
     tokenHash: string,
     createAccessToken: (sessionId: string, userId: string) => string,
+    authorizeUser?: (userId: string, users: UserData[]) => Promise<boolean>,
   ): Promise<RefreshRotation | null> {
     return getStore().withLock(AUTH_LOCK, async () => {
       const sessions = await this.readSessionsBare();
@@ -270,6 +272,10 @@ export class AuthSessionStore {
         || !isActive(oldSession, nowMs)
         || timestamp(absolute) <= nowMs
       ) return null;
+      if (authorizeUser) {
+        const users = await this.readUsersBare();
+        if (!(await authorizeUser(oldSession.userId, users))) return null;
+      }
 
       const newRefreshToken = crypto.randomBytes(64).toString("hex");
       const newSessionId = crypto.randomUUID();
