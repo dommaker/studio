@@ -23,3 +23,5 @@ export * from './studio-events';
 export * from './log-path';
 export * from './resolutions';
 export * from './directory-capability';
+export * from './utils/agent-identity';
+export * from './utils/agent-sandbox';

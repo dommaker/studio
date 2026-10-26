@@ -12,7 +12,7 @@
 | event.routes.ts | POST /api/v1/events | 创建 StudioEvent（消费方 = 前端 `utils/clientPerf.ts:38` 性能上报） |
 | event.routes.ts | GET /api/v1/events | 查询 StudioEvent（requireAuth；#180 起：type/since/until/level/keyword/workUnitId 过滤 + 尾部倒读游标分页 `cursor`→`nextCursor`，替代全文件线性扫 + 200 硬顶；level 缺省 ≥info，level=debug 看全部；倒读实现 `../../utils/studio-events-tail.ts`；消费方 = 前端 `api/events.ts:31` EventSearchPanel/NeedsAttentionSection + `api/workunit.ts:273,280` listTokenEvents/listExecutionStepEvents） |
 | ~~event.routes.ts~~ | ~~POST /api/v1/events/agent-events~~ | 已随 P4.6（2026-10-17）删除：仓内无代码消费方（B9-014 外部 runtime 来源已断）；其挂的 session:end → session:summary 触发链随之无 HTTP 入口（session-summary-generator 本体与直测保留，恢复触发需另票） |
-| runtime-events.routes.ts | POST /api/v1/executions/events | runtime 事件回调（2026-10 架构精简刀1 自 executions 模块迁入，URL/请求/响应形状不变，同机 agent-runtime 零改动；requireLocalhost 留路由内；活逻辑 = eventBus 'events' 频道发布，原 executions.jsonl/data/tasks 死写未随迁） |
+| runtime-events.routes.ts | POST /api/v1/executions/events | runtime 事件回调（URL/请求/响应形状不变）。SEC-05 起 legacy 无 broker 标记本机 runtime 走 requireLocalhost；sandbox Agent 必须有 broker `sab_` 来源标记 + per-execution `sta_`，body executionId 必填且恒等，这是 Agent 唯一 HTTP allowlist 端点；省略/伪造 token 不降 localhost，活逻辑 = eventBus 'events' 频道发布 |
 | sse.routes.ts | GET /api/v1/events/stream | SSE 实时事件流（#491 起消费 Last-Event-ID：重连补发 replay buffer 窗口内遗漏事件） |
 | sse.routes.ts | GET /api/v1/events/clients | SSE 客户端列表 (debug) |
 | sse-replay-buffer.ts | SseReplayBuffer | #491：SSE 短窗口内存 replay buffer（环形，容量 500，id = 服务端单调 seq） |
@@ -31,11 +31,11 @@
 
 ### 测试
 
-六个测试文件，72 个用例：
+六个测试文件，74 个用例：
 
 | 文件 | 用例数 | 覆盖内容 |
 |------|--------|---------|
-| `__tests__/runtime-events.routes.test.ts` | 2 | POST /api/v1/executions/events（自 executions 迁入）：响应壳不变 + eventBus 信封 + 缺键兜底 |
+| `__tests__/runtime-events.routes.test.ts` | 4 | POST /api/v1/executions/events：响应壳/eventBus/缺键兜底 + SEC-05 无效身份零副作用、有效回调、execution 不匹配与 Operator 控制面拒绝 |
 | `__tests__/event.routes.test.ts` | 21 | POST/GET：创建/查询/验证/空 payload 拒收（D18）/错误路径；#180 起 GET 用真临时文件 + STUDIO_EVENTS_FILE 缝（过滤/游标/鉴权栈）；agent-events 用例随 P4.6 端点删除 |
 | `__tests__/session-summary-generator.test.ts` | 17 | classifyPattern 13种模式 + generateSessionSummary 边界情况 |
 | `__tests__/workunit-events-bridge.test.ts` | 3 | workunit.* + workunit:removed + requirement.* 事件转发 'events' 频道（信封形状）；桥 started 幂等是模块态，同文件后续用例 init 为 no-op 靠订阅残留生效 |

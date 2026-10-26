@@ -8,7 +8,7 @@ import { shouldCompress } from './middleware/compression-filter.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { auditLogger } from './middleware/audit-logger.js';
-import { optionalAuth } from './middleware/auth.js';
+import { optionalAuth, agentServiceEndpointAllowlist } from './middleware/auth.js';
 import { buildRouteTable } from './route-registry.js';
 import { mountApiDocs } from './openapi/index.js';
 import { isAllowedOrigin } from './cors-origin.js';
@@ -50,6 +50,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(requestLogger);
 app.use(auditLogger());
+app.use(agentServiceEndpointAllowlist());
 
 // 健康检查（免认证）——liveness：只证进程在服务，deploy/ops 判活用
 app.get('/health', (req: any, res: any) => {

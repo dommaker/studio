@@ -400,7 +400,7 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
 
   // ── agents / agent-profiles（Phase 4 批5：token-usage 端点已删——service 由 pmo/workunit 直调；
   // agent-instances 管理面 4 条已删，只剩 terminate）──
-  'POST /api/v1/executions/events': { response: executionEventResponseSchema, summary: 'runtime 事件回调（本机限定，events 模块）' },
+  'POST /api/v1/executions/events': { response: executionEventResponseSchema, summary: 'runtime 事件回调（legacy 本机或 per-execution Agent 服务身份，events 模块）' },
   'GET /api/v1/agent-profiles': { response: agentProfileListResponseSchema, summary: 'AgentProfile 列表（分页）' },
   'POST /api/v1/agent-profiles': { response: agentProfileResponseSchema, summary: '创建 AgentProfile' },
   'GET /api/v1/agent-profiles/presets': { response: rolePresetListResponseSchema, summary: '角色预设' },

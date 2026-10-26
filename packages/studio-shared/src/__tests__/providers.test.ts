@@ -173,13 +173,11 @@ describe('spawn-args templates', () => {
     expect(resumed.promptViaStdin).toBe(false);
   });
 
-  test('codex 安全基线（0.154.0 实测）：workspace-write 沙箱 + 显式开网 + shell env core 白名单', () => {
-    // workspace-write 沙箱档位（写隔离到工作目录）
+  test('codex 安全基线：内层 workspace-write + 外层 SEC-05 env/egress 边界', () => {
     expect(CODEX_SAFETY_CONFIG_ARGS).toContain(`'sandbox_mode="workspace-write"'`);
-    // 默认断网必须显式开（agent 装依赖/git 远端操作需要），不许静默断网
     expect(CODEX_SAFETY_CONFIG_ARGS).toContain('sandbox_workspace_write.network_access=true');
-    // shell 子进程 env 白名单：凭证类不进 agent 内 shell；codex 进程自身 env 不受影响
-    expect(CODEX_SAFETY_CONFIG_ARGS).toContain(`'shell_environment_policy.inherit="core"'`);
+    // 外层 buildProviderSpawnEnv 已统一过滤秘密；内层不得再剥掉 broker 代理变量。
+    expect(CODEX_SAFETY_CONFIG_ARGS.join(' ')).not.toContain('shell_environment_policy.inherit');
     // base/resume 两条路径都带齐（resume 无 -s flag，只有 -c 覆盖可用）
     const base = buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, {}).args;
     const resume = buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, { sessionId: 's' }).args;

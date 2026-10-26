@@ -248,7 +248,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/auth', router: authRoutes, comment: 'SEC-001: 认证系统（混合粒度，不上移）' },
 
     // 核心业务
-    // runtime 事件回调（events 模块；POST /events 路由内 requireLocalhost，粒度混合不上移）
+    // runtime 事件回调（events 模块；POST /events 路由内 legacy localhost / Agent 服务身份，粒度混合不上移）
     { path: '/api/v1/executions', router: runtimeEventRoutes, comment: 'agent-runtime 事件回调（自 executions 模块迁入，URL 不变）' },
 
     { path: '/api/v1/channels', router: channelAttachmentRoutes, comment: '附件 GET：?token= 需 tokenQueryToHeader 先于 requireAuth（registry 无 per-route 前置 middleware 能力，单条鉴权保留路由内）' },

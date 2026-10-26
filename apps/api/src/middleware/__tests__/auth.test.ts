@@ -37,7 +37,8 @@ vi.mock('../../../utils/logger.js', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-import { requireNotGuest, requireLocalhost, generateAnonymousId, optionalAuth, requireAuth, requireRole, requireAdmin } from '../auth.js';
+import { requireNotGuest, requireLocalhost, generateAnonymousId, optionalAuth, requireAuth, requireRole, requireAdmin, agentServiceEndpointAllowlist } from '../auth.js';
+import { issueAgentServiceIdentity } from '@dommaker/studio-shared/node';
 
 // ---------------------------------------------------------------------------
 // requireRole none 模式修复 + requireAdmin（2026-07）
@@ -472,5 +473,44 @@ describe('requireLocalhost', () => {
 
     expect(next).toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
+  });
+});
+
+describe('SEC-05 Agent service endpoint allowlist', () => {
+  it('allows only marked POST runtime callback and denies open/control paths before handlers', () => {
+    const { brokerMarker } = issueAgentServiceIdentity({ executionId: 'exec-middleware-sec05', ttlMs: 60_000 });
+    const allowedNext = vi.fn();
+    const allowedReq = {
+      method: 'POST', path: '/api/v1/executions/events',
+      headers: { 'x-studio-agent-broker': brokerMarker },
+    } as unknown as Request;
+    agentServiceEndpointAllowlist()(allowedReq, {} as Response, allowedNext);
+    expect(allowedNext).toHaveBeenCalledTimes(1);
+
+    for (const path of ['/metrics', '/api/v1/library', '/api/v1/mcp', '/health']) {
+      const next = vi.fn();
+      const res = { status: vi.fn().mockReturnThis(), json: vi.fn() } as unknown as Response;
+      const req = {
+        method: 'GET', path, headers: { 'x-studio-agent-broker': brokerMarker },
+      } as unknown as Request;
+      agentServiceEndpointAllowlist()(req, res, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: { code: 'AGENT_ENDPOINT_FORBIDDEN', message: 'Agent 服务身份无权访问此端点' },
+      });
+    }
+
+    const invalidNext = vi.fn();
+    const invalidRes = { status: vi.fn().mockReturnThis(), json: vi.fn() } as unknown as Response;
+    agentServiceEndpointAllowlist()({
+      method: 'POST', path: '/api/v1/executions/events', headers: { 'x-studio-agent-broker': 'sab_forged_sec05' },
+    } as unknown as Request, invalidRes, invalidNext);
+    expect(invalidNext).not.toHaveBeenCalled();
+    expect(invalidRes.status).toHaveBeenCalledWith(403);
+
+    const operatorNext = vi.fn();
+    agentServiceEndpointAllowlist()({ method: 'GET', path: '/metrics', headers: {} } as unknown as Request, {} as Response, operatorNext);
+    expect(operatorNext).toHaveBeenCalledTimes(1);
   });
 });

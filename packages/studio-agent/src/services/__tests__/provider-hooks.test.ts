@@ -52,8 +52,8 @@ describe('resolvePreToolUseHookPath（#154）', () => {
   test('解析为 harness 包内 dist/pretool-use-hook.js 路径', () => {
     const p = resolvePreToolUseHookPath();
     expect(p.endsWith(path.join('@dommaker', 'harness', 'dist', 'pretool-use-hook.js'))).toBe(true);
-    // 注：文件存在性依赖 harness ≥ 含 #153 shim 的发版（0.19.0 尚无）；
-    // 发版前 provider 执行缺失文件 = 非 exit 2 = fail-open 放行，不致断流。
+    expect(fs.existsSync(p)).toBe(true);
+    // 沙箱内真实路径可执行及允许/block 行为由 studio-shared agent-sandbox 测试覆盖。
   });
 });
 

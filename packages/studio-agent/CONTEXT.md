@@ -1,7 +1,7 @@
 # packages/studio-agent
 
-> 最后更新: 2026-09-18
-> Agent 执行器 — 轻量单 session 模型 + git worktree 隔离 + harness 配置传递
+> 最后更新: 2026-10-26
+> Agent 执行器 — 轻量单 session 模型 + git worktree 隔离 + harness 配置传递 + SEC-05 OS/网络/身份边界
 
 ### 职责
 
@@ -69,11 +69,13 @@ worktree/
 }
 ```
 
-#### Spawn env 约定（2026-07-30）
+#### Spawn env 与执行边界（SEC-05，2026-10-26）
 
-`buildSessionEnv`（runner-params.ts）在 `process.env` 基础上补 `IS_SANDBOX=1`（host 已设则尊重 host）：cwd 的 `.claude/settings.json` 声明 `bypassPermissions` 时，claude `--resume` 续用会话会自注入 `--dangerously-skip-permissions`，而 root guard（`getuid()===0 && IS_SANDBOX!=="1"`）直接 exit 1 —— root 机器上同 WU 第 2+ step 曾全部秒败（2026-07-29 review WU 三连败实锤 + 最小复现验证）。IS_SANDBOX=1 是 CLI 预留的沙箱声明，不放宽任何权限（settings 本就声明 bypassPermissions）。
+`buildSessionEnv` 改为 `buildProviderSpawnEnv` 显式 allowlist：只带通用运行变量和当前 CLI/provider 的凭证、base URL/model；Deploy/JWT/Admin/通知等控制面秘密永不继承，`parameters.extraEnv` 也只接受固定非敏感执行元数据。`execSh` 同时传 `inheritProcessEnv:false`，避免底层默认合回完整宿主 env。`IS_SANDBOX=1` 仍只负责 Claude root guard，本身不作为隔离机制。
 
-`buildSessionEnv` 另按 provider 补 env（#147，2026-08-15）：provider=kimi 且 `<worktree>/.kimi-code/config.toml` 存在时注入 `KIMI_CODE_HOME=<worktree>/.kimi-code`（kimi 多 WU 隔离：per-worktree home 由 provider-hooks 生成，凭证软链复用 host，不动 HOME——PIT-019 教训）。home 未生成（kimi 未装/生成失败）则不注入，回落全局 home。
+`runner-lightweight` 每次真实 CLI 执行都经 `prepareAgentSandbox`：Linux root 下 `bwrap` 隔离 mount/PID/network + `setpriv` 降权，uid/gid/groups 均为 65534；worktree 可写采用快照恢复策略（预备时 gid 65534 group 写，dispose/失败恢复原 uid/gid/mode，含 `.git`），系统运行库、当前 provider、真实 harness shim/依赖和必要凭证只读。网络只经 Unix-socket egress broker 的 host+port allowlist；plain HTTP 由 broker 注入 Agent 不可去除的独立来源标记，loopback/Studio callback CONNECT 拒绝。初始化失败回滚身份/server/目录/权限，dispose 幂等。非 Linux 或无法建立独立 OS 身份时直接拒绝 spawn。worktree 内 `bypassPermissions`/hook 配置仍可被 Agent 改写，但不能扩大外层边界。短期单用途凭证能力未被 provider 证实：现有 provider token/OAuth 文件仍可能是长期可重放凭证，不宣称已变成短期凭证。
+
+provider=kimi 且 `<worktree>/.kimi-code/config.toml` 存在时仍注入 `KIMI_CODE_HOME=<worktree>/.kimi-code`；其 credentials/oauth 链接目标由沙箱按当前 provider 只读挂载，不再回退读取整个全局 home。
 
 ### 步内前置拦截层（#147，2026-08-15）
 

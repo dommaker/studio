@@ -10,8 +10,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-const { mockExecSh } = vi.hoisted(() => ({
+const { mockExecSh, mockPrepareAgentSandbox } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
+  mockPrepareAgentSandbox: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
@@ -23,7 +24,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
-  return { ...actual, execSh: mockExecSh, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+  return { ...actual, execSh: mockExecSh, prepareAgentSandbox: mockPrepareAgentSandbox, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
 });
 
 vi.mock('@dommaker/studio-skill', () => ({
@@ -60,6 +61,9 @@ describe('executeLightweightSession', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrepareAgentSandbox.mockImplementation(async ({ command, env }) => ({
+      command, env: { ...env, STUDIO_AGENT_TOKEN: 'sta_fake_sec05' }, dispose: vi.fn().mockResolvedValue(undefined),
+    }));
     mockExecSh.mockImplementation(async (cmd: string | unknown) => {
       const c = String(cmd);
       if (c.includes('df -h')) return { stdout: 'Available: 50G' };
@@ -116,6 +120,13 @@ describe('executeLightweightSession', () => {
     const [cmd, opts] = findSpawnCall();
     expect(cmd).toContain('--resume sess-9');
     expect(opts.env?.STUDIO_WORKUNIT_ID).toBe('wu-lw-1');
+    expect(opts.env?.STUDIO_AGENT_TOKEN).toBe('sta_fake_sec05');
+    expect((opts as { inheritProcessEnv?: boolean }).inheritProcessEnv).toBe(false);
+    expect(mockPrepareAgentSandbox).toHaveBeenCalledWith(expect.objectContaining({
+      command: cmd, worktree: wsRoot, provider: 'claude', executionId: task.executionId,
+    }));
+    const sandbox = await mockPrepareAgentSandbox.mock.results[0].value;
+    expect(sandbox.dispose).toHaveBeenCalledTimes(1);
     // prompt 落盘（含 knowledgeContext 增强位置）
     expect(fs.existsSync(path.join(wsRoot, '.daemon', 'prompt.md'))).toBe(true);
     expect(state.runningProcesses.size).toBe(0);

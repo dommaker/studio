@@ -14,6 +14,7 @@ import crypto from 'crypto';
 import * as path from 'node:path';
 import { studioDir } from '@dommaker/studio-shared/studio-dir';
 import { getStore } from '../core/store.js';
+import { isAgentServiceToken, verifyAgentServiceIdentity, verifyAgentBrokerMarker } from '@dommaker/studio-shared/node';
 
 
 const STUDIO_DIR = studioDir();
@@ -44,6 +45,7 @@ export interface AuthRequest extends Request {
   user?: UserData | null;
   session?: SessionData | null;
   anonymousId?: string;  // 🆕 SEC-009
+  agentExecutionId?: string;
 }
 
 // ─── 内部查询工具 ───
@@ -111,6 +113,58 @@ function parseAuthHeader(req: Request): string | null {
   return parts[1];
 }
 
+function denyAgent(res: Response): void {
+  res.status(403).json({
+    error: { code: 'AGENT_ENDPOINT_FORBIDDEN', message: 'Agent 服务身份无权访问此端点' },
+  });
+}
+
+function brokerMarker(req: Request): string | null {
+  const value = req.headers['x-studio-agent-broker'];
+  return typeof value === 'string' && value ? value : null;
+}
+
+/** Broker provenance, not bearer shape, selects the restricted Agent execution plane. */
+export function agentServiceEndpointAllowlist() {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const marker = brokerMarker(req);
+    const token = parseAuthHeader(req);
+    if (!marker && (!token || !isAgentServiceToken(token))) return next();
+    if (marker && !verifyAgentBrokerMarker(marker)) return denyAgent(res);
+    if (req.method === 'POST' && req.path === '/api/v1/executions/events') return next();
+    denyAgent(res);
+  };
+}
+
+/** Authenticate the per-execution credential at the sole Agent callback endpoint. */
+export function requireAgentService() {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const token = parseAuthHeader(req);
+    const identity = token ? verifyAgentServiceIdentity(token) : null;
+    const marker = brokerMarker(req);
+    const source = marker ? verifyAgentBrokerMarker(marker) : null;
+    if (!identity || !marker || source?.executionId !== identity.executionId) return denyAgent(res);
+    const claimedExecution = (req.body as { executionId?: unknown } | undefined)?.executionId;
+    if (typeof claimedExecution !== 'string' || claimedExecution !== identity.executionId) return denyAgent(res);
+    (req as AuthRequest).agentExecutionId = identity.executionId;
+    next();
+  };
+}
+
+/** Preserve unmarked legacy local runtime callbacks; broker-marked calls always need Agent auth. */
+export function requireRuntimeCallback() {
+  const local = requireLocalhost();
+  const agent = requireAgentService();
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const token = parseAuthHeader(req);
+    if (brokerMarker(req) || (token && isAgentServiceToken(token))) {
+      agent(req, res, next);
+      return;
+    }
+    await local(req, res, next);
+  };
+}
+
 /**
  * 可选认证 - 不强制要求登录
  * 有 token 则解析，无 token 则生成匿名标识
@@ -176,6 +230,8 @@ export function optionalAuth() {
 export function requireAuth() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const authReq = req as AuthRequest;
+    const bearer = parseAuthHeader(req);
+    if (brokerMarker(req) || (bearer && isAgentServiceToken(bearer))) return denyAgent(res);
 
     // STUDIO_AUTH=none: 本地免登录模式，跳过所有认证
     if ((process.env.STUDIO_AUTH || 'none') === 'none') {
@@ -338,6 +394,8 @@ export function requireAdmin() {
  */
 export function requireLocalhost() {
   return async (req: Request, res: Response, next: NextFunction) => {
+    const bearer = parseAuthHeader(req);
+    if (brokerMarker(req) || (bearer && isAgentServiceToken(bearer))) return denyAgent(res);
     // 经代理转发的流量一律拒绝（同机反代下 TCP 对端也是回环，单靠 IP 判不出）
     if (req.headers['x-forwarded-for'] || req.headers['cf-connecting-ip']) {
       return res.status(403).json({

@@ -14,7 +14,7 @@ import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
 import { FileStore } from '@dommaker/studio-shared';
-import { logger, execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
+import { logger, execSh, resolveProviderDefinition, buildArgsFromTemplate, buildProviderSpawnEnv, prepareAgentSandbox } from '@dommaker/studio-shared/node';
 import { isSystemRole } from '../../core/system-role.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -117,28 +117,38 @@ export class SystemExecutor {
     const bin = def.binaries[0];
     const cmd = `${bin} ${args.join(' ')}`;
 
-    // 4. 执行（env 继承 process.env，CLI 自己读鉴权配置）
+    // 4. 执行（显式 provider env allowlist，CLI 自己读鉴权配置）
     const stdinContent = promptViaStdin
       ? (opts.systemPrompt ? `${opts.systemPrompt}\n\n${prompt}` : prompt)
       : undefined;
-    const { stdout } = await execSh(cmd, {
-      cwd: opts.cwd ?? process.cwd(),
-      stdin: stdinContent,
+    const cwd = opts.cwd ?? process.cwd();
+    const sandbox = await prepareAgentSandbox({
+      command: cmd,
+      worktree: cwd,
+      provider: providerId,
+      executionId: crypto.randomUUID(),
+      ttlMs: effectiveTimeoutMs + 5 * 60_000,
       env: {
-        ...process.env,
-        // root 下 claude root guard（getuid===0 && IS_SANDBOX!=="1"）exit 1 ——
-        // 与 buildSessionEnv（runner-params.ts）同一修复：IS_SANDBOX=1 是 CLI 预留的
-        // 沙箱声明，不放宽权限（settings 本就 bypassPermissions），只让 root guard 放行。
+        ...buildProviderSpawnEnv(providerId),
         IS_SANDBOX: process.env.IS_SANDBOX ?? '1',
         ...(opts.allowedTools ? { CLAUDE_ALLOWED_TOOLS: opts.allowedTools } : {}),
       },
-      timeoutMs: effectiveTimeoutMs,
-      maxBuffer: opts.maxBuffer,
-      // #581：恒开 killProcessGroup（#171 机制，同 runner-lightweight 先例）——
-      // 超时杀整进程组，CLI spawn 的孙进程不留孤儿继续写临时目录。
-      // 兼容性：execSh 本身 posix-only（bash -c），kill(-pid) 为 posix 语义，无新增负担。
-      killProcessGroup: true,
     });
+    let stdout: string;
+    try {
+      ({ stdout } = await execSh(sandbox.command, {
+        cwd,
+        stdin: stdinContent,
+        inheritProcessEnv: false,
+        env: sandbox.env,
+        timeoutMs: effectiveTimeoutMs,
+        maxBuffer: opts.maxBuffer,
+        // #581：恒开 killProcessGroup（#171 机制，同 runner-lightweight 先例）。
+        killProcessGroup: true,
+      }));
+    } finally {
+      await sandbox.dispose();
+    }
 
     // 5. 解析 JSON envelope.usage（claude --verbose 时为事件数组，归一到 result 事件，#364）
     let usage: { inputTokens: number; outputTokens: number } | undefined;

@@ -14,15 +14,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '@dommaker/studio-shared';
 import { executionEventBodySchema } from '@dommaker/studio-contract';
 import { defineRoute } from '../../core/http.js';
-import { requireLocalhost } from '../../middleware/auth.js';
+import { requireRuntimeCallback } from '../../middleware/auth.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 const router = Router();
 
-// 接收外部事件（来自 agent-runtime，同机进程）
-// 2026-08-25 收紧：伪造 runtime 事件可向 SSE 注假数据，
-// 该端点无业务上需要从公网/浏览器触达的场景，限本机回环直连。
-router.post('/events', requireLocalhost(), defineRoute({ body: executionEventBodySchema }, async (_req, _res, { body: event }) => {
+// 接收外部事件：legacy 本机 runtime 走回环检查；SEC-05 sandbox Agent 走
+// per-execution 服务身份（同 executionId 才接受），两条路径都不接受 Operator Session。
+router.post('/events', requireRuntimeCallback(), defineRoute({ body: executionEventBodySchema }, async (_req, _res, { body: event }) => {
   logger.info('Received runtime event', { event: JSON.stringify(event).substring(0, 100) });
 
   // 发布到 eventBus（SSE /events/stream 直订 'events' 频道，无需轮询）

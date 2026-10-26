@@ -95,7 +95,7 @@ describe('buildSessionCommand', () => {
     expect(cmd).not.toContain('--dangerously-bypass-hook-trust');
     expect(cmd).toContain(`-c 'sandbox_mode="workspace-write"'`);
     expect(cmd).toContain('-c sandbox_workspace_write.network_access=true');
-    expect(cmd).toContain(`-c 'shell_environment_policy.inherit="core"'`);
+    expect(cmd).not.toContain('shell_environment_policy.inherit');
   });
 
   test('codex：探测失败（undefined）fail-open 全量传参', () => {
@@ -107,6 +107,34 @@ describe('buildSessionCommand', () => {
 });
 
 describe('buildSessionEnv', () => {
+  test.each(['claude', 'kimi', 'codex', 'opencode'])('%s：只继承显式 allowlist，控制面秘密与任意 extraEnv 不进 Agent', provider => {
+    const saved = { ...process.env };
+    process.env.JWT_SECRET = 'fake-jwt-secret-sec05';
+    process.env.DEPLOY_WEBHOOK_SECRET = 'fake-deploy-secret-sec05';
+    process.env.ADMIN_TOKEN = 'fake-admin-secret-sec05';
+    process.env.DISCORD_BOT_TOKEN = 'fake-notification-secret-sec05';
+    process.env.ANTHROPIC_API_KEY = 'fake-provider-secret-sec05';
+    process.env.PATH = '/fake/bin';
+    try {
+      const env = buildSessionEnv({
+        task: makeTask({ provider, parameters: { extraEnv: { FOO: 'bar', JWT_SECRET: 'fake-task-secret-sec05' } } }),
+        role: 'executor',
+        withWorkUnitEnv: true,
+      });
+      expect(env.PATH).toBe('/fake/bin');
+      expect(env.JWT_SECRET).toBeUndefined();
+      expect(env.DEPLOY_WEBHOOK_SECRET).toBeUndefined();
+      expect(env.ADMIN_TOKEN).toBeUndefined();
+      expect(env.DISCORD_BOT_TOKEN).toBeUndefined();
+      expect(env.FOO).toBeUndefined();
+      expect(Object.values(env)).not.toContain('fake-task-secret-sec05');
+      if (provider === 'claude' || provider === 'opencode') expect(env.ANTHROPIC_API_KEY).toBe('fake-provider-secret-sec05');
+      else expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    } finally {
+      process.env = saved;
+    }
+  });
+
   test('基础：STUDIO_EXECUTION_ID 注入', () => {
     const env = buildSessionEnv({ task: makeTask(), role: 'executor' });
     expect(env.STUDIO_EXECUTION_ID).toBe('exec-abcdef123456');
@@ -119,11 +147,12 @@ describe('buildSessionEnv', () => {
     expect(env.STUDIO_GOAL_ID).toBe('goal-9');
   });
 
-  test('withWorkUnitEnv：注入 STUDIO_WORKUNIT_ID 与 extraEnv', () => {
-    const task = makeTask({ parameters: { workUnitId: 'wu-7', extraEnv: { FOO: 'bar' } } });
+  test('withWorkUnitEnv：只注入执行元数据 allowlist', () => {
+    const task = makeTask({ parameters: { workUnitId: 'wu-7', extraEnv: { STUDIO_TRACE_ID: 'trace-7', FOO: 'bar' } } });
     const env = buildSessionEnv({ task, role: 'executor', withWorkUnitEnv: true });
     expect(env.STUDIO_WORKUNIT_ID).toBe('wu-7');
-    expect(env.FOO).toBe('bar');
+    expect(env.STUDIO_TRACE_ID).toBe('trace-7');
+    expect(env.FOO).toBeUndefined();
   });
 
   test('无 withWorkUnitEnv：不注入 STUDIO_WORKUNIT_ID / extraEnv', () => {
