@@ -17,6 +17,7 @@ import { snapshotToData, type WorkUnitData } from './workunit-crud.js';
 import { WorkUnitLifecycleService } from './workunit-lifecycle.js';
 import { type AuditActor } from '../audit-logs/index.js';
 import { logger } from '@dommaker/studio-shared/node';
+import { HostExecutionPolicyError } from '../../core/host-execution-policy.js';
 
 /**
  * #228 测试可观测性（纯增量，不改变行为）：登记 reviewPassed 的 best-effort
@@ -31,6 +32,7 @@ export type ManualVerifyResult =
   | { kind: 'not-found' }
   | { kind: 'not-code-type'; wuType: string }
   | { kind: 'no-worktree' }
+  | { kind: 'invalid-worktree' }
   | { kind: 'no-commands' }
   | { kind: 'failed'; failure: { command: string; tail: string } }
   | { kind: 'verified'; report: unknown };
@@ -223,15 +225,14 @@ export class WorkUnitReviewService extends WorkUnitLifecycleService {
    * 守卫链：存在性 → 代码类 type → worktree 落档 → 有可跑命令，失败以判别联合 kind
    * 返回（不抛错、不携带 HTTP 语义，状态码由路由层映射）；命令实际执行后无论成败
    * 都经 recordL1Verification 落台账 l1（失败= rejected，全绿= approved + verifyReport）。
-   * opts.commands 非空时视为 metadata.verifyCommands 覆盖（同 resolveVerifyCommands 语义）。
+   * 只运行服务端固定模板；worktree provenance 在校验命令前 fail-closed。
    * wu-verification 动态 import：与 merge-on-review-pass 同例，避免拉起 agents 模块图。
    */
-  async verifyManually(id: string, opts: { by: string; commands?: string[] }): Promise<ManualVerifyResult> {
+  async verifyManually(id: string, opts: { by: string }): Promise<ManualVerifyResult> {
     const wu = await this.getById(id);
     if (!wu) return { kind: 'not-found' };
 
-    const { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } =
-      await import('../agent-loop/index.js');
+    const { CODE_WORKTREE_TYPES, runWuVerification } = await import('../agent-loop/index.js');
 
     if (!CODE_WORKTREE_TYPES.has(wu.type)) return { kind: 'not-code-type', wuType: wu.type };
 
@@ -241,13 +242,15 @@ export class WorkUnitReviewService extends WorkUnitLifecycleService {
       : null;
     if (!worktreePath) return { kind: 'no-worktree' };
 
-    const effectiveMeta: WorkUnitMetadata = opts.commands && opts.commands.length > 0
-      ? { ...metadata, verifyCommands: opts.commands }
-      : metadata;
-    const { commands } = await resolveVerifyCommands(wu, effectiveMeta, worktreePath);
-    if (commands.length === 0) return { kind: 'no-commands' };
+    let outcome;
+    try {
+      outcome = await runWuVerification(wu, metadata, worktreePath);
+    } catch (error) {
+      if (error instanceof HostExecutionPolicyError) return { kind: 'invalid-worktree' };
+      throw error;
+    }
+    if (outcome.ran.length === 0 && !outcome.failure) return { kind: 'no-commands' };
 
-    const outcome = await runWuVerification(wu, effectiveMeta, worktreePath);
     const updated = await this.recordL1Verification(wu.id, {
       by: opts.by,
       ran: outcome.ran,

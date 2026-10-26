@@ -448,7 +448,7 @@ async function resolveConflictSceneWithLlm(args: {
   const skill = skillLoader.loadSingle('resolving-merge-conflicts');
   if (!skill?.prompt) return fail('skill resolving-merge-conflicts 不可用（未 seed？）');
 
-  // verify 命令来源说明（与执行环节同策略：metadata.verifyCommands > 目录 package.json 惯例）。
+  // verify 命令来源说明（与执行环节同策略：仅服务端固定模板，package.json 只选择启用项）。
   // lazy import：本模块头部依赖说明——不静态引入 agent-loop 侧模块，避免重依赖链
   const { resolveVerifyCommands } = await import('../agent-loop/index.js');
   const { commands: verifyCommands, source: verifySource } = await resolveVerifyCommands(wu, meta, scene.cwd);
@@ -516,7 +516,7 @@ function buildMergeConflictPrompt(args: {
     ...(verifyCommands.length > 0
       ? verifyCommands.map(c => `- ${c}`)
       : ['- （未能解析出验证命令；至少确认 git status 干净、无残留冲突标记）']),
-    `命令来源: ${verifySource === 'override' ? 'WU metadata.verifyCommands 覆盖' : '目录 package.json scripts 惯例'}`,
+    `命令来源: 服务端登记模板（${verifySource}；目录 package.json scripts 仅选择启用项）`,
   ].join('\n');
 }
 
@@ -538,7 +538,7 @@ async function recordMergeResolution(
 /** 合并后 verify（lazy import 同 pmo-branch-resolver 的循环依赖规避口径） */
 async function runMergeVerification(wu: WorkUnitData, meta: WorkUnitMetadata, mergeCwd: string) {
   const { runWuVerification } = await import('../agent-loop/index.js');
-  return runWuVerification(wu, meta, mergeCwd);
+  return runWuVerification(wu, meta, mergeCwd, { cwdProvenance: 'merge-target' });
 }
 
 // ── #157（T6）：analysis 原型单 reviewPassed 收尾 ──

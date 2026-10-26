@@ -18,7 +18,7 @@ status: published
 
 3. **逐个 hunk 解**：能兼容就同时保留双方意图；不兼容时选与本次合并目标一致的一方，并在 commit message 里记取舍。**不发明新行为**——只裁决已有改动，不乘机重构、不顺手"优化"。**永远解完，永不 `--abort`**——abort 会销毁现场并把工单打回人工。
 
-4. **跑项目验证命令**：prompt 会给出验证命令清单（来源：WU metadata.verifyCommands 覆盖 > 目标目录 package.json scripts 惯例：typecheck → test → lint，按 lockfile 选 pnpm/npm）。在冲突 cwd 依次跑，**全绿才算完成**；有红就修到绿（修的是合并引入的问题，不是既有债务）。
+4. **跑项目验证命令**：prompt 会给出服务端登记的检查清单（目标目录 package.json scripts 只选择启用项：test → typecheck → lint，按 lockfile 选 pnpm/npm；metadata/workspace 不能覆盖命令）。在冲突 cwd 依次跑，**全绿才算完成**；有红就修到绿（修的是合并引入的问题，不是既有债务）。
 
 5. **完成合并**：`git add` 所有已解文件后 commit（merge 场景）；rebase 场景 `git rebase --continue` 直到全部 commit 落完。结束前 `git status` 确认无残留冲突标记、无未合路径。
 

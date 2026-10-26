@@ -49,8 +49,8 @@ vi.mock('../wu-messenger.js', async (importOriginal) => {
   return { ...orig, postWuSystemMessage: mockPostWuSystemMessage };
 });
 
-const REPO = '/repo/shared';
-const WT = '/worktrees/wu-x';
+let REPO: string;
+let WT: string;
 const BRANCH = 'task/wu-1';
 const BASE = 'main';
 const HEAD = 'deadbeefcafe1234567890';
@@ -110,6 +110,10 @@ beforeEach(async () => {
   mockLoadSingleSkill.mockReturnValue({ id: 'resolving-merge-conflicts', name: 'resolving-merge-conflicts', prompt: 'SKILL 流程卡全文' });
   mockSystemExecRun.mockResolvedValue({ output: 'resolved; typecheck+test green', usage: undefined, durationMs: 1234 });
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-on-review-pass-'));
+  REPO = path.join(tmpDir, 'repo');
+  WT = path.join(tmpDir, 'worktrees', 'wu-x');
+  fs.mkdirSync(REPO, { recursive: true });
+  fs.mkdirSync(WT, { recursive: true });
   fileStore = new FileStore(tmpDir);
   wuService = new WorkUnitService(fileStore);
   await fileStore.createChannel({
@@ -546,6 +550,8 @@ describe('B3b-ii: 评审通过后自动合并', () => {
   });
 
   it('合并后 verify 红 → 转人工（merge-verify-failed）：不删 worktree/分支、不落 mergedAt', async () => {
+    fs.writeFileSync(path.join(REPO, 'package.json'), JSON.stringify({ scripts: { typecheck: 'tsc' } }));
+    fs.writeFileSync(path.join(REPO, 'pnpm-lock.yaml'), '');
     mockExecSh.mockImplementation(async (cmd: string) => {
       if (cmd === 'pnpm run typecheck') {
         throw Object.assign(new Error('exit 1'), { stderr: 'TS2322: type mismatch in merged code' });
@@ -553,7 +559,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
       if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
       return { stdout: '', stderr: '' };
     });
-    const wu = await createWu(worktreeMeta({ verifyCommands: ['pnpm run typecheck'] }));
+    const wu = await createWu(worktreeMeta());
 
     const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
 
@@ -581,7 +587,9 @@ describe('B3b-ii: 评审通过后自动合并', () => {
   });
 
   it('合并后 verify：无冲突直合也重跑（合并目标目录），全绿 → merged', async () => {
-    const wu = await createWu(worktreeMeta({ verifyCommands: ['pnpm run test', 'pnpm run typecheck'] }));
+    fs.writeFileSync(path.join(REPO, 'package.json'), JSON.stringify({ scripts: { test: 'vitest', typecheck: 'tsc' } }));
+    fs.writeFileSync(path.join(REPO, 'pnpm-lock.yaml'), '');
+    const wu = await createWu(worktreeMeta());
 
     const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
 
@@ -708,7 +716,7 @@ describe('#157（T6）：analysis 原型单——合并旁路 + 原型收尾清�
     expect(outcome).toEqual({ attempted: true, removed: true });
     const cmds = calledCommands();
     expect(cmds.some(c => c.includes('worktree remove --force') && c.includes(WT))).toBe(true);
-    expect(cmds.some(c => c.includes('merge'))).toBe(false);
+    expect(cmds.some(c => c.includes(' merge --no-ff'))).toBe(false);
     expect(cmds.some(c => c.includes('branch -d'))).toBe(false);
     expect(cmds.some(c => c.includes('branch -D'))).toBe(false);
   });

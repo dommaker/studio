@@ -9,14 +9,14 @@
 
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { execSh } from '@dommaker/studio-shared/node';
-import { getWorkspaceRecord } from '../workspaces/index.js';
+import { assertTrustedWuWorktree, HOST_CHECK_TIMEOUT_MS, runHostCheck } from '../../core/host-execution-policy.js';
+import { resolveWorktreesDir } from './agent-loop-parsers.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
 
 /** B3b-i: 代码类 WU（执行面强制专属 worktree 隔离） */
 export const CODE_WORKTREE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
 /** B3b-i: 单条验证命令超时 10min；失败注入 prompt 的输出尾部上限 */
-export const VERIFY_COMMAND_TIMEOUT_MS = 600_000;
+export const VERIFY_COMMAND_TIMEOUT_MS = HOST_CHECK_TIMEOUT_MS;
 export const VERIFY_FAIL_TAIL_CHARS = 2_000;
 
 /** B3b-i: 从 execSh 拒绝错误提取输出尾部（stderr/stdout/message 拼接后截 maxChars） */
@@ -41,30 +41,14 @@ export interface WuVerifyOutcome {
 }
 
 /**
- * B3b-i（决策 D3 前半）: 解析 WU 的验证命令 —— 覆盖优先于约定。
- * 覆盖：metadata.verifyCommands > workspace 记录 verifyCommands（字符串数组）；
- * 约定：worktree package.json scripts 存在 test/typecheck/lint 则依次跑
- * （按 lockfile 选 pnpm/npm）；都没有 → 空数组（跳过验证，维持现状）。
+ * 解析服务端登记的检查模板：项目内容只能选择是否启用 test/typecheck/lint，
+ * metadata、workspace 与 Spec 均不能提供命令文本或参数。
  */
 export async function resolveVerifyCommands(
-  wu: WorkUnitData,
-  metadata: WorkUnitMetadata,
+  _wu: WorkUnitData,
+  _metadata: WorkUnitMetadata,
   worktreePath: string,
 ): Promise<{ commands: string[]; source: 'override' | 'convention' }> {
-  const asCommands = (v: unknown): string[] =>
-    Array.isArray(v) ? v.filter((c): c is string => typeof c === 'string' && c.trim().length > 0) : [];
-
-  const fromMeta = asCommands(metadata.verifyCommands);
-  if (fromMeta.length > 0) return { commands: fromMeta, source: 'override' };
-
-  if (wu.workspaceId) {
-    try {
-      const ws = await getWorkspaceRecord(wu.workspaceId);
-      const fromWs = asCommands(ws?.verifyCommands);
-      if (fromWs.length > 0) return { commands: fromWs, source: 'override' };
-    } catch { /* 记录读取失败按无覆盖处理 */ }
-  }
-
   try {
     const pkgRaw = readFileSync(join(worktreePath, 'package.json'), 'utf-8');
     const scripts = (JSON.parse(pkgRaw) as { scripts?: Record<string, unknown> }).scripts ?? {};
@@ -85,12 +69,17 @@ export async function runWuVerification(
   wu: WorkUnitData,
   metadata: WorkUnitMetadata,
   worktreePath: string,
+  options?: { cwdProvenance: 'merge-target' },
 ): Promise<WuVerifyOutcome> {
-  const { commands, source } = await resolveVerifyCommands(wu, metadata, worktreePath);
+  // 普通 WU 验证只认服务端规范 worktree；合并后验证的 cwd 来自刚完成合并的服务端场景。
+  const trustedCwd = options?.cwdProvenance === 'merge-target'
+    ? worktreePath
+    : assertTrustedWuWorktree(wu.id, worktreePath, resolveWorktreesDir());
+  const { commands, source } = await resolveVerifyCommands(wu, metadata, trustedCwd);
   const ran: string[] = [];
   for (const command of commands) {
     try {
-      await execSh(command, { cwd: worktreePath, timeoutMs: VERIFY_COMMAND_TIMEOUT_MS });
+      await runHostCheck(command, trustedCwd);
       ran.push(command);
     } catch (err) {
       return { ran, source, failure: { command, tail: extractExecOutputTail(err, VERIFY_FAIL_TAIL_CHARS) } };

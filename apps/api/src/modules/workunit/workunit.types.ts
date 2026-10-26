@@ -138,11 +138,12 @@ export interface WorkUnitMetadata {
   // @deprecated 2026-08 归因统一：pmoProjectId 已移出解析链、agent-loop 不再落档
   // （原为 pmoBranch 同批的冗余缓存，生产存量为零）；归属项目 id 经 resolvePmoProjectIdForWU 重解析
   pmoProjectId?: string;
-  // B3b-i COMPLETE 前自动验证（决策 D3 前半，约定优先可覆盖）
-  verifyCommands?: string[];  // 覆盖验证命令（优先级高于 package.json scripts 约定；workspace 记录同名字段次之）
+  // B3b-i COMPLETE 前自动验证（SEC-01 起只执行服务端固定模板）
+  /** @deprecated 遗留数据字段；不再作为执行定义，REST 也禁止写入。 */
+  verifyCommands?: string[];
   verifyReport?: {            // 最近一次全绿的验证摘要（COMPLETE 接受前写入）
     commands: string[];
-    source: 'override' | 'convention';
+    source: 'override' | 'convention'; // override 仅兼容历史报告；新报告恒为 convention
     passedAt: string;
   };
   verifyFailCount?: number;   // 自动验证连续失败计数（≥3 → blocked）

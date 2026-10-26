@@ -139,6 +139,19 @@ export type ListMessagesQuery = z.infer<typeof listMessagesQuerySchema>;
 
 // ── 请求：body ──
 
+/** 宿主执行记录只能由服务端执行链落档，不能经普通 REST metadata 伪造。 */
+const restWorkUnitMetadataSchema = z.record(z.unknown()).superRefine((metadata, ctx) => {
+  for (const key of ['worktreePath', 'verifyCommands'] as const) {
+    if (key in metadata) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `metadata.${key} 只能由服务端执行链写入`,
+      });
+    }
+  }
+});
+
 /** POST / 建单（路由只透传这些字段；workspaceId/reqId 等列由机制路径写入，REST 不收） */
 export const createWorkUnitBodySchema = z.object({
   scope: z.string().min(1),
@@ -147,7 +160,7 @@ export const createWorkUnitBodySchema = z.object({
   status: z.string().optional(),
   channelId: z.string().nullable().optional(),
   parentId: z.string().nullable().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: restWorkUnitMetadataSchema.optional(),
   projectPath: z.string().nullable().optional(),
 });
 export type CreateWorkUnitBody = z.infer<typeof createWorkUnitBodySchema>;
@@ -169,7 +182,7 @@ export const updateWorkUnitBodySchema = z.object({
   retryCount: z.number().optional(),
   timeoutAt: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: restWorkUnitMetadataSchema.optional(),
 });
 export type UpdateWorkUnitBody = z.infer<typeof updateWorkUnitBodySchema>;
 
@@ -177,7 +190,7 @@ export type UpdateWorkUnitBody = z.infer<typeof updateWorkUnitBodySchema>;
 export const fromMessageBodySchema = z.object({
   messageId: z.string().min(1),
   type: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: restWorkUnitMetadataSchema.optional(),
   /** #524：可选透传频道 → 按频道直查，免全频道扫描反查 */
   channelId: z.string().optional(),
 });
@@ -233,11 +246,10 @@ export const reviewRejectedBodySchema = z.object({
 });
 export type ReviewRejectedBody = z.infer<typeof reviewRejectedBodySchema>;
 
-/** POST /:id/verify（human-only；commands = metadata.verifyCommands 覆盖） */
+/** POST /:id/verify（human-only；只运行服务端登记检查，不接受调用方命令） */
 export const verifyBodySchema = z.object({
-  commands: z.array(z.string()).optional(),
   authorType: z.string().optional(),
-});
+}).strict();
 export type VerifyBody = z.infer<typeof verifyBodySchema>;
 
 /** #467：POST /:id/ruling 裁决轮提交（accept 必须带 conclusion——语义校验在 plan-ruling） */

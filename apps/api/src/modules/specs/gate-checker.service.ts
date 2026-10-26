@@ -26,6 +26,7 @@ import { changeHistoryService } from './change-history.service.js';
 
 import type { Checkpoint, CheckpointCheck, CheckpointContext, CheckpointValidator } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared/node';
+import { resolveHostPath } from '../../core/host-execution-policy.js';
 
 /**
  * harness 4.0.0（班次3 Phase5）：CheckConfig 判别联合化，按 type 收窄必填字段。
@@ -98,9 +99,15 @@ export class GateCheckerService {
     const checks: CheckResult[] = [];
     
     for (const checkpointType of targetCheckpoints) {
-      // 获取 Harness 配置（如果有）
+      if (checkpointType === 'command_success') {
+        throw new Error('Spec 门禁不接受宿主命令检查');
+      }
       const harnessConfig = harnessConfigs?.find(c => c.type === checkpointType)?.harness;
-      
+      const rawConfig = harnessConfig as Record<string, unknown> | undefined;
+      if (rawConfig && ('command' in rawConfig || 'workdir' in rawConfig)) {
+        throw new Error('Spec 门禁不接受 harness.command 或调用方 workdir');
+      }
+
       const result = await this.runCheckpoint(change, checkpointType, harnessConfig, level, strictMode);
       checks.push(result);
     }
@@ -225,12 +232,17 @@ export class GateCheckerService {
     }
 
     try {
-      // 直接以 harness 原生 Checkpoint/CheckpointCheck 类型表达，交 CheckpointValidator 执行
-      const workdir = config?.workdir || process.cwd();
+      // HTTP 不提供 workdir；文件检查统一绑定服务端项目根并解析符号链接真实目标。
+      const workdir = process.cwd();
+      let safeConfig = config;
+      const rawPath = (config as Record<string, unknown> | undefined)?.path;
+      if ((type === 'file_exists' || type === 'file_contains') && typeof rawPath === 'string' && rawPath) {
+        safeConfig = { ...config, path: resolveHostPath(workdir, rawPath) } as HarnessCheckConfig;
+      }
 
       const checkpoint: Checkpoint = {
         id: `gate-${type}`,
-        checks: [this.buildHarnessCheck(type, config)],
+        checks: [this.buildHarnessCheck(type, safeConfig)],
       };
 
       const context: CheckpointContext = {

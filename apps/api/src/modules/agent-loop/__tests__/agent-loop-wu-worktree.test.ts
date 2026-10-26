@@ -92,7 +92,9 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
   let channelId: string;
   let agentLoop: AgentLoop;
   let repoRoot: string;    // 共享 git 仓库根（带 .git）
-  let worktreeDir: string; // 伪造的 WU worktree
+  let worktreeDir: string; // 当前 WU 的受控 worktree
+  let worktreesRoot: string;
+  let previousWorktreesDir: string | undefined;
 
   const WT = () => worktreeDir;
 
@@ -117,7 +119,11 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     // 真实目录：repoRoot 带 .git（isGitRepoRoot 通过）；worktreeDir 放 package.json 等验证素材
     repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'b3b-repo-'));
     fs.mkdirSync(path.join(repoRoot, '.git'));
-    worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'b3b-wt-'));
+    worktreesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'b3b-wt-'));
+    worktreeDir = path.join(worktreesRoot, 'staging');
+    fs.mkdirSync(worktreeDir);
+    previousWorktreesDir = process.env.WORKTREES_DIR;
+    process.env.WORKTREES_DIR = worktreesRoot;
 
     // 默认：git 干净；ensureWuWorktree 返回专属 worktree；CLI 成功
     mockExecSync.mockImplementation((cmd: string) =>
@@ -139,18 +145,32 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
   });
 
   afterEach(() => {
+    if (previousWorktreesDir === undefined) delete process.env.WORKTREES_DIR;
+    else process.env.WORKTREES_DIR = previousWorktreesDir;
     fs.rmSync(testDir, { recursive: true, force: true });
     fs.rmSync(repoRoot, { recursive: true, force: true });
-    fs.rmSync(worktreeDir, { recursive: true, force: true });
+    fs.rmSync(worktreesRoot, { recursive: true, force: true });
   });
 
   async function createWu(type: string, metadata?: WorkUnitMetadata, extra?: Record<string, unknown>) {
-    const wu = await wuService.create({
+    let wu = await wuService.create({
       scope: '实现功能', channelId, type,
       status: 'active', assigneeId: 'instance-1',
       ...(extra ?? {}),
       ...(metadata ? { metadata } : {}),
     });
+    if (metadata?.worktreePath) {
+      if (worktreeDir === path.join(worktreesRoot, 'staging')) {
+        const canonical = path.join(worktreesRoot, `wu-${wu.id}`);
+        fs.renameSync(worktreeDir, canonical);
+        worktreeDir = canonical;
+      }
+      if (metadata.verifyCommands && !fs.existsSync(path.join(WT(), 'package.json'))) {
+        // 遗留自定义字段只作篡改夹具；固定 test 模板用于证明它不会成为执行定义。
+        fs.writeFileSync(path.join(WT(), 'package.json'), JSON.stringify({ scripts: { test: 'x' } }));
+      }
+      wu = await wuService.update(wu.id, { metadata: { ...metadata, worktreePath: WT() } });
+    }
     const anchor: ChannelMessageData = {
       id: uuidv4(), channelId, authorType: 'human', agentName: null,
       content: '@wt-agent 实现功能', replyToId: null, meta: '{}',
@@ -347,35 +367,25 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
 
   // ─── 改造项 2：COMPLETE 前自动验证 ───
 
-  it('验证覆盖（metadata.verifyCommands）> 约定：全绿 → in_review + verifyReport + 频道简报', async () => {
-    fs.writeFileSync(path.join(WT(), 'package.json'), JSON.stringify({ scripts: { test: 'x' } }));
+  it('metadata/workspace 自定义命令不生效：固定模板全绿 → in_review + verifyReport + 频道简报', async () => {
+    fs.writeFileSync(path.join(WT(), 'package.json'), JSON.stringify({ scripts: { test: 'x', typecheck: 'x' } }));
+    mockGetWorkspaceRecord.mockResolvedValue({ id: 'ws-1', verifyCommands: ['./ci.sh'] });
     const wu = await createWu('feature', {
       workspaceRoot: repoRoot, worktreePath: WT(),
-      verifyCommands: ['make check', './scripts/ci.sh'],
-    });
+      verifyCommands: ['npm run test', './scripts/ci.sh'],
+    }, { workspaceId: 'ws-1' });
 
     await loop().recordResult({ workUnit: wu }, { action: 'complete', summary: '做完了' });
 
     expect(mockExecSh).toHaveBeenCalledTimes(2);
-    expect(mockExecSh).toHaveBeenNthCalledWith(1, 'make check', expect.objectContaining({ cwd: WT(), timeoutMs: 600_000 }));
-    expect(mockExecSh).toHaveBeenNthCalledWith(2, './scripts/ci.sh', expect.objectContaining({ cwd: WT(), timeoutMs: 600_000 }));
+    expect(mockExecSh).toHaveBeenNthCalledWith(1, 'npm run test', expect.objectContaining({ cwd: WT(), timeoutMs: 600_000 }));
+    expect(mockExecSh).toHaveBeenNthCalledWith(2, 'npm run typecheck', expect.objectContaining({ cwd: WT(), timeoutMs: 600_000 }));
     expect((await wuService.getById(wu.id))!.status).toBe('in_review');
     const meta = await metaOf(wu.id);
-    expect(meta.verifyReport).toMatchObject({ commands: ['make check', './scripts/ci.sh'], source: 'override' });
+    expect(meta.verifyReport).toMatchObject({ commands: ['npm run test', 'npm run typecheck'], source: 'convention' });
     expect(meta.verifyFailCount).toBe(0);
     const texts = await channelTexts(wu.id);
-    expect(texts.some(t => t.includes('自动验证通过') && t.includes('make check'))).toBe(true);
-  });
-
-  it('验证覆盖（workspace 记录 verifyCommands）：metadata 无覆盖时取用', async () => {
-    mockGetWorkspaceRecord.mockResolvedValue({ id: 'ws-1', verifyCommands: ['./ci.sh'] });
-    const wu = await createWu('task', { workspaceRoot: repoRoot, worktreePath: WT() }, { workspaceId: 'ws-1' });
-
-    await loop().recordResult({ workUnit: wu }, { action: 'complete', summary: '做完了' });
-
-    expect(mockExecSh).toHaveBeenCalledWith('./ci.sh', expect.objectContaining({ cwd: WT() }));
-    expect((await wuService.getById(wu.id))!.status).toBe('in_review');
-    expect((await metaOf(wu.id)).verifyReport?.source).toBe('override');
+    expect(texts.some(t => t.includes('自动验证通过') && t.includes('npm run test'))).toBe(true);
   });
 
   it('约定：package.json 有 test/typecheck/lint 时依次跑（pnpm-lock → pnpm）', async () => {
@@ -417,7 +427,7 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     const err = Object.assign(new Error('Command exited with code 1'), { stderr: longOutput, stdout: '' });
     mockExecSh.mockRejectedValue(err);
     const wu = await createWu('task', {
-      workspaceRoot: repoRoot, worktreePath: WT(), verifyCommands: ['make check'],
+      workspaceRoot: repoRoot, worktreePath: WT(), verifyCommands: ['npm run test'],
     });
 
     await loop().recordResult({ workUnit: wu }, { action: 'complete', summary: '做完了' });
@@ -425,7 +435,7 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     expect((await wuService.getById(wu.id))!.status).toBe('active');
     const meta = await metaOf(wu.id);
     expect(meta.verifyFailCount).toBe(1);
-    expect(meta.verifyFailHint).toContain('make check');
+    expect(meta.verifyFailHint).toContain('npm run test');
     expect(meta.verifyFailHint).toContain('tail-marker');
     expect(meta.verifyFailHint!.length).toBeLessThan(2_200); // 尾部截断生效（含提示头）
 
@@ -433,14 +443,14 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     const step = await loop().agentStep({ workUnit: (await wuService.getById(wu.id))! });
     const prompt = mockExecuteLightweight.mock.calls[0][0].prompt as string;
     expect(prompt).toContain('## 验证失败');
-    expect(prompt).toContain('make check');
+    expect(prompt).toContain('npm run test');
     expect(step.metadataUpdates).toHaveProperty('verifyFailHint', undefined);
   });
 
   it('验证连续失败 3 次 → blocked 并频道说明', async () => {
     mockExecSh.mockRejectedValue(Object.assign(new Error('exit 1'), { stderr: 'boom' }));
     const wu = await createWu('task', {
-      workspaceRoot: repoRoot, worktreePath: WT(), verifyCommands: ['make check'],
+      workspaceRoot: repoRoot, worktreePath: WT(), verifyCommands: ['npm run test'],
     });
 
     for (let i = 0; i < 2; i++) {
@@ -476,18 +486,18 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
   it('强制收口（progress 超限）：代码类 + worktree + 验证全绿 → in_review + l1 approved + verifyReport', async () => {
     const wu = await createWu('task', {
       workspaceRoot: repoRoot, worktreePath: WT(),
-      verifyCommands: ['make check'], stepCount: 15,
+      verifyCommands: ['npm run test'], stepCount: 15,
     });
 
     await loop().recordResult({ workUnit: wu }, { action: 'progress', summary: '继续中' });
 
     expect(mockExecSh).toHaveBeenCalledTimes(1);
-    expect(mockExecSh).toHaveBeenCalledWith('make check', expect.objectContaining({ cwd: WT(), timeoutMs: 600_000 }));
+    expect(mockExecSh).toHaveBeenCalledWith('npm run test', expect.objectContaining({ cwd: WT(), timeoutMs: 600_000 }));
     expect((await wuService.getById(wu.id))!.status).toBe('in_review');
     const meta = await metaOf(wu.id);
     expect(meta.attestations?.l1?.verdict).toBe('approved');
     expect(meta.attestations?.l1?.kind).toBe('verify');
-    expect(meta.verifyReport?.commands).toEqual(['make check']);
+    expect(meta.verifyReport?.commands).toEqual(['npm run test']);
     const texts = await channelTexts(wu.id);
     expect(texts.some(t => t.includes('步骤数超限'))).toBe(true);
   });
@@ -496,7 +506,7 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     mockExecSh.mockRejectedValue(Object.assign(new Error('exit 1'), { stderr: 'boom' }));
     const wu = await createWu('task', {
       workspaceRoot: repoRoot, worktreePath: WT(),
-      verifyCommands: ['make check'], stepCount: 15,
+      verifyCommands: ['npm run test'], stepCount: 15,
     });
 
     await loop().recordResult({ workUnit: wu }, { action: 'progress', summary: '继续中' });
@@ -504,7 +514,7 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     expect((await wuService.getById(wu.id))!.status).toBe('in_review');
     const meta = await metaOf(wu.id);
     expect(meta.attestations?.l1?.verdict).toBe('rejected');
-    expect(meta.attestations?.l1?.summary).toContain('make check');
+    expect(meta.attestations?.l1?.summary).toContain('npm run test');
     expect(meta.verifyFailCount).toBeUndefined();
     expect(meta.verifyReport).toBeUndefined();
   });
@@ -534,7 +544,7 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
   it('超限 + COMPLETE：COMPLETE 守卫本 step 已跑验证 → 强制收口不重复跑（execSh 仅一次）', async () => {
     const wu = await createWu('task', {
       workspaceRoot: repoRoot, worktreePath: WT(),
-      verifyCommands: ['make check'], stepCount: 15,
+      verifyCommands: ['npm run test'], stepCount: 15,
     });
 
     await loop().recordResult({ workUnit: wu }, { action: 'complete', summary: '做完了' });

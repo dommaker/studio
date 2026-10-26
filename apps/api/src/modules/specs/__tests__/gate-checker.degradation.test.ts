@@ -63,10 +63,10 @@ describe('GateCheckerService harness 不可用降级', () => {
 
     const result = await gateCheckerService.validate({
       changeId: change.id,
-      checkpoints: ['command_success'],
+      checkpoints: ['file_contains'],
     });
 
-    const check = result.checks.find(c => c.type === 'command_success');
+    const check = result.checks.find(c => c.type === 'file_contains');
     expect(check).toBeDefined();
     expect(check!.passed).toBe(true);
     expect(check!.message).toContain('跳过');

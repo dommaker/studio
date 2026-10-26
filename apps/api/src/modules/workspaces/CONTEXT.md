@@ -13,11 +13,11 @@
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | workspace.routes.ts | Workspace 只读查询 API（list/get/runtimes；DELETE 与 /:id/runtimes 已随 P4.6 删除） |
 | local-workspace.ts | VPS 本地 Workspace 自动注册 + 本地 CLI 运行时扫描（`rescanLocalRuntimes` 供按需重扫） |
-| workspace-store.ts | 记录读取与 root 解析（`getWorkspaceRecord`/`resolveWorkspaceRoot`），仅供 wu-verification 的 workspace 级 `verifyCommands` 覆盖、file-ref-vocabulary 候选集与 channel.routes 绑定存在性校验使用（**无执行语义**） |
+| workspace-store.ts | 记录读取与 root 解析（`getWorkspaceRecord`/`resolveWorkspaceRoot`），仅供 file-ref-vocabulary 候选集与 channel.routes 绑定存在性校验使用（**无执行语义**） |
 
 ### 依赖关系
 
-- 被依赖：`agents/`（wu-verification 的 verifyCommands 覆盖）、`channels/`（file-ref-vocabulary 候选集、channel PATCH 绑定校验）、`web/`（WorkspacePage）
+- 被依赖：`channels/`（file-ref-vocabulary 候选集、channel PATCH 绑定校验）、`web/`（WorkspacePage）；SEC-01 起 agent-loop/wu-verification 不再消费 workspace verifyCommands。
 
 ### 远程节点方向已判死（分两批清完）
 
@@ -35,7 +35,7 @@
 - **runtimes 条目增登录态三态（#565，2026-09-16）**：cli-scanner 按注册表 `authProbe` 声明探测（exit 0 且不命中未登录模式 → ok；命中/非零 exit → failed + authHint；未声明/spawn 失败 → unknown，不猜配置目录），`local-workspace` 把 `auth`/`authHint`/`authCheckedAt` 随 runtimes 记录持久（节奏 = 启动扫描 + 手动 rescan，已决策不做每 GET 实时探）；`GET /workspaces/runtimes` 响应项增 `auth`（旧记录缺省回落 unknown）+ 条件 `authHint`。声明现状：claude `auth status`（JSON loggedIn）、codex `login status`（未登录 exit 1 + "Not logged in"）均实测；kimi（login 无 status 子命令）/opencode（auth list 与 env 凭证混杂不可靠）不声明恒 unknown。同票 cli-scanner 还挂了能力探测 warm（`capabilityProbe` 声明的 provider 随扫描 warm studio-shared capability-probe 缓存）。测试：`__tests__/local-workspace-auth.test.ts`、`daemon/__tests__/cli-scanner.test.ts` auth describe。
 - **runtimes 条目增模型清单（#574，2026-09-16）**：cli-scanner detectProvider 调 studio-shared model-probe `getProviderModels`（注册表 `listModels` 声明驱动：codex `debug models` / kimi `provider list --json` / opencode `models`，逐 CLI 实测；claude 无列表命令不声明），进程内缓存 key=binary@version——GET 前重扫命中缓存不重跑探测进程；失败/未声明回退注册表 `fallbackModels`。`local-workspace` 把 `models`/`modelsSource`（live/fallback）随 runtimes 记录持久，`GET /workspaces/runtimes` 条件透出（旧记录无字段则不带）；展示面 = WorkspacePage runtime 卡片（模型行 + 实测/静态标注）。测试：`daemon/__tests__/cli-scanner.test.ts` models probe describe、`__tests__/runtimes-local-only.test.ts` #574 用例。
 - **workspace token 子系统已随 #481 删除（2026-09-11）**：`token.routes.ts`（生成/列表/撤销 API）+ route-registry 挂载 + `workspaceAuth()`（middleware/auth.ts）+ `WorkspaceTokenData`/`WORKSPACE_TOKENS_DIR` + 前端零引用的 `workspaceTokenApi` + 两处自证测试，全部移除（零行为变化：2026-09-10 盘点确认 `workspaceAuth()` 零路由引用、磁盘 token 文件全部缺 `workspaceId` 字段恒 401、UI 无入口）。无读取方的数据目录：`~/.studio/workspace-tokens/`、`~/.studio/data/workspace-tokens/`、`~/.studio/data/workspaces/`（后两个属旧 STUDIO_DATA_DIR 根）不夹代码 PR 处理。
-- **承重面（勿删）**：`workspace.routes.ts` 的只读端点（真实 HTTP 级测试 `__tests__/workspace-routes.test.ts`，#481 由自建内存 store 自证重写）+ `workspace-store.ts`——剩余链路：`channel.defaultWorkspaceId` 绑定存在性校验（channel PATCH）、file-ref-vocabulary legacy 候选集、wu-verification 按 `wu.workspaceId` 取 workspace 级 `verifyCommands` 覆盖（#481 未动；新 WU 已不再落 workspaceId，该覆盖只作用于历史绑定记录，后续另票评估）。
+- **承重面（勿删）**：`workspace.routes.ts` 的只读端点（真实 HTTP 级测试 `__tests__/workspace-routes.test.ts`，#481 由自建内存 store 自证重写）+ `workspace-store.ts`——剩余链路：`channel.defaultWorkspaceId` 绑定存在性校验（channel PATCH）、file-ref-vocabulary legacy 候选集。SEC-01 起 wu-verification 只执行固定模板，不再读取 workspace `verifyCommands`。
 - **鉴权级别（2026-07 安全修复）**：本模块所有面向 UI 的端点（workspace 只读/runtimes）= `requireAuth() + requireAdmin()` —— 生产环境必须 Admin 角色。⚠️ 前提修正（2026-07-24）：guest session `userId=null` 查不到用户记录，guest token **实际过不了 `requireAuth()`/Lurk Wall 大门**（等同匿名）；requireAdmin 的真实防线意义在于防御未来 User 角色账号与大门逻辑回归（workspace 记录含 workspaceRoot/runtimes.path/仓库路径等服务器信息）。
 - **保留端点消费方台账（P4.6 勘察，2026-10-17）**：GET /workspaces 与 GET /workspaces/runtimes = 前端 `apps/web/src/api/workspaces.ts:9-10`（WorkspacePage）+ `useDetectedProviders.ts:42`；GET /workspaces/:id = 同前端查询面。DELETE /:id 与 GET /:id/runtimes 无消费方已删。
 - **`GET /workspaces/runtimes` 挂 apiCache 60s（#403，ADR 2026-08-31 决策 5，已实施）**：每请求 best-effort 全量重扫（历史上 `cli-scanner.scanAllProviders()` 对每个 provider 同步 `execFileSync`，阻塞事件循环最坏数十秒；2026-10-03 已换 `scanAllProvidersAsync()` 不再阻塞，60s 档保留作探测进程频控）→ 60s 档把重扫频次压到至多一次/分钟（缓存 seam 决策树第 2 问：HTTP 响应、秒级陈旧可接受）；apiCache 挂在 `requireAuth()+requireAdmin()` 之后（缓存 key 不含用户身份，不缓存 401/403）。前端三个挂载点中 ChannelMemberManager 已改懒挂载（成员面板首次展开才请求，决策 4）；RolesSetup 已随 E8-3 删除，CreateRoleModal 为低频设置面维持现状。配套：api-cache 中间件补「≥400 不缓存」护栏（错误响应不得钉死 TTL 窗口）。

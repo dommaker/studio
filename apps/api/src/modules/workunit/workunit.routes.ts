@@ -352,8 +352,8 @@ writeRoutes.post('/:id/review-rejected', requireHuman(REVIEW_HUMAN_ONLY), define
 
 /**
  * POST /:id/verify — F6-c（断点 2）：人工重跑 L1 自动验证（human-only，验收权只在人同 A2A §4.4）。
- * 仅代码类 WU（task/bug/feature/refactor）且有 worktree 落档；body.commands 可选
- * （传了视为 metadata.verifyCommands 覆盖）。只补写台账 l1/verifyReport，不动 WU status；
+ * 仅代码类 WU（task/bug/feature/refactor）且有受信 worktree 落档；只运行服务端固定模板。
+ * 只补写台账 l1/verifyReport，不动 WU status；
  * 写完发 status_changed（状态值不变也发）让 pmo rollup 按证据齐备度重估。
  * #551：业务下沉 WorkUnitService.verifyManually（脱 HTTP 可直测），本层只映射 kind → 响应。
  * no-commands 是 422 业务结果（非异常），handler 自写响应（同样包 { data } 壳）。
@@ -361,10 +361,8 @@ writeRoutes.post('/:id/review-rejected', requireHuman(REVIEW_HUMAN_ONLY), define
 writeRoutes.post('/:id/verify', requireHuman('Verify actions are human-only (authorType=agent rejected)'), defineRoute(
   { params: wuIdParamsSchema, body: verifyBodySchema },
   async (req, res, input) => {
-    const bodyCommands = (input.body.commands ?? []).filter(c => c.trim().length > 0);
     const result = await getService().verifyManually(input.params.id, {
       by: callerName(req),
-      ...(bodyCommands.length > 0 ? { commands: bodyCommands } : {}),
     });
     switch (result.kind) {
       case 'not-found':
@@ -373,12 +371,14 @@ writeRoutes.post('/:id/verify', requireHuman('Verify actions are human-only (aut
         throw new HttpError(400, 'INVALID_INPUT', `仅代码类 WU（task/bug/feature/refactor）支持 L1 验证（当前 type=${result.wuType}）`);
       case 'no-worktree':
         throw new HttpError(409, 'NO_WORKTREE', 'WU 无 worktree 落档（metadata.worktreePath 为空），无法验证');
+      case 'invalid-worktree':
+        throw new HttpError(409, 'INVALID_WORKTREE', 'WU worktree 落档未通过受控根与归属校验，无法验证');
       case 'no-commands':
         res.status(422).json({
           data: {
             verified: false,
             reason: 'no-commands',
-            hint: '请在 WU metadata.verifyCommands 或 worktree 的 package.json scripts(test/typecheck/lint)中配置验证命令',
+            hint: '请在 worktree 的 package.json scripts(test/typecheck/lint)中启用服务端登记检查',
           },
         });
         return undefined;

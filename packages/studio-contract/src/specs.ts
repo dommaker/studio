@@ -197,6 +197,22 @@ export const validateChangeBodySchema = z.object({
     type: z.string(),
     harness: z.record(z.unknown()).optional(),
   }).passthrough().superRefine((entry, ctx) => {
+    if (entry.type === 'command_success') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['type'],
+        message: 'Spec HTTP 门禁不接受宿主命令检查',
+      });
+    }
+    for (const field of ['command', 'workdir'] as const) {
+      if (entry.harness && field in entry.harness) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['harness', field],
+          message: `Spec HTTP 门禁不接受 harness.${field}`,
+        });
+      }
+    }
     const required = HARNESS_CHECK_REQUIRED_FIELDS[entry.type];
     if (!required) return;
     for (const field of required) {

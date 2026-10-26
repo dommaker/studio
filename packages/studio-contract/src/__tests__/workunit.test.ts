@@ -100,6 +100,17 @@ describe('请求 schema', () => {
     expect(fromMessageBodySchema.safeParse({}).success).toBe(false);
   });
 
+  it('REST metadata：执行记录与自定义验证命令只能由服务端写入', () => {
+    for (const metadata of [
+      { worktreePath: '/tmp/forged' },
+      { verifyCommands: ['touch /tmp/forbidden'] },
+    ]) {
+      expect(createWorkUnitBodySchema.safeParse({ scope: 'x', metadata }).success).toBe(false);
+      expect(updateWorkUnitBodySchema.safeParse({ metadata }).success).toBe(false);
+      expect(fromMessageBodySchema.safeParse({ messageId: 'm-1', metadata }).success).toBe(false);
+    }
+  });
+
   it('claim body：agentId 可省略（缺省 = 会话用户）；空对象合法', () => {
     expect(claimBodySchema.parse({})).toEqual({});
     expect(claimBodySchema.safeParse({ agentId: '' }).success).toBe(false);
@@ -123,8 +134,9 @@ describe('请求 schema', () => {
     expect(reviewPassedBodySchema.parse({ confirm: { kind: 'decision' } })).toEqual({ confirm: { kind: 'decision' } });
   });
 
-  it('verify body：commands 字符串数组（非字符串元素 → 400，旧行为是静默过滤）', () => {
-    expect(verifyBodySchema.parse({ commands: ['pnpm test'] })).toEqual({ commands: ['pnpm test'] });
+  it('verify body：只接受服务端已登记检查，拒绝调用方自定义 commands', () => {
+    expect(verifyBodySchema.parse({})).toEqual({});
+    expect(verifyBodySchema.safeParse({ commands: ['pnpm test'] }).success).toBe(false);
     expect(verifyBodySchema.safeParse({ commands: ['a', 42] }).success).toBe(false);
   });
 
