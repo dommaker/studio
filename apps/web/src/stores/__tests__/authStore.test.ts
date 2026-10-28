@@ -123,6 +123,30 @@ describe('authStore', () => {
       expect(s.error).toBeNull();
     });
 
+    it('normalizes contract user/session at the store boundary without assertions', async () => {
+      vi.mocked(authApi.login).mockResolvedValueOnce({
+        data: { data: {
+          token: 'jwt-token',
+          refreshToken: 'refresh-token',
+          user: {
+            id: 'u1', email: 'a@b.com', role: 'UnexpectedRole', name: null, avatar: null,
+            emailVerified: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+          },
+          session: {
+            id: 's1', userId: 'u1', guestId: null, expiresAt: '2026-07-01T00:00:00Z',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        } },
+      });
+
+      await useAuthStore.getState().login('a@b.com', 'pass');
+
+      expect(useAuthStore.getState().user).toEqual({
+        id: 'u1', email: 'a@b.com', role: 'Guest', createdAt: '2026-01-01T00:00:00Z',
+      });
+      expect(useAuthStore.getState().session).toEqual({ id: 's1', expiresAt: '2026-07-01T00:00:00Z' });
+    });
+
     it('returns false and sets error on API exception', async () => {
       vi.mocked(authApi.login).mockRejectedValueOnce(new Error('Network error'));
 

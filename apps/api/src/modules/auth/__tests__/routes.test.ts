@@ -53,11 +53,15 @@ vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   return { ...actual, logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } };
 });
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-  FileStore: vi.fn(),
-  getErrorMessage: (e: unknown) => (e instanceof Error ? e.message : 'Unknown error'),
-}));
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return {
+    ...actual,
+    logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    FileStore: vi.fn(),
+    getErrorMessage: (e: unknown) => (e instanceof Error ? e.message : 'Unknown error'),
+  };
+});
 
 // ── Imports after mocks ───────────────────────────────────────────────
 import * as authService from '../service.js';
@@ -67,6 +71,21 @@ import { RefreshTokenRetryError } from '../auth-session-store.js';
 // auth middleware imports use the same mock paths as routes.ts
 
 // ── Helpers ───────────────────────────────────────────────────────────
+
+function validUser(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'u1', email: 'test@test.com', name: null, avatar: null, role: 'Admin',
+    emailVerified: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function validSession(id = 's1') {
+  return {
+    id, userId: 'u1', guestId: null,
+    expiresAt: '2026-01-02T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z',
+  };
+}
 
 function createReq(overrides: Record<string, any> = {}) {
   return {
@@ -142,8 +161,8 @@ describe('auth routes', () => {
   describe('POST /guest-session', () => {
     it('returns 200 with session and token', async () => {
       vi.mocked(authService.getOrCreateSession).mockResolvedValue({
-        session: { id: 'gs1' }, token: 'guest-token',
-      } as any);
+        session: validSession('gs1'), token: 'guest-token',
+      });
 
       const { res } = await invokeRoute(routes, 'post', '/guest-session', {
         body: { guestId: 'g-1' },
@@ -151,7 +170,7 @@ describe('auth routes', () => {
 
       // defineRoute 统一 { data } 壳
       expect(res.json).toHaveBeenCalledWith(
-        { data: expect.objectContaining({ session: { id: 'gs1' }, token: 'guest-token' }) }
+        { data: expect.objectContaining({ session: expect.objectContaining({ id: 'gs1' }), token: 'guest-token' }) }
       );
     });
 
@@ -188,8 +207,8 @@ describe('auth routes', () => {
 
     it('returns 200 with user and tokens on success', async () => {
       vi.mocked(authService.register).mockResolvedValue({
-        user: { id: 'u1', email: 'new@test.com', role: 'User' },
-        token: 'jwt-token', refreshToken: 'rt-token', session: { id: 's1' }, isNewUser: true,
+        user: validUser({ email: 'new@test.com', role: 'User' }),
+        token: 'jwt-token', refreshToken: 'rt-token', session: validSession(), isNewUser: true,
       } as any);
 
       const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
@@ -221,8 +240,8 @@ describe('auth routes', () => {
     describe('audit log (SEC-010)', () => {
       it('logs register success', async () => {
         vi.mocked(authService.register).mockResolvedValue({
-          user: { id: 'u1', email: 'new@test.com' },
-          token: 't', refreshToken: 'rt', session: { id: 's1' },
+          user: validUser({ email: 'new@test.com' }),
+          token: 't', refreshToken: 'rt', session: validSession(),
         } as any);
 
         await invokeRoute(routes, 'post', '/register', { body: validBody });
@@ -249,8 +268,8 @@ describe('auth routes', () => {
       it('does not crash when audit log throws', async () => {
         mockAuditLog.mockRejectedValue(new Error('audit db error'));
         vi.mocked(authService.register).mockResolvedValue({
-          user: { id: 'u1', email: 'new@test.com' },
-          token: 't', refreshToken: 'rt', session: { id: 's1' },
+          user: validUser({ email: 'new@test.com' }),
+          token: 't', refreshToken: 'rt', session: validSession(),
         } as any);
 
         const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
@@ -265,8 +284,8 @@ describe('auth routes', () => {
 
     it('returns 200 with user and tokens on valid login', async () => {
       vi.mocked(authService.login).mockResolvedValue({
-        user: { id: 'u1', email: 'test@test.com', role: 'User' },
-        session: { id: 's1' }, token: 'jwt-token', refreshToken: 'rt-token',
+        user: validUser({ role: 'User' }),
+        session: validSession(), token: 'jwt-token', refreshToken: 'rt-token',
       } as any);
 
       const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
@@ -307,8 +326,8 @@ describe('auth routes', () => {
     describe('audit log (SEC-010)', () => {
       it('logs login success', async () => {
         vi.mocked(authService.login).mockResolvedValue({
-          user: { id: 'u1', email: 'test@test.com', role: 'User' },
-          session: { id: 's1' }, token: 't', refreshToken: 'rt',
+          user: validUser({ role: 'User' }),
+          session: validSession(), token: 't', refreshToken: 'rt',
         } as any);
 
         await invokeRoute(routes, 'post', '/login', { body: validBody });
@@ -375,8 +394,8 @@ describe('auth routes', () => {
   describe('GET /me', () => {
     it('returns user and session with valid auth', async () => {
       vi.mocked(authService.getCurrentUser).mockResolvedValue({
-        user: { id: 'u1', email: 'test@test.com', role: 'User' },
-        session: { id: 's1' },
+        user: validUser({ role: 'User' }),
+        session: validSession(),
       } as any);
 
       const { res } = await invokeRoute(routes, 'get', '/me');
@@ -496,7 +515,7 @@ describe('auth routes', () => {
       mockGetAuthInfo.mockReturnValue({ sessionId: 's1', userId: 'u1' });
       (authService.getCurrentUser as any).mockResolvedValue({
         user: { id: 'u1', name: 'Test User', role: 'User' },
-        session: { id: 's1' },
+        session: validSession(),
       });
       const { res } = await invokeRoute(routes, 'get', '/status');
       expect(res.json).toHaveBeenCalledWith({

@@ -1,28 +1,16 @@
 /**
  * openapi/response-map.ts — 端点 → contract 响应 schema 映射。
  *
- * defineRoute 不带响应 schema（响应壳由 envelope 统一保证），逐端点的响应形状住在这里。
+ * 未迁移域的端点 → contract 响应 schema 临时装订表；已迁移域直接声明在 defineRoute。
  * 键 = `${METHOD} ${完整路径}`（Express 风格 :id，与 discover.ts 产出一致）。
- * 映射只引用 packages/studio-contract 已导出的 xxxResponseSchema——schema 正本在 contract，
- * 本文件只做「端点 ↔ schema」装订。未映射端点在文档中退化为通用 { data } 壳（如实标注）。
+ * 映射只引用 packages/studio-contract 已导出的 xxxResponseSchema——schema 正本在 contract。
+ * 无 schema 的非 204 端点必须列入 RESPONSELESS_ROUTE_OVERRIDES，禁止静默退化。
  *
  * 防漂移：openapi 测试断言「映射键 ⊆ 实际发现的端点」——路由改名/删除即测试红。
  */
 
 import type { z } from 'zod';
 import {
-  // workunit
-  workUnitListResponseSchema,
-  workUnitResponseSchema,
-  lastDoneResponseSchema,
-  changedFilesResponseSchema,
-  treeTokenReportResponseSchema,
-  verifyResultResponseSchema,
-  dispatchReviewResponseSchema,
-  adoptOpportunityResponseSchema,
-  ignoreOpportunityResponseSchema,
-  discussionMessagesResponseSchema,
-  discussionMessageResponseSchema,
   // channels
   channelListResponseSchema,
   channelResponseSchema,
@@ -122,13 +110,7 @@ import {
   clawbotBindStatusResponseSchema,
   notifyChannelsSuccessResponseSchema,
   notifySendResponseSchema,
-  // auth / audit-logs
-  authStatusResponseSchema,
-  authResultResponseSchema,
-  authMeResponseSchema,
-  authRefreshResponseSchema,
-  logoutResponseSchema,
-  cleanupResponseSchema,
+  // audit-logs
   auditLogListResponseSchema,
   auditLogStatsResponseSchema,
   auditLogActionsResponseSchema,
@@ -188,33 +170,26 @@ export interface ResponseDoc {
   description?: string;
 }
 
-export const RESPONSE_MAP: Record<string, ResponseDoc> = {
-  // ── workunit ──
-  'GET /api/v1/workunits': { response: workUnitListResponseSchema, summary: 'WorkUnit 列表（分页，#109 附 claimable）' },
-  'POST /api/v1/workunits': { response: workUnitResponseSchema, summary: '创建 WorkUnit' },
-  'GET /api/v1/workunits/last-done': { response: lastDoneResponseSchema, summary: '批量最近完成（每 assignee 一条）' },
-  'GET /api/v1/workunits/changed-files': { response: changedFilesResponseSchema, summary: '批量 WU 变更文件映射' },
-  'GET /api/v1/workunits/:id': { response: workUnitResponseSchema, summary: 'WorkUnit 详情' },
-  'PUT /api/v1/workunits/:id': { response: workUnitResponseSchema, summary: '更新 WorkUnit（全可选补丁）' },
-  'POST /api/v1/workunits/from-message': { response: workUnitResponseSchema, summary: '频道消息涌现建单' },
-  'POST /api/v1/workunits/:id/claim': { response: workUnitResponseSchema, summary: '认领（flock 悲观互斥）' },
-  'POST /api/v1/workunits/:id/unclaim': { response: workUnitResponseSchema, summary: '取消认领' },
-  'POST /api/v1/workunits/:id/status': { response: workUnitResponseSchema, summary: '状态机流转（human-only）' },
-  'POST /api/v1/workunits/:id/review-passed': { response: workUnitResponseSchema, summary: '评审通过（in_review → done）' },
-  'POST /api/v1/workunits/:id/review-rejected': { response: workUnitResponseSchema, summary: '评审打回' },
-  'POST /api/v1/workunits/:id/verify': { response: verifyResultResponseSchema, summary: '人工重跑 L1 自动验证（human-only）' },
-  'POST /api/v1/workunits/:id/dispatch-review': { response: dispatchReviewResponseSchema, summary: '人工补派 agent 评审（human-only）' },
-  'POST /api/v1/workunits/:id/resume': { response: workUnitResponseSchema, summary: '继续执行（Web 按钮通道）' },
-  'POST /api/v1/workunits/:id/close': { response: workUnitResponseSchema, summary: '关闭任务（死信显式关闭）' },
-  'POST /api/v1/workunits/:id/ruling': { response: workUnitResponseSchema, summary: '裁决轮一次性提交（#467）' },
-  'POST /api/v1/workunits/:id/direction': { response: workUnitResponseSchema, summary: '方向锁定提交（#567）' },
-  'POST /api/v1/workunits/:id/opportunities/:oppId/adopt': { response: adoptOpportunityResponseSchema, summary: '巡检机会采纳（建 feature 子单）' },
-  'POST /api/v1/workunits/:id/opportunities/:oppId/ignore': { response: ignoreOpportunityResponseSchema, summary: '巡检机会忽略（终态）' },
-  'GET /api/v1/workunits/:id/messages': { response: discussionMessagesResponseSchema, summary: '讨论区消息列表（cursor 分页）' },
-  'POST /api/v1/workunits/:id/messages': { response: discussionMessageResponseSchema, summary: '讨论区发消息' },
-  'PATCH /api/v1/workunits/:id/messages/:messageId': { response: discussionMessageResponseSchema, summary: '编辑讨论区消息' },
-  'GET /api/v1/workunits/:id/tree-tokens': { response: treeTokenReportResponseSchema, summary: '树级 token 开销报告' },
+export interface ResponselessOverride {
+  description: string;
+  /** 缺省为统一 { data } 壳；文件流与裸数组不得伪装成 envelope。 */
+  body?: 'envelope' | 'binary' | 'array';
+}
 
+/** 无逐字段 response 的显式例外；清单外缺失一律拒绝生成文档，禁止静默退化。 */
+export const RESPONSELESS_ROUTE_OVERRIDES: Record<string, ResponselessOverride> = {
+  'GET /api/v1/channels/:id/attachments/:attachmentId': { description: '附件文件流，非 JSON envelope', body: 'binary' },
+  'GET /api/v1/specs/:id/changes/export': { description: 'JSON 数组附件下载，非 envelope', body: 'array' },
+  'GET /api/v1/audit-logs/export': { description: '裸 JSON 数组，非附件 envelope', body: 'array' },
+  'POST /api/v1/harness/agents': { description: 'handler 自写响应，待补逐字段 contract' },
+  'POST /api/v1/harness/agents/:id/start': { description: 'handler 自写响应，待补逐字段 contract' },
+  'POST /api/v1/harness/agents/:id/complete': { description: 'handler 自写响应，待补逐字段 contract' },
+  'POST /api/v1/harness/agents/:id/fail': { description: 'handler 自写响应，待补逐字段 contract' },
+  'GET /api/v1/harness/validate': { description: 'handler 自写响应，待补逐字段 contract' },
+  'POST /api/v1/notifications/read-all': { description: '待补逐字段 contract' },
+};
+
+export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   // ── channels ──
   'GET /api/v1/channels': { response: channelListResponseSchema, summary: '频道列表' },
   'POST /api/v1/channels': { response: channelResponseSchema, summary: '创建频道' },
@@ -343,15 +318,7 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'POST /api/v1/notify-channels/clawbot/test': { response: notifyChannelsSuccessResponseSchema, summary: 'ClawBot 渠道测试' },
   'POST /api/v1/notify/send': { response: notifySendResponseSchema, summary: '出站推送（内部调用）' },
 
-  // ── auth / audit-logs ──
-  'GET /api/v1/auth/status': { response: authStatusResponseSchema, summary: '认证状态（含未登录 mode 提示）' },
-  'POST /api/v1/auth/login': { response: authResultResponseSchema, summary: '登录' },
-  'POST /api/v1/auth/register': { response: authResultResponseSchema, summary: '注册' },
-  'POST /api/v1/auth/guest-session': { response: authResultResponseSchema, summary: 'Guest 会话' },
-  'GET /api/v1/auth/me': { response: authMeResponseSchema, summary: '当前用户' },
-  'POST /api/v1/auth/refresh': { response: authRefreshResponseSchema, summary: '刷新令牌' },
-  'POST /api/v1/auth/logout': { response: logoutResponseSchema, summary: '登出' },
-  'POST /api/v1/auth/cleanup': { response: cleanupResponseSchema, summary: '过期会话清理' },
+  // ── audit-logs ──
   'GET /api/v1/audit-logs': { response: auditLogListResponseSchema, summary: '审计日志（分页）' },
   'GET /api/v1/audit-logs/stats': { response: auditLogStatsResponseSchema, summary: '审计统计' },
   'GET /api/v1/audit-logs/actions': { response: auditLogActionsResponseSchema, summary: '操作类型词表' },

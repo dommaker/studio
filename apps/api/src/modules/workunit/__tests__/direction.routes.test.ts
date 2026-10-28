@@ -25,6 +25,7 @@ vi.mock('../../pmo/plan-direction.js', async (importOriginal) => {
 
 import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
+import { validWorkUnit } from './route-fixtures.js';
 
 const DIRECTIONS = {
   question: '自研还是引入依赖？',
@@ -34,8 +35,7 @@ const DIRECTIONS = {
   ],
 };
 
-const BLOCKED_DIRECTION_WU = {
-  id: 'wu-1',
+const BLOCKED_DIRECTION_WU = validWorkUnit({
   status: 'blocked',
   metadata: JSON.stringify({
     pmoId: 'proj-1',
@@ -43,7 +43,7 @@ const BLOCKED_DIRECTION_WU = {
     waitingReason: 'plan-direction',
     planDirections: DIRECTIONS,
   }),
-};
+});
 
 describe('#567 POST /workunits/:id/direction（方向锁定提交）', () => {
   let server: Server;

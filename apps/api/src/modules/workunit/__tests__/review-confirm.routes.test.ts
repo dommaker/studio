@@ -18,13 +18,14 @@ vi.mock('../workunit-review.js', () => ({
 
 import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
+import { validWorkUnit } from './route-fixtures.js';
 
 describe('#463 review-passed confirm body（结构化评审表单序列化）', () => {
   let server: Server;
   let base: string;
 
   beforeAll(async () => {
-    mockReviewPassed.mockResolvedValue({ id: 'wu-1', status: 'done' });
+    mockReviewPassed.mockResolvedValue(validWorkUnit({ status: 'done' }));
     const app = express();
     app.use(express.json());
     // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）

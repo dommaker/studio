@@ -26,10 +26,9 @@ vi.mock('../waiting-input.js', () => ({
 
 import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
+import { validWorkUnit } from './route-fixtures.js';
 
-const blockedWu = (metadata: Record<string, unknown> = {}) => ({
-  id: 'wu-1',
-  type: 'task',
+const blockedWu = (metadata: Record<string, unknown> = {}) => validWorkUnit({
   status: 'blocked',
   scope: '实现登录功能',
   metadata: JSON.stringify({ title: '登录功能', ...metadata }),

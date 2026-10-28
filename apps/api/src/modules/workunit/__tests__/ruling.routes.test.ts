@@ -25,9 +25,9 @@ vi.mock('../../pmo/plan-ruling.js', async (importOriginal) => {
 
 import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
+import { validWorkUnit } from './route-fixtures.js';
 
-const BLOCKED_RULING_WU = {
-  id: 'wu-1',
+const BLOCKED_RULING_WU = validWorkUnit({
   status: 'blocked',
   metadata: JSON.stringify({
     pmoId: 'proj-1',
@@ -35,7 +35,7 @@ const BLOCKED_RULING_WU = {
     waitingReason: 'plan-ruling',
     planRulings: [{ question: '存储选型？', suggestion: 'SQLite' }],
   }),
-};
+});
 
 describe('#467 POST /workunits/:id/ruling（裁决轮提交）', () => {
   let server: Server;

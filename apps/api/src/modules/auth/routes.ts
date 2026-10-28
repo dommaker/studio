@@ -22,6 +22,13 @@ import {
   loginBodySchema,
   refreshBodySchema,
   streamTicketBodySchema,
+  authStatusResponseSchema,
+  authResultResponseSchema,
+  authMeResponseSchema,
+  authRefreshResponseSchema,
+  streamTicketResponseSchema,
+  logoutResponseSchema,
+  cleanupResponseSchema,
 } from "@dommaker/studio-contract";
 import { issueStreamTicket, STREAM_TICKET_TTL_MS } from "../../middleware/stream-ticket.js";
 
@@ -30,7 +37,7 @@ const router = Router();
 
 /** Issue short-lived, single-use credentials only for an explicitly bound stream resource. */
 router.post("/stream-ticket", requireAuth(), requireRole("Admin"), defineRoute(
-  { body: streamTicketBodySchema },
+  { body: streamTicketBodySchema, response: streamTicketResponseSchema },
   { errors: [{ match: "Stream tickets", status: 400, code: ERROR_CODES.BAD_REQUEST }] },
   async (req, _res, { body }) => {
     const authInfo = getAuthInfo(req);
@@ -47,8 +54,8 @@ router.post("/stream-ticket", requireAuth(), requireRole("Admin"), defineRoute(
  * GET /api/v1/auth/status
  * 返回当前认证模式 + 用户信息。前端据此决定是否显示登录页。
  */
-router.get("/status", optionalAuth(), defineRoute({}, async (req) => {
-  const mode = (process.env.STUDIO_AUTH || 'none') === 'none' ? 'none' : 'on';
+router.get("/status", optionalAuth(), defineRoute({ response: authStatusResponseSchema }, async (req) => {
+  const mode: 'none' | 'on' = (process.env.STUDIO_AUTH || 'none') === 'none' ? 'none' : 'on';
   if (mode === 'none') {
     return { mode, user: { id: 'local', name: 'Local User', role: 'Admin' } };
   }
@@ -69,7 +76,7 @@ router.get("/status", optionalAuth(), defineRoute({}, async (req) => {
  * 创建或获取 Guest Session
  */
 router.post("/guest-session", defineRoute(
-  { body: guestSessionBodySchema },
+  { body: guestSessionBodySchema, response: authResultResponseSchema },
   async (req, _res, { body }) => {
     return authService.getOrCreateSession({
       guestId: body.guestId,
@@ -85,7 +92,7 @@ router.post("/guest-session", defineRoute(
  * 🆕 SEC-010: 记录审计日志
  */
 router.post("/register", requireAuth(), requireRole("Admin"), authRateLimit, defineRoute(
-  { body: registerBodySchema },
+  { body: registerBodySchema, response: authResultResponseSchema },
   async (req, _res, { body }) => {
     // 2026-08-25 收口：单租户自托管口径，注册默认关闭，
     // REGISTER_ENABLED=true 显式开放（现有用户不受影响）
@@ -135,7 +142,7 @@ router.post("/register", requireAuth(), requireRole("Admin"), authRateLimit, def
  * 🆕 SEC-010: 记录审计日志
  */
 router.post("/login", authRateLimit, defineRoute(
-  { body: loginBodySchema },
+  { body: loginBodySchema, response: authResultResponseSchema },
   async (req, _res, { body }) => {
     const ip = req.ip || req.headers["x-forwarded-for"] || "unknown";
     const ua = req.headers["user-agent"] || "unknown";
@@ -186,7 +193,7 @@ router.post("/login", authRateLimit, defineRoute(
  * 用户登出
  * 🆕 SEC-010: 记录审计日志
  */
-router.post("/logout", requireAuth(), defineRoute({}, async (req) => {
+router.post("/logout", requireAuth(), defineRoute({ response: logoutResponseSchema }, async (req) => {
   const authInfo = getAuthInfo(req);
   await authService.logout(authInfo.sessionId, authInfo.userId);
 
@@ -208,7 +215,7 @@ router.post("/logout", requireAuth(), defineRoute({}, async (req) => {
  * GET /api/v1/auth/me
  * 获取当前用户信息
  */
-router.get("/me", optionalAuth(), defineRoute({}, async (req) => {
+router.get("/me", optionalAuth(), defineRoute({ response: authMeResponseSchema }, async (req) => {
   const authInfo = getAuthInfo(req);
   if (!authInfo?.sessionId) {
     return { user: null, session: null };
@@ -224,7 +231,7 @@ router.post(
   "/cleanup",
   requireAuth(),
   requireRole("Admin"),
-  defineRoute({}, async () => {
+  defineRoute({ response: cleanupResponseSchema }, async () => {
     const count = await authService.cleanupExpiredSessions();
     return { cleaned: count };
   }),
@@ -235,7 +242,7 @@ router.post(
  * 刷新 Token（公开端点）
  */
 router.post("/refresh", refreshRateLimit, defineRoute(
-  { body: refreshBodySchema },
+  { body: refreshBodySchema, response: authRefreshResponseSchema },
   async (_req, _res, { body }) => {
     try {
       const result = await authService.exchangeRefreshToken(body.refreshToken);

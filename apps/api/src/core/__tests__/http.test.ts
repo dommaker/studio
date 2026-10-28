@@ -9,7 +9,8 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { z } from 'zod';
-import { defineRoute, paginated, HttpError, requireHuman, resolveCallerAuthorType, makePagination } from '../http.js';
+import { dataBodySchema } from '@dommaker/studio-contract';
+import { defineRoute, paginated, HttpError, requireHuman, resolveCallerAuthorType, makePagination, withStatus } from '../http.js';
 import { logger } from '../../utils/logger.js';
 
 const itemSchema = z.object({ id: z.string(), title: z.string() });
@@ -25,6 +26,28 @@ function buildApp() {
 
   app.get('/items-page', defineRoute({}, async () =>
     paginated([{ id: '1' }], { page: 1, limit: 20, total: 1, totalPages: 1 }),
+  ));
+
+  app.get('/contract-valid', defineRoute(
+    { response: dataBodySchema(itemSchema) },
+    async () => ({ id: '1', title: 'valid' }),
+  ));
+
+  app.get('/contract-invalid', defineRoute(
+    { response: dataBodySchema(itemSchema) },
+    async () => ({ id: '1', title: 42 }),
+  ));
+
+  app.get('/contract-branch', defineRoute(
+    { response: dataBodySchema(itemSchema) },
+    { responses: { 422: dataBodySchema(itemSchema) } },
+    async () => withStatus(422, { id: '1', title: 'branch' }),
+  ));
+
+  app.get('/contract-branch-invalid', defineRoute(
+    { response: dataBodySchema(itemSchema) },
+    { responses: { 422: dataBodySchema(itemSchema) } },
+    async () => withStatus(422, { id: '1', title: 42 }),
   ));
 
   app.post('/items', defineRoute(
@@ -109,6 +132,45 @@ describe('defineRoute', () => {
       data: [{ id: '1' }],
       pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
     });
+  });
+
+  it('开发/测试环境按 response schema 校验成功响应', async () => {
+    const valid = await fetch(`${base}/contract-valid`);
+    expect(valid.status).toBe(200);
+    expect(await valid.json()).toEqual({ data: { id: '1', title: 'valid' } });
+
+    const invalid = await fetch(`${base}/contract-invalid`);
+    expect(invalid.status).toBe(500);
+    const body = await invalid.json();
+    expect(body.error.code).toBe('INTERNAL');
+    expect(body.error.message).toContain('response');
+    expect(body.error.message).toContain('data.title');
+  });
+
+  it('withStatus 分支也按对应 response schema 校验', async () => {
+    const valid = await fetch(`${base}/contract-branch`);
+    expect(valid.status).toBe(422);
+    expect(await valid.json()).toEqual({ data: { id: '1', title: 'branch' } });
+
+    const invalid = await fetch(`${base}/contract-branch-invalid`);
+    expect(invalid.status).toBe(500);
+    expect((await invalid.json()).error.code).toBe('INTERNAL');
+  });
+
+  it('生产环境不因响应校验改变 5xx 收敛语义', async () => {
+    const previousEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const log = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    try {
+      const res = await fetch(`${base}/contract-invalid`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ data: { id: '1', title: 42 } });
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      if (previousEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousEnv;
+    }
   });
 
   it('body 校验失败 → 400 BAD_REQUEST，含字段路径', async () => {

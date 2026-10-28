@@ -20,14 +20,15 @@ vi.mock('../workunit-review.js', () => ({
 
 import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
+import { validWorkUnit } from './route-fixtures.js';
 
 describe('review API authorType 校验（A2A §4.4）', () => {
   let server: Server;
   let base: string;
 
   beforeAll(async () => {
-    mockReviewPassed.mockResolvedValue({ id: 'wu-1', status: 'done' });
-    mockReviewRejected.mockResolvedValue({ id: 'wu-1', status: 'active' });
+    mockReviewPassed.mockResolvedValue(validWorkUnit({ status: 'done' }));
+    mockReviewRejected.mockResolvedValue(validWorkUnit({ status: 'active' }));
     const app = express();
     app.use(express.json());
     // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
@@ -159,7 +160,7 @@ describe('review API authorType 校验（A2A §4.4）', () => {
 
   it('status：authorType=human / 缺省 → 正常迁移', async () => {
     mockTransitionStatus.mockClear();
-    mockTransitionStatus.mockResolvedValue({ id: 'wu-1', status: 'unassigned' });
+    mockTransitionStatus.mockResolvedValue(validWorkUnit({ status: 'unassigned' }));
 
     const human = await post('/wu-1/status', { body: { authorType: 'human', status: 'unassigned' } });
     expect(human.status).toBe(200);

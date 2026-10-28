@@ -1,0 +1,25 @@
+export function validWorkUnit(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'wu-1',
+    parentId: null,
+    type: 'task',
+    scope: '测试任务',
+    assigneeId: null,
+    status: 'active',
+    failureType: null,
+    retryCount: 0,
+    timeoutAt: null,
+    channelId: null,
+    projectPath: null,
+    workspaceId: null,
+    reqId: null,
+    assigneeRoleId: null,
+    metadata: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    claimedAt: null,
+    completedAt: null,
+    closedAt: null,
+    ...overrides,
+  };
+}

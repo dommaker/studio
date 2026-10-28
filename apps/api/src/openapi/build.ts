@@ -2,15 +2,14 @@
  * openapi/build.ts — OpenAPI 3.0.3 文档装配。
  *
  * 输入 = discover.ts 的路由发现结果；schema 经本目录 convert.ts 的 zodToOpenAPISchema 转换。
- * 成功响应 schema 的映射在 response-map.ts（contract 的 xxxResponseSchema 逐端点挂上）；
- * 未映射端点退化为通用 `{ data }` 壳并在 description 如实标注——映射覆盖面扩域时只动
- * response-map.ts，测试锁定「映射键 ⊆ 真实路由」防漂移。
+ * 成功响应优先读 defineRoute meta.response；未迁移域暂由 response-map.ts 兜底。
+ * 两者都未声明时仅允许 RESPONSELESS_ROUTE_OVERRIDES 的显式例外，清单外拒绝生成文档。
  */
 
 import { errorBodySchema } from '@dommaker/studio-contract';
 import type { z } from 'zod';
 import { zodToOpenAPISchema, type OpenAPISchema } from './convert.js';
-import { RESPONSE_MAP } from './response-map.js';
+import { RESPONSE_MAP, RESPONSELESS_ROUTE_OVERRIDES } from './response-map.js';
 import { toOpenAPIPath, type DiscoveredRoute, type SkippedRoute } from './discover.js';
 
 type Json = Record<string, unknown>;
@@ -33,18 +32,40 @@ function objectParameters(
   }));
 }
 
-function successSchema(route: DiscoveredRoute): { schema: OpenAPISchema; mapped: boolean } {
-  const hit = RESPONSE_MAP[`${route.method.toUpperCase()} ${route.path}`];
-  if (hit?.response) return { schema: zodToOpenAPISchema(hit.response), mapped: true };
-  // 通用壳：defineRoute 语义保证成功体 = { data }（分页 { data, pagination } 由映射覆盖）
+function successSchema(route: DiscoveredRoute): { schema: OpenAPISchema; mapped: boolean; contentType: string } {
+  if (route.meta.schema.response) {
+    return { schema: zodToOpenAPISchema(route.meta.schema.response), mapped: true, contentType: 'application/json' };
+  }
+  const key = `${route.method.toUpperCase()} ${route.path}`;
+  const hit = RESPONSE_MAP[key];
+  if (hit?.response) {
+    return { schema: zodToOpenAPISchema(hit.response), mapped: true, contentType: 'application/json' };
+  }
+  const override = RESPONSELESS_ROUTE_OVERRIDES[key];
+  if (!override) throw new Error(`Missing response schema or explicit override: ${key}`);
+  if (override.body === 'binary') {
+    return {
+      schema: { type: 'string', format: 'binary', description: override.description },
+      mapped: false,
+      contentType: 'application/octet-stream',
+    };
+  }
+  if (override.body === 'array') {
+    return {
+      schema: { type: 'array', items: {}, description: override.description },
+      mapped: false,
+      contentType: 'application/json',
+    };
+  }
   return {
     schema: {
       type: 'object',
       properties: { data: {} },
       required: ['data'],
-      description: '统一成功壳 { data }；该端点逐字段响应 schema 见 packages/studio-contract 对应域文件（尚未接入 response-map）',
+      description: `统一成功壳 { data }；显式覆盖清单：${override.description}`,
     },
     mapped: false,
+    contentType: 'application/json',
   };
 }
 
@@ -80,10 +101,18 @@ function buildOperation(route: DiscoveredRoute): Json {
   if (route.meta.status === 204) {
     responses['204'] = { description: '成功（无响应体）' };
   } else {
-    const { schema } = successSchema(route);
+    const { schema, contentType } = successSchema(route);
     responses[String(route.meta.status)] = {
+      description: contentType === 'application/octet-stream'
+        ? '成功（文件流）'
+        : schema.type === 'array' ? '成功（裸 JSON 数组）' : '成功（统一 envelope）',
+      content: { [contentType]: { schema } },
+    };
+  }
+  for (const [status, responseSchema] of Object.entries(route.meta.responses ?? {})) {
+    responses[status] = {
       description: '成功（统一 envelope）',
-      content: { 'application/json': { schema } },
+      content: { 'application/json': { schema: zodToOpenAPISchema(responseSchema) } },
     };
   }
   responses['400'] = {
@@ -147,7 +176,8 @@ export function buildOpenApiDocument(routes: DiscoveredRoute[], skipped: Skipped
     (paths[apiPath] ??= {})[route.method] = buildOperation(route);
   }
 
-  const mappedCount = routes.filter(r => RESPONSE_MAP[`${r.method.toUpperCase()} ${r.path}`]?.response).length;
+  const mappedCount = routes.filter(r => r.meta.schema.response
+    || RESPONSE_MAP[`${r.method.toUpperCase()} ${r.path}`]?.response).length;
   return {
     openapi: '3.0.3',
     info: {
@@ -156,7 +186,7 @@ export function buildOpenApiDocument(routes: DiscoveredRoute[], skipped: Skipped
       description: [
         '由 packages/studio-contract 的 zod schema 派生（正本在 contract，本文档不手写）。',
         `覆盖 ${routes.length} 条契约驱动端点（defineRoute）：请求 params/query/body 全量准确；`,
-        `成功响应逐字段 schema 已映射 ${mappedCount} 条，其余为通用 { data } 壳（映射增量补齐中）。`,
+        `成功响应逐字段 schema 已映射 ${mappedCount} 条；其余端点均由 RESPONSELESS_ROUTE_OVERRIDES 显式描述 envelope、文件流或裸 JSON 数组，清单外拒绝生成文档。`,
         '协议面不进文档：discord/deploy webhook、SSE、MCP 消息面、health 运维探针（原始 handler，例外清单固化于 route-registry PROTOCOL_SURFACE_EXCEPTIONS，见 x-studio-undocumented）。',
         '统一响应壳：成功 { data }（分页 { data, pagination }），失败 { error: { code, message } }。',
       ].join('\n'),

@@ -15,7 +15,7 @@ import express from 'express';
 import { buildRouteTable, PROTOCOL_SURFACE_EXCEPTIONS } from '../../route-registry.js';
 import { discoverRoutes, toOpenAPIPath } from '../discover.js';
 import { buildOpenApiDocument } from '../build.js';
-import { RESPONSE_MAP } from '../response-map.js';
+import { RESPONSE_MAP, RESPONSELESS_ROUTE_OVERRIDES } from '../response-map.js';
 import { mountApiDocs } from '../index.js';
 
 function fail(label: string, detail: string): never {
@@ -58,6 +58,16 @@ async function main(): Promise<void> {
   for (const key of Object.keys(RESPONSE_MAP)) {
     if (!routeKeys.has(key)) fail('response-map', `映射键无对应路由: ${key}`);
   }
+  for (const key of Object.keys(RESPONSELESS_ROUTE_OVERRIDES)) {
+    if (!routeKeys.has(key)) fail('response 覆盖清单', `例外键无对应路由: ${key}`);
+  }
+  for (const route of routes) {
+    const key = `${route.method.toUpperCase()} ${route.path}`;
+    const migrated = key.includes('/api/v1/auth/') || key.includes('/api/v1/workunits');
+    if (migrated && route.meta.status !== 204 && !route.meta.schema.response) {
+      fail('route meta', `${key} 未声明 response`);
+    }
+  }
 
   // ── 逐端点抽查 ──
   const getOp = (method: string, path: string): OpShape => {
@@ -66,7 +76,7 @@ async function main(): Promise<void> {
     return op;
   };
 
-  // GET /api/v1/workunits：query 参数 + 分页响应壳（response-map 生效）+ open 无 security
+  // GET /api/v1/workunits：query 参数 + 分页响应壳（route meta.response 生效）+ open 无 security
   {
     const op = getOp('get', '/api/v1/workunits');
     for (const q of ['page', 'limit', 'status']) {
@@ -104,6 +114,16 @@ async function main(): Promise<void> {
   {
     const op = getOp('delete', '/api/v1/workunits/:id');
     if (!op.responses['204'] || op.responses['204'].content) fail('workunits 删除', '204 应无响应体');
+  }
+
+  // verify no-commands：422 与 200 共用 verifyResult contract，不能只有 200
+  {
+    const op = getOp('post', '/api/v1/workunits/:id/verify');
+    if (!op.responses['422']) fail('workunits verify', 'no-commands 缺 422 响应声明');
+    const schema = op.responses['422'].content?.['application/json'].schema;
+    if (!schema?.properties?.data?.properties?.verified) {
+      fail('workunits verify', '422 未使用 verifyResult contract');
+    }
   }
 
   // 嵌套挂载：harness 子路由与 mcp /admin 已解析

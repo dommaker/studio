@@ -22,10 +22,8 @@ describe('RESPONSE_MAP 卫生', () => {
     expect(Object.keys(RESPONSE_MAP).length).toBeGreaterThan(150);
   });
 
-  it('关键域在场（workunit/channels/pmo/contract envelope 派生的代表性端点）', () => {
+  it('未迁移域的代表性端点仍在场', () => {
     for (const key of [
-      'GET /api/v1/workunits',
-      'POST /api/v1/workunits/:id/claim',
       'GET /api/v1/channels/:id/messages',
       'GET /api/v1/pmo/project',
       'GET /api/v1/mcp/admin/tools',
