@@ -10,10 +10,16 @@ export { buildDeadLetterNotice, summarizeBlockReason, withBlockedCta } from './b
 export { claimWorkUnitAndAnnounce } from './claim-announce.js';
 export { checkDelegation, effectiveParentCollab, MAX_DELEGATIONS_PER_PARENT, readCollab, resolveMaxDepth, TREE_TOKEN_BUDGET } from './delegation-gate.js';
 export type { CollabMeta } from './delegation-gate.js';
+export { DerivationLedger } from './derivation-ledger.js';
+export { ExecutionJournal } from './execution-journal.js';
+export type { ExecutionAction, ExecutionStepResult, RecordStepResultInput, StepBookkeeping } from './execution-journal.js';
 export { scanGateEscalationReminders } from './gate-escalation.js';
 export { initInReviewInbox } from './in-review-inbox.js';
 export { MAX_TIMEOUT_RELEASES, pidStartMatchesInstance, scanTimedOutWorkUnits } from './timeout-release.js';
 export { noteTokenLedgerWritten, resolveTokenLedgerFile } from './token-ledger.js';
+export { TraceLink } from './trace-link.js';
+export { WaitingGate } from './waiting-gate.js';
+export type { WaitingGateCommand } from './waiting-gate.js';
 export { resumeWaitingWorkUnit, scanWaitingForInputReminders } from './waiting-input.js';
 export { snapshotToData } from './workunit-crud.js';
 export type { WorkUnitData } from './workunit-crud.js';

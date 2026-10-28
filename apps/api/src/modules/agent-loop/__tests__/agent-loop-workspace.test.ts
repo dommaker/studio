@@ -152,9 +152,16 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
       metadata: { workspaceRoot: wsRoot },
     });
 
+    let capabilityRealRoot: string | undefined;
+    mockExecuteLightweight.mockImplementation(async (task: { parameters: { workspaceRoot: string } }) => {
+      // fd 只在 runner 回调期间存活；必须在此时校验 capability 仍指向原执行根。
+      capabilityRealRoot = fs.realpathSync(task.parameters.workspaceRoot);
+      return { success: true, outputText: 'ACTION: COMPLETE:done' };
+    });
     const task = await runStep(loop, wu.id);
 
-    expect(task.parameters.workspaceRoot).toBe(wsRoot);
+    expect(task.parameters.workspaceRoot).toMatch(new RegExp(`^/proc/${process.pid}/fd/\\d+$`));
+    expect(capabilityRealRoot).toBe(wsRoot);
   });
 
   it('unbound WorkUnit → no workspaceRoot passed (unchanged behavior)', async () => {

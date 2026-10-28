@@ -10,7 +10,7 @@
  * ③ FileStore 公共方法面 == 组合前公共方法面基线（继承链时代散落在各层
  *    prototype 的私有/protected 内部件不再出现在门面上——它们是内部实现，
  *    不作为公共契约；公共面逐条保留）；
- * ④ ./file-store 模块 value exports == 基线（导出面不变）。
+ * ④ ./file-store 模块 value exports == 基线（ARCH-03 仅新增窄 repository）。
  */
 import { describe, expect, it } from 'vitest';
 import * as fsModule from '../file-store';
@@ -45,7 +45,7 @@ const BASELINE_PUBLIC_METHODS = [
 ];
 
 const BASELINE_EXPORTS = [
-  'FileStore', 'LockTimeoutError', 'formatEvolutionId', 'formatRequirementId',
+  'FileStore', 'LockTimeoutError', 'WorkUnitMetadataRepository', 'formatEvolutionId', 'formatRequirementId',
   'parseChannels', 'parseFrontmatter', 'parseWorkUnitIndexContent',
   'serializeFrontmatter', 'stringifyChannels',
 ];

@@ -16,6 +16,7 @@ import {
   REVIEW_STAGNATION_WARN_MS,
   REVIEW_STAGNATION_CRIT_MS,
   isStaleClaimSleep,
+  WorkUnitMetadataRepository,
 } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { MonitorAlert } from './types.js';
@@ -206,11 +207,7 @@ export async function checkStaleClaimGuard(fileStore: FileStore, snapshots: Work
     .slice(0, 20); // 周期上限只压未出声者，防存量清点刷屏
 
   for (const s of pending) {
-    const written = await fileStore.updateMetadata(
-      s.id,
-      latest => ({ ...latest, staleGuardBlockedAt: s.updatedAt }),
-      { touchUpdatedAt: false },
-    );
+    const written = await new WorkUnitMetadataRepository(fileStore).markStaleClaim(s.id, s.updatedAt);
     // 扫描到取锁之间 WU 被外部写复活（updatedAt 已变）→ 本轮不出声；
     // 落盘标记与现 updatedAt 不一致，若再沉睡下轮会正常告警（自愈）。
     if (!written || written.updatedAt !== s.updatedAt) continue;

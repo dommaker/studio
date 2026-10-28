@@ -19,7 +19,8 @@
  * 注意：标记写走 updateMetadata(touchUpdatedAt:false)——催办标记是簿记不是状态迁移，
  * 推进 updatedAt 会重置计时锚让 tier2 永远迟到（#221 认领陈旧守卫同款纪律）。
  */
-import { eventBus, FileStore } from '@dommaker/studio-shared';
+import { eventBus, FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
+import { WaitingGate } from './waiting-gate.js';
 import { v4 as uuidv4 } from 'uuid';
 import { NotificationService } from '../notifications/index.js';
 // #665（ADR 2026-08-24 落地）：notification.created SSE 负载与 studio-contract 同源
@@ -163,8 +164,7 @@ async function markTier(
   key: 'gateReminderTier1At' | 'gateReminderTier2At',
   now: Date,
 ): Promise<void> {
-  await fileStore.updateMetadata(wuId, latest => ({
-    ...latest,
-    [key]: now.toISOString(),
-  }), { touchUpdatedAt: false });
+  await new WaitingGate(new WorkUnitMetadataRepository(fileStore)).apply(wuId, {
+    kind: 'mark-reminder', field: key, at: now.toISOString(),
+  });
 }

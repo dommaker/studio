@@ -43,6 +43,8 @@ export { eventBus, StudioEventBus } from './event-bus';
 
 // 导出 FileStore (AN 运行时数据文件存储)
 export { FileStore, LockTimeoutError, parseChannels, stringifyChannels, parseFrontmatter, serializeFrontmatter, formatRequirementId, formatEvolutionId, parseWorkUnitIndexContent } from './file-store';
+export { WorkUnitMetadataRepository } from './file-store/workunit-metadata-repository';
+export type { WorkUnitMetadataWritePort } from './file-store/workunit-metadata-repository';
 export type { FileStoreOptions } from './file-store';
 // 进程级默认 FileStore 持有器（P2-b：全仓唯一无参构造出处，消费方经访问口获取）
 export { getDefaultFileStore, setDefaultFileStore, resetDefaultFileStoreForTesting } from './file-store/file-store-default';

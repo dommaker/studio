@@ -58,7 +58,7 @@ interface InstanceHolder {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** metadata.workspaceRoot 注入值 = 本步最终 cwd（无 .git，不走 worktree 分支） */
-const FAKE_CWD = '/tmp/fake-worktree';
+let FAKE_CWD: string;
 
 const SUCCESS_RESULT = {
   success: true, outputText: 'ACTION: PROGRESS:继续',
@@ -76,6 +76,8 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-resume-'));
+    FAKE_CWD = path.join(testDir, 'fake-worktree');
+    fs.mkdirSync(FAKE_CWD);
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-home-'));
     vi.stubEnv('HOME', homeDir);
     fileStore = new FileStore(testDir);

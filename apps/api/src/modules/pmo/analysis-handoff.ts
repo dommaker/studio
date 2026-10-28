@@ -22,8 +22,8 @@
  * 事件订阅语义与 ReviewDispatcher 一致（eventBus 进程内，best-effort）。
  */
 
-import { type FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
+import { type FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
+import { WorkUnitService, DerivationLedger, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { ChannelMessageService } from '../channels/index.js';
 import { resolveStageRouting, resolveOrNotice } from '../channels/index.js';
@@ -36,6 +36,7 @@ export class AnalysisHandoff {
   /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled（共享骨架 P2.1） */
   private readonly statusChanged = new WuStatusChangedSubscription();
   private messageService: ChannelMessageService;
+  private readonly derivationLedger: DerivationLedger;
 
   constructor(
     private fileStore: FileStore,
@@ -43,6 +44,7 @@ export class AnalysisHandoff {
   ) {
     // 绑定同一 fileStore（测试注入临时 store；生产与全局同目录）
     this.messageService = new ChannelMessageService(fileStore);
+    this.derivationLedger = new DerivationLedger(new WorkUnitMetadataRepository(fileStore));
   }
 
   /** 订阅 workunit.status_changed。幂等。 */
@@ -122,11 +124,7 @@ export class AnalysisHandoff {
     const fresh = await this.workUnitService.getById(wu.id);
     if (!fresh || fresh.status !== 'in_review') return;
     await this.workUnitService.reviewPassed(wu.id);
-    await this.fileStore.updateMetadata(wu.id, latest => ({
-      ...latest,
-      autoConfirmedBy: 'trigger-inspection-no-gate',
-      autoConfirmedAt: new Date().toISOString(),
-    }));
+    await this.derivationLedger.markAutoConfirmed(wu.id, new Date().toISOString());
     logger.info('[AnalysisHandoff] trigger 巡检单免确认直转 done（#167 决议 1）', { wuId: wu.id });
   }
 
@@ -194,10 +192,7 @@ export class AnalysisHandoff {
     // #183（#159 决议 2）哨兵清单化：时间戳 + 已建子 WU id 清单（初始空，随建单逐个追加）。
     // stamp 回读比对判定本实例是否抢到哨兵（并发/重发只放行一个）。
     const stamp = new Date().toISOString();
-    const sentinel = await this.fileStore.updateMetadata(fresh.id, latest =>
-      (latest.analysisTasksSpawnedAt || latest.analysisTasksSpawned)
-        ? latest // 重读后哨兵已落（并发/重发）
-        : { ...latest, analysisTasksSpawnedAt: stamp, analysisTasksSpawned: [] as string[] });
+    const sentinel = await this.derivationLedger.claim(fresh.id, stamp);
     if (!sentinel) return;
     if (parseWuMetadata(sentinel.metadata).analysisTasksSpawnedAt !== stamp) return;
 
@@ -287,11 +282,7 @@ export class AnalysisHandoff {
 
   /** 清单追加子 WU id（锁内合并写；幂等——已在清单不重复追加） */
   private async appendSpawnedId(wuId: string, childId: string): Promise<void> {
-    await this.fileStore.updateMetadata(wuId, latest => {
-      const list = Array.isArray(latest.analysisTasksSpawned) ? latest.analysisTasksSpawned as string[] : [];
-      if (list.includes(childId)) return latest;
-      return { ...latest, analysisTasksSpawned: [...list, childId] };
-    });
+    await this.derivationLedger.mark(wuId, childId);
   }
 
   /**

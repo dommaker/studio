@@ -57,6 +57,7 @@
 - **周期循环 scan-sharing（候选 3，2026-09-08）**：monitor `check()` 一轮开头一次 `getIndex()`，快照作 caller-private 传给 6 个 WU 探针（收 `snapshots` 参数、内存 filter，不再各自 getIndex；动作前新鲜度复核 `getIndex({id})` 点读不受影响）——**新 WU 探针一律收快照不自己读**；跨 job 不共享
 - **monitor-round 零同步子进程（#374）**：全部同步 exec 收口 `core/exec-async.ts`（gcStaleWorktrees `git worktree prune`、dailyReflection git log/diff 等；fail-open 语义与超时不变）
 - **decision/spec 豁免超时巡检（#553 裁决）**：checkTotalExecutionTime 跳过 DECISION_SPEC_TYPES——裁剪状态机无 closed、决策/成文单可等关键人多天，语义选「跳过巡检」
+- **WU metadata 窄写口（ARCH-03）**：stale-claim 标记经 `WorkUnitMetadataRepository.markStaleClaim`，保留 `touchUpdatedAt:false`，Ops 不直接持有 FileStore 原子 mutator
 - **WU 删除走 service.delete 单口（#538）**：monitor-lifecycle 每日 TTL 的筛选逻辑留调用方，删除循环改调 `service.delete(id, { reason })`；#540 起加终态守卫——仅删 done/closed。原 system-health runGC 同口径改造后仍无生产接线，已随 2026-10 死代码批次删除
 - **monitor-reports 知识质量审计构造（harness 1.8.0 / #134①；#559 收口）**：实现现居 `monitor-reflection-collectors.ts`。`new KnowledgeAudit(store, 阈值?)`——日兜底走 `sharedStore` 单例，调用点为类型完整动态导入（无 `as any`）
 - **Idle 心跳 45s**，超时扫描 5min；**isOnline** = loop 存活+心跳新鲜（≤5min）；#345 起 isOnline/每角色最新 error 聚合单源 `summarizeRoleStates`（agents 模块 agent-instance.service），agent-profile list 与 instance-timeout-scan 的 5min 窗口同源（INSTANCE_ALIVE_TIMEOUT_MS）

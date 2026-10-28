@@ -24,8 +24,8 @@
  * （照 plan-ruling / decision-resolution 链式排队）。
  */
 
-import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
+import { FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
+import { WorkUnitService, WaitingGate, type WorkUnitData } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { resumeWaitingWorkUnit } from '../workunit/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
@@ -102,11 +102,7 @@ export async function applyPlanDirection(
   }
 
   // 清方向标记（waitingReason/planDirections；waitingForInput 由复活原语清除）
-  await fileStore.updateMetadata(workUnitId, latest => ({
-    ...latest,
-    waitingReason: undefined, // JSON 序列化丢弃 undefined → 清除
-    planDirections: undefined,
-  }));
+  await new WaitingGate(new WorkUnitMetadataRepository(fileStore)).apply(workUnitId, { kind: 'clear-plan-direction' });
 
   // 同会话复活：选定方向文本进 pendingReplies 注入下一步 prompt（sessionId 不动）
   const replyText = composeDirectionReply(pick, planDirections, selected);

@@ -11,9 +11,9 @@
  * 决策 11: 路由层不认识 skill——`+skill名` token 保留在 scope 原文，
  * 由 agent-loop step 时经 parseSkillHintsFromScope 解析（skill-selector.ts）。
  */
-import { FileStore, type ChannelData } from '@dommaker/studio-shared';
+import { FileStore, WorkUnitMetadataRepository, type ChannelData } from '@dommaker/studio-shared';
 import { getChannelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
-import { WorkUnitService } from '../workunit/index.js';
+import { WorkUnitService, TraceLink, WaitingGate } from '../workunit/index.js';
 import { resumeWaitingWorkUnit } from '../workunit/index.js';
 import { resolveMergeTarget } from './merge-target.js';
 import { detectMention } from './mention-match.js';
@@ -158,10 +158,7 @@ export async function routeMessage(
   // 刷新为本次请求 traceId（best-effort：失败仅缺本次关联，不阻断消息路由）
   const refreshWuTraceId = async (workUnitId: string) => {
     if (!ctx?.traceId) return;
-    await resolvedFs.updateMetadata(workUnitId, latest => ({
-      ...latest,
-      traceId: ctx.traceId,
-    })).catch(err =>
+    await new TraceLink(new WorkUnitMetadataRepository(resolvedFs)).attach(workUnitId, ctx.traceId).catch(err =>
       logger.warn('[MessageRouting] Refresh WorkUnit traceId failed (non-blocking)', {
         workUnitId, traceId: ctx.traceId, error: String(err),
       })
@@ -270,12 +267,9 @@ export async function routeMessage(
         return false;
       });
       if (!consumed) {
-        await resolvedFs.updateMetadata(mergeTarget.id, latest => ({
-          ...latest,
-          pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), content],
-          // #519: 合并窗口并入的在途 WU 刷新为本次消息 traceId（与线程回复同口径）
-          ...(ctx?.traceId ? { traceId: ctx.traceId } : {}),
-        })).catch(err =>
+        await new WaitingGate(new WorkUnitMetadataRepository(resolvedFs)).apply(mergeTarget.id, {
+          kind: 'buffer-reply', replyText: content, traceId: ctx?.traceId,
+        }).catch(err =>
           logger.warn('[MessageRouting] Append pendingReplies for merge target failed (non-blocking)', {
             workUnitId: mergeTarget.id, error: String(err),
           })

@@ -23,8 +23,8 @@
 // 本文件 = 门面：构造接线 + runLoop 主循环编排 + 全部对外/测试 seam 的薄委托；
 // 导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
 // 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
-import { type FileStore, type AgentProfileData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
+import { type FileStore, type AgentProfileData, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
+import { WorkUnitService, ExecutionJournal, type WorkUnitData } from '../workunit/index.js';
 import type { MessageMeta } from '../channels/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
@@ -49,6 +49,7 @@ export class AgentLoop implements AgentLoopHost {
   //    模块内部面，不经 index.ts 出模块；__tests__ 经 as unknown as 触达同名字段） ──
   readonly role: AgentProfileData;
   readonly workUnitService: WorkUnitService;
+  readonly executionJournal: ExecutionJournal;
   readonly fileStore: FileStore;
   instance: RuntimeInstanceRow | null = null;
   readonly acceptedTypes: string[] = [];
@@ -92,6 +93,7 @@ export class AgentLoop implements AgentLoopHost {
     this.role = role;
     this.fileStore = fileStore ?? getStore();
     this.workUnitService = new WorkUnitService(this.fileStore);
+    this.executionJournal = new ExecutionJournal(new WorkUnitMetadataRepository(this.fileStore));
     // 决策 9: acceptedTypes 取 profile 显式字段（description 关键词解析已退役）
     this.acceptedTypes = role.acceptedTypes ?? [];
     // §9.6: 执行面走 Executor 接口。远程节点方向已放弃（origin/master bdaf0dd3：生产无

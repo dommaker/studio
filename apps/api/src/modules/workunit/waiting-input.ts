@@ -36,8 +36,9 @@
  *   计时基准取 metadata.blockedAt（回退 waitingSince/updatedAt），复用同一 30 分钟
  *   阈值 + 一次性 waitingReminded 标记，消息带统一 CTA（blocked-cta 模板）。
  */
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
 import { WorkUnitService } from './workunit-review.js';
+import { WaitingGate } from './waiting-gate.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { PLAN_STEP_LIMIT } from './workunit.types.js';
@@ -80,13 +81,12 @@ export async function resumeWaitingWorkUnit(
   opts?: ResumeWaitingOptions,
 ): Promise<boolean> {
   const fileStore = fs ?? getStore();
+  const waitingGate = new WaitingGate(new WorkUnitMetadataRepository(fileStore));
   const wuService = new WorkUnitService(fileStore);
   const wu = await wuService.getById(workUnitId);
   if (!wu) return false;
 
   const metadata = parseWuMetadata(wu.metadata);
-  // B2：消费分支的锁内写统一折入 traceId（值固定，多次折叠幂等）
-  const traceMeta = opts?.traceId ? { traceId: opts.traceId } : {};
 
   // 已恢复但 loop 尚未消费 pendingReplies 的窗口内，后续回复直接追加拼接。
   // #499：active 一律入缓冲（不再要求 pendingReplies 非空）——执行中的 WU 收到线程回复时，
@@ -95,11 +95,7 @@ export async function resumeWaitingWorkUnit(
   // 下一步 prompt-composer 必注入。in_review/done/closed 等无下一步的状态仍直返 false。
   if (wu.status === 'active') {
     // #170（决策 #65-1）：锁内合并写追加——并发回复之间、回复与 recordResult 簿记之间互不冲掉
-    await fileStore.updateMetadata(workUnitId, latest => ({
-      ...latest,
-      pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
-      ...traceMeta,
-    }));
+    await waitingGate.apply(workUnitId, { kind: 'buffer-reply', replyText, traceId: opts?.traceId });
     return true;
   }
 
@@ -140,11 +136,7 @@ export async function resumeWaitingWorkUnit(
       logger.info('[WaitingInput] Requirement-guard reply unrecognized, still waiting', { workUnitId });
       return false;
     }
-    await fileStore.updateMetadata(workUnitId, latest => ({
-      ...latest,
-      requirementOverride: true,
-      waitingReason: undefined, // JSON 序列化丢弃 undefined → 清除
-    }));
+    await waitingGate.apply(workUnitId, { kind: 'grant-requirement-override' });
     if (wu.channelId) {
       await postWuSystemMessage(wu, `好的，任务「${title}」已按你的确认放行，继续执行`, { fileStore })
         .catch(err => logger.warn('[WaitingInput] requirement-guard放行提示失败 (non-blocking)', { workUnitId, error: String(err) }));
@@ -158,13 +150,7 @@ export async function resumeWaitingWorkUnit(
   // 会话预算（sessionCount）不动——复活后凭档案会话号续用旧会话（#94；#639 起非 claude
   // 凭 metadata.cliSessionId 点名续用）。
   if (metadata.waitingReason === 'plan-step-limit') {
-    await fileStore.updateMetadata(workUnitId, latest => ({
-      ...latest,
-      planStepAllowance: (typeof latest.planStepAllowance === 'number' && latest.planStepAllowance > 0
-        ? Math.floor(latest.planStepAllowance)
-        : PLAN_STEP_LIMIT) + PLAN_STEP_LIMIT,
-      waitingReason: undefined, // JSON 序列化丢弃 undefined → 清除
-    }));
+    await waitingGate.renew(workUnitId);
     if (wu.channelId) {
       const title = (metadata.title ?? wu.scope).slice(0, 50);
       await postWuSystemMessage(wu, `好的，任务「${title}」已续期 ${PLAN_STEP_LIMIT} 步额度，继续规划`, { fileStore })
@@ -174,20 +160,8 @@ export async function resumeWaitingWorkUnit(
   }
 
   // #170（决策 #65-1）：锁内合并写——pendingReplies 基于锁内最新值追加
-  await fileStore.updateMetadata(workUnitId, latest => ({
-    ...latest,
-    waitingForInput: false,
-    waitingReminded: false, // 重置提醒标记：下次 blocked 重新计一次
-    blockReason: undefined, // B4: 人工接管后清除 blocked 原因（JSON 序列化丢弃 undefined）
-    consecutiveStuck: 0,    // #176（决策 #57 D2）：复活重置停滞计数（仿 B5 重置 sessionCount 先例）
-    resumeCount: (typeof latest.resumeCount === 'number' ? latest.resumeCount : 0) + 1, // D5：观测钩子
-    // timeoutReleaseCount 不动 —— 终身保留（#63 的 3 次上限不可被复活绕过）
-    // #94: 不再清零 sessionCount —— 复活后下一步凭档案会话号优先续用旧会话（#639 起
-    // 非 claude 凭 metadata.cliSessionId 点名续用），
-    // 不靠清零预算放行（清零会让失控 WU 无限重开新会话烧 token）
-    pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
-    ...traceMeta,
-  }));
+  // timeoutReleaseCount/sessionCount 不由复活清除；具体字段归 WaitingGate。
+  await waitingGate.apply(workUnitId, { kind: 'resume', replyText, traceId: opts?.traceId });
   await wuService.transitionStatus(workUnitId, 'active');
 
   logger.info('[WaitingInput] WorkUnit resumed by human reply', { workUnitId });
@@ -441,17 +415,9 @@ async function resolveOwnershipFromReply(
 
   if (hit) {
     // #170（决策 #65-1）：锁内合并写——pendingReplies 基于锁内最新值追加
-    await fileStore.updateMetadata(wu.id, latest => ({
-      ...latest,
-      waitingForInput: false,
-      waitingReminded: false,
-      workspaceRoot: hit.path,
-      ownershipSource: 'human-reply',
-      ownershipAttempts: undefined, // #265: 绑定成功清除轮次计数（JSON 序列化丢弃 undefined）
-      pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
-      // B2：绑定命中的锁内写折入本次 traceId（不再由路由层独立 refresh）
-      ...(opts?.traceId ? { traceId: opts.traceId } : {}),
-    }));
+    await new WaitingGate(new WorkUnitMetadataRepository(fileStore)).apply(wu.id, {
+      kind: 'bind-ownership', replyText, workspaceRoot: hit.path, traceId: opts?.traceId,
+    });
     // 置回 unassigned 而非 active：此 WU 创建即挂起、从未被认领，assigneeId 仍是
     // mention 路由写入的 profile id。置 active 会让它对所有人不可见——loop 续跑
     // 查询按 instance.id 过滤（myActive），认领过滤又要求 status==='unassigned'，
@@ -472,11 +438,9 @@ async function resolveOwnershipFromReply(
   }
 
   // 未解 → 轮次计数锁内累加（#265 仿 resumeCount 先例）
-  let attempts = 0;
-  await fileStore.updateMetadata(wu.id, latest => {
-    attempts = (typeof latest.ownershipAttempts === 'number' ? latest.ownershipAttempts : 0) + 1;
-    return { ...latest, ownershipAttempts: attempts };
-  });
+  const attempted = await new WaitingGate(new WorkUnitMetadataRepository(fileStore)).apply(wu.id, { kind: 'ownership-attempt' });
+  const attemptedMeta = attempted ? parseWuMetadata(attempted.metadata) : {};
+  const attempts = typeof attemptedMeta.ownershipAttempts === 'number' ? attemptedMeta.ownershipAttempts : 0;
   const title = (metadata.title ?? wu.scope).slice(0, 50);
 
   // #265（决策 #258）：3 轮未解 → 停止追问、播报转人工、WU 保持 blocked

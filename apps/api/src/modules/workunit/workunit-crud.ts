@@ -13,7 +13,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { eventBus, FileStore, parseWuPmoId, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { eventBus, FileStore, parseWuPmoId, WorkUnitMetadataRepository, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { workUnitPort } from './workunit-ports.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
@@ -183,10 +183,12 @@ interface WorkUnitMessageLinker {
 
 export class WorkUnitCrudService {
   protected fileStore: FileStore;
+  protected metadataRepository: WorkUnitMetadataRepository;
   protected messageService?: WorkUnitMessageLinker;
 
   constructor(fileStore?: FileStore, messageService?: WorkUnitMessageLinker) {
     this.fileStore = fileStore ?? getStore();
+    this.metadataRepository = new WorkUnitMetadataRepository(this.fileStore);
     // #333：关联 WU 经 message 端口走 ChannelMessageService 统一更新路径。
     this.messageService = messageService;
   }
@@ -441,13 +443,13 @@ export class WorkUnitCrudService {
   /**
    * metadata 增量合并语义口（#554，ADR 2026-09-15 决策 1/6）：patch 浅并入既有
    * metadata——既有键保留、同名键被 patch 覆盖、undefined 值键序列化时丢弃（清除语义）。
-   * 委托 FileStore.updateMetadata 锁内原语（mutator 基于锁内最新值求值，消读-改-写竞态）；
+   * 委托 WorkUnitMetadataRepository 锁内原语（基于锁内最新值求值，消读-改-写竞态）；
    * 业务模块不直摸该原语。不动状态机/业务守卫，updatedAt 沿用原语缺省刷新。
    * @returns 更新后的 WorkUnitData；WU 不存在返回 null（不抛错，与 FileStore 原语同口径，
    *          与 update() 的抛错口径不同——批量/标记类调用方按忽略语义处理）
    */
   async updateMetadata(id: string, patch: WorkUnitMetadata): Promise<WorkUnitData | null> {
-    const updated = await this.fileStore.updateMetadata(id, latest => ({ ...latest, ...patch }));
+    const updated = await this.metadataRepository.patch(id, patch);
     return updated ? snapshotToData(updated) : null;
   }
 

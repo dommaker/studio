@@ -205,7 +205,11 @@ describe('B2: agentStep 守卫集成（STUDIO_TEST_WU_GUARD=on）', () => {
 describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=5，#95 2→5）', () => {
   // #94: claude 续用判定要求会话文件存在（cwd 未知时一律按续用）——本组用例验证新建分支，
   // 统一给一个无会话文件的 workspaceRoot（无 .git 不走 worktree），使判定落入新建路径
-  const noSessionRoot = (): string => path.join(tmpDir, 'wt-no-session');
+  const noSessionRoot = (): string => {
+    const dir = path.join(tmpDir, 'wt-no-session');
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  };
 
   it('sessionCount 已达 5 且无续用 → need_input 转人工，不起新会话', async () => {
     const wu = await createActiveWu({ sessionCount: 5, sessionId: 'old-session', workspaceRoot: noSessionRoot() });

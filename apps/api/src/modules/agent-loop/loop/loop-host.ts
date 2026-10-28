@@ -8,7 +8,7 @@
  * 不经 index.ts 出模块（跨模块消费仍只走 barrel）。
  */
 import type { AgentProfileData, FileStore } from '@dommaker/studio-shared';
-import type { WorkUnitService, WorkUnitData } from '../../workunit/index.js';
+import type { WorkUnitService, WorkUnitData, ExecutionJournal } from '../../workunit/index.js';
 import type { MessageMeta } from '../../channels/index.js';
 import type { Executor } from '../executor.js';
 import type { WuLeaseTracker } from '../wu-lease.js';
@@ -19,6 +19,7 @@ export interface AgentLoopHost {
   readonly role: AgentProfileData;
   readonly fileStore: FileStore;
   readonly workUnitService: WorkUnitService;
+  readonly executionJournal: ExecutionJournal;
   readonly executor: Executor;
   readonly acceptedTypes: string[];
   /** #178（#63 决议 1/2，#209 smell 4 迁出）：租约/fencing 三件套 */

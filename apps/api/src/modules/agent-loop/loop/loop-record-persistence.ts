@@ -45,10 +45,8 @@ export async function persistResultBookkeeping(
 ): Promise<ResultPersistence> {
   const { wu, metadata, action, result, guardUpdates, freshnessUpdates, notices } = input;
   const wuId = wu.id;
-  // 簿记段（stepCount/consecutiveStuck 推导、F5 挂起标记、B4 blocked 原因、#170 锁内合并
-  // mutator）已抽到 ./result-bookkeeping.js（#655，行为一字不改）——mutator 按引用闭包
-  // guardUpdates，展开发生在锁内调用时，下方 F6-c 强制收口对 guardUpdates 的追加 mutate
-  // 会被包含。编排顺序保持：新鲜度段（上方）→ prepareRecordBookkeeping → F6-c → updateMetadata。
+  // 纯簿记推导留在 AgentLoop；锁内合并归 WorkUnit ExecutionJournal。
+  // guardUpdates 仍按引用传入，下方 F6-c 的追加 mutate 会在语义命令取锁后展开。
   const bookkeeping = prepareRecordBookkeeping({
     wu, metadata, action, result, guardUpdates, freshnessUpdates,
     notices: {
@@ -97,6 +95,8 @@ export async function persistResultBookkeeping(
     }
   }
 
-  const recorded = await host.fileStore.updateMetadata(wuId, bookkeeping.mutator);
+  const recorded = await host.executionJournal.recordStepResult({
+    wu, metadata, action, result, guardUpdates, freshnessUpdates, bookkeeping,
+  });
   return { recorded: Boolean(recorded), stepCount, consecutiveStuck, blockReasonUpdates, stepLimit };
 }
