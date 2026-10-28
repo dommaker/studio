@@ -37,6 +37,10 @@ vi.mock('../wu-verification', () => ({
   CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
   runWuVerification: vi.fn().mockResolvedValue({ ran: [], source: 'convention' }),
 }));
+vi.mock('../../core/wu-verification', () => ({
+  CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
+  runWuVerification: vi.fn().mockResolvedValue({ ran: [], source: 'convention' }),
+}));
 
 vi.mock('../../workunit/wu-messenger', () => ({
   postWuSystemMessage: mockPostWuSystemMessage,

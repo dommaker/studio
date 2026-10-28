@@ -28,6 +28,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { registerWorkUnitPorts, type WorkUnitPorts } from '../workunit-ports.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 
 /** WorkUnitData 最小形状（仅 GET /:id/messages 消费的字段） */
@@ -76,6 +77,13 @@ describe('GET /:id/messages 频道归属解析（#529）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListByWu.mockResolvedValue({ data: [], total: 0 });
+    registerWorkUnitPorts({
+      message: {
+        listByWorkUnitId: input => mockListByWu(input.workUnitId, {
+          channelId: input.channelId, before: input.before, limit: input.limit,
+        }),
+      } as WorkUnitPorts['message'],
+    });
   });
 
   it('WU 带 channelId → 传入直查（与写侧 POST 同字段）', async () => {

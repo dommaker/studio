@@ -13,13 +13,11 @@
  */
 
 import { randomUUID } from 'crypto';
-import { eventBus, FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
-import type { ChannelMessageService } from '../channels/index.js'; // P2-c 拆环：值引用转 getMessageService 动态 import（类型边保留）
-// P2-c 拆环：resolveOrNotice/ROUTING_STAGE_LABELS 转方法内动态 import（workunit→channels 静态值边清零）
+import { eventBus, FileStore, parseWuPmoId, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { workUnitPort } from './workunit-ports.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
-import { parseWuPmoId } from '../requirements/index.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
@@ -179,25 +177,27 @@ function patchSnapshot(
   };
 }
 
+interface WorkUnitMessageLinker {
+  linkWorkUnit(messageId: string, workUnitId: string, channelId?: string): Promise<unknown>;
+}
+
 export class WorkUnitCrudService {
   protected fileStore: FileStore;
-  protected messageService?: ChannelMessageService;
-  private readonly injectedFileStore?: FileStore;
-  private messageServicePromise?: Promise<ChannelMessageService>;
+  protected messageService?: WorkUnitMessageLinker;
 
-  constructor(fileStore?: FileStore, messageService?: ChannelMessageService) {
+  constructor(fileStore?: FileStore, messageService?: WorkUnitMessageLinker) {
     this.fileStore = fileStore ?? getStore();
-    this.injectedFileStore = fileStore;
-    // #333：关联 WU 走 ChannelMessageService 统一更新路径（自带 channel.message_updated 双发）；
-    // 注入口径：可注入；缺省 fileStore 新建 ChannelMessageService，无 fileStore 用单例。
-    // P2-c 拆环：缺省构造从同步改首次使用期动态 import（构造器无法 await，workunit→channels 静态边清零）
+    // #333：关联 WU 经 message 端口走 ChannelMessageService 统一更新路径。
     this.messageService = messageService;
   }
 
-  private getMessageService(): Promise<ChannelMessageService> {
+  private getMessageService(): Promise<WorkUnitMessageLinker> {
     if (this.messageService) return Promise.resolve(this.messageService);
-    return (this.messageServicePromise ??= import('../channels/index.js').then(({ ChannelMessageService, getChannelMessageService }) =>
-      this.injectedFileStore ? new ChannelMessageService(this.injectedFileStore) : getChannelMessageService()));
+    return Promise.resolve({
+      linkWorkUnit: async (messageId, workUnitId, channelId) => (await workUnitPort('message')).linkWorkUnit({
+        fileStore: this.fileStore, messageId, workUnitId, channelId: channelId!,
+      }),
+    });
   }
 
   /**
@@ -323,12 +323,13 @@ export class WorkUnitCrudService {
    * #126（T4）：幂等——父单已有任何子单则跳过（create 与确认后补展开两处调用点）。
    */
   protected async expandRoutingHead(parent: WorkUnitData): Promise<void> {
-    // #477：解析 + fallback 判定 + 文案收口到 resolveOrNotice；出声通道/时机留本点
-    const { resolveOrNotice, ROUTING_STAGE_LABELS } = await import('../channels/index.js');
-    const { resolution: routing, notice } = await resolveOrNotice(this.fileStore, parent.channelId!, 'implement', {
-      // #464：未配置也要出声——此前未配置静默 return，用户分不清「只配一跳」还是「断了」。
-      // 文案与配错（routingFallbackText）同形态可区分；非里程碑（路由提醒不打扰，对齐配错提醒形态）。
-      notConfiguredText: `工单路由提示：本频道未配置「${ROUTING_STAGE_LABELS.implement}」阶段路由，本单已回池涌现（频道成员自动认领）——如需固定角色派工请到频道设置配置路由表，或手动拆单`,
+    // #477：路由解析经 message 端口；出声通道/时机留本点。
+    const { resolution: routing, notice } = await (await workUnitPort('message')).resolveRouting({
+      fileStore: this.fileStore,
+      channelId: parent.channelId!,
+      stage: 'implement',
+      // #464：未配置也要出声；文案保持原样。
+      notConfiguredText: '工单路由提示：本频道未配置「执行」阶段路由，本单已回池涌现（频道成员自动认领）——如需固定角色派工请到频道设置配置路由表，或手动拆单',
     });
     if (!routing.profileId) {
       if (routing.fallback) {

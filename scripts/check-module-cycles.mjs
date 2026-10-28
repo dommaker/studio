@@ -6,6 +6,7 @@
  * 复用 p2c-dep-analysis.mjs 的模块级 import 图，在 prod 桶边上做单层判定：
  *   SCC（强连通分量 size>1）：成员集须与豁免清单精确匹配——新模块入环簇 / 环簇合并即 fail。
  * 反向同样 fail：豁免有、实际无 = 清单腐化（stale），逼豁免随清零同步回收。
+ * ARCH-02 起生产豁免同时登记 intra-SCC 边：成员集不变的新增簇内边也 fail。
  * 测试桶边不计入（跨模块深 import 白名单口径与 p2c-dep-analysis 报告一致）；
  * type-only import 算结构依赖（与 local/no-deep-module-import 口径一致）。
  *
@@ -62,12 +63,27 @@ export function checkCycles(graph, exemptions) {
   for (const key of exemptSccs) {
     if (!actualSccs.includes(key)) violations.push({ kind: 'stale-scc', key });
   }
+  // SCC 成员集相同也可能新增簇内互耦；生产豁免同时冻结既有 intra-SCC 边。
+  for (const exemption of exemptions.sccs ?? []) {
+    if (!exemption.edges) continue;
+    const members = new Set(exemption.modules);
+    const allowed = new Set(exemption.edges);
+    for (const from of exemption.modules) {
+      for (const to of adj.get(from) ?? []) {
+        const key = `${from}->${to}`;
+        if (from !== to && members.has(to) && !allowed.has(key)) {
+          violations.push({ kind: 'new-intra-scc-edge', key });
+        }
+      }
+    }
+  }
   return { ok: violations.length === 0, violations };
 }
 
 const KIND_LABEL = {
   'new-scc': '新增环簇（未豁免的 SCC）',
   'stale-scc': '豁免过期（SCC 已不存在，回收豁免）',
+  'new-intra-scc-edge': '环簇内新增依赖边（成员集不变也拦截）',
 };
 
 export function formatViolations(violations) {

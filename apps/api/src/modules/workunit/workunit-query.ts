@@ -6,10 +6,9 @@
  * 评审验收在 workunit-review.ts。
  */
 
-import { type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { parseWuPmoId, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { WorkUnitCrudService, snapshotToData, type WorkUnitData } from './workunit-crud.js';
-// #428：未归属口径的戳解析复用 requirements 的零依赖叶子（无循环依赖风险，见该文件头注释）
-import { parseWuPmoId } from '../requirements/index.js';
+import { workUnitPort } from './workunit-ports.js';
 
 export class WorkUnitQueryService extends WorkUnitCrudService {
 
@@ -65,15 +64,8 @@ export class WorkUnitQueryService extends WorkUnitCrudService {
       snapshots = snapshots.filter(s => (!!s.reqId || parseWuPmoId(s.metadata) !== null) === attributed);
     }
     if (projectId) {
-      // #456：归属过滤与 PMO 台账唯一同源（selectProjectSnapshots：reqId 绑定优先 → pmoId 戳兜底）。
-      // 动态引入避环：静态 requirement.service → project.service → workunit.service 成循环
-      // （同 wu-messenger / merge-on-review-pass 的避环约定）
-      const [{ RequirementService }, { selectProjectSnapshots }] = await Promise.all([
-        import('../requirements/index.js'),
-        import('../pmo/index.js'),
-      ]);
-      const requirements = await new RequirementService(this.fileStore).list();
-      snapshots = selectProjectSnapshots(projectId, requirements, snapshots);
+      // ARCH-02：归属口径仍由 PMO 实现提供，WorkUnit 只经 project-read 端口消费。
+      snapshots = await (await workUnitPort('projectRead')).selectProjectSnapshots(projectId, this.fileStore, snapshots);
     }
     if (q) {
       const needle = q.toLowerCase();

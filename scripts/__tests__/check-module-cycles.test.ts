@@ -3,8 +3,8 @@
  *
  * 门禁语义：
  * - 只看 prod 桶边（测试跨模块 import 是白名单，不计入环判定）
- * - 单层判定：SCC（size>1，成员集精确匹配）
- * - 实际有、豁免无 → 新增环 → fail；豁免有、实际无 → 豁免过期 → fail（防清单腐化）
+ * - SCC（size>1，成员集精确匹配）+ 生产豁免的簇内边精确冻结
+ * - 实际有、豁免无 → 新增环/簇内边 → fail；豁免有、实际无 → 豁免过期 → fail（防清单腐化）
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -86,6 +86,15 @@ describe('checkCycles', () => {
     });
     expect(ok).toBe(false);
     expect(violations.map(v => `${v.kind}:${v.key}`)).toEqual(['stale-scc:ghost']);
+  });
+
+  it('SCC 成员不变但簇内新增边 → new-intra-scc-edge 违规', () => {
+    const g = buildModuleGraph(cyclicFixture());
+    const { ok, violations } = checkCycles(g, {
+      sccs: [{ modules: ['alpha', 'beta'], edges: ['alpha->beta'], reason: '只冻结既有边' }],
+    });
+    expect(ok).toBe(false);
+    expect(violations.map(v => `${v.kind}:${v.key}`)).toEqual(['new-intra-scc-edge:beta->alpha']);
   });
 
   it('SCC 成员集漂移（新模块加入环簇）→ new-scc + stale-scc', () => {

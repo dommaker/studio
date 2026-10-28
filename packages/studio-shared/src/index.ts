@@ -22,6 +22,7 @@ export * from './constants/levels';
 export * from './constants/monitoring';
 export * from './constants/map-opening';
 export * from './spec-tasks-codec';
+export * from './wu-attribution';
 
 // 导出职能域词表（决策 8：阶段导向单一词表 + legacy 归一化）
 export * from './domain-vocab';

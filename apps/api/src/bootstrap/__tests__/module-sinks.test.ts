@@ -12,16 +12,28 @@ const {
   mockRegisterAuthAuditSink,
   mockRegisterAlertChannelPoster,
   mockRegisterChannelCardPoster,
+  mockRegisterWorkUnitPorts,
   mockAuditLog,
+  mockRecordAgentDecision,
   mockCreateAgentMessage,
   mockCreateCardMessage,
+  mockResolvePmoId,
+  mockSelectProjectSnapshots,
+  mockRunVerification,
+  mockDispatchReview,
 } = vi.hoisted(() => ({
   mockRegisterAuthAuditSink: vi.fn(),
   mockRegisterAlertChannelPoster: vi.fn(),
   mockRegisterChannelCardPoster: vi.fn(),
+  mockRegisterWorkUnitPorts: vi.fn(),
   mockAuditLog: vi.fn(),
+  mockRecordAgentDecision: vi.fn(),
   mockCreateAgentMessage: vi.fn(),
   mockCreateCardMessage: vi.fn(),
+  mockResolvePmoId: vi.fn(),
+  mockSelectProjectSnapshots: vi.fn(),
+  mockRunVerification: vi.fn(),
+  mockDispatchReview: vi.fn(),
 }));
 
 vi.mock('../../modules/auth/index.js', () => ({
@@ -36,12 +48,55 @@ vi.mock('../../modules/review-proposal/index.js', () => ({
   registerChannelCardPoster: mockRegisterChannelCardPoster,
 }));
 
+vi.mock('../../modules/workunit/index.js', () => ({
+  registerWorkUnitPorts: mockRegisterWorkUnitPorts,
+}));
+const mockRegisterWorkUnitSinks = vi.hoisted(() => vi.fn());
+vi.mock('../workunit-sinks.js', () => ({ registerWorkUnitSinks: mockRegisterWorkUnitSinks }));
+
 vi.mock('../../modules/audit-logs/index.js', () => ({
   getAuditService: () => ({ log: mockAuditLog }),
+  recordAgentDecision: mockRecordAgentDecision,
 }));
 
 vi.mock('../../modules/channels/index.js', () => ({
+  ChannelMessageService: function ChannelMessageService() {
+    return {
+      createAgentMessage: mockCreateAgentMessage,
+      createHumanMessage: vi.fn(),
+      updateMessage: vi.fn(),
+      listByWorkUnitId: vi.fn(),
+      linkWorkUnit: vi.fn(),
+    };
+  },
   getChannelMessageService: () => ({ createAgentMessage: mockCreateAgentMessage, createCardMessage: mockCreateCardMessage }),
+  resolveOrNotice: vi.fn(),
+}));
+
+vi.mock('../../modules/requirements/index.js', () => ({
+  RequirementService: vi.fn(),
+  resolvePmoProjectIdForWU: mockResolvePmoId,
+}));
+
+vi.mock('../../modules/pmo/index.js', () => ({
+  applyPlanDirection: vi.fn(), applyPlanRuling: vi.fn(),
+  PlanDirectionError: class PlanDirectionError extends Error {},
+  PlanRulingError: class PlanRulingError extends Error {},
+  projectService: {}, selectProjectSnapshots: mockSelectProjectSnapshots,
+  validateDirectionPick: vi.fn(), validateRulingItems: vi.fn(),
+}));
+
+vi.mock('../../modules/agent-loop/index.js', () => ({
+  getReviewDispatcher: () => ({ dispatchReviewNow: mockDispatchReview }),
+}));
+vi.mock('../../modules/agents/index.js', () => ({
+  aggregateTreeTokens: vi.fn(), getSystemExecutor: vi.fn(),
+}));
+vi.mock('../../modules/ops/index.js', () => ({ dispatchMonitorAlerts: vi.fn() }));
+vi.mock('../../core/wu-verification.js', () => ({
+  CODE_WORKTREE_TYPES: new Set(['task']),
+  resolveVerifyCommands: vi.fn(),
+  runWuVerification: mockRunVerification,
 }));
 
 import { registerModuleSinks } from '../module-sinks.js';
@@ -80,5 +135,9 @@ describe('bootstrap/module-sinks 装配', () => {
 
     await poster({ channelId: 'ch-sys', author: 'KK', content: 'md', cardType: 'distill_proposal', cardData: { proposalId: 'p-1' } });
     expect(mockCreateCardMessage).toHaveBeenCalledWith('ch-sys', 'KK', 'md', 'distill_proposal', { proposalId: 'p-1' });
+  });
+
+  it('ARCH-02 WorkUnit 装配委托独立组合步骤', () => {
+    expect(mockRegisterWorkUnitSinks).toHaveBeenCalledTimes(1);
   });
 });

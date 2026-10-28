@@ -19,6 +19,7 @@
 | `parseChannels`, `stringifyChannels` | channels-codec.ts（经 file-store 门面 re-export） | F3 channels/members「JSON 编码字符串数组」编解码：单层容错解析，非字符串数组/损坏 JSON 返回 []；写入端单层编码归一化（历史双层解码兼容与 migrateChannelsEncoding 存量迁移随 #696 验收退役，2026-10-11） |
 | `MAP_OPENING_FOG_MAX` | constants/map-opening.ts | P2-c 自 pmo/map-opening 下沉：FOG 待决条数上限，workunit/pmo/agents 三域共用 |
 | `SPEC_TASKS_MAX`, `SpecTaskSpec`, `parseSpecTasks`, `serializeSpecTasks` | spec-tasks-codec.ts | P2-c 自 pmo/spec-materialization 下沉：TASK 物化行 wire codec 跨域契约正本 |
+| `parseWuPmoId` | wu-attribution.ts | ARCH-02 自 requirements 下沉：WU 创建期 PMO 归因戳纯解析，Requirements/PMO/WorkUnit 共用且零 app 依赖 |
 | `resolveVpsWorkspace`, `resolveWorkspacesDir` | vps-workspace（仅 /node 入口） | 'VPS' 工作区命名约定与 ~/.studio/workspaces 扫描的唯一属主（2026-08 起；#481 后消费方 = local-workspace 启动复用与 GET /workspaces/runtimes 本机 CLI 清单，记录的 workspaceRoot 已退出执行面，禁止第三处手扫） |
 | `studioDir`, `studioPath`, `defaultStudioDir`, `warnIfNonProdUsesProdRoot` | config/studio-dir（`./studio-dir` 子路径入口） | 数据根解析单入口（issue #89）：STUDIO_HOME 优先，缺省 ~/.studio；全部数据区读写必须经此，禁止新增 `os.homedir() + '.studio'` 硬编码 |
 | `createSettledTracker` / `SettledTracker` | utils/settled-tracker.ts | #228 确定性等待原语（#158 先例抽取）：fire-and-forget 异步链（事件订阅消费 / best-effort 收尾）的在途登记 `track` + `waitForSettled` 等待（while 循环兜底级联），供测试替代盲等；消费方：pmo/progress-rollup、workunit.service（reviewPassed 收尾）、agents/loop/review-dispatcher、pmo/analysis-handoff、pmo/map-opening、pmo/spec-materialization（后两者 2026-08-26 补：测试删目录前等在途链落定，消 /tmp 复活竞态） |

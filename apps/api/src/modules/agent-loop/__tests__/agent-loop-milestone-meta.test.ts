@@ -43,6 +43,10 @@ vi.mock('../wu-verification', () => ({
   CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
   runWuVerification: mockRunWuVerification,
 }));
+vi.mock('../../core/wu-verification', () => ({
+  CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
+  runWuVerification: mockRunWuVerification,
+}));
 
 vi.mock('../../workunit/wu-messenger', () => ({
   postWuSystemMessage: mockPostWuSystemMessage,
@@ -162,7 +166,9 @@ describe('AgentLoop 里程碑消息委托 wu-messenger（2026-07 §6-3）', () =
       source: 'convention',
       failure: { command: 'pnpm run test', tail: '1 failing test' },
     });
-    const wu = await setupActiveWorkUnit({ worktreePath: '/tmp/wt-ms', verifyFailCount: 2 });
+    const worktreePath = path.join(testDir, 'wt-ms');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const wu = await setupActiveWorkUnit({ worktreePath, verifyFailCount: 2 });
 
     await (agentLoop as unknown as RecordResultCapable).recordResult(
       { workUnit: wu },

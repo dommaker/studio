@@ -12,8 +12,7 @@ import { FileStore } from '@dommaker/studio-shared';
 const { mockDispatch } = vi.hoisted(() => ({ mockDispatch: vi.fn() }));
 
 vi.mock('../../ops/index.js', () => ({
-  // P2-c：in-review-inbox 改经模块根 barrel 动态 import——mock 目标同步改到 barrel
-  // #683：dispatchMonitorAlerts 随 monitor 并入 ops，barrel 同步改 ops
+  // ARCH-02：alert 端口由组合步骤注入 ops dispatchMonitorAlerts。
   dispatchMonitorAlerts: (...args: unknown[]) => mockDispatch(...args),
 }));
 
@@ -40,7 +39,7 @@ afterAll(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-/** P2-c：订阅回调改异步（动态 import）——负向断言前等其跑完，防真空通过 */
+/** 订阅回调为 async——负向断言前等其跑完，防真空通过 */
 async function settleInbox(): Promise<void> {
   await new Promise(r => setTimeout(r, 100));
 }

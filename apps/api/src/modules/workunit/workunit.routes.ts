@@ -64,6 +64,7 @@ import {
   workUnitResponseSchema,
   lastDoneResponseSchema,
   changedFilesResponseSchema,
+  treeTokenReportSchema,
   treeTokenReportResponseSchema,
   verifyResultResponseSchema,
   dispatchReviewResponseSchema,
@@ -82,11 +83,7 @@ import { parseWuMetadata } from './wu-metadata.js';
 import { resolveClaimable, buildStatusById } from './wu-dependencies.js';
 import { adoptInspectionOpportunity, ignoreInspectionOpportunity } from './inspection-opportunities.js';
 import { resolveReviewConfirm, ConfirmPayloadError } from './confirm-payload.js';
-// P2-c 拆环：aggregateTreeTokens 转路由处理器内动态 import（workunit→agents 静态边清零）
-import type { MessageMeta } from '../channels/index.js';
-// P2-c 拆环：channelMessageService 值引用转处理器内动态 import（workunit→channels 静态边清零）
-// P2-c 拆环：plan ruling/direction 应用函数与错误类转路由处理器内动态 import
-// （errors 映射改处理器内 try/catch 等价实现；workunit→pmo 静态边清零）
+import { workUnitPort, type WorkUnitMessageMeta as MessageMeta } from './workunit-ports.js';
 import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './waiting-input.js';
 import { claimWorkUnitAndAnnounce } from './claim-announce.js';
 import { listWorkUnitsChangedFiles } from './wu-changed-files.js';
@@ -295,9 +292,9 @@ openRoutes.get('/:id/tree-tokens', defineRoute(
     const wu = await mustGetWu(input.params.id);
     const meta = parseWuMetadata(wu.metadata);
     const rootId = meta.collab?.rootId ?? wu.id;
-    // P2-c 拆环：workunit→agents 静态边转函数内动态 import
-    const { aggregateTreeTokens } = await import('../agents/index.js');
-    return aggregateTreeTokens(rootId, getStore());
+    const parsed = treeTokenReportSchema.safeParse(await (await workUnitPort('read')).aggregateTreeTokens(rootId, getStore()));
+    if (!parsed.success) throw new Error('Invalid tree token report from WorkUnit read port');
+    return parsed.data;
   },
 ));
 
@@ -451,9 +448,7 @@ writeRoutes.post('/:id/dispatch-review', requireHuman(REVIEW_HUMAN_ONLY), define
     ],
   },
   async (_req, _res, input) => {
-    // 与 index.ts 启动时同款动态 import：避免路由模块加载时拉起整个 agents 模块图
-    const { getReviewDispatcher } = await import('../agent-loop/index.js') as typeof import('../agent-loop/index.js');
-    const child = await getReviewDispatcher().dispatchReviewNow(input.params.id);
+    const child = await (await workUnitPort('review')).dispatchReviewNow(input.params.id);
     return { reviewWorkUnitId: child.id };
   },
 ));
@@ -489,8 +484,7 @@ writeRoutes.post('/:id/resume', defineRoute(
 writeRoutes.post('/:id/ruling', defineRoute(
   { params: wuIdParamsSchema, body: planRulingPayloadSchema, response: workUnitResponseSchema },
   async (_req, _res, input) => {
-    // P2-c 拆环：动态 import + try/catch 等价原 errors 映射（PlanRulingError → 400 INVALID_RULING）
-    const { applyPlanRuling, validateRulingItems, PlanRulingError } = await import('../pmo/index.js');
+    const review = await workUnitPort('review');
     try {
       const wu = await mustGetWu(input.params.id);
       if (wu.status !== 'blocked') {
@@ -500,10 +494,10 @@ writeRoutes.post('/:id/ruling', defineRoute(
       if (!Array.isArray(meta.planRulings) || meta.planRulings.length === 0) {
         throw new HttpError(409, 'NO_PENDING_RULING', '该任务无待裁的裁决轮（planRulings 为空）');
       }
-      const items = validateRulingItems(input.body.items);
-      return toWorkUnitWire(await applyPlanRuling(input.params.id, items, getStore()));
+      const items = review.validateRulingItems(input.body.items);
+      return toWorkUnitWire(await review.applyPlanRuling(input.params.id, items, getStore()));
     } catch (err) {
-      if (err instanceof PlanRulingError) throw new HttpError(400, 'INVALID_RULING', (err as Error).message);
+      if (review.isPlanRulingError(err)) throw new HttpError(400, 'INVALID_RULING', (err as Error).message);
       throw err;
     }
   },
@@ -519,8 +513,7 @@ writeRoutes.post('/:id/ruling', defineRoute(
 writeRoutes.post('/:id/direction', defineRoute(
   { params: wuIdParamsSchema, body: planDirectionPayloadSchema, response: workUnitResponseSchema },
   async (_req, _res, input) => {
-    // P2-c 拆环：动态 import + try/catch 等价原 errors 映射（PlanDirectionError → 400 INVALID_DIRECTION）
-    const { applyPlanDirection, validateDirectionPick, PlanDirectionError } = await import('../pmo/index.js');
+    const review = await workUnitPort('review');
     try {
       const wu = await mustGetWu(input.params.id);
       if (wu.status !== 'blocked') {
@@ -530,10 +523,10 @@ writeRoutes.post('/:id/direction', defineRoute(
       if (!meta.planDirections || !Array.isArray(meta.planDirections.options) || meta.planDirections.options.length === 0) {
         throw new HttpError(409, 'NO_PENDING_DIRECTION', '该任务无待选的方向锁定（planDirections 为空）');
       }
-      const pick = validateDirectionPick(input.body, meta.planDirections);
-      return toWorkUnitWire(await applyPlanDirection(input.params.id, pick, getStore()));
+      const pick = review.validateDirectionPick(input.body, meta.planDirections);
+      return toWorkUnitWire(await review.applyPlanDirection(input.params.id, pick, getStore()));
     } catch (err) {
-      if (err instanceof PlanDirectionError) throw new HttpError(400, 'INVALID_DIRECTION', (err as Error).message);
+      if (review.isPlanDirectionError(err)) throw new HttpError(400, 'INVALID_DIRECTION', (err as Error).message);
       throw err;
     }
   },
@@ -593,8 +586,9 @@ openRoutes.get('/:id/messages', defineRoute(
     // #529：从 WU 解析频道归属（一等列 channelId，与写侧 POST /:id/messages 同字段、
     // 读写对称）传给直查；wu 不存在或无 channelId（legacy/手工单）→ undefined 走扇出 fallback。
     const wu = await getService().getById(input.params.id);
-    const { getChannelMessageService } = await import('../channels/index.js'); // P2-c 拆环
-    const result = await getChannelMessageService().listByWorkUnitId(input.params.id, {
+    const result = await (await workUnitPort('message')).listByWorkUnitId({
+      fileStore: getStore(),
+      workUnitId: input.params.id,
       channelId: wu?.channelId ?? undefined,
       before: beforeDate,
       limit: take,
@@ -629,16 +623,14 @@ writeRoutes.post('/:id/messages', defineRoute(
       channelId = sysChannel.id;
     }
 
-    const { getChannelMessageService } = await import('../channels/index.js'); // P2-c 拆环
     if (authorType === 'agent' && agentName) {
-      return toDiscussionMessageWire(await getChannelMessageService().createAgentMessage(
-        channelId, agentName, content,
-        { replyToId, workUnitId: input.params.id },
-      ));
+      return toDiscussionMessageWire(await (await workUnitPort('message')).createAgentMessage({
+        fileStore: getStore(), channelId, agentName, content, replyToId, workUnitId: input.params.id,
+      }));
     }
-    return toDiscussionMessageWire(await getChannelMessageService().createHumanMessage(
-      channelId, content, replyToId, input.params.id,
-    ));
+    return toDiscussionMessageWire(await (await workUnitPort('message')).createHumanMessage({
+      fileStore: getStore(), channelId, content, replyToId, workUnitId: input.params.id,
+    }));
   },
 ));
 
@@ -665,11 +657,13 @@ writeRoutes.patch('/:id/messages/:messageId', defineRoute(
       throw new HttpError(400, 'INVALID_INPUT', 'Message does not belong to this WorkUnit');
     }
 
-    const { getChannelMessageService } = await import('../channels/index.js'); // P2-c 拆环
-    return toDiscussionMessageWire(await getChannelMessageService().updateMessage(input.params.messageId, {
+    return toDiscussionMessageWire(await (await workUnitPort('message')).updateMessage({
+      fileStore: getStore(),
+      messageId: input.params.messageId,
+      channelId: found.channelId,
       content,
       meta: meta as MessageMeta | undefined,
-    }, found.channelId));
+    }));
   },
 ));
 

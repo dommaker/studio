@@ -45,9 +45,7 @@ import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { withBlockedCta } from './blocked-cta.js';
 import { ProjectDiscoveryService, matchProjectByReply, type LocalProject } from '../projects/index.js';
-import { RequirementService } from '../requirements/index.js';
-// P2-c 拆环：projectService 转函数内动态 import（workunit→pmo 静态边清零）
-import type { MessageMeta } from '../channels/index.js';
+import { workUnitPort, type WorkUnitMessageMeta as MessageMeta } from './workunit-ports.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
 
@@ -540,32 +538,7 @@ const MAX_OWNERSHIP_ATTEMPTS = 3;
  * 把人工答案写回 PMO.gitRepo（PMO = 归属的唯一回答点，一次绑定终身有效）。
  */
 async function bindRequirementToProject(reqId: string, hit: LocalProject, fileStore: FileStore): Promise<void> {
-  const reqService = new RequirementService(fileStore);
-  const requirement = await reqService.get(reqId);
-  if (!requirement) return;
-  // P2-c 拆环：workunit→pmo 静态边转函数内动态 import
-  const { projectService } = await import('../pmo/index.js');
-
-  if (requirement.projectId) {
-    // 别名/已挂接：PMO 缺 gitRepo 才补写（不覆盖既有锚点）
-    const backing = await projectService.get(requirement.projectId);
-    if (backing && !backing.gitRepo) {
-      await projectService.update(backing.id, { gitRepo: hit.path });
-      logger.info('[WaitingInput] PMO gitRepo bound from human reply', {
-        reqId, projectId: backing.id, gitRepo: hit.path,
-      });
-    }
-    return;
-  }
-
-  const existing = (await projectService.list({ limit: 1000 })).find(p => p.gitRepo === hit.path);
-  const project = existing ?? (await projectService.create({ title: hit.name, gitRepo: hit.path }));
-  await reqService.update(reqId, { projectId: project.id });
-  logger.info('[WaitingInput] Requirement bound to PMO project', {
-    reqId,
-    projectId: project.id,
-    gitRepo: hit.path,
-  });
+  await (await workUnitPort('projectRead')).bindRequirementToProject(reqId, hit, fileStore);
 }
 
 /** 候选工程列表文案（封顶 10 条） */

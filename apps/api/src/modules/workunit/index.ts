@@ -22,4 +22,5 @@ export { ANALYSIS_TASKS_MAX, DECISION_SPEC_TYPES, INSPECTION_OPPORTUNITIES_MAX, 
 export type { UnfitRoleEntry, WorkUnitMetadata } from './workunit.types.js';
 export { buildStatusById, hasUnfinishedDeps } from './wu-dependencies.js';
 export { postWuSystemMessage } from './wu-messenger.js';
+export { registerWorkUnitPorts, resetWorkUnitPorts } from './workunit-ports.js';
 export { clearSessionBookkeeping, mergedWuView, parseWuMetadata, parseWuTitle } from './wu-metadata.js';

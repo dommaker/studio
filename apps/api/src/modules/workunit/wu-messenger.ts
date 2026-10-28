@@ -15,13 +15,12 @@
  *   2026-07 PMO-flow UX §6-3/§10：NotificationBell 监听 meta.atHuman，pmoId 供跳转 PMO 详情）；
  *   opts.meta 合并覆盖里程碑 meta。
  *
- * 依赖说明：pmo-branch-resolver 走 lazy import——本模块被 merge-on-review-pass 静态依赖，
- * 后者被 workunit.service 静态依赖；静态引入 pmo-branch-resolver
- * （→ project.service → workunit.service）会成循环（同 merge-on-review-pass 头部依赖说明）。
+ * 依赖说明（ARCH-02）：频道发送走 message 端口，PMO 归因走 project-read 端口；
+ * 实现由 bootstrap 装配，本模块不再 lazy import 上层模块。
  */
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { NotificationService } from '../notifications/index.js';
-import type { MessageMeta, MessageRecord } from '../channels/index.js';
+import { workUnitPort, type WorkUnitMessageMeta as MessageMeta, type WorkUnitMessageRecord as MessageRecord } from './workunit-ports.js';
 import { parseWuMetadata, parseWuTitle } from './wu-metadata.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { getStore } from '../../core/store.js';
@@ -56,12 +55,11 @@ async function findAnchorMessage(workUnitId: string, channelId: string, fileStor
 
 /**
  * 里程碑 meta（pmoId 可解析时携带 + atHuman）。
- * lazy import 原因见头部依赖说明；import/解析失败 → 只缺 pmoId，不阻断消息发送。
+ * project-read 端口未装配或解析失败 → 只缺 pmoId，不阻断消息发送。
  */
 async function milestoneMeta(wu: WorkUnitData, fileStore: FileStore): Promise<MessageMeta> {
   try {
-    const { resolvePmoProjectIdForWU } = await import('../requirements/index.js');
-    const pmoId = await resolvePmoProjectIdForWU(
+    const pmoId = await (await workUnitPort('projectRead')).resolvePmoId(
       { reqId: wu.reqId ?? null, metadata: wu.metadata },
       fileStore,
     ).catch(() => null); // best-effort：解析不到不带 pmoId
@@ -120,12 +118,15 @@ export async function postWuSystemMessage(
     ? { ...await milestoneMeta(wu, fileStore), ...opts?.meta }
     : opts?.meta;
 
-  const record = await new (await import('../channels/index.js')).ChannelMessageService(fileStore).createAgentMessage(
-    wu.channelId,
-    opts?.agentName ?? 'Studio',
-    trimmed,
-    { replyToId: opts?.replyToId ?? metaAnchor ?? anchor?.id ?? undefined, meta, workUnitId: wu.id },
-  );
+  const record = await (await workUnitPort('message')).createAgentMessage({
+    fileStore,
+    channelId: wu.channelId,
+    agentName: opts?.agentName ?? 'Studio',
+    content: trimmed,
+    replyToId: opts?.replyToId ?? metaAnchor ?? anchor?.id ?? undefined,
+    meta,
+    workUnitId: wu.id,
+  });
 
   if (opts?.milestone && record) {
     await persistMilestoneNotification(wu, trimmed, record.id, fileStore);

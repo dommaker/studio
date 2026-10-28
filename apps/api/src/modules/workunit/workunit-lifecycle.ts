@@ -14,7 +14,7 @@ import { snapshotToData, type WorkUnitData } from './workunit-crud.js';
 import { WorkUnitQueryService } from './workunit-query.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
-import { recordAgentDecision, type AuditActor } from '../audit-logs/index.js';
+import { workUnitPort, type WorkUnitAuditActor } from './workunit-ports.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 export class WorkUnitLifecycleService extends WorkUnitQueryService {
@@ -25,7 +25,7 @@ export class WorkUnitLifecycleService extends WorkUnitQueryService {
    * 尾部按 assigneeId 命中 agent 状态库派生）。
    * @throws Error if transition is not allowed
    */
-  async transitionStatus(id: string, newStatus: string, actor?: AuditActor): Promise<WorkUnitData> {
+  async transitionStatus(id: string, newStatus: string, actor?: WorkUnitAuditActor): Promise<WorkUnitData> {
     const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) {
       throw new Error('WorkUnit not found');
@@ -160,7 +160,7 @@ export class WorkUnitLifecycleService extends WorkUnitQueryService {
       /** 父状态聚合开关；缺省 = status ∈ active/blocked/done/closed 时聚合 */
       aggregateParent?: boolean;
       /** #591：流转埋点主体透传；缺省按 assigneeId 命中 agent 状态库派生 */
-      auditActor?: AuditActor;
+      auditActor?: WorkUnitAuditActor;
     },
   ): Promise<WorkUnitSnapshot> {
     const isoNow = new Date().toISOString();
@@ -201,7 +201,7 @@ export class WorkUnitLifecycleService extends WorkUnitQueryService {
         const state = await this.fileStore.getState(updated.assigneeId).catch(() => null);
         if (state) actor = { id: updated.assigneeId, type: 'agent' };
       }
-      recordAgentDecision({
+      (await workUnitPort('audit'))({
         action: 'transition',
         resource: 'workunit',
         resourceId: current.id,

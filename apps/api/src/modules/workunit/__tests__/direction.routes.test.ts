@@ -2,7 +2,7 @@
 // WorkUnitService mock 掉（形态照 ruling.routes.test.ts）；plan-direction 模块只 mock
 // applyPlanDirection（落账+复活属服务层，单测见 pmo/__tests__/plan-direction.test.ts），
 // validateDirectionPick/PlanDirectionError 用真身测路由层 400 契约。
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 
@@ -24,6 +24,8 @@ vi.mock('../../pmo/plan-direction.js', async (importOriginal) => {
 });
 
 import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { registerWorkUnitPorts, type WorkUnitPorts } from '../workunit-ports.js';
+import { PlanDirectionError, validateDirectionPick } from '../../pmo/plan-direction.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 import { validWorkUnit } from './route-fixtures.js';
 
@@ -64,6 +66,16 @@ describe('#567 POST /workunits/:id/direction（方向锁定提交）', () => {
 
   afterAll(async () => {
     await new Promise(resolve => server.close(resolve));
+  });
+
+  beforeEach(() => {
+    registerWorkUnitPorts({
+      review: {
+        validateDirectionPick,
+        applyPlanDirection: mockApplyPlanDirection,
+        isPlanDirectionError: error => error instanceof PlanDirectionError,
+      } as WorkUnitPorts['review'],
+    });
   });
 
   function post(id: string, body?: unknown) {

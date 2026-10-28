@@ -1,95 +1,10 @@
-/**
- * B3b-i（决策 D3 前半）WU 自动验证 —— 从 agent-loop 抽出的可复用实现（2026-07-30 F6-c 断链修复）。
- *
- * 消费方：
- *   - agent-loop COMPLETE 前验证守卫（原私有方法，行为一字不改）
- *   - agent-loop 步骤超限强制收口路径（F6-c 断点 1：收口前补跑 L1）
- *   - POST /api/v1/workunits/:id/verify 人工重跑 L1（F6-c 断点 2）
- */
-
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
-import { withDirectoryCapability } from '@dommaker/studio-shared/node';
-import { assertTrustedWuWorktree, HOST_CHECK_TIMEOUT_MS, runHostCheck } from '../../core/host-execution-policy.js';
-import { resolveWorktreesDir } from './agent-loop-parsers.js';
-import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
-
-/** B3b-i: 代码类 WU（执行面强制专属 worktree 隔离） */
-export const CODE_WORKTREE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
-/** B3b-i: 单条验证命令超时 10min；失败注入 prompt 的输出尾部上限 */
-export const VERIFY_COMMAND_TIMEOUT_MS = HOST_CHECK_TIMEOUT_MS;
-export const VERIFY_FAIL_TAIL_CHARS = 2_000;
-
-/** B3b-i: 从 execSh 拒绝错误提取输出尾部（stderr/stdout/message 拼接后截 maxChars） */
-export function extractExecOutputTail(err: unknown, maxChars: number): string {
-  let text = '';
-  if (err && typeof err === 'object') {
-    const rec = err as Record<string, unknown>;
-    text = [rec.stderr, rec.stdout, rec.message]
-      .filter((s): s is string => typeof s === 'string' && s.length > 0)
-      .join('\n');
-  } else {
-    text = String(err);
-  }
-  return text.slice(-maxChars);
-}
-
-/** 一次 WU 验证的结果：ran = 已跑且通过的命令；failure = 首个失败命令 + 输出尾部 */
-export interface WuVerifyOutcome {
-  ran: string[];
-  source: 'override' | 'convention';
-  failure?: { command: string; tail: string };
-}
-
-/**
- * 解析服务端登记的检查模板：项目内容只能选择是否启用 test/typecheck/lint，
- * metadata、workspace 与 Spec 均不能提供命令文本或参数。
- */
-export async function resolveVerifyCommands(
-  _wu: WorkUnitData,
-  _metadata: WorkUnitMetadata,
-  worktreePath: string,
-): Promise<{ commands: string[]; source: 'override' | 'convention' }> {
-  try {
-    const pkgRaw = readFileSync(join(worktreePath, 'package.json'), 'utf-8');
-    const scripts = (JSON.parse(pkgRaw) as { scripts?: Record<string, unknown> }).scripts ?? {};
-    const names = ['test', 'typecheck', 'lint'].filter(n => typeof scripts[n] === 'string');
-    if (names.length === 0) return { commands: [], source: 'convention' };
-    const pm = existsSync(join(worktreePath, 'pnpm-lock.yaml')) ? 'pnpm' : 'npm';
-    return { commands: names.map(n => `${pm} run ${n}`), source: 'convention' };
-  } catch {
-    return { commands: [], source: 'convention' };
-  }
-}
-
-/**
- * B3b-i: 在 WU 的 worktree 里依次跑验证命令（单条 10min 超时）。
- * 任一失败 → 返回 failure（命令 + 输出尾部截 2000 字符）；全过 → ran 为全部命令。
- */
-export async function runWuVerification(
-  wu: WorkUnitData,
-  metadata: WorkUnitMetadata,
-  worktreePath: string,
-  options?: { cwdProvenance: 'merge-target' },
-): Promise<WuVerifyOutcome> {
-  // 普通 WU 验证只认服务端规范 worktree；合并后验证的 cwd 来自刚完成合并的服务端场景。
-  const trustedCwd = options?.cwdProvenance === 'merge-target'
-    ? worktreePath
-    : assertTrustedWuWorktree(wu.id, worktreePath, resolveWorktreesDir());
-  const verify = async (capabilityCwd: string): Promise<WuVerifyOutcome> => {
-    const { commands, source } = await resolveVerifyCommands(wu, metadata, capabilityCwd);
-    const ran: string[] = [];
-    for (const command of commands) {
-      try {
-        await runHostCheck(command, capabilityCwd);
-        ran.push(command);
-      } catch (err) {
-        return { ran, source, failure: { command, tail: extractExecOutputTail(err, VERIFY_FAIL_TAIL_CHARS) } };
-      }
-    }
-    return { ran, source };
-  };
-  // merge-on-review-pass 已持有 capability 时直接复用，不能嵌套 realpath/open。
-  if (new RegExp(`^/proc/${process.pid}/fd/\\d+$`).test(trustedCwd)) return verify(trustedCwd);
-  return withDirectoryCapability(trustedCwd, verify);
-}
+/** 兼容出口；独立实现已下沉 core/wu-verification（ARCH-02）。 */
+export {
+  CODE_WORKTREE_TYPES,
+  VERIFY_COMMAND_TIMEOUT_MS,
+  VERIFY_FAIL_TAIL_CHARS,
+  extractExecOutputTail,
+  resolveVerifyCommands,
+  runWuVerification,
+} from '../../core/wu-verification.js';
+export type { VerificationWorkUnit, WuVerifyOutcome } from '../../core/wu-verification.js';

@@ -15,7 +15,7 @@ import { parseWuMetadata } from './wu-metadata.js';
 import { type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
 import { snapshotToData, type WorkUnitData } from './workunit-crud.js';
 import { WorkUnitLifecycleService } from './workunit-lifecycle.js';
-import { type AuditActor } from '../audit-logs/index.js';
+import { workUnitPort, type WorkUnitAuditActor } from './workunit-ports.js';
 import { logger } from '@dommaker/studio-shared/node';
 import { HostExecutionPolicyError } from '../../core/host-execution-policy.js';
 
@@ -42,7 +42,7 @@ function trackReviewPassEffect(effect: Promise<unknown>): void {
 }
 
 /** #591：attestation 来源 → 埋点主体（human-confirm=人审；agent-review/缺省=agent 侧） */
-function attestationActor(attestation?: ReviewAttestationSource): AuditActor | undefined {
+function attestationActor(attestation?: ReviewAttestationSource): WorkUnitAuditActor | undefined {
   if (!attestation) return undefined;
   return { id: attestation.by, type: attestation.kind === 'human-confirm' ? 'human' : 'agent' };
 }
@@ -226,15 +226,14 @@ export class WorkUnitReviewService extends WorkUnitLifecycleService {
    * 返回（不抛错、不携带 HTTP 语义，状态码由路由层映射）；命令实际执行后无论成败
    * 都经 recordL1Verification 落台账 l1（失败= rejected，全绿= approved + verifyReport）。
    * 只运行服务端固定模板；worktree provenance 在校验命令前 fail-closed。
-   * wu-verification 动态 import：与 merge-on-review-pass 同例，避免拉起 agents 模块图。
+   * ARCH-02：独立验证实现经 verification 端口注入，不反向加载 AgentLoop。
    */
   async verifyManually(id: string, opts: { by: string }): Promise<ManualVerifyResult> {
     const wu = await this.getById(id);
     if (!wu) return { kind: 'not-found' };
 
-    const { CODE_WORKTREE_TYPES, runWuVerification } = await import('../agent-loop/index.js');
-
-    if (!CODE_WORKTREE_TYPES.has(wu.type)) return { kind: 'not-code-type', wuType: wu.type };
+    const verification = await workUnitPort('verification');
+    if (!verification.isCodeWorktreeType(wu.type)) return { kind: 'not-code-type', wuType: wu.type };
 
     const metadata: WorkUnitMetadata = parseWuMetadata(wu.metadata);
     const worktreePath = typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0
@@ -244,7 +243,7 @@ export class WorkUnitReviewService extends WorkUnitLifecycleService {
 
     let outcome;
     try {
-      outcome = await runWuVerification(wu, metadata, worktreePath);
+      outcome = await verification.run(wu, metadata, worktreePath);
     } catch (error) {
       if (error instanceof HostExecutionPolicyError) return { kind: 'invalid-worktree' };
       throw error;

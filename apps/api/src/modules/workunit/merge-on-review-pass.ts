@@ -34,9 +34,8 @@
  * 分支永不合并；其 reviewPassed 收尾（删 worktree 目录、留分支）见
  * cleanupPrototypeWorktreeOnReviewPass。
  *
- * 依赖说明：只依赖 studio-shared(+node) 与 WorkUnitService 类型，不 import
- * agent-loop（避免 workunit.service → 本模块 → agent-loop 的重依赖链与循环）；
- * 频道系统消息走 wu-messenger 统一出口（eventBus + SSE）。
+ * 依赖说明（ARCH-02）：验证、PMO 归因与解冲突执行经 workunit-ports；
+ * 不 import agent-loop/agents/requirements，频道系统消息走 wu-messenger 统一出口。
  */
 import { type FileStore } from '@dommaker/studio-shared';
 import { isValidGitBranch } from '@dommaker/studio-contract';
@@ -49,6 +48,7 @@ import type { WorkUnitMetadata } from './workunit.types.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
+import { workUnitPort } from './workunit-ports.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
 
@@ -203,15 +203,12 @@ export async function mergeWorktreeBranchOnReviewPass(
 
   // PMO-b（决策 3）：落档 pmoBranch 的 WU 合到 PMO 分支的集成交合 worktree
   // （不动 baseRepo 当前 checkout；冲突集中在单一合并点）。无落档 → 现状（合 baseRepo 当前分支）。
-  // 2026-08 归因统一：agent-loop 不再随 pmoBranch 缓存落档 pmoProjectId，项目 id 合并时经
-  // resolvePmoProjectIdForWU 从创建期戳（metadata.pmoId / reqId）重解析——lazy import：
-  // 静态引入会成 workunit.service → 本模块 → pmo-branch-resolver → project.service →
-  // workunit.service 循环（同 wu-messenger 头部依赖说明）。
+  // 2026-08 归因统一：agent-loop 不再随 pmoBranch 缓存落档 pmoProjectId；
+  // ARCH-02 起经 project-read 端口从创建期戳（metadata.pmoId / reqId）重解析。
   let pmoProjectId: string | null = null;
   if (meta.pmoBranch) {
     try {
-      const { resolvePmoProjectIdForWU } = await import('../requirements/index.js');
-      pmoProjectId = await resolvePmoProjectIdForWU(
+      pmoProjectId = await (await workUnitPort('projectRead')).resolvePmoId(
         { reqId: wu.reqId ?? null, metadata: wu.metadata },
         fileStore,
       ).catch(() => null); // best-effort：解析失败按无归属处理（下方转人工）
@@ -459,17 +456,13 @@ async function resolveConflictSceneWithLlm(args: {
   const skill = skillLoader.loadSingle('resolving-merge-conflicts');
   if (!skill?.prompt) return fail('skill resolving-merge-conflicts 不可用（未 seed？）');
 
-  // verify 命令来源说明（与执行环节同策略：仅服务端固定模板，package.json 只选择启用项）。
-  // lazy import：本模块头部依赖说明——不静态引入 agent-loop 侧模块，避免重依赖链
-  const { resolveVerifyCommands } = await import('../agent-loop/index.js');
-  const { commands: verifyCommands, source: verifySource } = await resolveVerifyCommands(wu, meta, scene.cwd);
+  // verify 命令与解冲突执行均经 ARCH-02 端口，安全策略仍由 core/Agents 实现持有。
+  const { commands: verifyCommands, source: verifySource } = await (await workUnitPort('verification')).resolveCommands(wu, meta, scene.cwd);
 
-  // spawn 一次性解冲突会话（lazy import 同上；超时走 eventSource 注册表 600s）
-  const { getSystemExecutor } = await import('../agents/index.js');
   let output: string;
   let durationMs: number;
   try {
-    const result = await getSystemExecutor().run(
+    const result = await (await workUnitPort('execution')).run(
       buildMergeConflictPrompt({ scene, conflictFiles, sourceBranch, targetBranch, scopeSummary, verifyCommands, verifySource }),
       { systemPrompt: skill.prompt, cwd: scene.cwd, eventSource: 'merge-conflict-resolution' },
     );
@@ -546,10 +539,9 @@ async function recordMergeResolution(
   }
 }
 
-/** 合并后 verify（lazy import 同 pmo-branch-resolver 的循环依赖规避口径） */
+/** 合并后 verify：实现由 verification 端口注入，cwdProvenance 语义不变。 */
 async function runMergeVerification(wu: WorkUnitData, meta: WorkUnitMetadata, mergeCwd: string) {
-  const { runWuVerification } = await import('../agent-loop/index.js');
-  return runWuVerification(wu, meta, mergeCwd, { cwdProvenance: 'merge-target' });
+  return (await workUnitPort('verification')).run(wu, meta, mergeCwd, { cwdProvenance: 'merge-target' });
 }
 
 // ── #157（T6）：analysis 原型单 reviewPassed 收尾 ──

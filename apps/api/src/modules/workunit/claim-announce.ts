@@ -12,7 +12,7 @@ import type { WorkUnitService } from './workunit-review.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { recordAgentDecision } from '../audit-logs/index.js';
+import { workUnitPort } from './workunit-ports.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
@@ -41,7 +41,7 @@ export async function claimWorkUnitAndAnnounce(
   // fire-and-forget，埋点失败绝不阻断认领
   const claimFs = deps.fileStore ?? getStore();
   const instanceState = await claimFs.getState(claimerId).catch(() => null);
-  recordAgentDecision({
+  (await workUnitPort('audit'))({
     action: 'claim',
     resource: 'workunit',
     resourceId: wuId,
