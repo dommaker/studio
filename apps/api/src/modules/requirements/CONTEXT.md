@@ -9,7 +9,8 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 ### 核心导出
 
 - `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
-- `requirement.service.ts` — Requirement Service（REQ CRUD 与编号分配；B3a: projectId 挂接 PMO 项目；决策 4 别名层 get/list/update/getChain 别名感知；createFromDispatch：#636 A′ 裁决——无 token 派单先派生频道当前 PMO 第一级（最近挂接 REQ 所属非杂务 PMO），命中新 REQ 挂接其 projectId；派生落杂务/无结果/失败降级决策 2 杂务归集（只查不建）→ 孤儿新建）
+- `project-read-port.ts` — ARCH-04 Requirements 持有的 PMO 只读端口与最小结构模型：项目 get/list/别名/杂务查询 + 交付纯投影 + WU→腿归属；实现由 bootstrap `project-read-sinks.ts` 装配，生产未注册 fail-fast，禁止静态/type-only/动态 import PMO 回退。Requirements 因此退出 PMO SCC（17→16）
+- `requirement.service.ts` — Requirement Service（REQ CRUD 与编号分配；B3a: projectId 挂接 PMO 项目；决策 4 别名层 get/list/update/getChain 别名感知；createFromDispatch：#636 A′ 裁决——无 token 派单先派生频道当前 PMO 第一级（最近挂接 REQ 所属非杂务 PMO），命中新 REQ 挂接其 projectId；派生落杂务/无结果/失败降级决策 2 杂务归集（只查不建）→ 孤儿新建）。ARCH-04 起所有缺省 PMO 读路径只经 `ProjectReadPort`，不再加载 PMO barrel/WU/频道链
 - `requirement.routes.ts` — Requirement API 路由
 - `req-binding.ts` — REQ 绑定解析（显式 reqId > #REQ-XXXX token > #PMO-n/#PM-n token（决策 4 别名层解析，无别名存量拒绝歧义降级）> 自动新建（含 #636 当前 PMO 挂接）），@mention 派发 / convert-to-task 共用
 - `channel-req-pmo.ts` — 频道 REQ 挂接 PMO 查询原语（#636 自 channels/file-ref-vocabulary 下沉：channels 是 requirements 下游，派生核心查询须落在 requirements 可达位置）：`listChannelReqPmoProjects`（候选集与 current-pmo 共用，逐条容错）+ `deriveChannelReqPmo`（current-pmo 派生链第一级「最近挂接 REQ 所属 PMO」，seq 大→小取首个；只查不建、失败返回 null 绝不抛出；**B2（2026-09-27）起按 seq 降序惰性解析、首个命中即停**，不再 Promise.all 解析全部挂接项目，单条失败/缺失顺延口径不变）
@@ -20,14 +21,14 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 
 ### 依赖关系
 
-- 上游：`@dommaker/studio-shared`（eventBus、FileStore）、workunit 模块事件、pmo（projectService 项目存在性校验 / gitRepo 查询 / 别名扫描 / 杂务 find-or-create）
-- 下游：channels（@mention 派发、convert-to-task）、pmo（progress-rollup 进度回写）、agents（agent-loop 经 pmo-branch-resolver 决定 worktree base）、apps/api 路由挂载、apps/web 需求页
+- 上游：`@dommaker/studio-shared`（eventBus、FileStore）、workunit 模块事件、自有 `ProjectReadPort`（项目存在性 / gitRepo / 别名 / 杂务只读）；ARCH-04 起无 PMO 模块出边，PMO 实现仅由 bootstrap 注入
+- 下游：channels（@mention 派发、convert-to-task）、pmo（progress-rollup 进度回写）、agents（agent-loop 经 pmo-branch-resolver 决定 worktree base）、apps/api 路由挂载、apps/web 需求页；这些入边不再与 PMO 形成 SCC
 
 ### 注意事项
 
 - **契约驱动（2026-09 批次 1/7）**：全部端点走 `core/http.ts defineRoute`（schema 在 `@dommaker/studio-contract` requirements.ts），响应统一 `{ data }` 壳（原 `{success,data}` 退役）；status 词表校验收进 zod enum（非法值 400 BAD_REQUEST）；错误映射表顺序敏感——'Project not found' → 400 必须先于 'not found' → 404
 - 首次 @mention 派发时自动分配 REQ 编号（#636：频道最近挂接 REQ 属于非杂务 PMO 时新 REQ 直接挂接该项目——A′ 裁决，自增强粘性为接受行为，切项目走显式 token；否则频道已登记杂务 PMO 时归集到杂务别名，不再每条消息新建 REQ）
-- **#636 无 token 派单默认挂频道当前 PMO（#632 Q7 域缝隙，A′ 裁决）**：`createFromDispatch` 自动新建路径内先跑当前 PMO 第一级派生（`deriveChannelReqPmo`，最近挂接 REQ 所属 PMO），命中且非杂务 → 新 REQ 挂接其 projectId；派生为杂务 PMO/无结果 → 维持杂务归集或孤儿新建，行为不变；派生查询抛错 → 记日志降级，绝不阻断派单。显式 reqId / #REQ-n / #PMO-n token 优先级不动（不触发派生）。`RequirementServiceDeps.deriveChannelProject` 可注入中性桩（默认实现绑本 service 的 fileStore + projectService.get，只查不建、零副作用）——单测务必注入（同 findChoreProject 等桩模式）
+- **#636 无 token 派单默认挂频道当前 PMO（#632 Q7 域缝隙，A′ 裁决）**：`createFromDispatch` 自动新建路径内先跑当前 PMO 第一级派生（`deriveChannelReqPmo`，最近挂接 REQ 所属 PMO），命中且非杂务 → 新 REQ 挂接其 projectId；派生为杂务 PMO/无结果 → 维持杂务归集或孤儿新建，行为不变；派生查询抛错 → 记日志降级，绝不阻断派单。显式 reqId / #REQ-n / #PMO-n token 优先级不动（不触发派生）。`RequirementServiceDeps.deriveChannelProject` 可注入中性桩（默认实现绑本 service 的 fileStore + ProjectReadPort.get，只查不建、零副作用）——单测务必注入（同 findChoreProject 等桩模式）
 - 状态汇总走事件驱动（`workunit.status_changed`），不做轮询
 - **requirement.created/updated 已接 SSE（2026-08-24 SSE 负载加深）**：publish 负载 = `{ requirement }`（RequirementData 含 id/title/status/channelId，无需补齐），经 events 模块 workunit-events-bridge 转发到 'events' 频道，topic = requirements（sse.routes 前缀映射）
 - **鉴权（2026-07-24 收紧；P2-e 声明式统一）**：createRequirementRoutes 工厂改返回 `{ openRoutes, writeRoutes }`——GET 走 openRoutes（开放），POST/PATCH 走 writeRoutes（route-registry 挂 authNotGuest），路由内不再挂鉴权。

@@ -7,6 +7,7 @@ import { registerChannelCardPoster } from '../modules/review-proposal/index.js';
 import { getAuditService } from '../modules/audit-logs/index.js';
 import { getChannelMessageService } from '../modules/channels/index.js';
 import { registerWorkUnitSinks } from './workunit-sinks.js';
+import { registerProjectReadSink } from './project-read-sinks.js';
 
 export function registerModuleSinks(): void {
   registerAuthAuditSink((entry) => getAuditService().log(entry));
@@ -25,5 +26,6 @@ export function registerModuleSinks(): void {
       .createCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData)
       .then(() => undefined),
   );
+  registerProjectReadSink();
   registerWorkUnitSinks();
 }

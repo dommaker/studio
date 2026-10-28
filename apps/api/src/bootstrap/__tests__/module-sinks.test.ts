@@ -53,6 +53,8 @@ vi.mock('../../modules/workunit/index.js', () => ({
 }));
 const mockRegisterWorkUnitSinks = vi.hoisted(() => vi.fn());
 vi.mock('../workunit-sinks.js', () => ({ registerWorkUnitSinks: mockRegisterWorkUnitSinks }));
+const mockRegisterProjectReadSink = vi.hoisted(() => vi.fn());
+vi.mock('../project-read-sinks.js', () => ({ registerProjectReadSink: mockRegisterProjectReadSink }));
 
 vi.mock('../../modules/audit-logs/index.js', () => ({
   getAuditService: () => ({ log: mockAuditLog }),
@@ -137,7 +139,8 @@ describe('bootstrap/module-sinks 装配', () => {
     expect(mockCreateCardMessage).toHaveBeenCalledWith('ch-sys', 'KK', 'md', 'distill_proposal', { proposalId: 'p-1' });
   });
 
-  it('ARCH-02 WorkUnit 装配委托独立组合步骤', () => {
+  it('ARCH-02/04 跨域读口装配委托独立组合步骤', () => {
+    expect(mockRegisterProjectReadSink).toHaveBeenCalledTimes(1);
     expect(mockRegisterWorkUnitSinks).toHaveBeenCalledTimes(1);
   });
 });

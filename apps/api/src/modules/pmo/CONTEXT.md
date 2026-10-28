@@ -11,13 +11,14 @@
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | `getCurrentQuarter` / `OKRService` / `getOkrService()`（惰性单例） | `okr.service.ts` | OKR 核心 + 季度计算 + 单例 |
 | `OKRMetricQueries` | `okr-metric-queries.ts` | OKR 数据源查询基类，22 个 metric 查询 + `checkDataSourceHealth` |
-| `projectService` | `project.service.ts` | 项目服务单例（`getByReqAlias`/`getByPmoNumber`/`findChoreProject`/`publish`） |
-| `generatePmoNumber` / `parsePmoSeq` | `project.service.ts` | 统一编号 max(PM/PMO,REQ)+1，格式 PMO-<n> |
-| `resolveDeliveryPolicy` | `project.service.ts` | 交付策略缺省解析（默认 branch-only） |
-| `resolveDeliveries` / `PmoMap` / `DeliveryLeg` / `LEG_STATUS` | `project.service.ts` | 探路地图 + 多交付腿模型（pending->active->in_review->completed->delivered） |
-| `parsePmoNumberFromCommand` / `PROJECT_STATUS` | `project.service.ts` | 命令解析 PMO 号 + 项目状态枚举 |
+| `ProjectData` / `CreateProjectInput` / `UpdateProjectInput` / `PmoMap` / `DeliveryLeg` / `LEG_STATUS` / `PROJECT_STATUS` | `model.ts` | ARCH-04 纯领域模型与投影：交付策略、探路地图、多交付腿、状态机、PMO 号/命令解析；零存储与跨域依赖 |
+| `projectRepository` / `generatePmoNumber` | `project-repository.ts` | ARCH-04 FileStore 仓储：统一编号 max(PM/PMO,REQ)+1、项目 CRUD、状态写口与 OKR 关联；物理 FileStore/缓存/锁不变 |
+| `projectRead` / `matchWuToLeg` | `project-read.ts` | ARCH-04 只读适配器：项目 get/list/别名/杂务查询 + 交付纯投影 + WU→腿归属；不加载频道/WorkUnit/publish，经 Requirements `ProjectReadPort` 注入 |
+| `publishProject` / `resolvePlanTokenBudget` | `publish-project.ts` | ARCH-04 发布编排唯一实现：频道消息 + plan WU + 项目激活；非 pending/不存在时零消息、零建单、零项目写入 |
+| `getLinkedSDDs` | `project-documents.ts` | ARCH-04 项目文档查询：读业务仓 `.studio/specs/*.md` 与 frontmatter |
+| `projectService` | `project.service.ts` | 兼容 facade：组合 repository + publish + documents 并 re-export model；既有路由/调用方面形状不变，新代码按职责直用窄模块 |
 | `initPmoProgressRollup` / `syncProjectProgress` / `waitForPmoProgressRollupSettled` / `rollupTiming` | `progress-rollup.ts` | 订阅 WU 状态变化回写 progress + 状态翻转；#282 起 progress 分子 = workFinished（done/closed，与 WU 完成管道同源），翻转判定仍按 TERMINAL（派生链未落定不翻 completed）；#410 起事件侧走 per-project 聚合 memo + 50ms 去抖（稳态零存储读，见「运行时约定」） |
-| `selectProjectSnapshots` / `summarizeEvidence` / `matchWuToLeg` / `partitionSnapshotsByLeg` / `CODE_TYPES` / `EvidenceWuInput` / `buildReqProjectMap` | `evidence-summary.ts` | 共享证据口径：快照派生 l1/l2/l3 + deliverable 判定 + WU->腿归属；归属 = #402 逐 WU 解析（reqId 绑定优先 -> pmoId 戳兜底 -> 未归属，单 WU 不双计，REQ 链命中不丢弃戳归属 WU）；`EvidenceWuInput` = 归约口径消费的最小字段集（id/status/type/metadata，progress-rollup memo 与全量快照均可喂入）。ARCH-02 起 WorkUnit projectId 过滤经 project-read 端口复用 `selectProjectSnapshots`，不再动态 import PMO |
+| `selectProjectSnapshots` / `summarizeEvidence` / `partitionSnapshotsByLeg` / `CODE_TYPES` / `EvidenceWuInput` / `buildReqProjectMap` | `evidence-summary.ts` | 共享证据口径：快照派生 l1/l2/l3 + deliverable 判定；归属 = #402 逐 WU 解析（reqId 绑定优先 -> pmoId 戳兜底 -> 未归属，单 WU 不双计，REQ 链命中不丢弃戳归属 WU）；`EvidenceWuInput` = 归约口径消费的最小字段集。ARCH-02 起 WorkUnit projectId 过滤经 project-read 端口复用 `selectProjectSnapshots`；ARCH-04 起 `matchWuToLeg` 正本移至 `project-read.ts`，此处仅兼容 re-export |
 | `AnalysisHandoff` / `initAnalysisHandoff` / `waitForSettled` | `analysis-handoff.ts` | analysis/plan（#471）->in_review 分流确认（有频道=人工确认卡，无频道+trigger=直转）+ 建 task 子 WU；ARCH-03 起派生哨兵/子单清单经 WorkUnit `DerivationLedger.claim/mark`，不直触 FileStore 原子 mutator |
 | `DecisionResolution` / `initDecisionResolution` | `decision-resolution.ts` | 决策单状态推进 + 落 decisions[] + 雾消解 + 全清自动建 spec 单（#471 起只服务存量在飞链——新链不再派生 decision WU）；#457 起事件路径零防御性重读（payload 即真相：reviewPassed 台账 l3 与 done 迁移同一快照原子落盘后发布，pmoId/fogId 建单落档不可变；map 写围栏在 projectId 串行链上） |
 | `WuStatusChangedSubscription` | `wu-status-subscription.ts` | P2.1 收敛的共享骨架（模块内，不进 barrel）：幂等订阅 workunit.status_changed + 在途事件链 settled 登记（filter / 吞错策略由三消费方注入——analysis-handoff、map-opening、spec-materialization 各持一份的样板已收编；decision-resolution 形态不同（无 settled tracker）未纳入） |

@@ -313,8 +313,8 @@ describe('RequirementService (vision §5.3)', () => {
       }
     });
 
-    it('projectId 缺省校验走真实 projectService（默认 deps）', async () => {
-      // 默认 projectExists 走 projectService（#219 隔离根 projects/）—— 不存在的 id 一律抛错
+    it('projectId 缺省校验走真实 ProjectReadPort（默认 deps）', async () => {
+      // 默认 projectExists 走 ProjectReadPort（#219 隔离根 projects/）—— 不存在的 id 一律抛错
       await expect(service.create({ title: '需求', projectId: 'proj-definitely-not-exists-b3a' }))
         .rejects.toThrow('Project not found');
     });

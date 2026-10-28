@@ -13,6 +13,7 @@ export { applyPlanDirection, PlanDirectionError, validateDirectionPick } from '.
 export { applyPlanRuling, PlanRulingError, validateRulingItems } from './plan-ruling.js';
 export { initPmoProgressRollup } from './progress-rollup.js';
 export { projectService, resolveDeliveries, resolveDeliveryPolicy } from './project.service.js';
-export type { DeliveryPolicy, ProjectData } from './project.service.js';
+export { projectRead } from './project-read.js';
+export type { DeliveryPolicy, ProjectData } from './model.js';
 export { initSpecMaterialization, parseSpecTasks, serializeSpecTasks, SPEC_TASKS_MAX } from './spec-materialization.js';
 export type { SpecTaskSpec } from './spec-materialization.js';

@@ -104,16 +104,18 @@ describe('#410 memo 存储读收口', () => {
     const w1 = await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id, metadata: fullEvidence });
     const w2 = await wuService.create({ scope: 'w2', type: 'task', status: 'unassigned', reqId: req.id, metadata: fullEvidence });
 
-    // 窗口盖住整串真实迁移 IO，保证合并；未合并时现状为 2 次写
-    // （w2 active 时 progress=50 一次 update + w2 done 时 completed 翻转一次 updateStatus）
-    rollupTiming.debounceMs = 300;
     offs.push(initPmoProgressRollup(fileStore));
+    // 先按 settled 原语完成冷启动回源；预热写不计入本次突发。
+    pubStatus({ id: w2.id, status: 'active', type: 'task', reqId: req.id, metadata: evidenceMeta });
+    await waitForPmoProgressRollupSettled();
     const updateSpy = vi.spyOn(projectService, 'update');
     const statusSpy = vi.spyOn(projectService, 'updateStatus');
 
-    await wuService.transitionStatus(w2.id, 'active');
-    await wuService.transitionStatus(w2.id, 'in_review');
-    await wuService.transitionStatus(w2.id, 'done');
+    // 同步发布同一窗口内的事件突发。逐次 await 真实迁移的 IO 可能超过 debounceMs，
+    // 让首轮归约先落盘，测到的会是两次独立突发而非本用例要锁定的合并语义。
+    pubStatus({ id: w2.id, status: 'active', type: 'task', reqId: req.id, metadata: evidenceMeta });
+    pubStatus({ id: w2.id, status: 'in_review', type: 'task', reqId: req.id, metadata: evidenceMeta });
+    pubStatus({ id: w2.id, status: 'done', type: 'task', reqId: req.id, metadata: evidenceMeta });
     await waitForPmoProgressRollupSettled();
 
     // updateStatus 内部委派 update（写 status 字段）——逻辑写次数 = 直写 progress 的 update（不带 status 字段）+ updateStatus

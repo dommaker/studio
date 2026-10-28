@@ -18,7 +18,8 @@
 - `channels.ts` — `initChannels()`（ensureDefaultChannels，Goal 管线需要）
 - `handlers.ts` — `registerScanHandlers()`（SCAN_HANDLERS 表 5 个周期扫描 handler + evolution-scan（与 review-proposal adapter 注册共用单次 evolution import）；2026-10-03 C 批起失败只 warn 不拒启——listen 前移后本步 throw 会落 bootstrap catch → exit(1)，发生在端口可服务之后；#686 起纪律经 runSoftSteps 固化）
 - `readiness.ts` — 进程级 readiness 状态（`markReady()/isReady()/readyTimestamp()`，`resetReadiness()` 供测试）：listen 前移后「端口可服务 ≠ 全量就绪」，bootstrap 初始化链尾 markReady()，`app.ts` 的 `/readyz` 据此 200/503；deploy 健康检查以 /readyz 为准（/health 仅 liveness）
-- `module-sinks.ts` — `registerModuleSinks()`：装配期依赖倒置注入点（auth/notifications/review-proposal + ARCH-02 WorkUnit），bootstrap() 里挂 registerRoutes 之前。
+- `module-sinks.ts` — `registerModuleSinks()`：装配期依赖倒置注入点（auth/notifications/review-proposal + ARCH-02 WorkUnit + ARCH-04 ProjectReadPort），bootstrap() 里挂 registerRoutes 之前。
+- `project-read-sinks.ts` — ARCH-04 项目读口生产组合步骤：把 PMO `projectRead` 注入 Requirements 持有的 `ProjectReadPort`；Requirements 不再依赖 PMO barrel/service，未装配读口 fail-fast。
 - `workunit-sinks.ts` — ARCH-02 WorkUnit 端口生产组合步骤：把 channels/audit-logs/Requirements/PMO/core verification/AgentLoop/Agents/Ops 实现注入 `workunit-ports.ts`，删除 WorkUnit 上向出边及动态 import；测试 setup 只注册轻量 loader，首次实际取端口时才复用本步骤，避免非 WorkUnit 用例提前求值完整生产模块图。
 - `tunnel.ts` — `startTunnelIfEnabled()` / `stopTunnel()`（cloudflared 守护，#571 默认关）
 - `cloudflared.ts` — `isCloudflaredEnabled()`（#571 冲突 5：仅 CLOUDFLARED_ENABLED=true 拉起隧道；2026-10-16 批次 F 自 utils/ 归位，唯一消费方 tunnel.ts）

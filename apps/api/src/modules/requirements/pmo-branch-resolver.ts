@@ -19,9 +19,11 @@
  */
 import { FileStore } from '@dommaker/studio-shared';
 import { isValidGitBranch } from '@dommaker/studio-contract';
-import type { DeliveryPolicy, ProjectData } from '../pmo/index.js';
-// P2-c 拆环：projectService/resolveDeliveries/resolveDeliveryPolicy/matchWuToLeg
-// 值引用转函数内动态 import（requirements→pmo 静态值边清零，类型边保留）
+import {
+  projectReadPort,
+  type ProjectDeliveryPolicy,
+  type ProjectReadData,
+} from './project-read-port.js';
 import { RequirementService } from './requirement.service.js';
 import { parseWuPmoId } from './wu-pmo-attribution.js';
 
@@ -29,11 +31,11 @@ export interface PmoBranchResolution {
   projectId: string;
   /** PMO 分支名（gitBranch 缺省回落 pmoNumber——分支名 = PMO id） */
   branch: string;
-  deliveryPolicy: DeliveryPolicy;
+  deliveryPolicy: ProjectDeliveryPolicy;
 }
 
 export interface PmoBranchResolverDeps {
-  getProject?: (id: string) => Promise<ProjectData | null>;
+  getProject?: (id: string) => Promise<ProjectReadData | null>;
   getRequirement?: (reqId: string) => Promise<{ projectId?: string | null } | null>;
 }
 
@@ -47,10 +49,8 @@ async function resolveAttribution(
   wu: { reqId?: string | null; metadata?: string | null },
   fileStore?: FileStore,
   deps?: PmoBranchResolverDeps,
-): Promise<ProjectData | null> {
-  // P2-c 拆环：requirements→pmo 静态值边转函数内动态 import（类型边保留）
-  const { projectService, resolveDeliveries, resolveDeliveryPolicy } = await import('../pmo/index.js');
-  const getProject = deps?.getProject ?? (async (id: string) => projectService.get(id));
+): Promise<ProjectReadData | null> {
+  const getProject = deps?.getProject ?? (async (id: string) => (await projectReadPort()).get(id));
   const getRequirement = deps?.getRequirement
     ?? (async (id: string) => new RequirementService(fileStore).get(id));
 
@@ -77,8 +77,7 @@ export async function resolvePmoBranchForWU(
   fileStore?: FileStore,
   deps?: PmoBranchResolverDeps,
 ): Promise<PmoBranchResolution | null> {
-  // P2-c 拆环：本函数也要用 resolveDeliveries/resolveDeliveryPolicy/matchWuToLeg（动态 import，与 resolveAttribution 同口径）
-  const { resolveDeliveries, resolveDeliveryPolicy, matchWuToLeg } = await import('../pmo/index.js');
+  const { resolveDeliveries, resolveDeliveryPolicy, matchWuToLeg } = await projectReadPort();
   const project = await resolveAttribution(wu, fileStore, deps);
   if (!project) return null;
   // #113 T7：显式多腿项目按 WU→腿归属解析腿分支（matchWuToLeg：workspaceRoot/

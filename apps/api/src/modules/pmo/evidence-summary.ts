@@ -20,19 +20,14 @@
  */
 import { deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { parseWuPmoId } from '../requirements/index.js';
-import { parseWuMetadata } from '../workunit/index.js';
 import { MANUAL_GATE_TYPES } from '../workunit/index.js';
-import type { DeliveryLeg } from './project.service.js';
+import type { DeliveryLeg } from './model.js';
+import { matchWuToLeg } from './project-read.js';
 
-/**
- * @deprecated 兼容别名（progress-rollup 及其测试沿用旧名）：parser 已迁至
- * requirements/wu-pmo-attribution.ts（零依赖叶子——本模块不能传递依赖
- * pmo-branch-resolver → project.service → workunit.service，会成循环）。
- * 2026-08 归因统一后口径 = pmoId 创建期戳。
- * P2-c：从直接赋值改为调用期转发——直接赋值在模块初始化期解引用跨模块绑定，
- * barrel 收口后 requirements↔pmo 环的初始化序下会拿到 undefined（TDZ 崩溃）。
- */
-export const parseWuMetaPmoId: typeof parseWuPmoId = (...args) => parseWuPmoId(...args);
+export { matchWuToLeg } from './project-read.js';
+
+/** @deprecated 兼容别名；正本在 requirements/wu-pmo-attribution.ts。ARCH-04 拆环后无需 TDZ 转发。 */
+export const parseWuMetaPmoId = parseWuPmoId;
 
 /**
  * 证据/归约口径消费的最小 WU 字段集（#410）：summarizeEvidence / partitionSnapshotsByLeg /
@@ -157,23 +152,6 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
 // ============================================
 // #113 T7（#106 子票）：WU→腿归属（仅显式多腿项目消费；单腿不走此口径）
 // ============================================
-
-/**
- * WU→腿归属判定（最小口径，创建期/运行期已有戳，不新增落档）：
- *   ① metadata.workspaceRoot === leg.gitRepo（publish/analysis-handoff 创建期落档的归属根）
- *   ② metadata.worktreeBaseRepo === leg.gitRepo（agent-loop worktree 落档的母仓库）
- *   ③ metadata.pmoBranch === leg.branch（agent-loop 首 step 落档的 PMO 集成分支）
- * 均要求两侧非空才比较；任一命中即归该腿。
- */
-export function matchWuToLeg(metadata: string | null | undefined, leg: DeliveryLeg): boolean {
-  const meta = parseWuMetadata(metadata);
-  if (leg.gitRepo) {
-    if (meta.workspaceRoot === leg.gitRepo) return true;
-    if (meta.worktreeBaseRepo === leg.gitRepo) return true;
-  }
-  if (leg.branch && meta.pmoBranch === leg.branch) return true;
-  return false;
-}
 
 /**
  * 多腿分桶：WU 归首个命中的腿（数组序）；全部不命中 = 未分腿公共 WU（shared）。
