@@ -14,13 +14,13 @@
  *     调 composeStepPrompt → 会话管理 → worktree 准备 → 执行与簿记。
  *
  * 可测试性：role/acceptedTypes/fileStore/事件文件路径全部经 deps 注入；
- * knowledgeService 为模块级单例直接 import（现有测试以 vi.mock 工厂替换整个
- * knowledge-service 模块，同一模块 ID 解析到同一绝对路径，mock 照常生效）。
+ * knowledgePorts.consume 为模块级窄口直接 import（现有测试以 vi.mock 工厂替换
+ * knowledge barrel，同一模块 ID 解析到同一绝对路径，mock 照常生效）。
  */
 
 import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';
-import { knowledgeService } from '../knowledge/index.js';
+import { knowledgePorts } from '../knowledge/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
 import { buildContinuePrompt, buildReplyPrompt } from './agent-loop-parsers.js';
@@ -220,7 +220,7 @@ export async function composeStepPrompt(
   // 截断尺寸经 usage 回传（originalTokens > keptTokens 即发生了段内截断）。
   let injectedKnowledgeIds: string[] = [];
   const knowledge = await runSection('knowledge', async budget => {
-    const injected = await knowledgeService.injectContext(wu.type, {
+    const injected = await knowledgePorts.consume.injectContext(wu.type, {
       tags: [wu.type],
       maxTokens: budget,
     });

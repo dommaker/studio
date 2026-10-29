@@ -6,7 +6,8 @@
 
 ### 核心导出
 
-- `index.ts` — `bootstrap()` 装配入口；catch 兜底 = 拒启（logger.error + process.exit(1)）。P2-b 起首步为 `initConfig()` → `initStore()`（钉定进程级 FileStore，必须先于迁移等一切 store 消费，见 `../core/CONTEXT.md`）；Phase 5 起其后 `registerModuleSinks()`（装配期注入跨模块 sink，须在路由流量前完成）。2026-10-03 起 listen 前移到 registerRoutes 之后（见「注意事项」）
+- `index.ts` — `bootstrap()` 装配入口；catch 兜底 = 拒启（logger.error + process.exit(1)）。P2-b 起首步为 `initConfig()` → `initStore()`（钉定进程级 FileStore，必须先于迁移等一切 store 消费，见 `../core/CONTEXT.md`）；ARCH-06 起随后 `registerKnowledgeAdapters()`，再经 `registerModuleSinks()` 注入跨模块 sink，均在路由流量前完成。2026-10-03 起 listen 前移到 registerRoutes 之后（见「注意事项」）
+- `knowledge.ts` — ARCH-06 Knowledge 显式组合根：启动时注册 review adapter，保证重启后存量 pending knowledge 提案可审批；导入 `knowledge-service.ts` 不再隐式注册，重复调用仍沿用注册表后者生效语义。
 - `config.ts` — `initConfig()`（PORT/HOST 解析 → warnIfNonProdUsesProdRoot → loadConfig 注入 STUDIO_CONFIG_DIR .env）+ `getPort()/getHost()`
 - `migrations.ts` — `runDataMigrations()`（数据区 schema 迁移，失败抛 MigrationError = 拒启）+ `reconcileWorkUnitIndex()`（#170 启动对账，失败不阻断）
 - `seed.ts` — `seedBuiltinSkillsStep()`（#223 内置 skill 播种，best-effort）

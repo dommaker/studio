@@ -45,6 +45,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: { getStats: mockGetStats },
+  knowledgePorts: { measure: { getStats: mockGetStats } },
 }));
 
 import { skillStore } from '../../skills/skill-store.js';

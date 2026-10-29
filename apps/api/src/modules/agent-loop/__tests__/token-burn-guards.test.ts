@@ -48,13 +48,17 @@ const { mockTriggerScheduler } = vi.hoisted(() => ({
 }));
 vi.mock('../../triggers/trigger-registry', () => ({ getTriggerScheduler: () => mockTriggerScheduler }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: vi.fn().mockResolvedValue({ prompt: '', injectedIds: [] }),
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 import { AgentLoop, type StepResult } from '../agent-loop';
 import { isTestLikeWorkUnit, testWuGuardEnabled } from '../agent-loop-guards';

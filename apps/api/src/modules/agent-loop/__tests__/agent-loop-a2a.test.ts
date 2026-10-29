@@ -35,13 +35,17 @@ vi.mock('@dommaker/studio-agent', () => ({
 }));
 
 const { mockInjectContext } = vi.hoisted(() => ({ mockInjectContext: vi.fn() }));
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: mockInjectContext,
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 import { AgentLoop } from '../agent-loop';
 import { SECTION_QUOTAS } from '../prompt-composer';

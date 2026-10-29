@@ -9,7 +9,7 @@
 import type { ExecutionResult } from '@dommaker/studio-agent';
 import { parseWuMetadata, type WorkUnitData, type WorkUnitMetadata } from '../../workunit/index.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
-import { knowledgeService } from '../../knowledge/index.js';
+import { knowledgePorts } from '../../knowledge/index.js';
 import { runStepGuards } from '../step-guards.js';
 import type { StepContext, StepResult } from '../agent-loop.types.js';
 import type { StepDeps } from './loop-deps.js';
@@ -102,7 +102,7 @@ export class StepRunner {
   private async recordExecutionOutcome(wu: WorkUnitData, result: ExecutionResult, consumedKnowledge: string[] = []): Promise<void> {
     this.recordOutcomeEvent(wu, result.success, result.outputText ?? '', undefined, consumedKnowledge);
     try {
-      await knowledgeService.extractFromExecution({
+      await knowledgePorts.produce.extractFromExecution({
         task: wu.scope ?? '',
         diff: result.outputText ?? '',
         success: result.success,
@@ -118,7 +118,7 @@ export class StepRunner {
   /** #90: knowledge:outcome 事件单一正本 —— success/failure 统一经此落盘，避免两套漂移。
    *  errorType 仅失败步携带（success 时 undefined，JSON.stringify 丢弃）。fire-and-forget。 */
   private recordOutcomeEvent(wu: WorkUnitData, success: boolean, details: string, errorType: string | undefined, consumedKnowledge: string[]): void {
-    void knowledgeService.recordOutcome({
+    void knowledgePorts.track.recordOutcome({
       executionId: wu.id,
       agentType: 'claude',
       consumedKnowledge,

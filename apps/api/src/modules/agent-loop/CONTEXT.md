@@ -37,7 +37,7 @@
 
 ### 依赖关系
 
-- 上游：`modules/agents`（barrel：getSystemExecutor / MonitorAlertSource）、`modules/ops`（barrel：dispatchMonitorAlerts / loadCurrentWuContexts，#683 起 monitoring/agent-monitor 并入 ops）、`modules/workunit`、`modules/pmo`、`modules/channels`、`modules/skills`、`modules/knowledge`、`modules/requirements`、`modules/role-memory`、`modules/transcripts`、`modules/triggers`、`core/`（store/system-role/exec-async/host-execution-policy）、`utils/`、`@dommaker/studio-agent`、`@dommaker/studio-shared`
+- 上游：`modules/agents`（barrel：getSystemExecutor / MonitorAlertSource）、`modules/ops`（barrel：dispatchMonitorAlerts / loadCurrentWuContexts，#683 起 monitoring/agent-monitor 并入 ops）、`modules/workunit`、`modules/pmo`、`modules/channels`、`modules/skills`、`modules/knowledge`（ARCH-06 起 prompt-composer 经 `knowledgePorts.consume`，loop-step 经 `knowledgePorts.produce/track`）、`modules/requirements`、`modules/role-memory`、`modules/transcripts`、`modules/triggers`、`core/`（store/system-role/exec-async/host-execution-policy）、`utils/`、`@dommaker/studio-agent`、`@dommaker/studio-shared`
 - 下游：`bootstrap/`（agent-loop/bridges/handlers/lifecycle 装配）、`modules/events`（sse.routes）、`modules/distill`、`modules/role-memory`（动态）。ARCH-02 起 WorkUnit 经 verification/review 端口调用，不再构成模块出边。
 
 ### 注意事项

@@ -14,7 +14,7 @@ import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 import type { FileStore } from '@dommaker/studio-shared';
-import { knowledgeService } from '../knowledge/index.js';
+import { knowledgePorts } from '../knowledge/index.js';
 import { skillStore } from '../skills/index.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { resolveStudioEventsFile, getStudioEventTime } from '@dommaker/studio-shared';
@@ -63,7 +63,7 @@ export function classifyError(errorMsg: string): string {
 export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Suggestion[]> {
   const suggestions: Suggestion[] = [];
   try {
-    const stats = knowledgeService.getStats();
+    const stats = knowledgePorts.measure.getStats();
     const total = stats.total || 0;
 
     // Circuit 1: 冷电路 — 知识总线为空

@@ -17,6 +17,8 @@ import type {
   KnowledgeSubsystem,
   KnowledgeOrigin,
 } from '@dommaker/harness';
+import type { EventEmitter } from 'node:events';
+import type { UnifiedQuery } from './engine/unified-query.js';
 
 // ── Type mapping (absorbed from KnowledgeBus) ──
 
@@ -149,8 +151,8 @@ export interface KnowledgeServiceDeps {
   store: KnowledgeStore;
   lifecycle: KnowledgeLifecycle;
   ingest: KnowledgeIngest;
-  query: any;  // UnifiedQuery
-  eventEmitter: any; // EventEmitter
+  query: UnifiedQuery;
+  eventEmitter: EventEmitter;
 }
 
 export { ENTRY_TYPE_MAP };

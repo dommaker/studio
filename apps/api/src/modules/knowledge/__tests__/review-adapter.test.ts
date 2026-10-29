@@ -27,9 +27,9 @@ const { mockCreateCardMessage, mockPromote, mockDemote } = vi.hoisted(() => ({
   mockDemote: vi.fn().mockResolvedValue(undefined),
 }));
 
-// onApprove/onReject 经动态 import 取 knowledgeService 单例——mock 掉以隔离真实知识库
+// onApprove/onReject 经动态 import 取 lifecycle 窄口——mock 掉以隔离真实知识库
 vi.mock('../knowledge-service.js', () => ({
-  knowledgeService: { promote: mockPromote, demote: mockDemote },
+  knowledgePorts: { lifecycle: { promote: mockPromote, demote: mockDemote } },
 }));
 
 import { FileStore } from '@dommaker/studio-shared';

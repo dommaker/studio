@@ -84,14 +84,18 @@ vi.mock('../../triggers/trigger-registry', () => ({
   }),
 }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: mockInjectContext,
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
-  },
-  INJECT_TOKEN_BUDGET: 927,
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+    INJECT_TOKEN_BUDGET: 927,
+  };
+});
 
 import { FileStore } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';

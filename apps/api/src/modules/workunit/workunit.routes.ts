@@ -64,7 +64,6 @@ import {
   workUnitResponseSchema,
   lastDoneResponseSchema,
   changedFilesResponseSchema,
-  treeTokenReportSchema,
   treeTokenReportResponseSchema,
   verifyResultResponseSchema,
   dispatchReviewResponseSchema,
@@ -80,10 +79,17 @@ import type { WorkUnitData } from './workunit-crud.js';
 import type { CreateWorkUnitInput, UpdateWorkUnitInput } from './workunit-crud.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { resolveClaimable, buildStatusById } from './wu-dependencies.js';
 import { adoptInspectionOpportunity, ignoreInspectionOpportunity } from './inspection-opportunities.js';
 import { resolveReviewConfirm, ConfirmPayloadError } from './confirm-payload.js';
-import { workUnitPort, type WorkUnitMessageMeta as MessageMeta } from './workunit-ports.js';
+import { workUnitPort } from './workunit-ports.js';
+import {
+  getWorkUnitTreeTokens,
+  listClaimableWorkUnits,
+  submitPlanRuling,
+  WorkUnitApplicationError,
+  type WorkUnitApplicationErrorCode,
+} from './workunit-application.js';
+import { listDiscussionMessages, patchDiscussionMessage, postDiscussionMessage } from './workunit-discussion.js';
 import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './waiting-input.js';
 import { claimWorkUnitAndAnnounce } from './claim-announce.js';
 import { listWorkUnitsChangedFiles } from './wu-changed-files.js';
@@ -110,6 +116,23 @@ async function mustGetWu(id: string): Promise<WorkUnitData> {
   const wu = await getService().getById(id);
   if (!wu) throw new HttpError(404, 'NOT_FOUND', `WorkUnit ${id} not found`);
   return wu;
+}
+
+const APPLICATION_ERROR_STATUS: Record<WorkUnitApplicationErrorCode, 400 | 404 | 409> = {
+  NOT_FOUND: 404,
+  NOT_BLOCKED: 409,
+  NO_PENDING_RULING: 409,
+  INVALID_RULING: 400,
+  NO_CHANNEL: 400,
+  INVALID_INPUT: 400,
+};
+
+/** 应用用例领域错误 → HTTP；其余异常交给 defineRoute 的既有 500 边界。 */
+function rethrowApplicationError(error: unknown): never {
+  if (error instanceof WorkUnitApplicationError) {
+    throw new HttpError(APPLICATION_ERROR_STATUS[error.code], error.code, error.message);
+  }
+  throw error;
 }
 
 function toIsoDate(value: Date | string): string;
@@ -154,7 +177,7 @@ openRoutes.get('/', defineRoute(
     const { type, status, assigneeId, channelId, parentId, attributed, projectId, q } = input.query;
     const { page, limit } = parsePagination(req);
 
-    const result = await getService().list({
+    const result = await listClaimableWorkUnits({
       type,
       status,
       assigneeId,
@@ -168,15 +191,9 @@ openRoutes.get('/', defineRoute(
       q: q?.trim() ? q.trim() : undefined,
       page,
       limit,
-    });
+    }, { service: getService(), fileStore: getStore() });
 
-    // #109：列表项附「可认领」标记（claimable）供 UI 使用 —— unassigned 且
-    // blockedBy 依赖全了结才为 true；profile 无关（认领侧仍由 loop observe 判定）。
-    // 仅当本页含 unassigned 行才读 index 做依赖判定（其余行 claimable 恒 false）
-    const statusById = result.data.some(w => w.status === 'unassigned')
-      ? buildStatusById(await getStore().getIndex())
-      : new Map<string, string>();
-    const data = result.data.map(w => ({ ...toWorkUnitWire(w), claimable: resolveClaimable(w, statusById) }));
+    const data = result.data.map(w => ({ ...toWorkUnitWire(w), claimable: w.claimable }));
 
     return paginated(data, makePagination(page, limit, result.total));
   },
@@ -289,12 +306,11 @@ writeRoutes.post('/:id/opportunities/:oppId/ignore', defineRoute(
 openRoutes.get('/:id/tree-tokens', defineRoute(
   { params: wuIdParamsSchema, response: treeTokenReportResponseSchema },
   async (_req, _res, input) => {
-    const wu = await mustGetWu(input.params.id);
-    const meta = parseWuMetadata(wu.metadata);
-    const rootId = meta.collab?.rootId ?? wu.id;
-    const parsed = treeTokenReportSchema.safeParse(await (await workUnitPort('read')).aggregateTreeTokens(rootId, getStore()));
-    if (!parsed.success) throw new Error('Invalid tree token report from WorkUnit read port');
-    return parsed.data;
+    try {
+      return await getWorkUnitTreeTokens(input.params.id, { service: getService(), fileStore: getStore() });
+    } catch (error) {
+      rethrowApplicationError(error);
+    }
   },
 ));
 
@@ -484,21 +500,12 @@ writeRoutes.post('/:id/resume', defineRoute(
 writeRoutes.post('/:id/ruling', defineRoute(
   { params: wuIdParamsSchema, body: planRulingPayloadSchema, response: workUnitResponseSchema },
   async (_req, _res, input) => {
-    const review = await workUnitPort('review');
     try {
-      const wu = await mustGetWu(input.params.id);
-      if (wu.status !== 'blocked') {
-        throw new HttpError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked（裁决轮挂起）可提交裁决`);
-      }
-      const meta = parseWuMetadata(wu.metadata);
-      if (!Array.isArray(meta.planRulings) || meta.planRulings.length === 0) {
-        throw new HttpError(409, 'NO_PENDING_RULING', '该任务无待裁的裁决轮（planRulings 为空）');
-      }
-      const items = review.validateRulingItems(input.body.items);
-      return toWorkUnitWire(await review.applyPlanRuling(input.params.id, items, getStore()));
-    } catch (err) {
-      if (review.isPlanRulingError(err)) throw new HttpError(400, 'INVALID_RULING', (err as Error).message);
-      throw err;
+      return toWorkUnitWire(await submitPlanRuling(input.params.id, input.body.items, {
+        service: getService(), fileStore: getStore(),
+      }));
+    } catch (error) {
+      rethrowApplicationError(error);
     }
   },
 ));
@@ -580,25 +587,11 @@ writeRoutes.post('/:id/status', requireHuman('Status transitions require Operato
 openRoutes.get('/:id/messages', defineRoute(
   { params: wuIdParamsSchema, query: listMessagesQuerySchema, response: discussionMessagesResponseSchema },
   async (_req, _res, input) => {
-    const take = Math.min(Number(input.query.limit ?? '50'), 100);
-    const beforeDate = input.query.before ? new Date(input.query.before) : undefined;
-
-    // #529：从 WU 解析频道归属（一等列 channelId，与写侧 POST /:id/messages 同字段、
-    // 读写对称）传给直查；wu 不存在或无 channelId（legacy/手工单）→ undefined 走扇出 fallback。
-    const wu = await getService().getById(input.params.id);
-    const result = await (await workUnitPort('message')).listByWorkUnitId({
-      fileStore: getStore(),
-      workUnitId: input.params.id,
-      channelId: wu?.channelId ?? undefined,
-      before: beforeDate,
-      limit: take,
-    });
-
-    return {
-      messages: result.data.map(toDiscussionMessageWire),
-      total: result.total,
-      hasMore: result.data.length < result.total,
-    };
+    const result = await listDiscussionMessages(input.params.id, {
+      limit: Math.min(Number(input.query.limit ?? '50'), 100),
+      before: input.query.before ? new Date(input.query.before) : undefined,
+    }, { service: getService(), fileStore: getStore() });
+    return { ...result, messages: result.messages.map(toDiscussionMessageWire) };
   },
 ));
 
@@ -607,30 +600,13 @@ writeRoutes.post('/:id/messages', defineRoute(
   { params: wuIdParamsSchema, body: postMessageBodySchema, response: discussionMessageResponseSchema },
   { status: 201 },
   async (_req, _res, input) => {
-    const { content, replyToId, authorType = 'human', agentName } = input.body;
-
-    // Verify WorkUnit exists
-    const wu = await mustGetWu(input.params.id);
-
-    // Need a channelId — use WorkUnit's channelId or fallback to system channel
-    let channelId = wu.channelId;
-    if (!channelId) {
-      const rndChannels = await getStore().listChannels({ type: 'rnd' });
-      const sysChannel = rndChannels.length > 0 ? rndChannels[0] : null;
-      if (!sysChannel) {
-        throw new HttpError(400, 'NO_CHANNEL', 'No channel available for discussion messages');
-      }
-      channelId = sysChannel.id;
-    }
-
-    if (authorType === 'agent' && agentName) {
-      return toDiscussionMessageWire(await (await workUnitPort('message')).createAgentMessage({
-        fileStore: getStore(), channelId, agentName, content, replyToId, workUnitId: input.params.id,
+    try {
+      return toDiscussionMessageWire(await postDiscussionMessage(input.params.id, input.body, {
+        service: getService(), fileStore: getStore(),
       }));
+    } catch (error) {
+      rethrowApplicationError(error);
     }
-    return toDiscussionMessageWire(await (await workUnitPort('message')).createHumanMessage({
-      fileStore: getStore(), channelId, content, replyToId, workUnitId: input.params.id,
-    }));
   },
 ));
 
@@ -639,31 +615,16 @@ writeRoutes.patch('/:id/messages/:messageId', defineRoute(
   { params: messageParamsSchema, body: patchMessageBodySchema, response: discussionMessageResponseSchema },
   { errors: [{ match: 'not found', status: 404, code: 'NOT_FOUND' }] },
   async (_req, _res, input) => {
-    const { content, meta } = input.body;
-
-    if (content === undefined && meta === undefined) {
-      throw new HttpError(400, 'INVALID_INPUT', 'content or meta is required');
+    try {
+      return toDiscussionMessageWire(await patchDiscussionMessage(
+        input.params.id,
+        input.params.messageId,
+        input.body,
+        { service: getService(), fileStore: getStore() },
+      ));
+    } catch (error) {
+      rethrowApplicationError(error);
     }
-
-    // Verify message belongs to this WorkUnit
-    // B2（#529 同款口径）：从 WU 解析频道归属直查，消全频道扇出；
-    // wu 不存在或无 channelId（legacy/手工单）→ undefined 走扇出 fallback
-    const wu = await getService().getById(input.params.id);
-    const found = await getStore().getMessageById(input.params.messageId, wu?.channelId ?? undefined);
-    if (!found) {
-      throw new HttpError(404, 'NOT_FOUND', `Message ${input.params.messageId} not found`);
-    }
-    if (found.message.workUnitId !== input.params.id) {
-      throw new HttpError(400, 'INVALID_INPUT', 'Message does not belong to this WorkUnit');
-    }
-
-    return toDiscussionMessageWire(await (await workUnitPort('message')).updateMessage({
-      fileStore: getStore(),
-      messageId: input.params.messageId,
-      channelId: found.channelId,
-      content,
-      meta: meta as MessageMeta | undefined,
-    }));
   },
 ));
 

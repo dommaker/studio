@@ -17,23 +17,9 @@ import {
   ERROR_CODES,
   type Company,
 } from '@dommaker/studio-contract';
-import { generateId } from '@dommaker/studio-shared';
-import * as path from 'path';
-import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
-
-
-const COMPANIES_DIR = studioPath('data', 'companies');
-
-function companyPath(id: string): string {
-  return path.join(COMPANIES_DIR, `${id}.json`);
-}
-
-async function listCompanies(): Promise<Company[]> {
-  // P2-e：目录清单走 FileStore listJsonInDir seam（ENOENT → []、损坏文件跳过，语义同原裸 readdir+readJson 循环）
-  return getStore().listJsonInDir<Company>(COMPANIES_DIR);
-}
+import { companyPath, createCompany, listCompanies } from './company-application.js';
 
 const router = Router();
 
@@ -44,36 +30,11 @@ const COMPANY_SIZE_CONFIG = {
   large: { name: '大型公司', roleLimit: 30 },
 };
 
-async function createCompany(name: string): Promise<Company> {
-  const id = generateId('company');
-  const now = new Date().toISOString();
-  const company: Company = { id, name, size: 'custom', createdAt: now, updatedAt: now };
-  await getStore().writeJson(companyPath(id), company);
-
-  // 🆕 AS-016: 自动创建默认 OKR
-  const { getOkrService } = await import('../pmo/index.js');
-  try {
-    await getOkrService().createDefaultOKR(company.id);
-  } catch (okrError) {
-    // OKR 创建失败不影响公司创建
-    const { logger } = await import('../../utils/logger.js');
-    logger.warn({ companyId: company.id, okrError }, 'Failed to create default OKR');
-  }
-  return company;
-}
-
 /**
  * GET /api/v1/companies
  * 获取公司列表；空库时自动创建默认公司（#434：设置页公司节删除后，创建兜底挪到服务端）
  */
-router.get('/', defineRoute({}, async () => {
-  let companies = await listCompanies();
-  if (companies.length === 0) {
-    companies = [await createCompany('我的工作空间')];
-  }
-  companies.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  return companies;
-}));
+router.get('/', defineRoute({}, async () => listCompanies()));
 
 /**
  * POST /api/v1/companies

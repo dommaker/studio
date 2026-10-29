@@ -66,14 +66,14 @@ function renderKnowledgeCard(p: KnowledgeReviewProposal): { content: string; car
 /**
  * approve 后动作：逐条目 promote（draft→verified，参与注入）——
  * 自旧审核闭环（前端逐条目调 /knowledge-service/promote）原样搬入。
- * 动态 import 取 knowledgeService 单例（避免与 knowledge-service.ts 模块加载期循环依赖，
+ * 动态 import 取 knowledgePorts.lifecycle 窄口（避免与 knowledge-service.ts 模块加载期循环依赖，
  * 同 review-proposal/card.ts 动态 import channel-message.service 口径）。
  */
 async function executeKnowledgeApproval(p: ReviewProposalRecord<KnowledgeReviewProposal>): Promise<ApproveOutcome> {
   try {
-    const { knowledgeService } = await import('./knowledge-service.js');
+    const { knowledgePorts } = await import('./knowledge-service.js');
     for (const e of p.entries) {
-      await knowledgeService.promote(e.id);
+      await knowledgePorts.lifecycle.promote(e.id);
     }
     return { status: 'executed', data: { promoted: p.entries.length } };
   } catch (e) {
@@ -83,9 +83,9 @@ async function executeKnowledgeApproval(p: ReviewProposalRecord<KnowledgeReviewP
 
 /** reject 后动作：逐条目 demote（draft→archived，不再注入） */
 async function executeKnowledgeRejection(p: ReviewProposalRecord<KnowledgeReviewProposal>): Promise<void> {
-  const { knowledgeService } = await import('./knowledge-service.js');
+  const { knowledgePorts } = await import('./knowledge-service.js');
   for (const e of p.entries) {
-    await knowledgeService.demote(e.id);
+    await knowledgePorts.lifecycle.demote(e.id);
   }
 }
 
@@ -104,7 +104,7 @@ const knowledgeKit = createJsonlReviewAdapter<KnowledgeReviewProposal>({
 
 /**
  * 注册 knowledge adapter（kind='knowledge'）。同 kind 重复注册后者生效（幂等）。
- * 运行时装配 = knowledge-service.ts 单例创建处（模块加载即注册，保证重启后存量
+ * 运行时装配 = bootstrap/knowledge.ts（ARCH-06 显式组合根，保证重启后存量
  * pending 提案可审批）；submitKnowledgeProposal 自助注册兜底（同 #353/#354 口径）。
  */
 export function registerKnowledgeReviewAdapter(deps?: {

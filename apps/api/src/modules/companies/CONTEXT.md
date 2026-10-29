@@ -8,7 +8,8 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| `default router` | `routes.ts` | Express 路由器：`GET /` 列表、`POST /` 创建、`GET /:companyId` 详情、`PATCH /:companyId` 更新、`GET /sizes/config` 规模配置、`GET /:companyId/hall-stats` 大厅统计 |
+| `default router` | `routes.ts` | Express 路由器：`GET /` 列表、`POST /` 创建、`GET /:companyId` 详情、`PATCH /:companyId` 更新、`GET /sizes/config` 规模配置、`GET /:companyId/hall-stats` 大厅统计；ARCH-06 仅将 GET list/POST create 收薄为输入、用例调用与响应，其他 CRUD 不在本票迁移范围 |
+| `createCompany` / `listCompanies` | `company-application.ts` | ARCH-06 应用用例：公司落盘 + best-effort 默认 OKR、空库默认公司与排序；`CompanyStorePort` 仅暴露语义 `list()/save(Company)`，生产 adapter 内封闭目录、companyPath 与 FileStore 原语；依赖可注入，脱 HTTP 直测覆盖 OKR 失败不阻断公司创建 |
 
 ### 依赖关系
 

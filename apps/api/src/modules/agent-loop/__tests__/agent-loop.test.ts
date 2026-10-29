@@ -101,13 +101,17 @@ const { mockInjectContext, mockRecordOutcome, mockExtractFromExecution } = vi.ho
   mockExtractFromExecution: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: mockInjectContext,
     recordOutcome: mockRecordOutcome,
     extractFromExecution: mockExtractFromExecution,
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 import { AgentLoop } from '../agent-loop';
 import { isProcessAlive } from '../agent-loop-parsers';

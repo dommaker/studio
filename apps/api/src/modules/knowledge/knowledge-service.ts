@@ -1,9 +1,8 @@
 /**
  * KnowledgeService — Unified knowledge capability layer
  *
- * Single owner of all knowledge capabilities. Not a facade — real implementation.
- * All consumers (Pipeline Agents, Channel, External Agent Runtime, Studio UI)
- * access knowledge through KnowledgeService.
+ * 短期兼容 facade：公共方法仅委托六能力实现；ARCH-06 起新消费者可按
+ * knowledge-ports.ts 的窄口依赖。adapter 注册由 bootstrap 显式完成，导入本模块无注册副作用。
  *
  * 6 capabilities（#669 沿能力边界拆分，纯结构移动不改行为；本文件为门面：
  * prototype 方法面 33 不变，方法为薄封装委托实现模块）：
@@ -25,11 +24,10 @@
  * @see docs/specs/arch/knowledge-service.md
  */
 
-import type {
-  KnowledgeEntry,
-  QueryFilter,
-} from '@dommaker/harness';
+import type { KnowledgeEntry } from '@dommaker/harness';
 import type { CreateResolutionInput } from '@dommaker/studio-shared';
+import type { UnifiedQueryFilter } from './engine/unified-query.js';
+import { createKnowledgePorts, type KnowledgeServiceFacade } from './knowledge-ports.js';
 // Measure 类型正本在 knowledge-metrics.ts（工单 29），此处 re-export 保持对外导出语义不变
 export type { FlywheelMetrics, HealthReport, AuditReport, AuditFinding, AccuracyReport, AccuracyData } from './knowledge-metrics.js';
 // trends 数据层与形态门禁已抽到 trend-data.ts / knowledge-form-gate.ts（工单 29），
@@ -37,7 +35,6 @@ export type { FlywheelMetrics, HealthReport, AuditReport, AuditFinding, Accuracy
 export { writeTrendData } from './trend-data.js';
 export { validateKnowledgeForm } from './knowledge-form-gate.js';
 export type { FormValidationResult } from './knowledge-form-gate.js';
-import { registerKnowledgeReviewAdapter } from './review-adapter.js';
 // 语义检索/RAG 支撑已抽到 knowledge-semantic-search.ts（工单 29）
 import {
   execMcpLocalRagQuery,
@@ -110,10 +107,10 @@ export type {
 
 // ── KnowledgeService ─────────────────────────────────────────
 
-export class KnowledgeService {
+export class KnowledgeService implements KnowledgeServiceFacade {
   private readonly deps: KnowledgeServiceDeps;
   /** R4 接线回归测试（knowledge-service-inject-wiring）经实例 introspect query 是否为 UnifiedQuery */
-  private readonly query: any;
+  private readonly query: UnifiedQuery;
   /** E2（断点 G）：mcp-local-rag 可用性探测缓存（实例字段，不占 prototype 方法数） */
   private readonly ragProbe: RagProbeState = { cache: null };
 
@@ -215,10 +212,10 @@ export class KnowledgeService {
     return searchHybridImpl(this.deps, this.ragProbe, query, limit);
   }
 
-  async list(filter?: QueryFilter): Promise<KnowledgeEntry[]> {
+  async list(filter?: UnifiedQueryFilter): Promise<KnowledgeEntry[]> {
     // UnifiedQuery.listEntries 返回 { entries, total }（分页形态）；本方法对外保持数组契约。
-    const result: any = await this.deps.query.listEntries(filter || {});
-    return Array.isArray(result) ? result : (result?.entries ?? []);
+    const result = await this.deps.query.listEntries(filter || {});
+    return Array.isArray(result) ? result : (result.entries ?? []);
   }
 
   async get(id: string): Promise<KnowledgeEntry | null> {
@@ -358,6 +355,5 @@ export const knowledgeService = new KnowledgeService({
   eventEmitter: new EventEmitter(),
 });
 
-// #355：knowledge 人审提案 adapter 运行时装配（kind='knowledge'，review-proposal 正本）。
-// 模块加载即注册，保证重启后存量 pending 提案可经通用端点审批（同 kind 重复注册幂等）。
-registerKnowledgeReviewAdapter();
+/** 新消费者按六能力取窄口；兼容 facade 与 adapter 注册均不承担隐式装配副作用。 */
+export const knowledgePorts = createKnowledgePorts(knowledgeService);

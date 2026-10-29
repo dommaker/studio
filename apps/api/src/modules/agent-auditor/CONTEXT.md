@@ -22,7 +22,7 @@ Auditor Agent（P2-d 刀4 自 modules/agents/auditor 提升为顶层模块）：
 
 ### 依赖关系
 
-- 上游：`modules/knowledge`（knowledgeService/resolutionService/evalCaseGenerator）、`modules/skills`（skillStore）、`modules/workunit`、`modules/review-proposal`（正本发卡）、`modules/audit-logs`（recordAgentDecision）、`core/store`、`utils/`（studio-events/message-meta/errors）；动态 import `modules/triage`（升级）、`modules/channels`、`modules/pmo`（压环）
+- 上游：`modules/knowledge`（auditor-rules 经 `knowledgePorts.measure`；其余既有 knowledgeService/resolutionService/evalCaseGenerator 消费不变）、`modules/skills`（skillStore）、`modules/workunit`、`modules/review-proposal`（正本发卡）、`modules/audit-logs`（recordAgentDecision）、`core/store`、`utils/`（studio-events/message-meta/errors）；动态 import `modules/triage`（升级）、`modules/channels`、`modules/pmo`（压环）
 - 下游：`bootstrap/services.ts`、`bootstrap/lifecycle.ts`、`modules/audit-logs`（proposal-source 动态 import 注册 review adapter）
 
 ### 注意事项

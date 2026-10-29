@@ -36,6 +36,8 @@ export interface UnifiedQueryFilter {
   tags?: string[];
   origins?: string[];
   maturity?: string[];
+  /** 注入调用方既有兼容字段；结构化投影当前不使用。 */
+  status?: string;
   excludeTags?: string[];
   agentType?: string;
   sources?: ('prisma' | 'store')[];

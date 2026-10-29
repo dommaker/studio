@@ -1,7 +1,7 @@
 // Triage Service — incident response: diagnose → classify → act → resolve/escalate
 import { eventBus, FileStore, resolveStudioLogFile } from '@dommaker/studio-shared';
 import { classifySystemError } from './error-class.js';
-import { knowledgeService } from '../knowledge/index.js';
+import { knowledgePorts } from '../knowledge/index.js';
 import type { SystemTriageResult } from './error-class.js';
 import type { TriageIncidentInput, TriageLogEntry } from './types.js';
 import { appendIncidentUpdate } from './incident-store.js';
@@ -432,7 +432,7 @@ class TriageService {
     eventBus.publish('incident.resolved', { incidentId, resolution });
 
     // H4: Record fix strategy to KnowledgeService so KK can extract later
-    knowledgeService.recordPattern({
+    knowledgePorts.produce.recordPattern({
       type: 'fix',
       title: `[Triage Fix] ${resolution.slice(0, 80)}`,
       content: `${resolution}\nIncident: ${incidentId}`,
@@ -442,7 +442,7 @@ class TriageService {
     // B13-002: Triage→Resolution 回写 — 将修复方案写入 Resolution KB
     // M1：layer 写 harness StorageLayer 合法值 'project'，原分层值挪进 tags 保信息
     try {
-      await knowledgeService.createResolution({
+      await knowledgePorts.resolve.createResolution({
         pattern: resolution.slice(0, 200),
         errorClass: 'triage_fix',
         layer: 'project',

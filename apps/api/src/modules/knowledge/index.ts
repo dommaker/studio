@@ -8,8 +8,16 @@ export { getEnvSnapper } from './producers/env-snapper.js';
 export { evalCaseGenerator } from './producers/eval-case-generator.js';
 export { startEvolutionScheduler, stopEvolutionScheduler } from './scheduling/evolution-scheduler.js';
 export { checkDocumentFreshness } from './knowledge-design-doc.js';
-export { knowledgeService } from './knowledge-service.js';
+export { knowledgeService, knowledgePorts } from './knowledge-service.js';
 export type { AuditReport, FlywheelMetrics } from './knowledge-service.js';
+export type {
+  KnowledgeConsumePort,
+  KnowledgeLifecyclePort,
+  KnowledgeMeasurePort,
+  KnowledgeProducePort,
+  KnowledgeResolvePort,
+  KnowledgeTrackPort,
+} from './knowledge-ports.js';
 export { scheduleVectorDbSync, sharedLifecycle, sharedStore, UNIFIED_KNOWLEDGE_DIR, verifyConsumptionChain } from './knowledge-singletons.js';
 export { knowledgeSync } from './scheduling/knowledge-sync.service.js';
 export { preferenceObserver } from './producers/preference-observer.js';

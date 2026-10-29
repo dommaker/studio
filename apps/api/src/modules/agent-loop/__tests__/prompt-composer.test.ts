@@ -43,6 +43,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 vi.mock('../../knowledge/knowledge-service', () => ({
   knowledgeService: { injectContext: mockInjectContext },
+  knowledgePorts: { consume: { injectContext: mockInjectContext } },
 }));
 
 vi.mock('../agent-loop-events', () => ({
