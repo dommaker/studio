@@ -141,12 +141,13 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
     ...(args.triggerId ? { triggerId: args.triggerId } : {}),
     ...(args.provider ? { provider: args.provider } : {}),
   };
-  await metricsFileStore.appendJsonl(eventsFile, {
+  const event = {
     type: 'workunit:tokens',
     source: 'agent-loop',
     payload: JSON.stringify(payload),
     createdAt: new Date().toISOString(),
-  });
+  };
+  await metricsFileStore.appendJsonl(eventsFile, event);
   // SSE 负载加深：落盘成功后顺带实时推送（信封形态同 execution-step-events 的 eventBus.publish）。
   // best-effort：eventBus.publish 为同步 emit（订阅侧异常会向上抛），try/catch 保住记账主流程。
   try {
@@ -163,8 +164,8 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
   // C3: 进程内当日预算计数器累加（口径与熔断扫描一致 = billed ?? total），
   // 仅在落盘成功后计；未 bootstrap/跨天由 daily-token-budget 自重扫收敛。
   noteTokensWritten(eventsFile, billedTokens ?? (args.injectedTokens + (executionTokens ?? 0)));
-  // #320: token 账本写侧记账（失败隔离，内部 catch；账本落后由读方 watermark 补扫自愈）
-  await noteTokenLedgerWritten(eventsFile);
+  // #320/PERF-01: 传入 append 的同一事件对象；写侧直接累计，落后时由账本增量补扫。
+  await noteTokenLedgerWritten(eventsFile, event);
 }
 
 // ─── tool:call event recording ───

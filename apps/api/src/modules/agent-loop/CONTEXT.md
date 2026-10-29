@@ -55,4 +55,5 @@
 - **子 WU 不继承会话簿记**：clearSessionBookkeeping 清除 14 字段；新增簿记字段必须同步
 - **#467 裁决轮 / #567 方向锁定协议**：RULING/DIRECTION 行 → StepResult.rulings/directions → metadata.planRulings/planDirections；提交落地在 pmo/plan-ruling.ts、pmo/plan-direction.ts
 - **观察/唤醒口径（#330/#493/#523 + B5）**：唤醒只放行不裁决，归属裁决归 observe；B5 回复检测改 `readChannelMessagesDelta` 字节水位增量读
+- **PERF-01 token 写侧契约**：`writeWorkunitTokenEvent` 必须把 appendJsonl 的同一 event 对象传给 `noteTokenLedgerWritten`；账本只在旧 offset 到文件尾精确等于该 event 完整字节时 direct-apply，否则按 byte offset 补扫。direct 保留已有首尾内容锚点，读侧 `syncTokenLedger` 以 size + `dev:ino` + O(1) 首尾 SHA-256 锚点复核；copytruncate/轮转/截断后从事件流重建，调用方不得另传重序列化副本或用最终文件 size 冒充已处理 watermark。
 - **F4 review 派发 / P7 总开关**：`STUDIO_AUTO_REVIEW=false` 闸两条自动路径；事件链失败 30s 进程内重试一次
