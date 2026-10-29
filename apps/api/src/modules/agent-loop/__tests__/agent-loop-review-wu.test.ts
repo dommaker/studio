@@ -110,7 +110,7 @@ describe('P1: review WU 守卫豁免', () => {
 
   async function record(wuId: string, action: string, summary = '结果') {
     const wu = (await wuService.getById(wuId))!;
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action, summary },
     );

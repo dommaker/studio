@@ -4,7 +4,7 @@ import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
 import { shouldResumeSession } from '../session-resume.js';
 import { MAX_SESSIONS_PER_WU } from '../step-retry-policy.js';
 import type { StepResult } from '../agent-loop.types.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { StepDeps } from './loop-deps.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 export interface StepSessionInput {
@@ -20,13 +20,13 @@ export interface StepSessionDecision {
 }
 
 /** #94/#637/#639：按档案中的 CLI 真实会话号判定本步续用形态。 */
-export function resolveStepSession(input: StepSessionInput, host: AgentLoopHost): StepSessionDecision {
+export function resolveStepSession(input: StepSessionInput, deps: StepDeps): StepSessionDecision {
   const { wu, metadata, workspaceRoot, traceId } = input;
   // AgentTask with new interface: provider, sessionId, maxTurns, knowledgeContext
   // F4: profile provider (registry id) → AgentTask. Cast via AgentTask['provider'] because
   // apps/api tsc resolves studio-agent types from its (possibly stale) dist/index.d.ts.
   // （取值前移：续用判定需要 provider）
-  const taskProvider = (host.role.provider || 'claude') as AgentTask['provider'];
+  const taskProvider = (deps.role.provider || 'claude') as AgentTask['provider'];
   // 续用判定（#94 per-WU 化 + #639 按 CLI 真实会话号点名续用）：只信档案，不读 instance 槽位。
   // 候选号选取：claude = metadata.sessionId（档案 UUID 即 claude CLI 真实会话号，会话按
   // (HOME, cwd) 存储，2.1.80 实测异 cwd --resume 报 "No conversation found with session ID"

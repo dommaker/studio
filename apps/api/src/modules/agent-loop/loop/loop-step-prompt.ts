@@ -6,7 +6,7 @@ import {
   type PromptComposerDeps,
 } from '../prompt-composer.js';
 import type { Target } from '../agent-loop.types.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { StepDeps } from './loop-deps.js';
 
 export interface StepPromptInput {
   target: Target;
@@ -24,7 +24,7 @@ export interface StepPromptResolution {
 /** 组装本步 prompt/注入上下文，并汇总 matchedSkills 与 hint 消费增量。 */
 export async function composeAgentStepPrompt(
   input: StepPromptInput,
-  host: AgentLoopHost,
+  deps: StepDeps,
 ): Promise<StepPromptResolution> {
   const { target, wu, metadata, resumeSessionId, metadataUpdates } = input;
   // prompt 组装与上下文注入（hint 读取/注入/消费清除、skill > persona > roster > knowledge
@@ -32,7 +32,7 @@ export async function composeAgentStepPrompt(
   // #95: 续用判定在 worktree 解析后、prompt 组装前完成 —— isNewSession（续用不命中）决定
   // 是否注入「前序进展」段与回放 waitingQuestion。
   const composeDeps = {
-    role: host.role, acceptedTypes: host.acceptedTypes, fileStore: host.fileStore,
+    role: deps.role, acceptedTypes: deps.acceptedTypes, fileStore: deps.fileStore,
     resolveEventsFile: resolveStudioEventsFile,
   };
   const composed = await composeStepPrompt(

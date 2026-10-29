@@ -100,7 +100,7 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
     });
     // 不 start()：recordResult/agentStep 不依赖运行中的 loop 实例
     agentLoop = new AgentLoop(roleA, fileStore);
-    loop = agentLoop as unknown as LoopInternals;
+    loop = agentLoop;
     mockResolveWorkspaceRoot.mockResolvedValue(null); // 跳过提交守卫（无关本测试关注点）
     mockInjectContext.mockResolvedValue({ prompt: '', injectedIds: [] });
   });

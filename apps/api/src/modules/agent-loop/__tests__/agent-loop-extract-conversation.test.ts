@@ -94,7 +94,7 @@ describe('R3: COMPLETE → extractFromConversation', () => {
     const wu = await createActiveWu({ pendingReplies: ['用 OAuth 实现'] });
     mockCompleteOutput();
 
-    const result = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(result.action).toBe('complete');
     expect(mockExtractFromConversation).toHaveBeenCalledTimes(1);
@@ -120,7 +120,7 @@ describe('R3: COMPLETE → extractFromConversation', () => {
       logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
     });
 
-    const result = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(result.action).toBe('progress');
     expect(mockExtractFromConversation).not.toHaveBeenCalled();
@@ -132,7 +132,7 @@ describe('R3: COMPLETE → extractFromConversation', () => {
     mockCompleteOutput();
     mockExtractFromConversation.mockRejectedValueOnce(new Error('LLM down'));
 
-    const result = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(result.action).toBe('complete');
     expect(result.summary).toBe('登录功能已完成');
@@ -144,7 +144,7 @@ describe('R3: COMPLETE → extractFromConversation', () => {
     const wu = await createActiveWu({ knowledgeExtractedAt: new Date().toISOString() });
     mockCompleteOutput();
 
-    const result = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(result.action).toBe('complete');
     expect(mockExtractFromConversation).not.toHaveBeenCalled();

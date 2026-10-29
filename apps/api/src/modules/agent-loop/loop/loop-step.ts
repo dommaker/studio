@@ -4,26 +4,33 @@
  * 锚点 → worktree 解析（./loop-step-worktree.js）→ 会话续用判定与签发（./loop-step-session.js）
  * → prompt 组装（./loop-step-prompt.js）→ Executor 执行与簿记（./loop-step-execution.js）。
  * 附带 outcome 落账两件套（recordExecutionOutcome / recordOutcomeEvent，#90 单一正本）。
- * 全部共享状态经 AgentLoopHost 读写；本类零自有状态。
+ * ARCH-05：输入为显式 StepContext，执行 id 由本类独占，依赖限 StepDeps。
  */
 import type { ExecutionResult } from '@dommaker/studio-agent';
 import { parseWuMetadata, type WorkUnitData, type WorkUnitMetadata } from '../../workunit/index.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { knowledgeService } from '../../knowledge/index.js';
 import { runStepGuards } from '../step-guards.js';
-import type { StepResult, Target } from '../agent-loop.types.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { StepContext, StepResult } from '../agent-loop.types.js';
+import type { StepDeps } from './loop-deps.js';
 import { resolveStepWorktree } from './loop-step-worktree.js';
 import { issueStepSession, resolveStepSession } from './loop-step-session.js';
 import { composeAgentStepPrompt } from './loop-step-prompt.js';
 import { executeAgentStep } from './loop-step-execution.js';
 
 export class StepRunner {
-  constructor(private readonly host: AgentLoopHost) {}
+  private currentExecutionId: string | null = null;
+
+  constructor(private readonly deps: StepDeps) {}
+
+  getCurrentExecutionId(): string | null {
+    return this.currentExecutionId;
+  }
 
   /** Execute one step via Agent process (Agent's token) */
-  async agentStep(target: Target): Promise<StepResult> {
-    const host = this.host;
+  async agentStep(context: StepContext): Promise<StepResult> {
+    const deps = this.deps;
+    const target = context;
     const wu = target.workUnit;
     const metadata = parseWuMetadata(wu.metadata);
 
@@ -31,9 +38,9 @@ export class StepRunner {
     // C3 日 token 预算 / #162 WU 级 tokenBudget / #471 plan 步数额度五段「该不该跑这一步」
     // 前置判定抽到 ./step-guards.js（顺序即优先级，首个命中短路）。命中即返回（skipped/need_input），放行继续。
     const guardOutcome = await runStepGuards({ wu, metadata }, {
-      updateWuMetadata: (wuId, m) => host.workUnitService.update(wuId, { metadata: m }),
-      closeWu: wuId => host.workUnitService.transitionStatus(wuId, 'closed', { id: host.instance?.id ?? host.role.id, type: 'agent' }),
-      postNotice: (wuId, text) => host.postToDiscussionSpace(wuId, text),
+      updateWuMetadata: (wuId, m) => deps.workUnits.update(wuId, { metadata: m }),
+      closeWu: wuId => deps.workUnits.transitionStatus(wuId, 'closed', { id: context.instance?.id ?? deps.role.id, type: 'agent' }),
+      postNotice: (wuId, text) => deps.discussion.postToDiscussionSpace(wuId, text),
       eventsFilePath: resolveStudioEventsFile,
     });
     if (guardOutcome.result) return guardOutcome.result;
@@ -44,22 +51,22 @@ export class StepRunner {
     // §4.2 发言层新鲜度检查：step 开始记录频道版本（recordResult 回帖前比对）。
     // 读取失败按 undefined 处理 —— 跳过检查直接发帖，绝不阻断执行。
     const channelVersion = wu.channelId
-      ? await host.fileStore.getChannelVersion(wu.channelId).catch(() => undefined)
+      ? await deps.fileStore.getChannelVersion(wu.channelId).catch(() => undefined)
       : undefined;
 
     // 本 step metadata 增量（agentStep 落盘、recordResult 原子写）。worktree 解析 / 会话签发 /
     // prompt 组装消费的 hint 清除都合并进这里。
     const metadataUpdates: Partial<WorkUnitMetadata> = {};
 
-    const worktree = await resolveStepWorktree({ wu, metadata, metadataUpdates, traceId }, host);
+    const worktree = await resolveStepWorktree({ wu, metadata, metadataUpdates, traceId }, deps);
     if (worktree.failure) return worktree.failure;
     const { taskProvider, resumeSessionId } = resolveStepSession(
       { wu, metadata, workspaceRoot: worktree.workspaceRoot, traceId },
-      host,
+      deps,
     );
     const { composed, composeDeps } = await composeAgentStepPrompt(
       { target, wu, metadata, resumeSessionId, metadataUpdates },
-      host,
+      deps,
     );
     const session = issueStepSession({ wu, metadata, resumeSessionId, metadataUpdates });
     if (session.failure) return session.failure;
@@ -79,7 +86,8 @@ export class StepRunner {
       composed,
       composeDeps,
     }, {
-      host,
+      step: deps,
+      setCurrentExecutionId: executionId => { this.currentExecutionId = executionId; },
       recordExecutionOutcome: (wu, result, consumedKnowledge) =>
         this.recordExecutionOutcome(wu, result, consumedKnowledge),
       recordOutcomeEvent: (wu, success, details, errorType, consumedKnowledge) =>

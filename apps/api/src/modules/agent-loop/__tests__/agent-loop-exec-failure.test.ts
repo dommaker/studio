@@ -111,7 +111,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
     });
 
     const wu = await createActiveWorkUnit();
-    const result = await (agentLoop as unknown as RecordResultCapable).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(result.action).toBe('failed');
     expect(result.summary).toContain('CLI exited with code 1: boom');
@@ -127,7 +127,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
     });
 
     const wu = await createActiveWorkUnit();
-    await (agentLoop as unknown as RecordResultCapable).agentStep({ workUnit: wu });
+    await (agentLoop).agentStep({ workUnit: wu });
 
     expect(knowledgeService.recordOutcome).toHaveBeenCalledWith(expect.objectContaining({
       success: false,
@@ -143,7 +143,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
     });
 
     const wu = await createActiveWorkUnit();
-    const result = await (agentLoop as unknown as RecordResultCapable).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(result.action).toBe('progress');
     expect(result.metadataUpdates).toHaveProperty('errorType', undefined);
@@ -153,7 +153,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
 
   it('recordResult: failed 记 consecutiveStuck、保持 active、发一条步失败系统消息（#175）', async () => {
     const wu = await createActiveWorkUnit();
-    const loop = agentLoop as unknown as RecordResultCapable;
+    const loop = agentLoop;
 
     await loop.recordResult({ workUnit: wu }, {
       action: 'failed',
@@ -176,7 +176,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
 
   it('recordResult: 连续 3 次 failed → blocked + 频道消息说明失败原因', async () => {
     const wu = await createActiveWorkUnit();
-    const loop = agentLoop as unknown as RecordResultCapable;
+    const loop = agentLoop;
     const failed = {
       action: 'failed',
       summary: 'CLI 执行失败: provider quota exhausted',
@@ -204,7 +204,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
 
   it('recordResult: 中途 progress 清零 consecutiveStuck，之后 failed 重新计数', async () => {
     const wu = await createActiveWorkUnit();
-    const loop = agentLoop as unknown as RecordResultCapable;
+    const loop = agentLoop;
     const failed = { action: 'failed', summary: 'CLI 执行失败: boom' };
 
     await loop.recordResult({ workUnit: wu }, failed);
@@ -221,7 +221,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
 
   it('recordResult: progress/complete 空 summary 不发频道消息', async () => {
     const wu = await createActiveWorkUnit();
-    const loop = agentLoop as unknown as RecordResultCapable;
+    const loop = agentLoop;
 
     await loop.recordResult({ workUnit: wu }, { action: 'progress', summary: '' });
     await loop.recordResult({ workUnit: wu }, { action: 'progress', summary: '   ' });
@@ -243,7 +243,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
     });
 
     const wu = await createActiveWorkUnit();
-    await (agentLoop as unknown as RecordResultCapable).agentStep({ workUnit: wu });
+    await (agentLoop).agentStep({ workUnit: wu });
 
     const ev = await waitForEvent('workunit:execution_step');
     expect(ev).not.toBeNull();
@@ -256,7 +256,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
 
   it('#172: 连续 3 次 failed → blocked 时落 workunit:failed（level=warning + 决策 payload 字段）', async () => {
     const wu = await createActiveWorkUnit();
-    const loop = agentLoop as unknown as RecordResultCapable;
+    const loop = agentLoop;
     const failed = {
       action: 'failed',
       summary: 'CLI 执行失败: provider quota exhausted',
@@ -282,7 +282,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
 
   it('#172: need_input 挂起转 blocked 不产 workunit:failed（挂起 ≠ 终态失败）', async () => {
     const wu = await createActiveWorkUnit();
-    const loop = agentLoop as unknown as RecordResultCapable;
+    const loop = agentLoop;
 
     await loop.recordResult({ workUnit: wu }, { action: 'need_input', summary: '需要人类确认方案' });
     expect((await wuService.getById(wu.id))!.status).toBe('blocked');

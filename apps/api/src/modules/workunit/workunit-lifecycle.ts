@@ -2,22 +2,48 @@
  * WorkUnit 状态机层 —— WorkUnitLifecycleService（#672 自 workunit.service.ts 拆分，纯代码移动）。
  *
  * 本层：状态机迁移（transitionStatus）、系统侧关闭唯一入口（close，#550 收编 wu-closure）、
- * 迁移类写路径唯一落库尾部 persistSnapshot（#550 扩面，评审层共用，故为 protected）、
+ * 迁移类写路径唯一落库尾部 persistSnapshot（#550 扩面，经窄接口供评审用例调用）、
  * 频道删除兜底 rebindSourceChannel。
- * 查询在 workunit-query.ts（基类），评审验收在 workunit-review.ts（子类）。
+ * ARCH-05：状态机留在本 owner，Repository 经构造注入；不再继承 Query。
  */
 
-import { type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { type FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveValidTransitions, WORKUNIT_CLOSED_EVENT_TYPE, type WorkUnitMetadata, type CloseWorkUnitOptions } from './workunit.types.js';
-import { snapshotToData, type WorkUnitData } from './workunit-crud.js';
-import { WorkUnitQueryService } from './workunit-query.js';
+import { snapshotToData, type WorkUnitData, type WorkUnitLifecycleRepository } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
 import { workUnitPort, type WorkUnitAuditActor } from './workunit-ports.js';
 import { logger } from '@dommaker/studio-shared/node';
 
-export class WorkUnitLifecycleService extends WorkUnitQueryService {
+export interface WorkUnitLifecycle {
+  transitionStatus(id: string, newStatus: string, actor?: WorkUnitAuditActor): Promise<WorkUnitData>;
+  close(id: string, opts: CloseWorkUnitOptions): Promise<WorkUnitData>;
+  rebindSourceChannel(fromChannelId: string, toChannelId: string): Promise<number>;
+}
+
+export interface WorkUnitLifecyclePersistence {
+  persistSnapshot(
+    current: WorkUnitSnapshot,
+    metadata: WorkUnitMetadata | string | null,
+    opts: WorkUnitSnapshotTransition,
+  ): Promise<WorkUnitSnapshot>;
+}
+
+export interface WorkUnitSnapshotTransition {
+  eventType: WorkUnitEvent['type'];
+  status?: string;
+  markCompleted?: boolean;
+  patch?: Partial<WorkUnitSnapshot>;
+  aggregateParent?: boolean;
+  auditActor?: WorkUnitAuditActor;
+}
+
+export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLifecyclePersistence {
+  constructor(
+    private readonly fileStore: FileStore,
+    private readonly repository: WorkUnitLifecycleRepository,
+  ) {}
 
   /**
    * Transition WorkUnit status with state machine validation.
@@ -62,7 +88,7 @@ export class WorkUnitLifecycleService extends WorkUnitQueryService {
     // 频道工单路由第一跳（创建时落 pending 跳过展开；expandRoutingHead 幂等）。
     if (current.status === 'pending' && newStatus === 'unassigned'
       && updated.type === 'feature' && updated.channelId) {
-      await this.expandRoutingHead(snapshotToData(updated)).catch(err =>
+      await this.repository.expandRoutingHead(snapshotToData(updated)).catch(err =>
         logger.warn('[WorkUnit] routing expansion on confirm failed (non-blocking)', {
           parentId: updated.id,
           error: String(err),
@@ -146,22 +172,12 @@ export class WorkUnitLifecycleService extends WorkUnitQueryService {
    * reopen（closed → unassigned）thaw 解冻。
    * 各调用方只保留自身策略：状态机/业务守卫、metadata 变更、事件类型、特有级联
    * （如 expandRoutingHead、合并触发）——新迁移入口不得再抄本尾部。
-   * #672：private → protected，评审层（workunit-review.ts 子类）共用本尾部。
+   * ARCH-05：评审用例经 WorkUnitLifecyclePersistence 窄接口调用本尾部。
    */
-  protected async persistSnapshot(
+  async persistSnapshot(
     current: WorkUnitSnapshot,
     metadata: WorkUnitMetadata | string | null,
-    opts: {
-      eventType: WorkUnitEvent['type'];
-      status?: string;
-      markCompleted?: boolean;
-      /** 额外快照字段覆盖（如 blockForManualRelease 清 assigneeId/claimedAt） */
-      patch?: Partial<WorkUnitSnapshot>;
-      /** 父状态聚合开关；缺省 = status ∈ active/blocked/done/closed 时聚合 */
-      aggregateParent?: boolean;
-      /** #591：流转埋点主体透传；缺省按 assigneeId 命中 agent 状态库派生 */
-      auditActor?: WorkUnitAuditActor;
-    },
+    opts: WorkUnitSnapshotTransition,
   ): Promise<WorkUnitSnapshot> {
     const isoNow = new Date().toISOString();
     const nextStatus = opts.status ?? current.status;
@@ -190,7 +206,7 @@ export class WorkUnitLifecycleService extends WorkUnitQueryService {
       data: updated as unknown as Record<string, unknown>,
     };
     await this.fileStore.commitSnapshot(event, updated);
-    await this.publishStatusChanged(updated);
+    await this.repository.publishStatusChanged(updated);
 
     // #591：状态机流转埋点（决策词表 transition，落 audit-logs 轨）——仅真实状态迁移落账
     // （台账补写等无 status 变化的路径不落）；actor 缺省按 assigneeId 命中 agent 状态库派生；
@@ -215,7 +231,7 @@ export class WorkUnitLifecycleService extends WorkUnitQueryService {
     const shouldAggregate = opts.aggregateParent
       ?? (opts.status !== undefined && ['active', 'blocked', 'done', 'closed'].includes(nextStatus));
     if (shouldAggregate) {
-      this.aggregateParentStatus(current.id).catch(err =>
+      this.repository.aggregateParentStatus(current.id).catch(err =>
         logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: current.id, error: String(err) })
       );
     }

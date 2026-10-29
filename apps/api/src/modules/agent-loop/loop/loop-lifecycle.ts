@@ -5,7 +5,7 @@
  * recordStartupFailure / publishInstanceStatus（§6-2 忙闲 SSE，#312/#318 契约负载）/
  * updateIdleState（F6-fix 空闲心跳节流）/ updateStateWithHeartbeatWatch +
  * selfTerminateOnHeartbeatFailure（#179 心跳连败自裁）。
- * 全部共享状态经 AgentLoopHost 读写；本类零自有状态。
+ * ARCH-05：实例、存活、订阅与心跳连败状态由本类独占，外部仅见 LifecycleDeps。
  */
 import { eventBus, type RuntimeStateData } from '@dommaker/studio-shared';
 import { logger, resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
@@ -17,7 +17,8 @@ import { isProcessAlive } from '../agent-loop-parsers.js';
 import { loadCurrentWuContexts, type CurrentWuContext } from '../../ops/index.js';
 // #665（ADR 2026-08-24 落地）：agent.* SSE 负载与 studio-contract 同源
 import type { AgentHealthFailedPayload, AgentInstanceStatusChangedPayload } from '@dommaker/studio-contract';
-import type { AgentLoopHost } from './loop-host.js';
+import type { LifecycleDeps } from './loop-deps.js';
+import type { RuntimeInstanceRow } from '../agent-loop.types.js';
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
@@ -28,34 +29,55 @@ const LIVE_HOLDER_THRESHOLD_MS = 120_000;
 const HEARTBEAT_FAIL_LIMIT = 3;
 
 export class LoopLifecycle {
-  constructor(private readonly host: AgentLoopHost) {}
+  private instance: RuntimeInstanceRow | null;
+  private alive = false;
+  private triggerId: string | null = null;
+  private loopPromise: Promise<void> | null = null;
+  private terminateWrite: Promise<unknown> | null = null;
+  private lastIdleHeartbeatAt = 0;
+  private messageSentHandler: LifecycleDeps['onChannelMessageSent'] | null = null;
+  private workunitChangedHandler: ((payload: unknown) => void) | null = null;
+  private lastPublishedStatus: string | null = null;
+  private consecutiveHeartbeatFailures = 0;
+
+  constructor(private readonly deps: LifecycleDeps, initialInstance: RuntimeInstanceRow | null = null) {
+    this.instance = initialInstance ? { ...initialInstance } : null;
+  }
+
+  get currentInstance(): RuntimeInstanceRow | null {
+    return this.instance ? { ...this.instance } : null;
+  }
+
+  isAlive(): boolean {
+    return this.alive;
+  }
 
   /** Start the agent loop: create instance, register EVENT trigger, enter observe-decide-act cycle.
    *  Returns true when the loop started; false on startup-fatal failure (recorded for UI/monitoring, F2). */
   async start(): Promise<boolean> {
-    const host = this.host;
+    const deps = this.deps;
     try {
       // AC-4.5 + F4: Health probe — verify the profile's provider CLI is available
       // 异步 exec（#374 纪律：loop/启动链禁止 sync 子进程阻塞事件循环）；失败/超时 reject
-      const providerId = host.role.provider || 'claude';
+      const providerId = deps.role.provider || 'claude';
       const probeCmd = buildHealthProbeCommand(providerId);
       try {
         await execAsync(probeCmd, { timeout: 5000 });
       } catch {
         const message = `${resolveProviderDefinition(providerId).displayName} CLI not available (health probe \`${probeCmd}\` failed)`;
-        logger.error(`[AgentLoop] ${message} — agent ${host.role.name} unavailable`);
+        logger.error(`[AgentLoop] ${message} — agent ${deps.role.name} unavailable`);
         await this.recordStartupFailure(message);
         return false;
       }
 
-      const allStates = await host.fileStore.listStates();
+      const allStates = await deps.fileStore.listStates();
 
       // #363：terminated 历史实例的回收已从此处拆除（原 2026-07-30 同角色启动清理），
       // 统一由 instance-timeout-scan 承担（跨角色，每 5min，连带判空删目录闭环）。
 
       // F2: recovery — a successful probe clears previous error states for this role
-      for (const s of allStates.filter(s => s.roleId === host.role.id && s.status === 'error')) {
-        await host.fileStore.updateState(s.id, {
+      for (const s of allStates.filter(s => s.roleId === deps.role.id && s.status === 'error')) {
+        await deps.fileStore.updateState(s.id, {
           status: 'terminated',
           terminatedAt: new Date().toISOString(),
           lastError: null,
@@ -64,10 +86,10 @@ export class LoopLifecycle {
       }
 
       // AC-4.6: Detect and clean up stale previous instances for this role
-      const stalePrev = allStates.find(s => s.roleId === host.role.id && s.status !== 'error' && s.status !== 'terminated' && s.pid && !isProcessAlive(s.pid));
+      const stalePrev = allStates.find(s => s.roleId === deps.role.id && s.status !== 'error' && s.status !== 'terminated' && s.pid && !isProcessAlive(s.pid));
       if (stalePrev) {
         logger.info(`[AgentLoop] Cleaning up stale instance ${stalePrev.id} (PID ${stalePrev.pid})`);
-        await host.fileStore.updateState(stalePrev.id, { status: 'terminated' }).catch(() => {});
+        await deps.fileStore.updateState(stalePrev.id, { status: 'terminated' }).catch(() => {});
       }
 
       // 同角色单活实例守卫（2026-07-30 走查修复）：另一进程持有的活实例存在时 standby。
@@ -76,7 +98,7 @@ export class LoopLifecycle {
       // 回复、会话续用错位命中）。持有者死亡/心跳停摆后，下次挂载（重启或 profile 生命周期
       // 事件）自动接管。stale 清理只管死 pid，管不了两个活进程——本守卫补这一层。
       const liveHolder = allStates.find(s => {
-        if (s.roleId !== host.role.id) return false;
+        if (s.roleId !== deps.role.id) return false;
         if (s.status === 'error' || s.status === 'terminated') return false;
         if (!s.pid || s.pid === process.pid || !isProcessAlive(s.pid)) return false;
         const beat = s.lastHeartbeat ?? s.startedAt;
@@ -84,7 +106,7 @@ export class LoopLifecycle {
       });
       if (liveHolder) {
         const message = `role 已有活实例 ${liveHolder.id}（pid ${liveHolder.pid}，心跳新鲜）持有，本实例 standby —— 持有者退出后重启本实例即可接管`;
-        logger.warn(`[AgentLoop] ${host.role.name}: ${message}`);
+        logger.warn(`[AgentLoop] ${deps.role.name}: ${message}`);
         await this.recordStartupFailure(message);
         return false;
       }
@@ -93,7 +115,7 @@ export class LoopLifecycle {
       const instanceId = randomUUID();
       const state: RuntimeStateData = {
         id: instanceId,
-        roleId: host.role.id,
+        roleId: deps.role.id,
         sessionId: null,
         status: 'idle',
         currentWorkUnitId: null,
@@ -103,27 +125,27 @@ export class LoopLifecycle {
         metadata: null,
         pid: process.pid,
       };
-      await host.fileStore.createState(instanceId, state);
-      host.instance = state;
+      await deps.fileStore.createState(instanceId, state);
+      this.instance = state;
 
-      host.alive = true;
-      logger.info(`[AgentLoop] Started for role ${host.role.name} (instance=${host.instance.id})`);
+      this.alive = true;
+      logger.info(`[AgentLoop] Started for role ${deps.role.name} (instance=${this.instance.id})`);
 
       // AC-3: Register EVENT trigger for workunit.created
       const scheduler = getTriggerScheduler();
-      host.triggerId = `agent-loop-${host.role.id}-workunit-created`;
-      const handlerTarget = `agent-loop-${host.role.id}-observe`;
+      this.triggerId = `agent-loop-${deps.role.id}-workunit-created`;
+      const handlerTarget = `agent-loop-${deps.role.id}-observe`;
 
       scheduler.registerExecuteHandler(handlerTarget, async (context) => {
         // #523（#515 决议 P0-1）：认领真唤醒——不再白跑一次 observe 丢弃结果，
         // 复用 channel.message_sent 同款机制（pendingWake 闩锁 + wakeIdle）叫醒
         // runLoop 自己走 observe→认领；context = trigger scheduler 传入的事件 payload
-        if (host.alive) host.onWorkUnitClaimable(context);
+        if (this.alive) deps.onWorkUnitClaimable(context);
       });
 
       scheduler.registerTrigger({
-        id: host.triggerId,
-        name: `Agent ${host.role.name} observe on workunit.created`,
+        id: this.triggerId,
+        name: `Agent ${deps.role.name} observe on workunit.created`,
         condition: { type: 'EVENT', event: 'workunit.created' },
         action: { type: 'EXECUTE', target: handlerTarget },
         enabled: true,
@@ -138,24 +160,24 @@ export class LoopLifecycle {
       // （防未来跨进程写者与重启间隙——当前生产写消息路径全部经 channel-message.service 发事件；
       //  重启间隙的回复由启动首轮 observe 经 newReplies >= 口径捞回，#493）。
       // #493：过滤+闩锁逻辑收进 onChannelMessageSent（seam 可测）。
-      host.messageSentHandler = (payload) => host.onChannelMessageSent(payload);
-      eventBus.subscribe('channel.message_sent', host.messageSentHandler);
+      this.messageSentHandler = (payload) => deps.onChannelMessageSent(payload);
+      eventBus.subscribe('channel.message_sent', this.messageSentHandler);
 
       // #523（#515 决议 P0-2）+ 2026-09-16 放宽：增订 workunit.status_changed——
       // claimable===true（人闸确认/unclaim/reopen）或 assigneeId===本实例
       // （含 NEED_INPUT 复活 blocked→active，旧口径把它滤掉导致回复后白等 30s）。零新事件类型。
-      host.workunitChangedHandler = (payload) => host.onWorkUnitClaimable(payload);
-      eventBus.subscribe('workunit.status_changed', host.workunitChangedHandler);
+      this.workunitChangedHandler = (payload) => deps.onWorkUnitClaimable(payload);
+      eventBus.subscribe('workunit.status_changed', this.workunitChangedHandler);
 
       // Main loop (non-blocking — fire and forget like original)
-      host.loopPromise = host.runLoop().catch(err =>
-        logger.error(`[AgentLoop] Loop failed for ${host.role.name}: ${err.message}`)
+      this.loopPromise = deps.runLoop().catch(err =>
+        logger.error(`[AgentLoop] Loop failed for ${deps.role.name}: ${err.message}`)
       );
       return true;
     } catch (err) {
       // F2: any other startup-fatal failure is also surfaced
       const message = getErrorMessage(err);
-      logger.error(`[AgentLoop] Startup failed for ${host.role.name}: ${message}`);
+      logger.error(`[AgentLoop] Startup failed for ${deps.role.name}: ${message}`);
       await this.recordStartupFailure(message).catch(() => {});
       return false;
     }
@@ -165,24 +187,24 @@ export class LoopLifecycle {
    *  #635：语义收窄为「置退出意图」——不停租约心跳、不清租约轨道；在飞 step 全程处于
    *  租约保护之下（续租不中断、易主 fencing 可达 handleLost），停心跳收尾在 runLoop 退出点 */
   stop(): void {
-    const host = this.host;
-    host.alive = false;
-    if (host.triggerId) {
-      getTriggerScheduler().unregisterTrigger(host.triggerId);
+    const deps = this.deps;
+    this.alive = false;
+    if (this.triggerId) {
+      getTriggerScheduler().unregisterTrigger(this.triggerId);
     }
     // #330: 退订事件唤醒 + 中断空闲 sleep（waitForStop 不必等满 15s）
-    if (host.messageSentHandler) {
-      eventBus.unsubscribe('channel.message_sent', host.messageSentHandler);
-      host.messageSentHandler = null;
+    if (this.messageSentHandler) {
+      eventBus.unsubscribe('channel.message_sent', this.messageSentHandler);
+      this.messageSentHandler = null;
     }
     // #523: 退订 workunit.status_changed 认领唤醒
-    if (host.workunitChangedHandler) {
-      eventBus.unsubscribe('workunit.status_changed', host.workunitChangedHandler);
-      host.workunitChangedHandler = null;
+    if (this.workunitChangedHandler) {
+      eventBus.unsubscribe('workunit.status_changed', this.workunitChangedHandler);
+      this.workunitChangedHandler = null;
     }
-    host.wakeIdle?.();
-    if (host.instance) {
-      host.terminateWrite = host.fileStore.updateState(host.instance.id, {
+    deps.wakeIdle?.();
+    if (this.instance) {
+      this.terminateWrite = deps.fileStore.updateState(this.instance.id, {
         status: 'terminated',
         terminatedAt: new Date().toISOString(),
       }).catch(err => logger.error(`[AgentLoop] Failed to terminate instance: ${err.message}`));
@@ -192,32 +214,32 @@ export class LoopLifecycle {
   /** Wait for the runLoop promise to fully settle (for test cleanup).
    *  #634: 连带等 stop() 的 terminated 落盘写——重挂方据此确认旧实例完全退出 */
   async waitForStop(): Promise<void> {
-    const host = this.host;
-    if (host.loopPromise) {
-      try { await host.loopPromise; } catch { /* loop errors already logged */ }
+    const deps = this.deps;
+    if (this.loopPromise) {
+      try { await this.loopPromise; } catch { /* loop errors already logged */ }
     }
-    if (host.terminateWrite) {
-      await host.terminateWrite;
+    if (this.terminateWrite) {
+      await this.terminateWrite;
     }
   }
 
   /** F2: Record a startup-fatal failure to runtime state (state.json) + notify via eventBus and SSE */
   async recordStartupFailure(message: string): Promise<void> {
-    const host = this.host;
+    const deps = this.deps;
     const now = new Date().toISOString();
     let errorStateId: string | null = null;
     try {
       // Reuse this role's existing error state if any (avoid one record per retry)
-      const allStates = await host.fileStore.listStates();
-      const existing = allStates.find(s => s.roleId === host.role.id && s.status === 'error');
+      const allStates = await deps.fileStore.listStates();
+      const existing = allStates.find(s => s.roleId === deps.role.id && s.status === 'error');
       if (existing) {
-        await host.fileStore.updateState(existing.id, { lastError: message, lastErrorAt: now });
+        await deps.fileStore.updateState(existing.id, { lastError: message, lastErrorAt: now });
         errorStateId = existing.id;
       } else {
         const instanceId = randomUUID();
         const state: RuntimeStateData = {
           id: instanceId,
-          roleId: host.role.id,
+          roleId: deps.role.id,
           sessionId: null,
           status: 'error',
           currentWorkUnitId: null,
@@ -229,14 +251,14 @@ export class LoopLifecycle {
           lastError: message,
           lastErrorAt: now,
         };
-        await host.fileStore.createState(instanceId, state);
+        await deps.fileStore.createState(instanceId, state);
         errorStateId = instanceId;
       }
     } catch (err) {
       logger.warn(`[AgentLoop] Failed to record startup failure state: ${getErrorMessage(err)}`);
     }
 
-    const payload: AgentHealthFailedPayload = { profileId: host.role.id, name: host.role.name, provider: host.role.provider ?? 'claude', error: message };
+    const payload: AgentHealthFailedPayload = { profileId: deps.role.id, name: deps.role.name, provider: deps.role.provider ?? 'claude', error: message };
     eventBus.publish('agent.health.failed', payload);
     // SSE 'events' topic (same shape as channel-message.service.ts publishSSE)
     eventBus.publish('events', {
@@ -278,11 +300,11 @@ export class LoopLifecycle {
     lastError: string | null;
     lastErrorAt: string | null;
   }): AgentInstanceStatusChangedPayload {
-    const host = this.host;
+    const deps = this.deps;
     return {
-      profileId: host.role.id,
+      profileId: deps.role.id,
       instanceId: input.instanceId,
-      name: host.role.name,
+      name: deps.role.name,
       status: input.status,
       currentWorkUnitId: input.currentWorkUnitId,
       currentWorkUnit: input.ctx?.currentWorkUnit ?? null,
@@ -300,22 +322,22 @@ export class LoopLifecycle {
    * 返回是否仍存活（调用方据此中止本次迭代，不再开新 step）。
    */
   async updateStateWithHeartbeatWatch(update: Partial<RuntimeStateData>): Promise<boolean> {
-    const host = this.host;
-    if (!host.instance) return host.alive;
+    const deps = this.deps;
+    if (!this.instance) return this.alive;
     try {
-      await host.fileStore.updateState(host.instance.id, update);
-      host.consecutiveHeartbeatFailures = 0;
+      await deps.fileStore.updateState(this.instance.id, update);
+      this.consecutiveHeartbeatFailures = 0;
     } catch (err) {
-      host.consecutiveHeartbeatFailures++;
-      logger.warn(`[AgentLoop] Heartbeat/state write failed (${host.consecutiveHeartbeatFailures}/${HEARTBEAT_FAIL_LIMIT})`, {
-        instanceId: host.instance.id,
+      this.consecutiveHeartbeatFailures++;
+      logger.warn(`[AgentLoop] Heartbeat/state write failed (${this.consecutiveHeartbeatFailures}/${HEARTBEAT_FAIL_LIMIT})`, {
+        instanceId: this.instance.id,
         error: getErrorMessage(err),
       });
-      if (host.consecutiveHeartbeatFailures >= HEARTBEAT_FAIL_LIMIT) {
+      if (this.consecutiveHeartbeatFailures >= HEARTBEAT_FAIL_LIMIT) {
         await this.selfTerminateOnHeartbeatFailure();
       }
     }
-    return host.alive;
+    return this.alive;
   }
 
   /**
@@ -324,19 +346,19 @@ export class LoopLifecycle {
    * 写了也会失败）。在飞 WU 由租约到期正常回收（timeout-release）。
    */
   private async selfTerminateOnHeartbeatFailure(): Promise<void> {
-    const host = this.host;
-    if (!host.alive) return;
+    const deps = this.deps;
+    if (!this.alive) return;
     logger.error(`[AgentLoop] Heartbeat write failed ${HEARTBEAT_FAIL_LIMIT} consecutive times — FileStore suspected broken; self-terminating (kill own CLI process group, silent exit)`);
-    host.stopLease();
-    const executionId = host.currentExecutionId;
+    deps.stopLease();
+    const executionId = deps.getCurrentExecutionId();
     if (executionId) {
       try {
-        await host.executor.stopProcessGroup?.(executionId);
+        await deps.executor.stopProcessGroup?.(executionId);
       } catch (err) {
         logger.warn(`[AgentLoop] stopProcessGroup failed (non-blocking): ${getErrorMessage(err)}`);
       }
     }
-    host.alive = false;
+    this.alive = false;
   }
 
   /**
@@ -345,16 +367,16 @@ export class LoopLifecycle {
    * 空闲 >5min 的实例标记 terminated（内存 loop 仍在跑，监控却显示已终止）。
    */
   async updateIdleState(): Promise<void> {
-    const host = this.host;
-    if (!host.instance) return;
+    const deps = this.deps;
+    if (!this.instance) return;
     const update: { status: string; currentWorkUnitId: null; lastHeartbeat?: string } = {
       status: 'idle',
       currentWorkUnitId: null,
     };
     const nowMs = Date.now();
-    if (nowMs - host.lastIdleHeartbeatAt >= IDLE_HEARTBEAT_INTERVAL_MS) {
+    if (nowMs - this.lastIdleHeartbeatAt >= IDLE_HEARTBEAT_INTERVAL_MS) {
       update.lastHeartbeat = new Date(nowMs).toISOString();
-      host.lastIdleHeartbeatAt = nowMs;
+      this.lastIdleHeartbeatAt = nowMs;
     }
     // #179（#66 决议 3 loop 侧）：心跳写连败计数/自裁统一走 watch 入口
     await this.updateStateWithHeartbeatWatch(update);
@@ -376,17 +398,17 @@ export class LoopLifecycle {
    * WU 查询失败/不存在不阻断发布（快照 null 兜底），调用方 fire-and-forget。
    */
   async publishInstanceStatus(status: string, currentWorkUnitId: string | null): Promise<void> {
-    const host = this.host;
-    if (!host.instance || host.lastPublishedStatus === status) return;
-    host.lastPublishedStatus = status;
-    const instance = host.instance;
+    const deps = this.deps;
+    if (!this.instance || this.lastPublishedStatus === status) return;
+    this.lastPublishedStatus = status;
+    const instance = this.instance;
     try {
       // #318：WU 聚合上下文走共享出口（current-wu-context，与 getAgentSummary 同源）——
       // 负载 additive 补 pmo 快照；claimedAt 改快照原样透传（对齐 getAgentSummary 口径）。
       // projects 读取失败不阻断发布（pmo null 兜底），调用方 fire-and-forget。
       // project.service 走动态 import：避免与 pmo/workunit 模块链形成加载期循环依赖（同 monitoring.service 的 lazy 惯例）
       const ctx = currentWorkUnitId
-        ? (await loadCurrentWuContexts(host.fileStore, [currentWorkUnitId], async () => {
+        ? (await loadCurrentWuContexts(deps.fileStore, [currentWorkUnitId], async () => {
             const mod = await import('../../pmo/index.js');
             return mod.projectService.list({ limit: 100000 });
           }).catch(() => new Map())).get(currentWorkUnitId) ?? null

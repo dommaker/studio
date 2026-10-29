@@ -2,15 +2,38 @@
  * WorkUnit 查询派生层 —— WorkUnitQueryService（#672 自 workunit.service.ts 拆分，纯代码移动）。
  *
  * 本层：只读查询与派生——getById / list（多维过滤 + 分页）/ lastDoneByAssignee（#387 批量聚合）。
- * 写路径不在本层：CRUD/Claim 在 workunit-crud.ts（基类），状态机迁移在 workunit-lifecycle.ts，
- * 评审验收在 workunit-review.ts。
+ * 写路径不在本层：CRUD/Claim 在 workunit-crud.ts，状态机迁移在 workunit-lifecycle.ts，
+ * 评审验收在 workunit-review.ts；ARCH-05 起四类用例经构造注入组合，无继承。
  */
 
-import { parseWuPmoId, type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { WorkUnitCrudService, snapshotToData, type WorkUnitData } from './workunit-crud.js';
+import { parseWuPmoId, type FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { snapshotToData, type WorkUnitData } from './workunit-crud.js';
 import { workUnitPort } from './workunit-ports.js';
+import { getStore } from '../../core/store.js';
 
-export class WorkUnitQueryService extends WorkUnitCrudService {
+export interface WorkUnitQuery {
+  getById(id: string): Promise<WorkUnitData | null>;
+  list(options?: WorkUnitListOptions): Promise<{ data: WorkUnitData[]; total: number }>;
+  lastDoneByAssignee(assigneeIds: readonly string[]): Promise<Record<string, WorkUnitData | null>>;
+}
+
+export interface WorkUnitListOptions {
+  type?: string;
+  status?: string;
+  assigneeId?: string;
+  channelId?: string;
+  parentId?: string;
+  failureType?: string;
+  timedOutBefore?: Date;
+  attributed?: boolean;
+  projectId?: string;
+  q?: string;
+  page?: number;
+  limit?: number;
+}
+
+export class WorkUnitQueryService implements WorkUnitQuery {
+  constructor(private readonly fileStore: FileStore = getStore()) {}
 
   /**
    * Get a WorkUnit by id. Returns null if not found.
@@ -23,24 +46,7 @@ export class WorkUnitQueryService extends WorkUnitCrudService {
   /**
    * List WorkUnits with optional filters and pagination.
    */
-  async list(options?: {
-    type?: string;
-    status?: string;
-    assigneeId?: string;
-    channelId?: string;
-    parentId?: string;
-    failureType?: string;
-    timedOutBefore?: Date;
-    // #428（#402 决策 4）：归属维度过滤。false = 未归属（无 reqId 且 pmoId 归因戳
-    // 解析为 null，口径同 #402 决策 1 / #405 AC）；true = 反向；undefined = 不过滤
-    attributed?: boolean;
-    /** #456：按 PMO 项目过滤（ProjectDetailPage next-action 候选）；归属口径与 PMO 台账同源 */
-    projectId?: string;
-    /** 批次 D-2 项4：scope（标题）大小写不敏感子串过滤，与既有过滤取交集 */
-    q?: string;
-    page?: number;
-    limit?: number;
-  }): Promise<{ data: WorkUnitData[]; total: number }> {
+  async list(options?: WorkUnitListOptions): Promise<{ data: WorkUnitData[]; total: number }> {
     const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, attributed, projectId, q, page = 1, limit = 20 } = options ?? {};
 
     let snapshots = await this.fileStore.getIndex();

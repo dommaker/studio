@@ -6,7 +6,7 @@ import { CODE_WORKTREE_TYPES } from '../wu-verification.js';
 import { isGitRepoRoot, resolveWorktreesDir } from '../agent-loop-parsers.js';
 import { resolveExecutionWorkspaceRoot, resolveParentWorktreePath } from '../execution-cwd.js';
 import type { StepResult } from '../agent-loop.types.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { StepDeps } from './loop-deps.js';
 import { logger } from '@dommaker/studio-shared/node';
 import { withExecutionRepo } from '../../../utils/execution-repo-policy.js';
 
@@ -25,7 +25,7 @@ export interface StepWorktreeResolution {
 /** F6 → B3a/B3b-i/PMO-b：解析本步执行根目录与 WU 专属 worktree。 */
 export async function resolveStepWorktree(
   input: StepWorktreeInput,
-  host: AgentLoopHost,
+  deps: StepDeps,
 ): Promise<StepWorktreeResolution> {
   const { wu, metadata, metadataUpdates, traceId } = input;
   // F6 → B3a: WorkUnit 绑定工程 → 解析执行根目录，经 parameters.workspaceRoot
@@ -43,7 +43,7 @@ export async function resolveStepWorktree(
   // 解析不出 git 仓库（无绑定根 / 根目录无 .git）→ 维持现状。
   // #157（T6）：analysis 原型单（建单显式 metadata.prototype=true）同样挂专属 worktree，
   // 分支前缀 prototype/（永不合并）；无标记的普通 analysis 行为逐字节不变。
-  const cwdDeps = { getWuById: (wuId: string) => host.workUnitService.getById(wuId) };
+  const cwdDeps = { getWuById: (wuId: string) => deps.workUnits.getById(wuId) };
   let workspaceRoot = resolveExecutionWorkspaceRoot(metadata);
   const wantsWuWorktree = CODE_WORKTREE_TYPES.has(wu.type)
     || (wu.type === 'analysis' && metadata.prototype === true);
@@ -55,7 +55,7 @@ export async function resolveStepWorktree(
         // per-WU 临时分支从 PMO 分支拉、向 PMO 分支合（merge-on-review-pass 消费 pmoBranch 落档）。
         // 解析/建支失败回落默认 base，绝不阻断执行。
         let pmoBaseBranch: string | null = null;
-        const pmoResolution = await resolvePmoBranchForWU(wu, host.fileStore).catch(() => null);
+        const pmoResolution = await resolvePmoBranchForWU(wu, deps.fileStore).catch(() => null);
         if (pmoResolution) {
           try {
             await ensureBranchExists({

@@ -136,13 +136,11 @@ async function startLoopWithInFlightStep() {
     scope: 'stop 租约守护任务', type: 'task', channelId,
     status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
   });
-  agentLoop = new AgentLoop(mockRole, fileStore);
-  internals = agentLoop as unknown as StopLeaseInternals;
-  internals.wuLease.deps.heartbeatIntervalMs = HEARTBEAT_MS;
+  agentLoop = new AgentLoop(mockRole, fileStore, { leaseHeartbeatIntervalMs: HEARTBEAT_MS });
   await agentLoop.start();
   await vi.waitFor(() => {
     expect(mockExecuteLightweight).toHaveBeenCalled();
-    expect(internals.wuLease.lease?.wuId).toBe(wu.id);
+    expect(agentLoop.hasLease(wu.id)).toBe(true);
   }, { timeout: 5000, interval: 20 });
   return { wu, resolveStep };
 }
@@ -157,7 +155,7 @@ describe('#635: stop() 后租约心跳与 fencing 活到 runLoop 退出', () => 
     agentLoop.stop();
 
     // stop 只置退出意图：租约轨道仍在，心跳未停
-    expect(internals.wuLease.lease?.wuId).toBe(wu.id);
+    expect(agentLoop.hasLease(wu.id)).toBe(true);
 
     // 心跳继续把 timeoutAt 推前（flush 间隔 0，每跳落盘）——续期命中即不会被 timeout-release 回收
     await vi.waitFor(async () => {
@@ -173,7 +171,7 @@ describe('#635: stop() 后租约心跳与 fencing 活到 runLoop 退出', () => 
     expect(mockStopProcessGroup).not.toHaveBeenCalled();
 
     // loop 主循环已退出：心跳停止，timeoutAt 不再推前（此后按既有 5min TTL 到期回收）
-    expect(internals.wuLease.lease).toBeNull();
+    expect(agentLoop.hasLease(wu.id)).toBe(false);
     // 退出瞬间可能恰有一跳在飞（ticking 写盘竞态），先等其落定再锁定「不再推前」
     await new Promise(resolve => setTimeout(resolve, HEARTBEAT_MS * 3));
     const settled = new Date((await wuService.getById(wu.id))!.timeoutAt!).getTime();
@@ -185,7 +183,7 @@ describe('#635: stop() 后租约心跳与 fencing 活到 runLoop 退出', () => 
   it('stop() 后窗口内 WU 被外部 unclaim → 心跳下一跳检出易主，handleLost 杀掉在飞 CLI 进程组', async () => {
     const { wu, resolveStep } = await startLoopWithInFlightStep();
     agentLoop.stop();
-    const executionId = internals.currentExecutionId;
+    const executionId = agentLoop.currentExecutionId;
     expect(executionId).toBeTruthy();
 
     // 模拟 REST terminate 路径外部收单：assigneeId/claimedAt 清空
@@ -195,7 +193,7 @@ describe('#635: stop() 后租约心跳与 fencing 活到 runLoop 退出', () => 
     await vi.waitFor(() => {
       expect(mockStopProcessGroup).toHaveBeenCalledWith(executionId);
     }, { timeout: 3000, interval: 30 });
-    expect(internals.wuLease.lease).toBeNull();
+    expect(agentLoop.hasLease(wu.id)).toBe(false);
 
     // 放行残余 step 让 loop 退出（进程组已被杀，结果回写走既有「无轨道不拦」契约，不在本票范围）
     resolveStep(STEP_RESULT);

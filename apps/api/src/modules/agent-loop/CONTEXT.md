@@ -8,16 +8,17 @@
 
 ### 目录结构
 
-- `agent-loop.ts` — 门面（导出面 = AgentLoop + StepResult；#544 拆除 re-export 门面；#363：原 start() 同角色 terminated 启动清理已拆除，回收归 instance-timeout-scan）：#668 按职责切五段后只留构造接线 + runLoop 主循环编排 + 对外/测试 seam 薄委托；段间共享状态与跨段调用经 `loop/loop-host.ts` 的 AgentLoopHost 接口显式化（模块内部面，不经 index.ts 出模块）
-- `loop/loop-lifecycle.ts` — 生命周期段：start/stop/waitForStop + 实例状态 SSE（publishInstanceStatus/recordStartupFailure）+ #179 心跳连败自裁。start() 健康探针（`buildHealthProbeCommand` + 失败 recordStartupFailure）走 `core/exec-async.execAsync` 异步链（2026-10-03 D 批——原 execSync 在 listen 后 mount 链/profile.created 事件路径按角色串行阻塞事件循环）
-- `loop/loop-observe.ts` — 观察段：observe（§9.5 频道成员过滤 / #221 认领陈旧守卫 / 决策 10 显式认领 / B5 字节水位增量回复检测）+ 事件唤醒三件套（#330/#493/#523：idleSleep / onChannelMessageSent / onWorkUnitClaimable，只放行不裁决）
-- `loop/loop-claim.ts` — 认领段：claimAndAnnounce（#175 认领即发声，#445 委托 workunit/claim-announce）+ 决策 14 适任判断链（ensureClaimFit → recordClaimUnfit → blockIfAllMembersUnfit）
-- `loop/loop-step.ts` — 步执行编排门面：agentStep 串起 step-guards / 频道版本锚点与下述四段；#90 outcome 落账两件套留本文件
-- `loop/loop-step-worktree.ts` / `loop-step-session.ts` / `loop-step-prompt.ts` / `loop-step-execution.ts` — worktree 与 PMO 分支基线解析、会话续用判定与签发、prompt 组装及 hint 消费增量、Executor 执行与重试/记账/事件/收割四段；2026-10-17 纯平移，行为由既有 agent-loop 测试网锁定
-- `loop/loop-record-result.ts` — 结果记录编排门面：recordResult 串起 skipped/fencing、合并视图、completion-gates 与下述三阶段；listUnfinishedChildren + postToDiscussionSpace（频道系统消息唯一出口，经 host seam 供 claim/step 段共用）留本文件
-- `loop/loop-record-reply.ts` / `loop-record-persistence.ts` / `loop-record-events.ts` — DELEGATE 与 §4.2 回帖规则、result-bookkeeping 纯簿记 + F6-c 补验 + 单次原子写、写后通知/失败事件/状态迁移三阶段；ARCH-03 起原子写由 host 注入的 WorkUnit `ExecutionJournal.recordStepResult` 执行，AgentLoop 不再构造/调用通用 metadata mutator
-- `execution-cwd.ts` — 执行目录解析三规则（#481 workspaceRoot 唯一来源 / B3b-i 父 worktree 继承 / 收口守卫 git cwd），deps 注入纯函数（`__tests__/execution-cwd.test.ts` 直测）
-- `agent-loop.types.ts` — 类型契约（纯类型零运行时）
+- `agent-loop.ts` — 门面（导出面 = AgentLoop + AgentLoopOptions + StepContext + StepResult）：构造接线 + runLoop 主循环 + 公共用例薄委托。ARCH-05 删除 `loop/loop-host.ts` 可变 God Host；生产与测试走同一 interface。`AgentLoopOptions.instance` 是构造恢复输入，`currentInstance` 与 StepContext.instance 均为防御快照；`currentExecutionId/hasLease` 仅提供只读观测。
+- `loop/loop-deps.ts` — 各段窄依赖端口：LifecycleDeps / ObserverDeps / ClaimDeps / StepDeps / ResultRecorderDeps，以及 WorkUnit/Discussion/Lease 小接口；不含可变共享状态。
+- `loop/loop-lifecycle.ts` — 生命周期 owner：start/stop/waitForStop + 实例状态 SSE + #179 心跳连败自裁；instance/alive/订阅/心跳连败均由本类独占。start() 健康探针仍走 `core/exec-async.execAsync`。
+- `loop/loop-observe.ts` — 观察段：observe 与事件唤醒；回复水位、pendingWake/wakeIdle 由本类独占，实例与 alive 仅经窄 getter 读取。
+- `loop/loop-claim.ts` — 认领段：claimAndAnnounce + 决策 14 适任判断链，仅依赖 ClaimDeps。
+- `loop/loop-step.ts` — 步执行编排：`agentStep(StepContext)` 串起 step-guards / 频道版本锚点与下述四段，返回 StepResult；实例身份由 AgentLoop 在调用边界快照，currentExecutionId 由 StepRunner 独占。
+- `loop/loop-step-worktree.ts` / `loop-step-session.ts` / `loop-step-prompt.ts` / `loop-step-execution.ts` — worktree、会话、prompt、Executor 四段，统一只收 StepDeps；执行段经窄 callback 更新 currentExecutionId。
+- `loop/loop-record-result.ts` — 结果记录编排：recordResult 串起 skipped/fencing、合并视图、completion-gates 与三阶段；listUnfinishedChildren + postToDiscussionSpace 留本文件。
+- `loop/loop-record-reply.ts` / `loop-record-persistence.ts` / `loop-record-events.ts` — DELEGATE/回帖、簿记原子写、写后事件与状态迁移；ARCH-03 的 WorkUnit `ExecutionJournal.recordStepResult` 语义命令不变，fencing 归 WuLeaseTracker。
+- `execution-cwd.ts` — 执行目录解析三规则，deps 注入纯函数。
+- `agent-loop.types.ts` — 类型契约：StepResult / StepContext（Target + 调用边界 instance 快照）/ Observations / Target / RuntimeInstanceRow。
 - `agent-loop-registry.ts` — profileId→running AgentLoop 注册表（profile 生命周期事件驱动挂载/卸载；#634 provider 变更重挂）
 - `agent-loop-parsers.ts` / `agent-loop-events.ts` / `agent-loop-guards.ts` — 输出解析+prompt 模板纯函数 / tokens/tool:call 落盘 / 测试 WU 守卫+excludeAssignee
 - `step-guards.ts`（#541 入口守卫链：B2 测试 WU / #585 需求+AC / C3 日预算 / #162 WU 预算 / #471 plan 额度）、`step-retry-policy.ts`（#543 重试策略：#94 续用丢失降级 + #96 上下文溢出收敛为 runStepRetry 一份）

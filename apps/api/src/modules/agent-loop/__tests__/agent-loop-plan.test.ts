@@ -91,7 +91,7 @@ describe('plan WU：COMPLETE 解析 + 步数额度（#471）', () => {
 
   async function runCompleteStep(wuId: string) {
     const wu = (await wuService.getById(wuId))!;
-    const loop = agentLoop as unknown as AgentStepCapable;
+    const loop = agentLoop;
     const stepResult = await loop.agentStep({ workUnit: wu });
     await loop.recordResult({ workUnit: wu }, stepResult);
     return stepResult;
@@ -135,7 +135,7 @@ describe('plan WU：COMPLETE 解析 + 步数额度（#471）', () => {
 
   it('plan 步数到 60 额度 → need_input 挂起转人（waitingReason=plan-step-limit，不起会话）', async () => {
     const wu = await setupPlanWu({ stepCount: 60 });
-    const loop = agentLoop as unknown as AgentStepCapable;
+    const loop = agentLoop;
 
     const stepResult = await loop.agentStep({ workUnit: wu });
 
@@ -151,7 +151,7 @@ describe('plan WU：COMPLETE 解析 + 步数额度（#471）', () => {
   it('plan 续期后（planStepAllowance=120，stepCount=61）→ 正常起会话，不再挂起', async () => {
     const wu = await setupPlanWu({ stepCount: 61, planStepAllowance: 120 });
     mockComplete('继续干活\nACTION: PROGRESS: 推进中');
-    const loop = agentLoop as unknown as AgentStepCapable;
+    const loop = agentLoop;
 
     const stepResult = await loop.agentStep({ workUnit: wu });
 
@@ -161,7 +161,7 @@ describe('plan WU：COMPLETE 解析 + 步数额度（#471）', () => {
 
   it('plan stepCount 超 15 未超 60 → recordResult 不强制收口 in_review（STEP_LIMIT 不适用于 plan）', async () => {
     const wu = await setupPlanWu({ stepCount: 20 });
-    const loop = agentLoop as unknown as AgentStepCapable;
+    const loop = agentLoop;
 
     await loop.recordResult({ workUnit: wu }, { action: 'progress', summary: '继续中' });
 
@@ -173,7 +173,7 @@ describe('plan WU：COMPLETE 解析 + 步数额度（#471）', () => {
 
   it('plan 续期授权额度内（allowance=120，stepCount=100）→ recordResult 同样不强制收口', async () => {
     const wu = await setupPlanWu({ stepCount: 100, planStepAllowance: 120 });
-    const loop = agentLoop as unknown as AgentStepCapable;
+    const loop = agentLoop;
 
     await loop.recordResult({ workUnit: wu }, { action: 'progress', summary: '继续中' });
 
@@ -189,7 +189,7 @@ describe('plan WU：COMPLETE 解析 + 步数额度（#471）', () => {
       status: 'active', assigneeId: 'instance-dev',
       metadata: { stepCount: 15 },
     });
-    const loop = agentLoop as unknown as AgentStepCapable;
+    const loop = agentLoop;
 
     await loop.recordResult({ workUnit: wu }, { action: 'progress', summary: '继续中' });
 

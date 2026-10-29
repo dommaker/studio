@@ -18,7 +18,7 @@ import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 export interface ClaimAndAnnounceDeps {
-  wuService: WorkUnitService;
+  wuService: Pick<WorkUnitService, 'claim'>;
   /** 测试注入；缺省 getStore() */
   fileStore?: FileStore;
 }

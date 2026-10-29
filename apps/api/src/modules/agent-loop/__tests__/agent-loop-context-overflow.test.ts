@@ -114,7 +114,7 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
     // 首次（续用形态）报溢出；重试走默认成功
     mockExecuteLightweight.mockImplementationOnce(async () => ({ ...OVERFLOW_FAILURE }));
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     // 接线：首败触发策略重试一次（新建形态）；重试 prompt 带真实滚动摘要段；成功走正常路径
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
@@ -136,7 +136,7 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
     });
     mockExecuteLightweight.mockImplementationOnce(async () => ({ ...OVERFLOW_FAILURE }));
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
     expect(step.action).toBe('progress');
@@ -149,7 +149,7 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
     const wu = await setupWorkUnit({ sessionId: 'sess-overflow', sessionCount: 1 });
     mockExecuteLightweight.mockResolvedValue({ ...OVERFLOW_FAILURE });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
     expect(step.action).toBe('need_input');
@@ -168,7 +168,7 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
     const wu = await setupWorkUnit({ sessionId: 'sess-overflow', sessionCount: 5 });
     mockExecuteLightweight.mockResolvedValue({ ...OVERFLOW_FAILURE });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     // 只执行一次（无重试）
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
@@ -184,7 +184,7 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
       success: false, error: 'CLI boom', logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
     });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
     expect(step.action).toBe('failed');
@@ -195,7 +195,7 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
     const wu = await setupWorkUnit({ sessionId: 'sess-lost', sessionCount: 5 });
     mockExecuteLightweight.mockResolvedValue({ ...SESSION_NOT_FOUND_FAILURE });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
     expect(step.action).toBe('need_input');
@@ -206,7 +206,7 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
     const wu = await setupWorkUnit({ sessionId: 'sess-lost', sessionCount: 1 });
     mockExecuteLightweight.mockImplementationOnce(async () => ({ ...SESSION_NOT_FOUND_FAILURE }));
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
     expect(step.action).toBe('progress');

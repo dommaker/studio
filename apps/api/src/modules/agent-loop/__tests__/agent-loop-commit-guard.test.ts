@@ -119,7 +119,7 @@ describe('§10.5: 提交守卫', () => {
 
   async function progress(wuId: string) {
     const wu = (await wuService.getById(wuId))!;
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'progress', summary: '继续中' },
     );
@@ -138,7 +138,7 @@ describe('§10.5: 提交守卫', () => {
   it('COMPLETE + 未提交改动 → 打回 progress（保持 active），提示写入 metadata 并注入下一轮 prompt', async () => {
     mockGit(' M src/a.ts\n', 'h1\n');
     const wu = await setupWorkUnit();
-    const loop = agentLoop as unknown as RecordResultCapable;
+    const loop = agentLoop;
 
     await loop.recordResult({ workUnit: wu }, { action: 'complete', summary: '做完了' });
 
@@ -169,7 +169,7 @@ describe('§10.5: 提交守卫', () => {
     });
     const wu = await setupWorkUnit(); // 持久化 metadata 无 worktreePath（首 step 未落库）
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       {
         action: 'complete',
@@ -196,7 +196,7 @@ describe('§10.5: 提交守卫', () => {
     mockGit('', 'h1\n');
     const wu = await setupWorkUnit();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '做完了' },
     );
@@ -221,7 +221,7 @@ describe('§10.5: 提交守卫', () => {
       worktreeBaseRepo: path.join(testDir, 'shared-root'),
     }, 'analysis');
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '原型做完了' },
     );
@@ -243,7 +243,7 @@ describe('§10.5: 提交守卫', () => {
       worktreeBaseRepo: path.join(testDir, 'shared-root'),
     }, 'analysis');
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '原型做完了' },
     );
@@ -262,7 +262,7 @@ describe('§10.5: 提交守卫', () => {
       cb(new Error('not a git repository'), '', ''));
     const wu = await setupWorkUnit();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '做完了' },
     );
@@ -273,7 +273,7 @@ describe('§10.5: 提交守卫', () => {
   it('metadata.workspaceRoot 缺失 → 静默跳过守卫，正常完成', async () => {
     const wu = await setupWorkUnit(undefined, 'task', { noRoot: true });
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '做完了' },
     );
@@ -361,7 +361,7 @@ describe('§10.5: 提交守卫', () => {
     });
     const wu = await setupWorkUnit({ workspaceRoot: worktree, worktreePath: worktree, worktreeBaseBranch: 'main', prototype: true }, 'analysis');
 
-    await expect((agentLoop as unknown as RecordResultCapable).recordResult(
+    await expect((agentLoop).recordResult(
       { workUnit: wu }, { action: 'complete', summary: '做完了' },
     )).rejects.toThrow();
     expect(outsideReads).toBe(0);
@@ -392,7 +392,7 @@ describe('§10.5: 提交守卫', () => {
     });
     const wu = await setupWorkUnit({ workspaceRoot: worktree, worktreePath: worktree, worktreeBaseBranch: 'main', prototype: true }, 'analysis');
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu }, { action: 'complete', summary: '做完了' },
     );
     expect(outsideReads).toBe(0);

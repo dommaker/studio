@@ -120,6 +120,7 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     fs.rmSync(testDir, { recursive: true, force: true });
     fs.rmSync(wsRoot, { recursive: true, force: true });
     try { fs.unlinkSync(path.join(WORKSPACES_DIR, `${wsId}.json`)); } catch { /* already gone */ }
@@ -129,7 +130,7 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
   async function runStep(loop: AgentLoop, wuId: string) {
     const wu = await workUnitService.getById(wuId);
     expect(wu).toBeTruthy();
-    await (loop as any).agentStep({ workUnit: wu });
+    await loop.agentStep({ workUnit: wu });
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
     return mockExecuteLightweight.mock.calls[0][0];
   }
@@ -184,7 +185,6 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
 
   describe('idle heartbeat (F6-fix)', () => {
     async function setupLoopWithInstance(): Promise<{ loop: AgentLoop; instanceId: string }> {
-      const loop = new AgentLoop(makeRole(), fileStore);
       const instanceId = `inst-f6-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const now = new Date().toISOString();
       const state: RuntimeStateData = {
@@ -193,14 +193,14 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
         lastHeartbeat: null, metadata: null, pid: process.pid,
       };
       await fileStore.createState(instanceId, state);
-      (loop as any).instance = state;
+      const loop = new AgentLoop(makeRole(), fileStore, { instance: state });
       return { loop, instanceId };
     }
 
     it('idle branch updates lastHeartbeat (agent-timeout-scan keeps it alive)', async () => {
       const { loop, instanceId } = await setupLoopWithInstance();
 
-      await (loop as any).updateIdleState();
+      await loop.updateIdleState();
 
       const state = await fileStore.getState(instanceId);
       expect(state!.status).toBe('idle');
@@ -210,10 +210,10 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
     it('heartbeat is throttled — second idle tick within 45s does not rewrite it', async () => {
       const { loop, instanceId } = await setupLoopWithInstance();
 
-      await (loop as any).updateIdleState();
+      await loop.updateIdleState();
       const hb1 = (await fileStore.getState(instanceId))!.lastHeartbeat;
 
-      await (loop as any).updateIdleState();
+      await loop.updateIdleState();
       const state = await fileStore.getState(instanceId);
       // status 仍更新，但心跳被节流（同一时间戳）
       expect(state!.status).toBe('idle');
@@ -221,14 +221,15 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
     });
 
     it('heartbeat refreshes again after the throttle interval', async () => {
+      vi.useFakeTimers();
       const { loop, instanceId } = await setupLoopWithInstance();
 
-      await (loop as any).updateIdleState();
+      await loop.updateIdleState();
       // 把已存心跳回拨到 60s 前，并模拟上次心跳发生在 46s 前（超过 45s 节流窗口）
       await fileStore.updateState(instanceId, { lastHeartbeat: new Date(Date.now() - 60_000).toISOString() });
-      (loop as any).lastIdleHeartbeatAt = Date.now() - 46_000;
+      vi.setSystemTime(Date.now() + 46_000);
 
-      await (loop as any).updateIdleState();
+      await loop.updateIdleState();
 
       const hb = (await fileStore.getState(instanceId))!.lastHeartbeat!;
       expect(new Date(hb).getTime()).toBeGreaterThan(Date.now() - 10_000);

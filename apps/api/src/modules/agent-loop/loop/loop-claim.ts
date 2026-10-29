@@ -3,7 +3,7 @@
  * claimAndAnnounce（#175/#55 决策 1 认领即发声，#445 委托 workunit/claim-announce 原语）+
  * 决策 14 认领前适任判断链（ensureClaimFit → recordClaimUnfit 落档 unfitRoles →
  * blockIfAllMembersUnfit 全员不适任转 blocked 人工）。
- * 全部共享状态经 AgentLoopHost 读写；本类零自有状态。
+ * ARCH-05：仅依赖 ClaimDeps，不回读 AgentLoop 可变状态。
  */
 import { parseChannels } from '@dommaker/studio-shared';
 import {
@@ -14,11 +14,11 @@ import { isSystemRole } from '../../../core/system-role.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../../utils/errors.js';
 import { judgeClaimFitness, parseUnfitRoles } from '../claim-fitness.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { ClaimDeps } from './loop-deps.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 export class LoopClaim {
-  constructor(private readonly host: AgentLoopHost) {}
+  constructor(private readonly deps: ClaimDeps) {}
 
   /**
    * #175（#55 决策 1）：认领即发声 —— 每次成功认领在 WU 线程发一条普通系统消息
@@ -31,11 +31,11 @@ export class LoopClaim {
    * @returns 认领是否成功（竞争失败 → false，调用方走重试）
    */
   async claimAndAnnounce(workUnit: WorkUnitData): Promise<boolean> {
-    const host = this.host;
+    const deps = this.deps;
     try {
-      await claimWorkUnitAndAnnounce(workUnit.id, host.instance!.id, host.role.name, {
-        wuService: host.workUnitService,
-        fileStore: host.fileStore,
+      await claimWorkUnitAndAnnounce(workUnit.id, deps.getInstance()!.id, deps.role.name, {
+        wuService: deps.workUnits,
+        fileStore: deps.fileStore,
       });
     } catch {
       return false;
@@ -51,17 +51,17 @@ export class LoopClaim {
    * 宁可误抢（NEED_INPUT 兜底）也不可因 FileStore 抖动每轮空烧判断调用。
    */
   async ensureClaimFit(wu: WorkUnitData): Promise<boolean> {
-    const host = this.host;
+    const deps = this.deps;
     if (wu.assigneeId) return true;
     // 2026-09-25 判定台账：计时 + 结构化事件（agent:claim_fitness）落 studio-events.jsonl，
     // 作为后续优化（生产侧路由/单候选豁免/轻模型）的数据源——判定频次、判 no 率、
     // 时延分布、按角色/wu.type 切片均可离线对齐。fire-and-forget，不写失败不阻断认领。
     const judgeStartedAt = Date.now();
-    const verdict = await judgeClaimFitness(wu, host.role);
+    const verdict = await judgeClaimFitness(wu, deps.role);
     void writeStudioEvent('agent:claim_fitness', {
       wuId: wu.id,
-      roleId: host.role.id,
-      instanceId: host.instance?.id ?? null,
+      roleId: deps.role.id,
+      instanceId: deps.getInstance()?.id ?? null,
       channelId: wu.channelId ?? null,
       wuType: wu.type,
       fit: verdict.fit,
@@ -84,17 +84,17 @@ export class LoopClaim {
    * （他角色抢先认领）→ 不落档。落档后检查全员不适任 → 转 blocked 转人工。
    */
   private async recordClaimUnfit(wu: WorkUnitData, reason: string): Promise<void> {
-    const host = this.host;
-    const fresh = await host.workUnitService.getById(wu.id);
+    const deps = this.deps;
+    const fresh = await deps.workUnits.getById(wu.id);
     if (!fresh || fresh.status !== 'unassigned') return;
     const unfitRoles = [
-      ...parseUnfitRoles(fresh.metadata).filter(e => e.roleId !== host.role.id),
-      { roleId: host.role.id, reason, at: new Date().toISOString() },
+      ...parseUnfitRoles(fresh.metadata).filter(e => e.roleId !== deps.role.id),
+      { roleId: deps.role.id, reason, at: new Date().toISOString() },
     ];
-    await host.workUnitService.update(fresh.id, {
+    await deps.workUnits.update(fresh.id, {
       metadata: { ...parseWuMetadata(fresh.metadata), unfitRoles },
     });
-    logger.info(`[AgentLoop] ${host.role.name} 认领前适任判断 = 不适任，已落档 unfitRoles`, {
+    logger.info(`[AgentLoop] ${deps.role.name} 认领前适任判断 = 不适任，已落档 unfitRoles`, {
       wuId: fresh.id, reason,
     });
     await this.blockIfAllMembersUnfit(fresh.id, unfitRoles);
@@ -108,14 +108,14 @@ export class LoopClaim {
    * 各步失败只记日志，不抛（调用方本轮已放弃认领，WU 保持 unassigned 等下轮/人工）。
    */
   private async blockIfAllMembersUnfit(wuId: string, unfitRoles: { roleId: string }[]): Promise<void> {
-    const host = this.host;
+    const deps = this.deps;
     try {
-      const wu = await host.workUnitService.getById(wuId);
+      const wu = await deps.workUnits.getById(wuId);
       if (!wu?.channelId) return;
-      const channel = await host.fileStore.getChannel(wu.channelId);
+      const channel = await deps.fileStore.getChannel(wu.channelId);
       const memberIds = parseChannels(channel?.members);
       if (memberIds.length === 0) return;
-      const activeMembers = (await host.fileStore.listProfiles({ status: 'active' }))
+      const activeMembers = (await deps.fileStore.listProfiles({ status: 'active' }))
         .filter(p => memberIds.includes(p.id) && !isSystemRole(p));
       if (activeMembers.length === 0) return;
       const unfitIds = new Set(unfitRoles.map(e => e.roleId));
@@ -124,10 +124,10 @@ export class LoopClaim {
       const blockReason = `unfit-all: 频道 ${activeMembers.length} 个 active 角色认领前适任判断均为不适任`;
       // unassigned → blocked 不在 VALID_TRANSITIONS，走语义方法直写（blockForManualRelease 先例）；
       // 返回 null = 已非 unassigned（他角色抢先认领/状态迁移），不再转人工
-      const blocked = await host.workUnitService.blockForAllUnfit(wuId, blockReason);
+      const blocked = await deps.workUnits.blockForAllUnfit(wuId, blockReason);
       if (!blocked) return;
       logger.warn(`[AgentLoop] 全员不适任，WU 转 blocked 待人工`, { wuId, blockReason });
-      await host.postToDiscussionSpace(
+      await deps.discussion.postToDiscussionSpace(
         wuId,
         withBlockedCta('频道内无人能接此任务，已转 blocked 等待人工介入', blockReason),
         blocked,

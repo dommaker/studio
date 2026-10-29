@@ -162,9 +162,7 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
   async function runStep(wu: ReturnType<typeof makeWu>, roleOverrides: Record<string, unknown> = {}) {
     agentLoop = new AgentLoop({ ...mockRole, ...roleOverrides } as any, fileStore);
     await agentLoop.start();
-    const result = await (agentLoop as unknown as {
-      agentStep(t: unknown): Promise<{ metadataUpdates?: { matchedSkills?: string[] } }>;
-    }).agentStep({ workUnit: wu });
+    const result = await agentLoop.agentStep({ workUnit: wu });
     const task = mockExecuteLightweight.mock.calls[0][0];
     return { knowledgeContext: task.parameters.knowledgeContext as string, result };
   }

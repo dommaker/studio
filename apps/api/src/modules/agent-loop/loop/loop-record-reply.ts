@@ -1,7 +1,7 @@
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
 import { handleDelegateBranch } from '../delegate-branch.js';
 import type { StepResult } from '../agent-loop.types.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { ResultRecorderDeps } from './loop-deps.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 export interface ResultReplyInput {
@@ -21,7 +21,7 @@ export interface ResultReplyResolution {
 /** A2A DELEGATE 与 §4.2 新鲜度：确定结果回帖形态及暂存回复。 */
 export async function prepareResultReply(
   input: ResultReplyInput,
-  host: AgentLoopHost,
+  deps: ResultRecorderDeps,
 ): Promise<ResultReplyResolution> {
   const { wu, metadata, result, guardUpdates } = input;
   const wuId = wu.id;
@@ -33,7 +33,7 @@ export async function prepareResultReply(
   if (action === 'delegate' && result.delegate) {
     const d = await handleDelegateBranch(
       { wu, wuId, delegate: result.delegate },
-      { fileStore: host.fileStore, role: host.role, createWorkUnit: input => host.workUnitService.create(input) },
+      { fileStore: deps.fileStore, role: deps.role, createWorkUnit: input => deps.workUnits.create(input) },
     );
     action = d.action;
     result.summary = d.summary;
@@ -48,9 +48,9 @@ export async function prepareResultReply(
   if (result.channelVersion && wu.channelId) {
     // #319：锚点 = 快照时最后一行消息 id（压实安全）；锚点行若已被压实抹除，
     // getMessagesSince 保守返回全部活消息，经下方「自己消息过滤 + 2 次拦截后照发」有界消化
-    const arrived = await host.fileStore.getMessagesSince(wu.channelId, result.channelVersion.lastMessageId);
+    const arrived = await deps.fileStore.getMessagesSince(wu.channelId, result.channelVersion.lastMessageId);
     // 本 loop 自己发的消息（如 delegate 卡片）不算「房间已变」
-    const external = arrived.filter(m => !(m.authorType === 'agent' && m.agentName === host.role.name));
+    const external = arrived.filter(m => !(m.authorType === 'agent' && m.agentName === deps.role.name));
     const interrupts = metadata.freshnessInterrupts ?? 0;
     if (external.length > 0 && interrupts < 2) {
       skipResultPost = true;

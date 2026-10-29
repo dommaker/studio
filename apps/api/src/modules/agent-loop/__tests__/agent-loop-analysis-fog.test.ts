@@ -87,7 +87,7 @@ describe('analysis COMPLETE：FOG:/DESTINATION: 行落 metadata', () => {
 
   async function runCompleteStep(wuId: string) {
     const wu = (await wuService.getById(wuId))!;
-    const loop = agentLoop as unknown as AgentStepCapable;
+    const loop = agentLoop;
     const stepResult = await loop.agentStep({ workUnit: wu });
     await loop.recordResult({ workUnit: wu }, stepResult);
     return stepResult;

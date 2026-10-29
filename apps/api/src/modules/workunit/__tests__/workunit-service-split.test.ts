@@ -1,13 +1,5 @@
-/**
- * #672 结构测试：workunit 服务按职责拆分层（PURE_MOVE）防漂移网。
- * （架构精简刀6：workunit.service.ts 兼容门面删除，WorkUnitService 类本体落位
- *  workunit-review.ts 继承链末端。）
- *
- * ① 新分层类存在且为 function；② 继承链沿链成立（Service → Review → Lifecycle → Query → Crud）；
- * ③ WorkUnitService 原型链方法面 == 拆分前基线（35 个，采集于拆分前代码，含 TS private——
- *    编译期修饰，运行时仍在原型上）；④ workunit-review.js 模块 value exports == 基线；
- * ⑤ 职责落位：每层 own property 正好是本层方法（查询派生 / 状态机+统一尾部 / 评审验收）。
- */
+/** ARCH-05：组合不继承，facade 不公开 owner 或内部写口，依赖接口只含实际用例。 */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as serviceModule from '../workunit-review.js';
 import { WorkUnitService } from '../workunit-review.js';
@@ -16,54 +8,44 @@ import { WorkUnitQueryService } from '../workunit-query.js';
 import { WorkUnitLifecycleService } from '../workunit-lifecycle.js';
 import { WorkUnitReviewService } from '../workunit-review.js';
 
-const BASELINE_METHODS = [
-  'aggregateParentStatus', 'blockForAllUnfit', 'blockForManualRelease', 'buildAttestationEntry',
-  'checkFileConflicts', 'claim', 'close', 'computeAggregatedStatus', 'create', 'createFromMessage',
-  'createGuarded', 'delete', 'expandRoutingHead', 'getById', 'getMessageService', 'inheritParentPmoId',
-  'lastDoneByAssignee', 'list', 'markMergeConflict', 'persistSnapshot', 'publishCreated',
-  'publishStatusChanged', 'rebindSourceChannel', 'recordL1Verification', 'resolveEventClaimable',
-  'reviewPassed', 'reviewRejected', 'transitionStatus', 'unclaim', 'update', 'updateMetadata',
-  'verifyManually', 'writeAgentReviewAttestation', 'writeHumanConfirmation', 'writeWorkUnitClosedEvent',
-];
-
-const BASELINE_EXPORTS = [
-  'WorkUnitReviewService', 'WorkUnitService', 'waitForReviewPassSettled',
+const PUBLIC_METHODS = [
+  'aggregateParentStatus', 'blockForAllUnfit', 'blockForManualRelease', 'claim', 'close',
+  'create', 'createFromMessage', 'createGuarded', 'delete', 'getById', 'lastDoneByAssignee',
+  'list', 'markMergeConflict', 'rebindSourceChannel', 'recordL1Verification', 'reviewPassed',
+  'reviewRejected', 'transitionStatus', 'unclaim', 'update', 'updateMetadata', 'verifyManually',
 ];
 
 const ownMethods = (cls: { prototype: object }): string[] =>
   Object.getOwnPropertyNames(cls.prototype).filter(n => n !== 'constructor').sort();
+const source = (name: string) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 
-describe('workunit.service 职责拆分层（#672）', () => {
-  it('① 新分层类存在且为 function', () => {
-    for (const cls of [WorkUnitQueryService, WorkUnitLifecycleService, WorkUnitReviewService]) {
-      expect(typeof cls).toBe('function');
-    }
+describe('WorkUnitService 用例组合（ARCH-05）', () => {
+  it('四个用例 owner 之间没有继承关系', () => {
+    expect(WorkUnitService.prototype).not.toBeInstanceOf(WorkUnitReviewService);
+    expect(WorkUnitReviewService.prototype).not.toBeInstanceOf(WorkUnitLifecycleService);
+    expect(WorkUnitLifecycleService.prototype).not.toBeInstanceOf(WorkUnitQueryService);
+    expect(WorkUnitQueryService.prototype).not.toBeInstanceOf(WorkUnitCrudService);
   });
 
-  it('② 继承链 instanceof 沿链成立', () => {
-    expect(WorkUnitService.prototype).toBeInstanceOf(WorkUnitReviewService);
-    expect(WorkUnitReviewService.prototype).toBeInstanceOf(WorkUnitLifecycleService);
-    expect(WorkUnitLifecycleService.prototype).toBeInstanceOf(WorkUnitQueryService);
-    expect(WorkUnitQueryService.prototype).toBeInstanceOf(WorkUnitCrudService);
+  it('facade 保留原公共方法，组合 owner 与内部写口均为私有窄接口', () => {
+    expect(ownMethods(WorkUnitService)).toEqual(PUBLIC_METHODS);
+    const facade = source('workunit-review.ts');
+    expect(facade).toContain('private readonly repository: WorkUnitRepository & WorkUnitLifecycleRepository');
+    expect(facade).toContain('private readonly query: WorkUnitQuery');
+    expect(facade).toContain('private readonly lifecycle: WorkUnitLifecycle & WorkUnitLifecyclePersistence');
+    expect(facade).toContain('private readonly review: WorkUnitReview');
   });
 
-  it('③ WorkUnitService 方法面 == 拆分前基线', () => {
-    const names: string[] = [];
-    let proto = WorkUnitService.prototype;
-    while (proto && proto !== Object.prototype) {
-      for (const n of Object.getOwnPropertyNames(proto)) {
-        if (n !== 'constructor') names.push(n);
-      }
-      proto = Object.getPrototypeOf(proto);
-    }
-    expect([...new Set(names)].sort()).toEqual(BASELINE_METHODS);
+  it('Lifecycle 依赖接口独立且只含实际调用，不继承完整用例面', () => {
+    const repository = source('workunit-crud.ts');
+    const lifecycle = source('workunit-lifecycle.ts');
+    expect(repository).toMatch(/export interface WorkUnitLifecycleRepository\s*\{/);
+    expect(repository).not.toMatch(/export interface WorkUnitLifecycleRepository\s+extends\s+WorkUnitRepository/);
+    expect(lifecycle).toMatch(/export interface WorkUnitLifecyclePersistence\s*\{/);
+    expect(lifecycle).not.toMatch(/export interface WorkUnitLifecyclePersistence\s+extends\s+WorkUnitLifecycle/);
   });
 
-  it('④ workunit-review.js 模块 value exports == 基线（本层类 + 末层类 + 观测口）', () => {
-    expect(Object.keys(serviceModule).sort()).toEqual(BASELINE_EXPORTS);
-  });
-
-  it('⑤ 职责落位：每层 own property 正好是本层方法', () => {
+  it('职责落位：查询、状态机与评审各有自己的实现', () => {
     expect(ownMethods(WorkUnitQueryService)).toEqual([
       'getById', 'lastDoneByAssignee', 'list',
     ]);
@@ -74,6 +56,9 @@ describe('workunit.service 职责拆分层（#672）', () => {
       'blockForAllUnfit', 'blockForManualRelease', 'buildAttestationEntry', 'markMergeConflict',
       'recordL1Verification', 'reviewPassed', 'reviewRejected', 'verifyManually',
       'writeAgentReviewAttestation', 'writeHumanConfirmation',
+    ]);
+    expect(Object.keys(serviceModule).sort()).toEqual([
+      'WorkUnitReviewService', 'WorkUnitService', 'waitForReviewPassSettled',
     ]);
   });
 });

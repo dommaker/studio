@@ -202,7 +202,7 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     return messages.filter(m => m.authorType === 'agent').map(m => m.content);
   }
 
-  const loop = () => agentLoop as unknown as LoopPrivates;
+  const loop = () => agentLoop;
 
   // ─── 改造项 1：专属 worktree 执行 ───
 

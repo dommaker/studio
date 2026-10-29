@@ -89,7 +89,7 @@ describe('P0 修复 6: agent-loop traceId', () => {
     });
 
     const wu = await createWorkUnit({ traceId: 'trace-xyz-789' });
-    await (agentLoop as unknown as LoopInternals).agentStep({ workUnit: wu });
+    await (agentLoop).agentStep({ workUnit: wu });
 
     const task = mockExecuteLightweight.mock.calls[0][0];
     expect(task.parameters.extraEnv.STUDIO_TRACE_ID).toBe('trace-xyz-789');
@@ -103,7 +103,7 @@ describe('P0 修复 6: agent-loop traceId', () => {
     });
 
     const wu = await createWorkUnit();
-    await (agentLoop as unknown as LoopInternals).agentStep({ workUnit: wu });
+    await (agentLoop).agentStep({ workUnit: wu });
 
     const task = mockExecuteLightweight.mock.calls[0][0];
     expect(task.parameters.extraEnv.STUDIO_TRACE_ID).toBe('');
@@ -117,7 +117,7 @@ describe('P0 修复 6: agent-loop traceId', () => {
     });
 
     const wu = await createWorkUnit({ traceId: 'trace-fail-1' });
-    const result = await (agentLoop as unknown as LoopInternals).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(result.action).toBe('failed');
     expect(errorSpy).toHaveBeenCalledWith(
@@ -128,7 +128,7 @@ describe('P0 修复 6: agent-loop traceId', () => {
 
   it('recordResult: 带 traceId 的 WU 每步留锚点日志；不带则不留', async () => {
     const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => {});
-    const loop = agentLoop as unknown as LoopInternals;
+    const loop = agentLoop;
 
     const withTrace = await createWorkUnit({ traceId: 'trace-anchor-1' });
     await loop.recordResult({ workUnit: withTrace }, { action: 'progress', summary: '推进一步' });

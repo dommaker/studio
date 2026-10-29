@@ -80,18 +80,19 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
     }
     // 不 start()：避免后台 runLoop 并发认领造成断言抖动；直接注入 instance
     // （myActive 作用域 = assigneeId === instance.id，与运行中的 loop 一致）。
-    agentLoop = new AgentLoop(mockRole, fileStore);
-    (agentLoop as unknown as { instance: unknown }).instance = {
-      id: SELF_INSTANCE_ID,
-      roleId: SELF_ROLE_ID,
-      sessionId: null,
-      status: 'idle',
-      currentWorkUnitId: null,
-      startedAt: new Date().toISOString(),
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
-    };
+    agentLoop = new AgentLoop(mockRole, fileStore, {
+      instance: {
+        id: SELF_INSTANCE_ID,
+        roleId: SELF_ROLE_ID,
+        sessionId: null,
+        status: 'idle',
+        currentWorkUnitId: null,
+        startedAt: new Date().toISOString(),
+        terminatedAt: null,
+        lastHeartbeat: null,
+        metadata: null,
+      },
+    });
   });
 
   afterEach(() => {
@@ -99,7 +100,7 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
   });
 
   function observe() {
-    return (agentLoop as unknown as ObserveCapable).observe();
+    return (agentLoop).observe();
   }
 
   it('(a) 指派给其他 profile 的 WorkUnit 不被本 loop 认领（即使同频道）', async () => {
@@ -154,18 +155,19 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
 
   it('(c2) 决策 10：删除 acceptedTypes 硬过滤 —— acceptedTypes 不含 WU type 的任务仍可见', async () => {
     // 角色只声明 implement，但 type=review 的任务（指派 + 频道未指派各一）都必须可见
-    const loop = new AgentLoop({ ...mockRole, acceptedTypes: ['implement'] }, fileStore);
-    (loop as unknown as { instance: unknown }).instance = {
-      id: SELF_INSTANCE_ID,
-      roleId: SELF_ROLE_ID,
-      sessionId: null,
-      status: 'idle',
-      currentWorkUnitId: null,
-      startedAt: new Date().toISOString(),
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
-    };
+    const loop = new AgentLoop({ ...mockRole, acceptedTypes: ['implement'] }, fileStore, {
+      instance: {
+        id: SELF_INSTANCE_ID,
+        roleId: SELF_ROLE_ID,
+        sessionId: null,
+        status: 'idle',
+        currentWorkUnitId: null,
+        startedAt: new Date().toISOString(),
+        terminatedAt: null,
+        lastHeartbeat: null,
+        metadata: null,
+      },
+    });
     const assigned = await wuService.create({
       scope: '@self-agent 审查代码', channelId: MY_CHANNEL, type: 'review',
       status: 'unassigned', assigneeId: SELF_ROLE_ID,
@@ -175,7 +177,7 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
       status: 'unassigned', assigneeId: null,
     });
 
-    const obs = await (loop as unknown as ObserveCapable).observe();
+    const obs = await (loop).observe();
     expect(obs.unassigned.map(w => w.id)).toContain(assigned.id);
     expect(obs.unassigned.map(w => w.id)).toContain(channelScoped.id);
   });

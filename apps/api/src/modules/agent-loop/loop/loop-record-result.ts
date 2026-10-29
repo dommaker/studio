@@ -4,8 +4,8 @@
  * → 回帖规则（./loop-record-reply.js）→ 簿记与原子写（./loop-record-persistence.js）
  * → 写后事件、通知与状态迁移（./loop-record-events.js）。
  * 附带 listUnfinishedChildren（§6-2 父 complete 守卫）与 postToDiscussionSpace
- * （频道系统消息唯一出口，经 host seam 供 claim/step 段共用）。
- * 全部共享状态经 AgentLoopHost 读写；本类零自有状态。
+ * （频道系统消息唯一出口，经 deps seam 供 claim/step 段共用）。
+ * ARCH-05：只组合 ResultRecorderDeps；fencing 归 WuLeaseTracker，原子写归 ExecutionJournal。
  */
 import {
   mergedWuView, postWuSystemMessage,
@@ -15,29 +15,29 @@ import type { MessageMeta } from '../../channels/index.js';
 import { runCompletionGuards } from '../completion-gates.js';
 import { resolveExecutionCwd } from '../execution-cwd.js';
 import type { StepResult, Target } from '../agent-loop.types.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { ResultRecorderDeps } from './loop-deps.js';
 import { logger } from '@dommaker/studio-shared/node';
 import { prepareResultReply } from './loop-record-reply.js';
 import { persistResultBookkeeping } from './loop-record-persistence.js';
 import { dispatchResultEvents } from './loop-record-events.js';
 
 export class ResultRecorder {
-  constructor(private readonly host: AgentLoopHost) {}
+  constructor(private readonly deps: ResultRecorderDeps) {}
 
   /** Record result: monitoring checkpoints + state transitions (zero token) */
   async recordResult(target: Target, result: StepResult): Promise<void> {
-    const host = this.host;
+    const deps = this.deps;
     // B2: 测试特征 WU 守卫已在 agentStep 自行关闭 WU 并留痕，无需任何簿记/状态迁移
     if (result.action === 'skipped') return;
     const wuId = target.workUnit.id;
-    const wu = await host.workUnitService.getById(wuId);
+    const wu = await deps.workUnits.getById(wuId);
     if (!wu) return;
 
     // #178（#63 决议 2）：fencing —— 步结果回写前比对 claimedAt 代际令牌。
     // 易主（超时释放后被他人认领 / 释放回池）→ 放弃回写、杀自身 CLI 进程组、
     // 停止心跳、静默退出（旧 holder 一字不再写，新 holder 的上下文不被污染）。
-    if (!(await host.stillHoldsLease(wuId))) {
-      await host.handleLeaseLost(wuId, 'lost');
+    if (!(await deps.lease.stillHolds(wuId))) {
+      await deps.lease.handleLost(wuId, 'lost');
       return;
     }
 
@@ -52,9 +52,9 @@ export class ResultRecorder {
     // ./completion-gates.js（行为一字不改，含守卫顺序/hint 写法/l1 台账/合并视图口径）——
     // recordResult 只保留编排：构建合并视图（上方）→ 跑守卫 → delegate/新鲜度/强制收口 →
     // 单次原子写 → 状态迁移与频道通知。git/子任务查询经 deps 注入（loop 绑定的两个方法下传）。
-    const cwdDeps = { getWuById: (id: string) => host.workUnitService.getById(id) };
+    const cwdDeps = { getWuById: (id: string) => deps.workUnits.getById(id) };
     const guards = await runCompletionGuards(
-      { wu, wuId, metadata, action: result.action, roleId: host.role.id },
+      { wu, wuId, metadata, action: result.action, roleId: deps.role.id },
       {
         resolveExecutionCwd: (w, m) => resolveExecutionCwd(w, m, cwdDeps),
         listUnfinishedChildren: id => this.listUnfinishedChildren(id),
@@ -64,12 +64,12 @@ export class ResultRecorder {
 
     const reply = await prepareResultReply({
       wu, metadata, action: guards.action, result, guardUpdates,
-    }, host);
+    }, deps);
     const { action, skipResultPost, freshnessUpdates } = reply;
 
     const persisted = await persistResultBookkeeping({
       wu, metadata, action, result, guardUpdates, freshnessUpdates, notices,
-    }, host);
+    }, deps);
     if (!persisted.recorded) return; // WU 已被删除（terminate/GC 竞态）——簿记无处落，放弃本步收尾
     const { stepCount, consecutiveStuck, blockReasonUpdates, stepLimit } = persisted;
 
@@ -92,7 +92,8 @@ export class ResultRecorder {
       traceId,
       notices,
     }, {
-      host,
+      role: deps.role,
+      lease: deps.lease,
       postToDiscussionSpace: (workUnitId, content, milestoneWu, extraMeta) =>
         this.postToDiscussionSpace(workUnitId, content, milestoneWu, extraMeta),
     });
@@ -100,7 +101,7 @@ export class ResultRecorder {
 
   /** §6-2 父 complete 守卫：未完结（unassigned/active/blocked/in_review）子 WU 的 id 列表 */
   private async listUnfinishedChildren(wuId: string): Promise<string[]> {
-    const snapshots = await this.host.fileStore.getIndex();
+    const snapshots = await this.deps.fileStore.getIndex();
     return snapshots
       .filter(s => s.parentId === wuId && !['done', 'closed'].includes(s.status))
       .map(s => s.id);
@@ -113,14 +114,14 @@ export class ResultRecorder {
    *  extraMeta：#279 追加 meta（如 NEED_INPUT 的 options），合并于里程碑 meta 之上。 */
   async postToDiscussionSpace(workUnitId: string, content: string, milestoneWu?: WorkUnitData, extraMeta?: MessageMeta): Promise<void> {
     if (!content.trim()) return;
-    const host = this.host;
-    const wu = milestoneWu ?? await host.workUnitService.getById(workUnitId);
+    const deps = this.deps;
+    const wu = milestoneWu ?? await deps.workUnits.getById(workUnitId);
     if (!wu) return;
 
     // 绑定本 loop 的 fileStore（测试注入临时 store；生产与全局同目录），事件形状与全局 service 一致
     await postWuSystemMessage(wu, content, {
-      agentName: host.role.name,
-      fileStore: host.fileStore,
+      agentName: deps.role.name,
+      fileStore: deps.fileStore,
       ...(milestoneWu ? { milestone: true } : {}),
       ...(extraMeta ? { meta: extraMeta } : {}),
     });

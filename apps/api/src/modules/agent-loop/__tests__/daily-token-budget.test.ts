@@ -125,10 +125,8 @@ function readRows(file: string): Array<{ type?: string; payload?: string }> {
 
 type AgentStepFn = (t: { workUnit: WorkUnitData }) => Promise<StepResult>;
 type RecordResultFn = (t: { workUnit: WorkUnitData }, r: StepResult) => Promise<void>;
-const stepOf = (loop: AgentLoop): AgentStepFn =>
-  (loop as unknown as { agentStep: AgentStepFn }).agentStep.bind(loop);
-const recordOf = (loop: AgentLoop): RecordResultFn =>
-  (loop as unknown as { recordResult: RecordResultFn }).recordResult.bind(loop);
+const stepOf = (loop: AgentLoop): AgentStepFn => loop.agentStep.bind(loop);
+const recordOf = (loop: AgentLoop): RecordResultFn => loop.recordResult.bind(loop);
 
 beforeEach(async () => {
   vi.clearAllMocks();

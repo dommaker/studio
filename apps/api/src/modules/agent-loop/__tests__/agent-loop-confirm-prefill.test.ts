@@ -87,7 +87,7 @@ describe('#463 decision/spec COMPLETE：确认表单结构化预填落档', () =
 
   async function runCompleteStep(wuId: string) {
     const wu = (await wuService.getById(wuId))!;
-    const loop = agentLoop as unknown as AgentStepCapable;
+    const loop = agentLoop;
     const stepResult = await loop.agentStep({ workUnit: wu });
     await loop.recordResult({ workUnit: wu }, stepResult);
     return stepResult;

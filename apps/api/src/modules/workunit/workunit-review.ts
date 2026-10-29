@@ -5,19 +5,21 @@
  * （writeHumanConfirmation/writeAgentReviewAttestation/recordL1Verification）、
  * verifyManually（#551 人工重跑 L1 业务下沉）、markMergeConflict/blockForManualRelease/
  * blockForAllUnfit（转人工类迁移）。全部迁移类写经生命周期层 persistSnapshot 统一尾部。
- * 状态机在 workunit-lifecycle.ts（基类），模块级共享件：reviewPassTracker /
+ * 状态机由 workunit-lifecycle.ts 经窄接口注入，模块级共享件：reviewPassTracker /
  * waitForReviewPassSettled（#228 测试可观测性）与 ManualVerifyResult。
  */
 
-import { withAttestation, deriveDisplayState, createSettledTracker, type AttestationEntry, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { withAttestation, deriveDisplayState, createSettledTracker, type AttestationEntry, type FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from './merge-on-review-pass.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
-import { snapshotToData, type WorkUnitData } from './workunit-crud.js';
-import { WorkUnitLifecycleService } from './workunit-lifecycle.js';
+import { snapshotToData, WorkUnitCrudService, type WorkUnitData, type WorkUnitLifecycleRepository, type WorkUnitRepository } from './workunit-crud.js';
+import { WorkUnitLifecycleService, type WorkUnitLifecycle, type WorkUnitLifecyclePersistence } from './workunit-lifecycle.js';
+import { WorkUnitQueryService, type WorkUnitQuery } from './workunit-query.js';
 import { workUnitPort, type WorkUnitAuditActor } from './workunit-ports.js';
 import { logger } from '@dommaker/studio-shared/node';
 import { HostExecutionPolicyError } from '../../core/host-execution-policy.js';
+import { getStore } from '../../core/store.js';
 
 /**
  * #228 测试可观测性（纯增量，不改变行为）：登记 reviewPassed 的 best-effort
@@ -55,7 +57,33 @@ export async function waitForReviewPassSettled(): Promise<void> {
   await reviewPassTracker.waitForSettled();
 }
 
-export class WorkUnitReviewService extends WorkUnitLifecycleService {
+export interface WorkUnitReview {
+  reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string; analysisTasks?: string[] }): Promise<WorkUnitData>;
+  reviewRejected(id: string, reason?: string, attestation?: ReviewAttestationSource): Promise<WorkUnitData>;
+  recordL1Verification(id: string, input: {
+    by: string;
+    ran: string[];
+    source: 'override' | 'convention';
+    failure?: { command: string; tail: string };
+  }): Promise<WorkUnitData>;
+  verifyManually(id: string, opts: { by: string }): Promise<ManualVerifyResult>;
+  markMergeConflict(id: string, conflictFiles: string[], opts?: { blockReason?: string }): Promise<WorkUnitData>;
+  blockForManualRelease(id: string, reason: string): Promise<WorkUnitData>;
+  blockForAllUnfit(id: string, reason: string): Promise<WorkUnitData | null>;
+}
+
+export class WorkUnitReviewService implements WorkUnitReview {
+  constructor(
+    private readonly lifecycle: WorkUnitLifecyclePersistence,
+    private readonly query: WorkUnitQuery,
+    private readonly repository: WorkUnitRepository,
+    private readonly fileStore: FileStore = getStore(),
+  ) {}
+
+  private readonly persistSnapshot: WorkUnitLifecyclePersistence['persistSnapshot'] =
+    (current, metadata, opts) => this.lifecycle.persistSnapshot(current, metadata, opts);
+
+  private readonly getById: WorkUnitQuery['getById'] = id => this.query.getById(id);
 
   /**
    * Review passed: in_review → done. Emits workunit.review.passed.
@@ -125,7 +153,12 @@ export class WorkUnitReviewService extends WorkUnitLifecycleService {
         logger.warn('[WorkUnit] prototype worktree cleanup failed (non-blocking)', { workUnitId: id, error: String(err) })
       ));
     } else {
-      trackReviewPassEffect(mergeWorktreeBranchOnReviewPass(this, updatedData, this.fileStore).catch(err =>
+      const mergePort = {
+        getById: (wuId: string) => this.query.getById(wuId),
+        update: (wuId: string, input: Parameters<WorkUnitRepository['update']>[1]) => this.repository.update(wuId, input),
+        markMergeConflict: (wuId: string, files: string[], opts?: { blockReason?: string }) => this.markMergeConflict(wuId, files, opts),
+      };
+      trackReviewPassEffect(mergeWorktreeBranchOnReviewPass(mergePort, updatedData, this.fileStore).catch(err =>
         logger.warn('[WorkUnit] merge-on-review-pass failed (non-blocking)', { workUnitId: id, error: String(err) })
       ));
     }
@@ -405,8 +438,44 @@ export class WorkUnitReviewService extends WorkUnitLifecycleService {
   }
 }
 
-/**
- * WorkUnitService —— 继承链末层（#672 拆分层：Crud → Query → Lifecycle → Review → Service）。
- * 原 workunit.service.ts 兼容门面已随架构精简刀6 删除，类本体落位本文件。
- */
-export class WorkUnitService extends WorkUnitReviewService {}
+/** ARCH-05 兼容门面：只组合并委托用例 owner，不承载状态机或评审实现。 */
+export class WorkUnitService implements WorkUnitRepository, WorkUnitQuery, WorkUnitLifecycle, WorkUnitReview {
+  private readonly repository: WorkUnitRepository & WorkUnitLifecycleRepository;
+  private readonly query: WorkUnitQuery;
+  private readonly lifecycle: WorkUnitLifecycle & WorkUnitLifecyclePersistence;
+  private readonly review: WorkUnitReview;
+
+  constructor(fileStore?: FileStore, messageService?: ConstructorParameters<typeof WorkUnitCrudService>[1]) {
+    const store = fileStore ?? getStore();
+    this.repository = new WorkUnitCrudService(store, messageService);
+    this.query = new WorkUnitQueryService(store);
+    this.lifecycle = new WorkUnitLifecycleService(store, this.repository);
+    this.review = new WorkUnitReviewService(this.lifecycle, this.query, this.repository, store);
+  }
+
+  create(...args: Parameters<WorkUnitRepository['create']>) { return this.repository.create(...args); }
+  createGuarded(...args: Parameters<WorkUnitRepository['createGuarded']>) { return this.repository.createGuarded(...args); }
+  createFromMessage(...args: Parameters<WorkUnitRepository['createFromMessage']>) { return this.repository.createFromMessage(...args); }
+  update(...args: Parameters<WorkUnitRepository['update']>) { return this.repository.update(...args); }
+  updateMetadata(...args: Parameters<WorkUnitRepository['updateMetadata']>) { return this.repository.updateMetadata(...args); }
+  delete(...args: Parameters<WorkUnitRepository['delete']>) { return this.repository.delete(...args); }
+  claim(...args: Parameters<WorkUnitRepository['claim']>) { return this.repository.claim(...args); }
+  unclaim(...args: Parameters<WorkUnitRepository['unclaim']>) { return this.repository.unclaim(...args); }
+  aggregateParentStatus(...args: Parameters<WorkUnitRepository['aggregateParentStatus']>) { return this.repository.aggregateParentStatus(...args); }
+
+  getById(...args: Parameters<WorkUnitQuery['getById']>) { return this.query.getById(...args); }
+  list(...args: Parameters<WorkUnitQuery['list']>) { return this.query.list(...args); }
+  lastDoneByAssignee(...args: Parameters<WorkUnitQuery['lastDoneByAssignee']>) { return this.query.lastDoneByAssignee(...args); }
+
+  transitionStatus(...args: Parameters<WorkUnitLifecycle['transitionStatus']>) { return this.lifecycle.transitionStatus(...args); }
+  close(...args: Parameters<WorkUnitLifecycle['close']>) { return this.lifecycle.close(...args); }
+  rebindSourceChannel(...args: Parameters<WorkUnitLifecycle['rebindSourceChannel']>) { return this.lifecycle.rebindSourceChannel(...args); }
+
+  reviewPassed(...args: Parameters<WorkUnitReview['reviewPassed']>) { return this.review.reviewPassed(...args); }
+  reviewRejected(...args: Parameters<WorkUnitReview['reviewRejected']>) { return this.review.reviewRejected(...args); }
+  recordL1Verification(...args: Parameters<WorkUnitReview['recordL1Verification']>) { return this.review.recordL1Verification(...args); }
+  verifyManually(...args: Parameters<WorkUnitReview['verifyManually']>) { return this.review.verifyManually(...args); }
+  markMergeConflict(...args: Parameters<WorkUnitReview['markMergeConflict']>) { return this.review.markMergeConflict(...args); }
+  blockForManualRelease(...args: Parameters<WorkUnitReview['blockForManualRelease']>) { return this.review.blockForManualRelease(...args); }
+  blockForAllUnfit(...args: Parameters<WorkUnitReview['blockForAllUnfit']>) { return this.review.blockForAllUnfit(...args); }
+}

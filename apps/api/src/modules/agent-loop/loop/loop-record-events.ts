@@ -3,7 +3,8 @@ import type { MessageMeta } from '../../channels/index.js';
 import { emitWorkUnitFailedEvent } from '../execution-step-events.js';
 import type { CompletionGuardNotices } from '../completion-gates.js';
 import type { StepResult } from '../agent-loop.types.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { AgentProfileData } from '@dommaker/studio-shared';
+import type { LeasePort } from './loop-deps.js';
 
 export interface ResultEventsInput {
   wu: WorkUnitData;
@@ -21,7 +22,8 @@ export interface ResultEventsInput {
 }
 
 export interface ResultEventsDeps {
-  host: AgentLoopHost;
+  role: AgentProfileData;
+  lease: Pick<LeasePort, 'transitionIfHeld'>;
   postToDiscussionSpace: (
     workUnitId: string,
     content: string,
@@ -39,7 +41,7 @@ export async function dispatchResultEvents(
     wu, metadata, action, result, guardUpdates, blockReasonUpdates,
     stepCount, consecutiveStuck, skipResultPost, stepLimit, traceId, notices,
   } = input;
-  const { host, postToDiscussionSpace } = deps;
+  const { lease, role, postToDiscussionSpace } = deps;
   const wuId = wu.id;
 
   // §10.5: 连续 3 步无新提交 → 频道提醒一次（计数已归零，之后每 3 步再提醒）
@@ -50,7 +52,7 @@ export async function dispatchResultEvents(
   // B3b-i: 自动验证连续失败 ≥3 次 → blocked 并频道说明（优先于 step limit / 状态迁移）
   if (notices.verifyBlocked) {
     // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
-    if (wu.status !== 'blocked' && !(await host.transitionIfHeld(wuId, 'blocked'))) return;
+    if (wu.status !== 'blocked' && !(await lease.transitionIfHeld(wuId, 'blocked'))) return;
     // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning，#62 失败趋势探测数据源）
     void emitWorkUnitFailedEvent({
       workUnitId: wuId,
@@ -88,7 +90,7 @@ export async function dispatchResultEvents(
       : null;
   if (outputGateBlocked) {
     // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
-    if (wu.status !== 'blocked' && !(await host.transitionIfHeld(wuId, 'blocked'))) return;
+    if (wu.status !== 'blocked' && !(await lease.transitionIfHeld(wuId, 'blocked'))) return;
     // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning，#62 失败趋势探测数据源）
     void emitWorkUnitFailedEvent({
       workUnitId: wuId,
@@ -117,15 +119,15 @@ export async function dispatchResultEvents(
   if (stepLimit !== null && stepCount > stepLimit) {
     // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
     // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
-    if (wu.status === 'blocked' && !(await host.transitionIfHeld(wuId, 'active'))) return;
-    if (!(await host.transitionIfHeld(wuId, 'in_review'))) return;
+    if (wu.status === 'blocked' && !(await lease.transitionIfHeld(wuId, 'active'))) return;
+    if (!(await lease.transitionIfHeld(wuId, 'in_review'))) return;
     await postToDiscussionSpace(wuId, '步骤数超限，强制提交审查');
     return;
   }
   // Monitoring: stuck detection
   if (consecutiveStuck >= 3) {
     // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
-    if (!(await host.transitionIfHeld(wuId, 'blocked'))) return;
+    if (!(await lease.transitionIfHeld(wuId, 'blocked'))) return;
     // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning）。
     // failureType 取本步 errorType（execution_failed / worktree_creation_failed 等），
     // 无 errorType 的纯停滞（连续 need_input/progress 无进展）记 'stuck'。
@@ -158,7 +160,7 @@ export async function dispatchResultEvents(
   switch (action) {
     case 'progress':
       if (!skipResultPost && result.summary.trim().length > 0) await postToDiscussionSpace(wuId, result.summary);
-      if (wu.status === 'blocked' && !(await host.transitionIfHeld(wuId, 'active'))) return;
+      if (wu.status === 'blocked' && !(await lease.transitionIfHeld(wuId, 'active'))) return;
       break;
     case 'complete':
       // 2026-07 PMO-flow UX（§6-3）：COMPLETE 完成汇报里程碑 —— meta 带 pmoId（可解析时）+ atHuman
@@ -166,12 +168,12 @@ export async function dispatchResultEvents(
         await postToDiscussionSpace(wuId, result.summary, wu);
       }
       // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
-      if (wu.status === 'blocked' && !(await host.transitionIfHeld(wuId, 'active'))) return;
-      if (!(await host.transitionIfHeld(wuId, 'in_review'))) return;
+      if (wu.status === 'blocked' && !(await lease.transitionIfHeld(wuId, 'active'))) return;
+      if (!(await lease.transitionIfHeld(wuId, 'in_review'))) return;
       // P0 修复（reviewReport 回传断链）：review 子 WU 不再被二次评审
       // （ReviewDispatcher 路径 A 跳过 type=review），complete 后直接收口 done，
       // 触发路径 B 读取 metadata.reviewReport 判定父 WU reviewPassed/reviewRejected。
-      if (wu.type === 'review' && !(await host.transitionIfHeld(wuId, 'done'))) return;
+      if (wu.type === 'review' && !(await lease.transitionIfHeld(wuId, 'done'))) return;
       break;
     case 'need_input':
       // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
@@ -189,7 +191,7 @@ export async function dispatchResultEvents(
       }
       // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
       // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
-      if (wu.status !== 'blocked' && !(await host.transitionIfHeld(wuId, 'blocked'))) return;
+      if (wu.status !== 'blocked' && !(await lease.transitionIfHeld(wuId, 'blocked'))) return;
       break;
     case 'failed':
       // W-3 接线 + #175（#55 决策 2）：CLI 执行失败 —— 发一条「执行失败（第 N 次）：原因截断」
@@ -198,7 +200,7 @@ export async function dispatchResultEvents(
       // 满 3 次在上方 blocked 里程碑路径 return（第 3 次不额外发声），走到这里 N ∈ {1,2}。
       await postToDiscussionSpace(
         wuId,
-        `『${host.role.name}』执行失败（第 ${consecutiveStuck} 次）：${(result.summary ?? '').slice(0, 200)}`,
+        `『${role.name}』执行失败（第 ${consecutiveStuck} 次）：${(result.summary ?? '').slice(0, 200)}`,
       );
       break;
   }

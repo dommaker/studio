@@ -133,7 +133,7 @@ describe('#467 loop：裁决轮挂起与接力卡', () => {
       { question: '部署形态？', suggestion: '单机' },
     ];
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'need_input', summary: '裁决轮——2 个待决问题请一次性裁决', rulings },
     );
@@ -155,7 +155,7 @@ describe('#467 loop：裁决轮挂起与接力卡', () => {
   it('回归：无 rulings 的 need_input 不落 planRulings/waitingReason、不带卡', async () => {
     const wu = await setupPlanWu();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'need_input', summary: '澄清：目标是内部工具还是对外产品？' },
     );

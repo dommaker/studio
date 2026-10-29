@@ -43,14 +43,19 @@ import { logger } from '@dommaker/studio-shared/node';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { execFileAsync } from '../../core/exec-async.js';
 import { ensurePmoIntegrationWorktree } from '@dommaker/studio-agent';
-import type { WorkUnitService } from './workunit-review.js';
+import type { WorkUnitReview } from './workunit-review.js';
+import type { WorkUnitQuery } from './workunit-query.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
-import type { WorkUnitData } from './workunit-crud.js';
+import type { WorkUnitData, WorkUnitRepository } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { workUnitPort } from './workunit-ports.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
+
+export type WorkUnitReviewMergePort = Pick<WorkUnitReview, 'markMergeConflict'>
+  & Pick<WorkUnitQuery, 'getById'>
+  & Pick<WorkUnitRepository, 'update'>;
 
 /** worktrees 根目录（与 agent-loop.resolveWorktreesDir 同口径：WORKTREES_DIR > studioPath('worktrees')，契约 §8 双口径收编） */
 function resolveWorktreesDir(): string {
@@ -134,7 +139,7 @@ async function postSystemMessage(
  * （reviewPassed 的 done 迁移已完成，合并失败只影响后续流转，不回滚评审结论）。
  */
 export async function mergeWorktreeBranchOnReviewPass(
-  wuService: WorkUnitService,
+  wuService: WorkUnitReviewMergePort,
   wu: WorkUnitData,
   fileStore: FileStore,
 ): Promise<MergeOnReviewPassOutcome> {
@@ -526,7 +531,7 @@ function buildMergeConflictPrompt(args: {
 
 /** LLM 解冲突审计落 metadata.mergeResolution（仿 distill runs.jsonl 审计思路，落 WU metadata；best-effort） */
 async function recordMergeResolution(
-  wuService: WorkUnitService,
+  wuService: WorkUnitReviewMergePort,
   wuId: string,
   audit: MergeResolutionAudit,
 ): Promise<void> {

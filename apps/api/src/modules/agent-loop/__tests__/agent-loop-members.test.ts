@@ -65,19 +65,19 @@ describe('§9.5: observe() 过滤以 channel.members 为准', () => {
 
   /** 不 start()：注入 instance 后直接调私有 observe（同 assignee 测试模式） */
   function makeLoop(role: typeof baseRole) {
-    const loop = new AgentLoop(role, fileStore);
-    (loop as unknown as { instance: unknown }).instance = {
-      id: 'instance-1',
-      roleId: role.id,
-      sessionId: null,
-      status: 'idle',
-      currentWorkUnitId: null,
-      startedAt: new Date().toISOString(),
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
-    };
-    return loop as unknown as { observe(): Promise<{ unassigned: WorkUnitData[] }> };
+    return new AgentLoop(role, fileStore, {
+      instance: {
+        id: 'instance-1',
+        roleId: role.id,
+        sessionId: null,
+        status: 'idle',
+        currentWorkUnitId: null,
+        startedAt: new Date().toISOString(),
+        terminatedAt: null,
+        lastHeartbeat: null,
+        metadata: null,
+      },
+    });
   }
 
   async function createChannelConfig(id: string, members: string[]) {

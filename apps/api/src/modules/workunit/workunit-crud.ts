@@ -1,15 +1,13 @@
 /**
- * WorkUnit CRUD + Claim 持久化层 —— WorkUnitService 的基类（自 workunit.service.ts 拆分，纯代码移动）。
+ * WorkUnit Repository 用例 owner —— CRUD + Claim 持久化与领域事件。
  *
  * AS-025 §3.28c-1 Task 2-4
  * 存储迁移: 已从 Prisma 迁移到 FileStore (Event Sourcing)
  *
  * 本文件：create/update/delete + claim/unclaim + updateMetadata 增量合并语义口（#554）、
  * workunit.created 与 workunit.status_changed 事件发布、父状态聚合（aggregateParentStatus），
- * 以及快照转换函数与输入/数据类型。#672 起继承链按职责分层（每层一个文件）：
- * 查询派生在 workunit-query.ts（WorkUnitQueryService），状态机迁移与 persistSnapshot
- * 统一尾部在 workunit-lifecycle.ts（WorkUnitLifecycleService），评审验收收口在
- * workunit-review.ts（WorkUnitReviewService），WorkUnitService 门面在 workunit.service.ts。
+ * 以及快照转换函数与输入/数据类型。ARCH-05 起 Query/Lifecycle/Review 各自独立，
+ * WorkUnitService 在 workunit-review.ts 中组合四类用例接口。
  */
 
 import { randomUUID } from 'crypto';
@@ -181,10 +179,30 @@ interface WorkUnitMessageLinker {
   linkWorkUnit(messageId: string, workUnitId: string, channelId?: string): Promise<unknown>;
 }
 
-export class WorkUnitCrudService {
-  protected fileStore: FileStore;
-  protected metadataRepository: WorkUnitMetadataRepository;
-  protected messageService?: WorkUnitMessageLinker;
+/** Repository 用例面：持久化 CRUD、认领与生命周期段所需的领域事件原语。 */
+export interface WorkUnitRepository {
+  create(input: CreateWorkUnitInput): Promise<WorkUnitData>;
+  createGuarded(input: CreateWorkUnitInput, guard: (snapshots: WorkUnitSnapshot[]) => boolean): Promise<WorkUnitData | null>;
+  createFromMessage(messageId: string, options?: { type?: string; metadata?: WorkUnitMetadata; channelId?: string }): Promise<WorkUnitData>;
+  update(id: string, input: UpdateWorkUnitInput): Promise<WorkUnitData>;
+  updateMetadata(id: string, patch: WorkUnitMetadata): Promise<WorkUnitData | null>;
+  delete(id: string, opts?: { reason?: string }): Promise<void>;
+  claim(id: string, agentId: string): Promise<WorkUnitData>;
+  unclaim(id: string): Promise<WorkUnitData>;
+  aggregateParentStatus(childId: string): Promise<void>;
+}
+
+/** Lifecycle 实际依赖的三个 Repository 原语；不继承完整 CRUD 用例面。 */
+export interface WorkUnitLifecycleRepository {
+  aggregateParentStatus(childId: string): Promise<void>;
+  expandRoutingHead(parent: WorkUnitData): Promise<void>;
+  publishStatusChanged(snapshot: WorkUnitSnapshot): Promise<void>;
+}
+
+export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycleRepository {
+  private readonly fileStore: FileStore;
+  private readonly metadataRepository: WorkUnitMetadataRepository;
+  private readonly messageService?: WorkUnitMessageLinker;
 
   constructor(fileStore?: FileStore, messageService?: WorkUnitMessageLinker) {
     this.fileStore = fileStore ?? getStore();
@@ -324,7 +342,7 @@ export class WorkUnitCrudService {
    * 配置了但角色 inactive/被移出频道 → 不展开（回池涌现）+ 频道出声提醒（票体回退语义）。
    * #126（T4）：幂等——父单已有任何子单则跳过（create 与确认后补展开两处调用点）。
    */
-  protected async expandRoutingHead(parent: WorkUnitData): Promise<void> {
+  async expandRoutingHead(parent: WorkUnitData): Promise<void> {
     // #477：路由解析经 message 端口；出声通道/时机留本点。
     const { resolution: routing, notice } = await (await workUnitPort('message')).resolveRouting({
       fileStore: this.fileStore,
@@ -618,7 +636,7 @@ export class WorkUnitCrudService {
    * REQ 需求状态汇总（vision §5.3）等订阅方消费。
    * #318：负载附 claimable（additive，见 resolveEventClaimable）。
    */
-  protected async publishStatusChanged(snapshot: WorkUnitSnapshot): Promise<void> {
+  async publishStatusChanged(snapshot: WorkUnitSnapshot): Promise<void> {
     try {
       const claimable = await this.resolveEventClaimable(snapshot);
       eventBus.publish('workunit.status_changed', { workunit: { ...snapshotToData(snapshot), claimable } });

@@ -18,7 +18,7 @@
 // loop-lifecycle.js（start/stop/实例状态 SSE/心跳自裁）/ loop-observe.js（observe + 事件唤醒）/
 // loop-claim.js（认领 + 决策 14 适任判断）/ loop-step.js（agentStep 步执行编排）/
 // loop-record-result.js（recordResult 结果回写编排 + 频道消息出口）；
-// 段间共享状态与跨段调用经 loop-host.js 的 AgentLoopHost 接口显式化；
+// ARCH-05：段间只经 loop-deps.js 的窄端口协作；生命周期/唤醒/执行状态各归段 owner；
 // 执行目录解析三规则 → execution-cwd.js（deps 注入，纯函数可直测）。
 // 本文件 = 门面：构造接线 + runLoop 主循环编排 + 全部对外/测试 seam 的薄委托；
 // 导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
@@ -32,7 +32,6 @@ import { LocalExecutor, type Executor } from './executor.js';
 import { WuLeaseTracker } from './wu-lease.js';
 import { resolveTarget, dynamicInterval, sleep } from './agent-loop-parsers.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
-import type { AgentLoopHost } from './loop/loop-host.js';
 import { LoopLifecycle } from './loop/loop-lifecycle.js';
 import { LoopObserver } from './loop/loop-observe.js';
 import { LoopClaim } from './loop/loop-claim.js';
@@ -41,78 +40,101 @@ import { ResultRecorder } from './loop/loop-record-result.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 // 类型契约已抽到 ./agent-loop.types.js（工单 28，行为不变）；
-// StepResult re-export 保留——completion-gates 等生产消费方经本门面取类型（#544）
-export type { StepResult } from './agent-loop.types.js';
+// StepResult/StepContext re-export——生产消费方与测试经本门面取同一契约
+export type { StepContext, StepResult } from './agent-loop.types.js';
 
-export class AgentLoop implements AgentLoopHost {
-  // ── 段间共享状态（#668：原 private 字段转为 AgentLoopHost seam——段模块经接口读写；
-  //    模块内部面，不经 index.ts 出模块；__tests__ 经 as unknown as 触达同名字段） ──
+export interface AgentLoopOptions {
+  /** 已持久化实例的显式恢复点；正常生产启动仍由 start() 创建实例。 */
+  instance?: RuntimeInstanceRow | null;
+  /** 执行与心跳依赖的构造注入；生产缺省保持 LocalExecutor / 30s。 */
+  executor?: Executor;
+  leaseHeartbeatIntervalMs?: number;
+}
+
+export class AgentLoop {
   readonly role: AgentProfileData;
-  readonly workUnitService: WorkUnitService;
-  readonly executionJournal: ExecutionJournal;
-  readonly fileStore: FileStore;
-  instance: RuntimeInstanceRow | null = null;
-  readonly acceptedTypes: string[] = [];
-  alive = false;
-  triggerId: string | null = null;
-  loopPromise: Promise<void> | null = null;
-  /** #634: stop() 的 terminated 落盘写句柄——waitForStop 连带等待，
-   *  registry 重挂（provider 变更）须等旧实例 terminated 落盘后再挂新 loop */
-  terminateWrite: Promise<unknown> | null = null;
-  lastIdleHeartbeatAt = 0;
-  /** #330：事件驱动唤醒——空闲 sleep 的中断器（idleSleep 挂起期间非 null） */
-  wakeIdle: (() => void) | null = null;
-  /** #330：channel.message_sent 订阅句柄（start 挂、stop 退） */
-  messageSentHandler: ((payload: { message?: { authorType?: string; workUnitId?: string | null } }) => void) | null = null;
-  /** #493：唤醒闩锁——事件到达时 loop 不在 idleSleep（执行中/步骤间）则置 true，
-   *  下一次 idleSleep 入口消费并立即放行重跑 observe，唤醒不再丢失（原 fire-and-forget 丢此类唤醒） */
-  pendingWake = false;
-  /** #523（#515 决议 P0-2）：workunit.status_changed 订阅句柄（start 挂、stop 退） */
-  workunitChangedHandler: ((payload: unknown) => void) | null = null;
-  readonly executor: Executor;
-  /** 2026-07 PMO-flow UX（§6-2）：最后一次已发布的 instance 状态（SSE 去重——状态不变不发） */
-  lastPublishedStatus: string | null = null;
-  /** #178（#63 决议 1/2，#209 smell 4 迁出）：当前持有 WU 的租约轨道 + fencing 三件套（./wu-lease.js） */
-  readonly wuLease: WuLeaseTracker;
-  /** #178（#63 决议 2）：当前步 executionId——易主时据此经 Executor 杀自身 CLI 进程组 */
-  currentExecutionId: string | null = null;
-  /** #179（#66 决议 3 loop 侧）：实例心跳写连败计数（成功即清零，连败 HEARTBEAT_FAIL_LIMIT 次自裁） */
-  consecutiveHeartbeatFailures = 0;
-  /** B5（channel-flow-audit-fix）：observe 回复检测的增量水位（channelId → messages.jsonl
-   *  字节偏移）。进程内存簿记，重启清零 = 首轮全扫重建（重启间隙回复经 #493 >= 口径捞回）。 */
-  readonly replyScanWatermarks = new Map<string, number>();
-
-  // ── 段模块（#668）：构造期接线，门面方法全部委托 ──
+  private readonly workUnitService: WorkUnitService;
+  private readonly executionJournal: ExecutionJournal;
+  private readonly fileStore: FileStore;
+  private readonly acceptedTypes: string[];
+  private readonly executor: Executor;
+  private readonly wuLease: WuLeaseTracker;
   private readonly lifecycle: LoopLifecycle;
   private readonly observer: LoopObserver;
   private readonly claim: LoopClaim;
   private readonly stepRunner: StepRunner;
   private readonly recorder: ResultRecorder;
 
-  constructor(role: AgentProfileData, fileStore?: FileStore) {
+  constructor(role: AgentProfileData, fileStore?: FileStore, options: AgentLoopOptions = {}) {
     this.role = role;
     this.fileStore = fileStore ?? getStore();
     this.workUnitService = new WorkUnitService(this.fileStore);
     this.executionJournal = new ExecutionJournal(new WorkUnitMetadataRepository(this.fileStore));
-    // 决策 9: acceptedTypes 取 profile 显式字段（description 关键词解析已退役）
     this.acceptedTypes = role.acceptedTypes ?? [];
-    // §9.6: 执行面走 Executor 接口。远程节点方向已放弃（origin/master bdaf0dd3：生产无
-    // nodeId profile、无 WS 客户端活路径），统一 LocalExecutor；profile.nodeId 字段已随之删除。
-    this.executor = new LocalExecutor();
-    // #209 smell 4：租约/fencing 三件套迁 ./wu-lease.js，AgentLoop 只注入依赖 + 委托
+    this.executor = options.executor ?? new LocalExecutor();
+
+    this.stepRunner = new StepRunner({
+      role: this.role,
+      fileStore: this.fileStore,
+      workUnits: this.workUnitService,
+      executor: this.executor,
+      acceptedTypes: this.acceptedTypes,
+      discussion: { postToDiscussionSpace: (...args) => this.postToDiscussionSpace(...args) },
+    });
     this.wuLease = new WuLeaseTracker({
       fileStore: this.fileStore,
-      getAssigneeId: () => this.instance?.id ?? null,
-      getCurrentExecutionId: () => this.currentExecutionId ?? undefined,
+      getAssigneeId: () => this.currentInstance?.id ?? null,
+      getCurrentExecutionId: () => this.stepRunner.getCurrentExecutionId() ?? undefined,
+      heartbeatIntervalMs: options.leaseHeartbeatIntervalMs,
       stopProcessGroup: async (executionId) => { await this.executor.stopProcessGroup?.(executionId); },
-      transitionStatus: (wuId, status) => this.workUnitService.transitionStatus(wuId, status, { id: this.instance?.id ?? this.role.id, type: 'agent' }),
+      transitionStatus: (wuId, status) => this.workUnitService.transitionStatus(wuId, status, {
+        id: this.currentInstance?.id ?? this.role.id,
+        type: 'agent',
+      }),
     });
-    // #668：五段模块接线（构造只挂引用，全部调用发生在运行期，无构造次序敏感）
-    this.lifecycle = new LoopLifecycle(this);
-    this.observer = new LoopObserver(this);
-    this.claim = new LoopClaim(this);
-    this.stepRunner = new StepRunner(this);
-    this.recorder = new ResultRecorder(this);
+    this.recorder = new ResultRecorder({
+      role: this.role,
+      fileStore: this.fileStore,
+      workUnits: this.workUnitService,
+      executionJournal: this.executionJournal,
+      lease: this.wuLease,
+    });
+    this.observer = new LoopObserver({
+      role: this.role,
+      fileStore: this.fileStore,
+      getInstance: () => this.currentInstance,
+      isAlive: () => this.lifecycle.isAlive(),
+    });
+    this.claim = new LoopClaim({
+      role: this.role,
+      fileStore: this.fileStore,
+      workUnits: this.workUnitService,
+      getInstance: () => this.currentInstance,
+      discussion: this.recorder,
+    });
+    this.lifecycle = new LoopLifecycle({
+      role: this.role,
+      fileStore: this.fileStore,
+      executor: this.executor,
+      runLoop: () => this.runLoop(),
+      onChannelMessageSent: payload => this.observer.onChannelMessageSent(payload),
+      onWorkUnitClaimable: payload => this.observer.onWorkUnitClaimable(payload),
+      wakeIdle: () => this.observer.wake(),
+      stopLease: () => this.wuLease.stop(),
+      getCurrentExecutionId: () => this.stepRunner.getCurrentExecutionId(),
+    }, options.instance ?? null);
+  }
+
+  get currentInstance(): RuntimeInstanceRow | null {
+    return this.lifecycle.currentInstance;
+  }
+
+  get currentExecutionId(): string | null {
+    return this.stepRunner.getCurrentExecutionId();
+  }
+
+  hasLease(wuId?: string): boolean {
+    return this.wuLease.has(wuId);
   }
 
   // ── 公共 API（registry/bootstrap 消费）：委托生命周期段 ──
@@ -138,7 +160,7 @@ export class AgentLoop implements AgentLoopHost {
 
   /** Main observe→resolveTarget→agentStep→recordResult loop（编排本体留门面） */
   async runLoop(): Promise<void> {
-    while (this.alive) {
+    while (this.lifecycle.isAlive()) {
       try {
         const observations = await this.observe();
         const target = resolveTarget(observations);
@@ -168,7 +190,7 @@ export class AgentLoop implements AgentLoopHost {
         }
 
         // Update heartbeat + status=active (fix: monitoring.active was always 0)
-        if (this.instance) {
+        if (this.currentInstance) {
           // #179（#66 决议 3 loop 侧）：心跳写连败 ≈3 次自裁；自裁后中止本次迭代不开新 step
           const stillAlive = await this.lifecycle.updateStateWithHeartbeatWatch({
             lastHeartbeat: new Date().toISOString(),
@@ -204,7 +226,7 @@ export class AgentLoop implements AgentLoopHost {
     this.stopLease();
   }
 
-  // ── 租约/fencing seam（#178/#63，委托 wuLease；loop-host 接口面，含原包装注释语义） ──
+  // ── 租约/fencing 公共委托（#178/#63，状态归 WuLeaseTracker） ──
 
   /** #178（#63 决议 1/2）：为持有中的 WU 确保租约心跳在跑。
    *  新认领与 myActive 续跑（含 blocked 复活回 active）统一经此进入；令牌（wuId+claimedAt）
@@ -243,8 +265,7 @@ export class AgentLoop implements AgentLoopHost {
     return this.wuLease.releaseIfForfeited(wuId);
   }
 
-  // ── 跨段方法（loop-host 接口面）+ 测试 seam（__tests__ 经 as unknown as 触达）：
-  //    全部薄委托到段模块，行为本体在段内 ──
+  // ── 公共用例委托：生产与测试走同一 interface，行为本体在各段 owner ──
 
   onChannelMessageSent(payload: { message?: { authorType?: string; workUnitId?: string | null } }): void {
     this.observer.onChannelMessageSent(payload);
@@ -287,7 +308,7 @@ export class AgentLoop implements AgentLoopHost {
   }
 
   agentStep(target: Target): Promise<StepResult> {
-    return this.stepRunner.agentStep(target);
+    return this.stepRunner.agentStep({ ...target, instance: this.currentInstance });
   }
 
   recordResult(target: Target, result: StepResult): Promise<void> {

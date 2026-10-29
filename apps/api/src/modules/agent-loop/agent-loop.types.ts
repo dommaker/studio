@@ -48,6 +48,11 @@ export interface Target {
   newReplies?: ChannelMessageData[];
 }
 
+/** 单步不可变输入：实例身份由 AgentLoop 在调用边界快照，而非由执行段回读 Host。 */
+export interface StepContext extends Target {
+  readonly instance: RuntimeInstanceRow | null;
+}
+
 export interface RuntimeInstanceRow {
   id: string;
   roleId: string;

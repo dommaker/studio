@@ -70,16 +70,21 @@ describe('#175: 认领/步失败频道发声（#55 决议）', () => {
       discordChannelId: null, discordWebhookUrl: null, members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    agentLoop = new AgentLoop(mockRole, fileStore);
-    // 不 start()：claimAndAnnounce/recordResult 不依赖运行中的 loop；仅补 instance（claim 需要 instanceId）
-    (agentLoop as unknown as LoopPrivates).instance = { id: 'instance-175' };
+    agentLoop = new AgentLoop(mockRole, fileStore, {
+      // 不 start()：claimAndAnnounce/recordResult 不依赖运行中的 loop；显式恢复实例供 claim 使用。
+      instance: {
+        id: 'instance-175', roleId: mockRole.id, sessionId: null, status: 'idle',
+        currentWorkUnitId: null, startedAt: new Date().toISOString(), terminatedAt: null,
+        lastHeartbeat: null, metadata: null,
+      },
+    });
   });
 
   afterEach(() => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  const loop = () => agentLoop as unknown as LoopPrivates;
+  const loop = () => agentLoop;
 
   async function channelMessages(wuId: string): Promise<ChannelMessageData[]> {
     return fileStore.queryMessages(channelId, { workUnitId: wuId });

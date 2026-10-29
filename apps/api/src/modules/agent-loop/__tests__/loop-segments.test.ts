@@ -1,6 +1,5 @@
-// loop 段接线结构测试（#668 agent-loop.ts 按职责切深模块）：
-// 钉住拆分契约——AgentLoop 门面保留的全部对外/测试 seam 委托到对应段模块，
-// 段实例在构造期接线完成。段行为本身的覆盖率由既有 agent-loop-* 测试网承担（纯结构移动）。
+// ARCH-05：测试与生产调用方使用同一 AgentLoop interface；StepRunner 只接收
+// 显式 StepContext，不能通过 God Host 回读可变实例状态。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,9 +11,7 @@ const { mockExecuteLightweight } = vi.hoisted(() => ({
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({
-  agentRunner: {
-    executeLightweight: mockExecuteLightweight,
-  },
+  agentRunner: { executeLightweight: mockExecuteLightweight },
 }));
 
 vi.mock('../../knowledge/knowledge-service', () => ({
@@ -32,39 +29,29 @@ import { LoopClaim } from '../loop/loop-claim';
 import { StepRunner } from '../loop/loop-step';
 import { ResultRecorder } from '../loop/loop-record-result';
 import { WuLeaseTracker } from '../wu-lease';
+import type { WorkUnitData } from '../../workunit/index.js';
+import type { RuntimeInstanceRow } from '../agent-loop.types.js';
 
 const mockRole = {
-  id: 'role-seg',
-  name: 'seg-agent',
-  description: 'segment wiring test agent',
-  channels: '[]',
-  status: 'active',
-  provider: 'claude',
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
+  id: 'role-seg', name: 'seg-agent', description: 'segment wiring test agent',
+  channels: '[]', status: 'active', provider: 'claude',
+  createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
 };
 
-/** 测试触达 internal 成员的结构接口（as unknown as 转换，同 agent-loop-instance-status 模式） */
-interface SegmentWired {
-  lifecycle: LoopLifecycle;
-  observer: LoopObserver;
-  claim: LoopClaim;
-  stepRunner: StepRunner;
-  recorder: ResultRecorder;
-  observe(): Promise<unknown>;
-  idleSleep(ms: number): Promise<void>;
-  claimAndAnnounce(wu: unknown): Promise<boolean>;
-  ensureClaimFit(wu: unknown): Promise<boolean>;
-  updateIdleState(): Promise<void>;
-  publishInstanceStatus(status: string, wuId: string | null): Promise<void>;
-  recordStartupFailure(message: string): Promise<void>;
-  agentStep(target: unknown): Promise<unknown>;
-  recordResult(target: unknown, result: unknown): Promise<void>;
-  postToDiscussionSpace(wuId: string, content: string): Promise<void>;
-  transitionIfHeld(wuId: string, status: string): Promise<boolean>;
-}
+const instance: RuntimeInstanceRow = {
+  id: 'instance-seg', roleId: mockRole.id, sessionId: null, status: 'active',
+  currentWorkUnitId: 'wu-1', startedAt: new Date().toISOString(), terminatedAt: null,
+  metadata: null, lastHeartbeat: null,
+};
 
-describe('AgentLoop 段模块接线（#668）', () => {
+const workUnit: WorkUnitData = {
+  id: 'wu-1', parentId: null, type: 'task', scope: 'step context', assigneeId: instance.id,
+  status: 'active', failureType: null, retryCount: 0, timeoutAt: null, channelId: null,
+  projectPath: null, workspaceId: null, reqId: null, metadata: null,
+  createdAt: new Date(), updatedAt: new Date(), claimedAt: new Date(), completedAt: null,
+};
+
+describe('AgentLoop 窄段接口与 StepContext（ARCH-05）', () => {
   let testDir: string;
   let fileStore: FileStore;
   let loop: AgentLoop;
@@ -72,7 +59,7 @@ describe('AgentLoop 段模块接线（#668）', () => {
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-segments-'));
     fileStore = new FileStore(testDir);
-    loop = new AgentLoop(mockRole, fileStore);
+    loop = new AgentLoop(mockRole, fileStore, { instance });
   });
 
   afterEach(() => {
@@ -80,85 +67,80 @@ describe('AgentLoop 段模块接线（#668）', () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('构造期完成五段模块实例接线', () => {
-    const wired = loop as unknown as SegmentWired;
-    expect(wired.lifecycle).toBeInstanceOf(LoopLifecycle);
-    expect(wired.observer).toBeInstanceOf(LoopObserver);
-    expect(wired.claim).toBeInstanceOf(LoopClaim);
-    expect(wired.stepRunner).toBeInstanceOf(StepRunner);
-    expect(wired.recorder).toBeInstanceOf(ResultRecorder);
+  it('构造输入与 currentInstance 返回均为防御快照，外部改写不穿透 owner', () => {
+    const input = { ...instance };
+    const isolated = new AgentLoop(mockRole, fileStore, { instance: input });
+    input.id = 'mutated-input';
+    expect(isolated.currentInstance).toEqual(instance);
+    expect(isolated.currentInstance).not.toBe(input);
+
+    const returned = isolated.currentInstance!;
+    returned.id = 'mutated-output';
+    expect(isolated.currentInstance).toEqual(instance);
+    expect(isolated.currentInstance).not.toBe(returned);
   });
 
-  it('观察段：observe/idleSleep 委托 LoopObserver', async () => {
+  it('观察段：observe/idleSleep 使用公共接口', async () => {
     const observations = { myActive: [], unassigned: [], newReplies: [] };
     const observeSpy = vi.spyOn(LoopObserver.prototype, 'observe').mockResolvedValue(observations);
     const sleepSpy = vi.spyOn(LoopObserver.prototype, 'idleSleep').mockResolvedValue(undefined);
-    const wired = loop as unknown as SegmentWired;
-    expect(await wired.observe()).toBe(observations);
-    await wired.idleSleep(1);
+    expect(await loop.observe()).toBe(observations);
+    await loop.idleSleep(1);
     expect(observeSpy).toHaveBeenCalledOnce();
     expect(sleepSpy).toHaveBeenCalledOnce();
   });
 
-  it('唤醒段：onChannelMessageSent/onWorkUnitClaimable 委托 LoopObserver', () => {
+  it('唤醒与认领段保留公共行为', async () => {
     const msgSpy = vi.spyOn(LoopObserver.prototype, 'onChannelMessageSent').mockReturnValue(undefined);
     const claimableSpy = vi.spyOn(LoopObserver.prototype, 'onWorkUnitClaimable').mockReturnValue(undefined);
     loop.onChannelMessageSent({ message: { authorType: 'human', workUnitId: 'wu-1' } });
     loop.onWorkUnitClaimable({ workunit: { claimable: true } });
-    expect(msgSpy).toHaveBeenCalledOnce();
-    expect(claimableSpy).toHaveBeenCalledOnce();
-  });
-
-  it('认领段：claimAndAnnounce/ensureClaimFit 委托 LoopClaim', async () => {
     const announceSpy = vi.spyOn(LoopClaim.prototype, 'claimAndAnnounce').mockResolvedValue(true);
     const fitSpy = vi.spyOn(LoopClaim.prototype, 'ensureClaimFit').mockResolvedValue(true);
-    const wired = loop as unknown as SegmentWired;
-    expect(await wired.claimAndAnnounce({})).toBe(true);
-    expect(await wired.ensureClaimFit({})).toBe(true);
-    expect(announceSpy).toHaveBeenCalledOnce();
-    expect(fitSpy).toHaveBeenCalledOnce();
+    expect(await loop.claimAndAnnounce(workUnit)).toBe(true);
+    expect(await loop.ensureClaimFit(workUnit)).toBe(true);
+    for (const spy of [msgSpy, claimableSpy, announceSpy, fitSpy]) expect(spy).toHaveBeenCalledOnce();
   });
 
-  it('生命周期段：start/stop/waitForStop + 实例状态三件套委托 LoopLifecycle', async () => {
-    const startSpy = vi.spyOn(LoopLifecycle.prototype, 'start').mockResolvedValue(true);
-    const stopSpy = vi.spyOn(LoopLifecycle.prototype, 'stop').mockReturnValue(undefined);
-    const waitSpy = vi.spyOn(LoopLifecycle.prototype, 'waitForStop').mockResolvedValue(undefined);
-    const idleSpy = vi.spyOn(LoopLifecycle.prototype, 'updateIdleState').mockResolvedValue(undefined);
-    const publishSpy = vi.spyOn(LoopLifecycle.prototype, 'publishInstanceStatus').mockResolvedValue(undefined);
-    const failureSpy = vi.spyOn(LoopLifecycle.prototype, 'recordStartupFailure').mockResolvedValue(undefined);
-    const wired = loop as unknown as SegmentWired;
+  it('生命周期段保留 start/stop 与实例状态行为', async () => {
+    const spies = [
+      vi.spyOn(LoopLifecycle.prototype, 'start').mockResolvedValue(true),
+      vi.spyOn(LoopLifecycle.prototype, 'stop').mockReturnValue(undefined),
+      vi.spyOn(LoopLifecycle.prototype, 'waitForStop').mockResolvedValue(undefined),
+      vi.spyOn(LoopLifecycle.prototype, 'updateIdleState').mockResolvedValue(undefined),
+      vi.spyOn(LoopLifecycle.prototype, 'publishInstanceStatus').mockResolvedValue(undefined),
+      vi.spyOn(LoopLifecycle.prototype, 'recordStartupFailure').mockResolvedValue(undefined),
+    ];
     expect(await loop.start()).toBe(true);
     loop.stop();
     await loop.waitForStop();
-    await wired.updateIdleState();
-    await wired.publishInstanceStatus('idle', null);
-    await wired.recordStartupFailure('boom');
-    for (const spy of [startSpy, stopSpy, waitSpy, idleSpy, publishSpy, failureSpy]) {
-      expect(spy).toHaveBeenCalledOnce();
-    }
+    await loop.updateIdleState();
+    await loop.publishInstanceStatus('idle', null);
+    await loop.recordStartupFailure('boom');
+    for (const spy of spies) expect(spy).toHaveBeenCalledOnce();
   });
 
-  it('步执行段：agentStep 委托 StepRunner', async () => {
-    const stepResult = { action: 'progress', summary: 'ok' };
-    const stepSpy = vi.spyOn(StepRunner.prototype, 'agentStep').mockResolvedValue(stepResult as never);
-    const wired = loop as unknown as SegmentWired;
-    expect(await wired.agentStep({ workUnit: {} })).toBe(stepResult);
-    expect(stepSpy).toHaveBeenCalledOnce();
-  });
+  it('agentStep 传显式 StepContext，recordResult 沿用 StepResult', async () => {
+    const stepResult = { action: 'progress', summary: 'ok' } as const;
+    const stepSpy = vi.spyOn(StepRunner.prototype, 'agentStep').mockResolvedValue(stepResult);
+    expect(await loop.agentStep({ workUnit })).toBe(stepResult);
+    expect(stepSpy).toHaveBeenCalledWith(expect.objectContaining({ workUnit, instance }));
+    const context = stepSpy.mock.calls[0][0];
+    expect(context.instance).not.toBe(loop.currentInstance);
+    context.instance!.id = 'mutated-step-context';
+    expect(loop.currentInstance).toEqual(instance);
 
-  it('结果记录段：recordResult/postToDiscussionSpace 委托 ResultRecorder', async () => {
     const recordSpy = vi.spyOn(ResultRecorder.prototype, 'recordResult').mockResolvedValue(undefined);
     const postSpy = vi.spyOn(ResultRecorder.prototype, 'postToDiscussionSpace').mockResolvedValue(undefined);
-    const wired = loop as unknown as SegmentWired;
-    await wired.recordResult({ workUnit: {} }, { action: 'progress', summary: 'ok' });
-    await wired.postToDiscussionSpace('wu-1', 'hello');
+    await loop.recordResult({ workUnit }, stepResult);
+    await loop.postToDiscussionSpace('wu-1', 'hello');
     expect(recordSpy).toHaveBeenCalledOnce();
     expect(postSpy).toHaveBeenCalledOnce();
   });
 
-  it('fencing seam：transitionIfHeld 委托 WuLeaseTracker', async () => {
+  it('fencing 仍由 WuLeaseTracker 独占', async () => {
     const heldSpy = vi.spyOn(WuLeaseTracker.prototype, 'transitionIfHeld').mockResolvedValue(true);
-    expect(await (loop as unknown as SegmentWired).transitionIfHeld('wu-1', 'blocked')).toBe(true);
+    expect(await loop.transitionIfHeld('wu-1', 'blocked')).toBe(true);
     expect(heldSpy).toHaveBeenCalledOnce();
   });
 });

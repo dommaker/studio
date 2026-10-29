@@ -120,28 +120,17 @@ describe('AgentLoop agentStep via Executor interface', () => {
     const spy = vi.spyOn(LocalExecutor.prototype, 'execute');
     mockExecuteLightweight.mockResolvedValue(makeResult());
 
-    const agentLoop = new AgentLoop(mockRole, fileStore);
-    // FileStore 里建 state，让 agentStep 内 updateState 不抛 "not found"
-    await fileStore.createState('instance-exec', {
-      id: 'instance-exec', roleId: mockRole.id, sessionId: null,
-      status: 'active', currentWorkUnitId: null,
-      startedAt: new Date().toISOString(), terminatedAt: null,
-      lastHeartbeat: null, metadata: null, pid: process.pid,
-    });
     // #94: 续用判定只信档案 metadata.sessionId（不再读 instance 槽位）；本用例 WU 无
     // workspaceId/workspaceRoot → cwd=null → claude 无法校验会话文件按续用处理，
     // 避开新建分支的会话签发，保持既有 exec 逻辑断言聚焦 Executor 接口形状。
-    (agentLoop as unknown as { instance: unknown }).instance = {
-      id: 'instance-exec',
-      roleId: mockRole.id,
-      sessionId: 'sess-existing',
-      status: 'active',
-      currentWorkUnitId: 'wu-exec-1',
-      startedAt: new Date().toISOString(),
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
+    const instance = {
+      id: 'instance-exec', roleId: mockRole.id, sessionId: 'sess-existing',
+      status: 'active', currentWorkUnitId: 'wu-exec-1',
+      startedAt: new Date().toISOString(), terminatedAt: null,
+      lastHeartbeat: null, metadata: null, pid: process.pid,
     };
+    await fileStore.createState(instance.id, instance);
+    const agentLoop = new AgentLoop(mockRole, fileStore, { instance });
 
     const target = {
       workUnit: {
@@ -153,9 +142,7 @@ describe('AgentLoop agentStep via Executor interface', () => {
       },
     };
 
-    const step = await (agentLoop as unknown as {
-      agentStep(t: unknown): Promise<{ action: string }>;
-    }).agentStep(target);
+    const step = await agentLoop.agentStep(target);
 
     // 经 Executor 接口调用一次，task 为 agent-loop 构建的 AgentTask 形状
     expect(spy).toHaveBeenCalledTimes(1);

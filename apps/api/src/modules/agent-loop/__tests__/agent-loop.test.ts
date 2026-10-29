@@ -230,7 +230,7 @@ describe('AgentLoop', () => {
         },
       };
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       expect(mockInjectContext).toHaveBeenCalledWith('task', expect.any(Object));
     });
@@ -254,7 +254,7 @@ describe('AgentLoop', () => {
         },
       };
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       expect(mockExecuteLightweight).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -286,7 +286,7 @@ describe('AgentLoop', () => {
       };
 
       await expect(
-        (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target)
+        agentLoop.agentStep(target)
       ).resolves.toBeDefined();
     });
   });
@@ -311,7 +311,7 @@ describe('AgentLoop', () => {
         },
       };
 
-      const result = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      const result = await agentLoop.agentStep(target);
 
       // recordOutcome was called (verification works)
       expect(mockRecordOutcome).toHaveBeenCalledWith(
@@ -341,7 +341,7 @@ describe('AgentLoop', () => {
         },
       };
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
       // recordExecutionOutcome 是 fire-and-forget：extractFromExecution 在
       // recordOutcome 之后的 microtask 链上，先让事件循环排空再断言
       await new Promise(r => setImmediate(r));
@@ -376,7 +376,7 @@ describe('AgentLoop', () => {
         },
       };
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       expect(mockRecordOutcome).toHaveBeenCalledWith(
         expect.objectContaining({ consumedKnowledge: [] })
@@ -404,7 +404,7 @@ describe('AgentLoop', () => {
       };
 
       await expect(
-        (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target)
+        agentLoop.agentStep(target)
       ).resolves.toBeDefined();
     });
   });
@@ -429,7 +429,7 @@ describe('AgentLoop', () => {
         },
       };
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       const callArg = mockExecuteLightweight.mock.calls[0][0];
       expect(callArg.provider).toBe('claude');
@@ -457,7 +457,7 @@ describe('AgentLoop', () => {
         },
       };
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       const callArg = mockExecuteLightweight.mock.calls[0][0];
       expect(callArg.provider).toBe('codex');
@@ -484,7 +484,7 @@ describe('AgentLoop', () => {
         },
       };
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       const callArg = mockExecuteLightweight.mock.calls[0][0];
       expect(callArg.provider).toBe('claude');
@@ -509,7 +509,7 @@ describe('AgentLoop', () => {
         },
       };
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       expect(mockExecuteLightweight).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -539,7 +539,7 @@ describe('AgentLoop', () => {
         },
       };
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       const params = mockExecuteLightweight.mock.calls[0][0].parameters;
       expect(params).not.toHaveProperty('sessionFlags');
@@ -577,10 +577,10 @@ describe('AgentLoop', () => {
       };
 
       // First call: creates session, returns high tokens
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       // Second call: should get a fresh sessionId (档案仍无 sessionId → 新建路径)
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       const secondCallParams = mockExecuteLightweight.mock.calls[1][0].parameters;
       // #94: checkSessionTruncation 只留观测日志、不再清会话；但 agentStep 不落库 metadata
@@ -618,8 +618,8 @@ describe('AgentLoop', () => {
         },
       };
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
+      await agentLoop.agentStep(target);
 
       const secondCallParams = mockExecuteLightweight.mock.calls[1][0].parameters;
       expect(secondCallParams.sessionId).toBeDefined();
@@ -932,7 +932,7 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+      await agentLoop.agentStep(makeTarget());
 
       expect(fs.existsSync(traceFile())).toBe(true);
       const lines = fs.readFileSync(traceFile(), 'utf-8').trim().split('\n');
@@ -963,7 +963,7 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+      await agentLoop.agentStep(makeTarget());
 
       // 0 条 tool:call → writeToolCallEvents 提前返回，不落盘
       expect(fs.existsSync(traceFile())).toBe(false);
@@ -1009,7 +1009,7 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+      await agentLoop.agentStep(makeTarget());
 
       // 验收核心：成功路径全量解析恰好 1 次（tool:call 与 execution_step 共享解析产物）
       expect(vi.mocked(parseStreamEvents).mock.calls.length).toBe(1);
@@ -1048,7 +1048,7 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      const result = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget({ _cumulativeTokens: 70 }));
+      const result = await agentLoop.agentStep(makeTarget({ _cumulativeTokens: 70 }));
       const { metadataUpdates } = result as { metadataUpdates?: Record<string, unknown> };
       expect(metadataUpdates).toBeDefined();
       expect(metadataUpdates!._cumulativeTokens).toBe(220);
@@ -1064,10 +1064,10 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const withExisting = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget({ _cumulativeTokens: 70 }));
+      const withExisting = await agentLoop.agentStep(makeTarget({ _cumulativeTokens: 70 }));
       expect((withExisting as { metadataUpdates?: Record<string, unknown> }).metadataUpdates!._cumulativeTokens).toBe(70);
 
-      const fresh = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+      const fresh = await agentLoop.agentStep(makeTarget());
       expect((fresh as { metadataUpdates?: Record<string, unknown> }).metadataUpdates!._cumulativeTokens).toBe(0);
     });
   });

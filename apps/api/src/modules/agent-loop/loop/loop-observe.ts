@@ -5,17 +5,21 @@
  * B5 字节水位增量回复检测）+ loadChannelMembers +
  * 事件唤醒三件套（#330/#493/#523：idleSleep 可中断 sleep / onChannelMessageSent /
  * onWorkUnitClaimable——只放行不裁决，归属裁决归 observe）。
- * 全部共享状态经 AgentLoopHost 读写；本类零自有状态。
+ * ARCH-05：回复水位与唤醒闩锁由本类独占，实例/存活经窄 getter 读取。
  */
 import { parseChannels, isStaleClaimSleep, type ChannelMessageData } from '@dommaker/studio-shared';
 import { snapshotToData, hasUnfinishedDeps, buildStatusById } from '../../workunit/index.js';
 import { parseExcludeAssignee } from '../agent-loop-guards.js';
 import { isRoleUnfit } from '../claim-fitness.js';
 import type { Observations } from '../agent-loop.types.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { ObserverDeps } from './loop-deps.js';
 
 export class LoopObserver {
-  constructor(private readonly host: AgentLoopHost) {}
+  private readonly replyScanWatermarks = new Map<string, number>();
+  private pendingWake = false;
+  private wakeIdle: (() => void) | null = null;
+
+  constructor(private readonly deps: ObserverDeps) {}
 
   /**
    * §9.5: 加载全部频道的 members（channelId → member profile ids）。
@@ -24,7 +28,7 @@ export class LoopObserver {
   private async loadChannelMembers(): Promise<Map<string, string[]>> {
     const map = new Map<string, string[]>();
     try {
-      const channels = await this.host.fileStore.listChannels();
+      const channels = await this.deps.fileStore.listChannels();
       for (const ch of channels) {
         map.set(ch.id, parseChannels(ch.members));
       }
@@ -34,12 +38,12 @@ export class LoopObserver {
 
   /** Observe: collect state from DB (zero token) */
   async observe(): Promise<Observations> {
-    const host = this.host;
+    const deps = this.deps;
     // 工单 27：index.json 每轮只读一次——myActive 由同一批快照本地派生，
     // 过滤/排序/分页口径与 workUnitService.list({assigneeId}) 完全一致
     // （含先按 createdAt desc 取前 20 条、再按状态过滤的顺序）。
-    const allSnapshots = await host.fileStore.getIndex();
-    const myAssigneeId = host.instance?.id;
+    const allSnapshots = await deps.fileStore.getIndex();
+    const myAssigneeId = deps.getInstance()?.id;
     const mine = myAssigneeId
       ? allSnapshots.filter(s => s.assigneeId === myAssigneeId)
       : [...allSnapshots];
@@ -66,21 +70,21 @@ export class LoopObserver {
       // 未指派的保持频道作用域（§9.5: 频道 members 含本 profile）。
       // 决策 10：认领纯显式，不再有 acceptedTypes 类型过滤（推断只用于 skill 排序，不否决路由）。
       if (s.assigneeId) {
-        if (s.assigneeId !== host.role.id) return false;
+        if (s.assigneeId !== deps.role.id) return false;
       } else if (s.channelId) {
         const members = channelMembers.get(s.channelId);
         // §9.5（#696 严格口径）：频道配置读得到 → members 唯一事实源
         // （空 = 无成员不可见）；读不到（加载失败/频道已删，map miss）→ 放行不裁决。
-        if (members && !members.includes(host.role.id)) return false;
+        if (members && !members.includes(deps.role.id)) return false;
       }
       // F4（reviewer 解锚，决策 5）：评审 WU 排除实现者 —— metadata.excludeAssignee
       // 命中的 profile 不可见（自评兜底场景 dispatcher 不设该字段，此处自然放行）
-      if (parseExcludeAssignee(s.metadata) === host.role.id) return false;
+      if (parseExcludeAssignee(s.metadata) === deps.role.id) return false;
       // #109（M4 接单过滤）：metadata.blockedBy 中有未 done 的 WU → 对所有 loop 不可见
       if (hasUnfinishedDeps(s.metadata, statusById)) return false;
       // 决策 14 认领前适任判断：本角色已被判不适任（metadata.unfitRoles 含本 role.id）→ 不可见。
       // 约束挂 WU 不挂角色身份（合规 ADR D2/决策 10），同 excludeAssignee 口径
-      if (isRoleUnfit(s.metadata, host.role.id)) return false;
+      if (isRoleUnfit(s.metadata, deps.role.id)) return false;
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .slice(0, 5)
@@ -118,16 +122,16 @@ export class LoopObserver {
         if (t < boundaryMs) boundaryMs = t;
       }
       const channelSet = channelFilter ? new Set(channelFilter) : null;
-      const scanChannelIds = (await host.fileStore.listMessageChannelIds())
+      const scanChannelIds = (await deps.fileStore.listMessageChannelIds())
         .filter(id => !channelSet || channelSet.has(id));
       const perChannel = await Promise.all(scanChannelIds.map(async cid => {
         try {
-          const wm = host.replyScanWatermarks.get(cid) ?? 0;
-          let delta = await host.fileStore.readChannelMessagesDelta(cid, wm, { boundarySinceMs: boundaryMs });
+          const wm = this.replyScanWatermarks.get(cid) ?? 0;
+          let delta = await deps.fileStore.readChannelMessagesDelta(cid, wm, { boundarySinceMs: boundaryMs });
           if (!delta.valid && wm !== 0) {
-            delta = await host.fileStore.readChannelMessagesDelta(cid, 0, { boundarySinceMs: boundaryMs });
+            delta = await deps.fileStore.readChannelMessagesDelta(cid, 0, { boundarySinceMs: boundaryMs });
           }
-          if (delta.valid) host.replyScanWatermarks.set(cid, delta.newOffset);
+          if (delta.valid) this.replyScanWatermarks.set(cid, delta.newOffset);
           return delta.messages;
         } catch {
           return []; // 读取失败按空处理（同 queryAllMessages 容错口径），不阻断 observe
@@ -145,6 +149,11 @@ export class LoopObserver {
     return { myActive, unassigned, newReplies: allReplies };
   }
 
+  /** 生命周期 stop 只中断等待，不读写观察段的唤醒闩锁。 */
+  wake(): void {
+    this.wakeIdle?.();
+  }
+
   /** #330/#493 + 2026-09-16 放宽：channel.message_sent 唤醒过滤 + 闩锁（独立方法供测试 seam 直驱）。
    *  只放行不裁决：人类消息且带 workUnitId 即醒（负载原始字段）；不再用 lastActiveWuIds
    *  派生缓存否决（认领后首个 sleep 窗口缓存必 stale，回复唤醒 100% 被滤掉，实测白等 30s）。 */
@@ -153,8 +162,8 @@ export class LoopObserver {
     if (!msg || msg.authorType !== 'human' || !msg.workUnitId) return;
     // #493：闩锁先行——不在 idleSleep（执行中/步骤间 sleep）时 wakeIdle 为 null，
     // 唤醒原样会丢；置闩后下一次 idleSleep 入口消费并立即放行重跑 observe
-    this.host.pendingWake = true;
-    this.host.wakeIdle?.();
+    this.pendingWake = true;
+    this.wakeIdle?.();
   }
 
   /** #523（#515 决议 P0-1/P0-2）+ 2026-09-16 唤醒放宽（只放行不裁决）：
@@ -166,34 +175,33 @@ export class LoopObserver {
   onWorkUnitClaimable(payload: unknown): void {
     const wu = (payload as { workunit?: { claimable?: boolean; assigneeId?: string | null } } | null)?.workunit;
     if (!wu) return;
-    const mine = wu.assigneeId != null && wu.assigneeId === this.host.instance?.id;
+    const mine = wu.assigneeId != null && wu.assigneeId === this.deps.getInstance()?.id;
     if (wu.claimable !== true && !mine) return;
-    this.host.pendingWake = true;
-    this.host.wakeIdle?.();
+    this.pendingWake = true;
+    this.wakeIdle?.();
   }
 
   /** #330: 可中断的空闲/步间 sleep——channel.message_sent（人类消息带 workUnitId）、
    *  workunit 事件（claimable===true 或 assigneeId===本实例）或 stop 时提前返回 */
   idleSleep(ms: number): Promise<void> {
-    const host = this.host;
-    if (!host.alive) return Promise.resolve(); // stop 与进入 sleep 的竞态：已停则立即返回
+    if (!this.deps.isAlive()) return Promise.resolve(); // stop 与进入 sleep 的竞态：已停则立即返回
     // #493：消费唤醒闩锁——挂起期间有唤醒意图未送达，不睡直接重跑一轮 observe
-    if (host.pendingWake) {
-      host.pendingWake = false;
+    if (this.pendingWake) {
+      this.pendingWake = false;
       return Promise.resolve();
     }
     return new Promise(resolve => {
       const wake = () => {
-        host.pendingWake = false; // #493：打断即消费——紧随的 observe 已覆盖本次唤醒意图
+        this.pendingWake = false; // #493：打断即消费——紧随的 observe 已覆盖本次唤醒意图
         clearTimeout(timer);
-        if (host.wakeIdle === wake) host.wakeIdle = null;
+        if (this.wakeIdle === wake) this.wakeIdle = null;
         resolve();
       };
       const timer = setTimeout(() => {
-        if (host.wakeIdle === wake) host.wakeIdle = null;
+        if (this.wakeIdle === wake) this.wakeIdle = null;
         resolve();
       }, ms);
-      host.wakeIdle = wake;
+      this.wakeIdle = wake;
     });
   }
 }

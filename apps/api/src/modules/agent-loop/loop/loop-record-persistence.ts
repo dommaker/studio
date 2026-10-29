@@ -4,7 +4,7 @@ import { CODE_WORKTREE_TYPES, runWuVerification } from '../wu-verification.js';
 import { prepareRecordBookkeeping } from '../result-bookkeeping.js';
 import type { CompletionGuardNotices } from '../completion-gates.js';
 import type { StepResult } from '../agent-loop.types.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { ResultRecorderDeps } from './loop-deps.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 /** 步骤数上限：超限强制 in_review 交人工。review WU 单独放宽——
@@ -41,7 +41,7 @@ export interface ResultPersistence {
 /** 簿记推导、F6-c 强制收口补验与单次原子写。 */
 export async function persistResultBookkeeping(
   input: ResultPersistenceInput,
-  host: AgentLoopHost,
+  deps: ResultRecorderDeps,
 ): Promise<ResultPersistence> {
   const { wu, metadata, action, result, guardUpdates, freshnessUpdates, notices } = input;
   const wuId = wu.id;
@@ -72,7 +72,7 @@ export async function persistResultBookkeeping(
     if (outcome.failure) {
       guardUpdates.attestations = withAttestation(metadata.attestations, 'l1', {
         verdict: 'rejected',
-        by: host.role.id,
+        by: deps.role.id,
         at: new Date().toISOString(),
         kind: 'verify',
         summary: `失败命令: ${outcome.failure.command}`.slice(0, 300),
@@ -86,7 +86,7 @@ export async function persistResultBookkeeping(
       };
       guardUpdates.attestations = withAttestation(metadata.attestations, 'l1', {
         verdict: 'approved',
-        by: host.role.id,
+        by: deps.role.id,
         at: new Date().toISOString(),
         kind: 'verify',
         summary: outcome.ran.join('；').slice(0, 300),
@@ -95,7 +95,7 @@ export async function persistResultBookkeeping(
     }
   }
 
-  const recorded = await host.executionJournal.recordStepResult({
+  const recorded = await deps.executionJournal.recordStepResult({
     wu, metadata, action, result, guardUpdates, freshnessUpdates, bookkeeping,
   });
   return { recorded: Boolean(recorded), stepCount, consecutiveStuck, blockReasonUpdates, stepLimit };

@@ -134,9 +134,7 @@ describe('#171 三层超时（#54 决议）', () => {
     agentLoop = new AgentLoop(mockRole, fileStore);
     await agentLoop.start();
 
-    const result = await (agentLoop as unknown as {
-      agentStep(t: unknown): Promise<unknown>;
-    }).agentStep(makeTarget());
+    const result = await agentLoop.agentStep(makeTarget());
     expect(result).toBeDefined();
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
@@ -163,7 +161,7 @@ describe('#171 三层超时（#54 决议）', () => {
 
     agentLoop = new AgentLoop(mockRole, fileStore);
     await agentLoop.start();
-    await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+    await agentLoop.agentStep(makeTarget());
 
     const task = mockExecuteLightweight.mock.calls[0][0] as AgentTask;
     task.onSilenceWarn!(320_000);

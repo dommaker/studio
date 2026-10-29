@@ -20,7 +20,7 @@ import {
 } from '../prompt-composer.js';
 import { runStepRetry, resetUnestablishedSessionBookkeeping } from '../step-retry-policy.js';
 import { appendTranscriptStep, transcriptPath } from '../../transcripts/index.js';
-import type { AgentLoopHost } from './loop-host.js';
+import type { StepDeps } from './loop-deps.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 /** #171（#54 决议 A1，数值来自 #68 实测）：三层超时 ——
@@ -50,7 +50,8 @@ export interface StepExecutionInput {
 }
 
 export interface StepExecutionDeps {
-  host: AgentLoopHost;
+  step: StepDeps;
+  setCurrentExecutionId(executionId: string | null): void;
   recordExecutionOutcome: (wu: WorkUnitData, result: ExecutionResult, consumedKnowledge: string[]) => Promise<void>;
   recordOutcomeEvent: (
     wu: WorkUnitData,
@@ -70,7 +71,7 @@ export async function executeAgentStep(
     target, wu, metadata, metadataUpdates, traceId, channelVersion, workspaceRoot,
     taskProvider, resumeSessionId, newSessionId, sessionsUsed, composed, composeDeps,
   } = input;
-  const { host } = deps;
+  const { step } = deps;
   const { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds } = composed;
 
   // 本步最终实际会话形态（续用降级重试后会被改写：换新号 + resumed=false）
@@ -102,7 +103,7 @@ export async function executeAgentStep(
       // #174: transcript 归档路径随 task 下发，runner 发 session:start/end 事件时并入 payload
       // （路径规则唯一权威在 #97 归档器，含测试环境改写，勿在此复制规则）
       transcriptPath: transcriptPath(wu.id),
-      agentProfileId: host.role.id,
+      agentProfileId: step.role.id,
       ...(workspaceRoot ? { workspaceRoot } : {}),
       extraEnv: {
         STUDIO_WORKUNIT_ID: wu.id,
@@ -190,9 +191,9 @@ export async function executeAgentStep(
     // Layer B: step 开始信号（CLI 首行到达前抽屉即有反馈）
     void emitExecutionStreamStepStart({ workUnitId: wu.id, channelId: wu.channelId, executionId, step: stepNo }).catch(() => {});
     // #178（#63 决议 2）：fencing 易主时按 executionId 杀自身 CLI 进程组（finally 清除）
-    host.currentExecutionId = executionId;
+    deps.setCurrentExecutionId(executionId);
     // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
-    let result: ExecutionResult = await host.executor.execute(task);
+    let result: ExecutionResult = await step.executor.execute(task);
 
     // W-3 接线：runner 失败时返回 { success:false } 而不抛错、且无 outputText ——
     // 直接落入 parseAgentOutput 会得到默认 progress（空 summary），导致 consecutiveStuck
@@ -222,7 +223,7 @@ export async function executeAgentStep(
       const retryOutcome = await runStepRetry(
         { wu, metadata, provider: taskProvider, task, firstResult: result, detail, sessionsUsed, resumeSessionId, metadataUpdates, traceId },
         {
-          execute: (t) => host.executor.execute(t),
+          execute: (t) => step.executor.execute(t),
           recomposePrompt: async ({ isNewSession }) => (await composeStepPrompt(
             { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession },
             composeDeps,
@@ -287,7 +288,7 @@ export async function executeAgentStep(
     if (toolTraceSource) {
       try {
         // #602 D4：caller 落真实角色 id（(c) 链路按 caller 匹配 .agents/roles/<id>）
-        writeToolCallEvents(stepEvents, resolveToolTraceFile(), { caller: host.role.id });
+        writeToolCallEvents(stepEvents, resolveToolTraceFile(), { caller: step.role.id });
       } catch { /* non-blocking */ }
     }
 
@@ -375,6 +376,6 @@ export async function executeAgentStep(
     };
   } finally {
     // #178: 步结束（含被杀/异常）清除当前 executionId，fencing 杀进程组只针对在飞步
-    host.currentExecutionId = null;
+    deps.setCurrentExecutionId(null);
   }
 }

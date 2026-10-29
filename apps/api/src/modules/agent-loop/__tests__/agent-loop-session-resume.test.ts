@@ -124,15 +124,14 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
   /** 注入带初始 sessionId 的 RuntimeInstance state（验证 agent-loop 不再读写该槽位） */
   async function injectInstance(sessionId: string | null): Promise<string> {
     const instanceId = 'inst-resume-1';
-    await fileStore.createState(instanceId, {
+    const instance = {
       id: instanceId, roleId: mockRole.id, sessionId,
       status: 'idle', currentWorkUnitId: null,
       startedAt: new Date().toISOString(), terminatedAt: null,
       lastHeartbeat: null, metadata: null, pid: process.pid,
-    });
-    (agentLoop as unknown as InstanceHolder).instance = {
-      id: instanceId, sessionId,
-    } as InstanceHolder['instance'];
+    };
+    await fileStore.createState(instanceId, instance);
+    agentLoop = new AgentLoop(mockRole, fileStore, { instance });
     return instanceId;
   }
 
@@ -147,7 +146,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
   it('无 metadata.sessionId → 新建：claude 传新 UUID、无 sessionResume、lastSessionResumed=false', async () => {
     const wu = await setupWorkUnit();
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     const task = lastTask();
     expect(task.parameters?.sessionId).toMatch(UUID_RE);
@@ -160,7 +159,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     createClaudeSessionFile('sess-wu1');
     const wu = await setupWorkUnit({ sessionId: 'sess-wu1', sessionCount: 1 });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     const task = lastTask();
     expect(task.parameters?.sessionId).toBe('sess-wu1');
@@ -175,7 +174,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
   it('metadata.sessionId 有但会话文件缺（claude）→ 新建分支：sessionCount 1→2、lastSessionResumed=false', async () => {
     const wu = await setupWorkUnit({ sessionId: 'sess-gone', sessionCount: 1 });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     const task = lastTask();
     expect(task.parameters?.sessionResume).toBeUndefined();
@@ -192,9 +191,9 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     const wuA = await setupWorkUnit({ sessionId: 'sess-a', sessionCount: 1 });
     const wuB = await setupWorkUnit({ sessionId: 'sess-b', sessionCount: 1 });
 
-    const stepA1 = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wuA });
-    const stepB = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wuB });
-    const stepA2 = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wuA });
+    const stepA1 = await (agentLoop).agentStep({ workUnit: wuA });
+    const stepB = await (agentLoop).agentStep({ workUnit: wuB });
+    const stepA2 = await (agentLoop).agentStep({ workUnit: wuA });
 
     expect(taskAt(0).parameters?.sessionId).toBe('sess-a');
     expect(taskAt(0).parameters?.sessionResume).toBe(true);
@@ -212,7 +211,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     // 不 injectInstance —— AgentLoop 未 start()，this.instance 为 null（等价重启后新实例 sessionId=null）
     const wu = await setupWorkUnit({ sessionId: 'sess-survives-restart', sessionCount: 1 });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(lastTask().parameters?.sessionId).toBe('sess-survives-restart');
     expect(lastTask().parameters?.sessionResume).toBe(true);
@@ -224,7 +223,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
 
     // 新建：不传 sessionId（kimi --session 是续用语义，对未使用 id 会报错，CLI 自建会话）
     const wu = await setupWorkUnit();
-    const step1 = await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step1 = await (kimiLoop).agentStep({ workUnit: wu });
     expect(lastTask().parameters?.sessionId).toBeUndefined();
     expect(lastTask().parameters?.sessionResume).toBeUndefined();
     expect(step1.metadataUpdates?.lastSessionResumed).toBe(false);
@@ -235,7 +234,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       metadata: { sessionId: step1.metadataUpdates!.sessionId!, sessionCount: 1, cliSessionId: 'session_6bc14e1d' },
     });
     const wu2 = (await wuService.getById(wu.id))!;
-    const step2 = await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu2 });
+    const step2 = await (kimiLoop).agentStep({ workUnit: wu2 });
     expect(lastTask().parameters?.sessionId).toBe('session_6bc14e1d');
     expect(lastTask().parameters?.sessionResume).toBe(true);
     expect(step2.metadataUpdates?.lastSessionResumed).toBe(true);
@@ -245,7 +244,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     const kimiLoop = new AgentLoop({ ...mockRole, provider: 'kimi' } as typeof mockRole, fileStore);
     const wu = await setupWorkUnit({ sessionId: 'legacy-uuid', sessionCount: 1 });
 
-    const step = await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (kimiLoop).agentStep({ workUnit: wu });
 
     expect(lastTask().parameters?.sessionId).toBeUndefined();
     expect(lastTask().parameters?.sessionResume).toBeUndefined();
@@ -258,9 +257,9 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     const wuA = await setupWorkUnit({ sessionId: 'uuid-a', sessionCount: 1, cliSessionId: 'session_aaa' });
     const wuB = await setupWorkUnit({ sessionId: 'uuid-b', sessionCount: 1, cliSessionId: 'session_bbb' });
 
-    await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wuA });
-    await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wuB });
-    await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wuA });
+    await (kimiLoop).agentStep({ workUnit: wuA });
+    await (kimiLoop).agentStep({ workUnit: wuB });
+    await (kimiLoop).agentStep({ workUnit: wuA });
 
     expect(taskAt(0).parameters?.sessionId).toBe('session_aaa');
     expect(taskAt(0).parameters?.sessionResume).toBe(true);
@@ -279,7 +278,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       ].join('\n'),
     });
     const kimiWu = await setupWorkUnit();
-    const kimiStep = await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: kimiWu });
+    const kimiStep = await (kimiLoop).agentStep({ workUnit: kimiWu });
     expect(kimiStep.metadataUpdates?.cliSessionId).toBe('session_kimi_1');
 
     mockExecuteLightweight.mockResolvedValue({
@@ -287,7 +286,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       rawOutput: '{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"410653b6-4d19-441d-828f-43c8a5c60526"}',
     });
     const claudeWu = await setupWorkUnit();
-    const claudeStep = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: claudeWu });
+    const claudeStep = await (agentLoop).agentStep({ workUnit: claudeWu });
     expect(claudeStep.metadataUpdates?.cliSessionId).toBe('410653b6-4d19-441d-828f-43c8a5c60526');
   });
 
@@ -295,7 +294,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     const kimiLoop = new AgentLoop({ ...mockRole, provider: 'kimi' } as typeof mockRole, fileStore);
     const wu = await setupWorkUnit();
 
-    const step = await (kimiLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (kimiLoop).agentStep({ workUnit: wu });
 
     expect(step.metadataUpdates).not.toHaveProperty('cliSessionId');
   });
@@ -304,11 +303,11 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     const instanceId = await injectInstance('sess-stale');
     const wu = await setupWorkUnit();
 
-    await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    await (agentLoop).agentStep({ workUnit: wu });
 
     const state = await fileStore.getState(instanceId);
     expect(state?.sessionId).toBe('sess-stale');
-    expect((agentLoop as unknown as InstanceHolder).instance?.sessionId).toBe('sess-stale');
+    expect(agentLoop.currentInstance?.sessionId).toBe('sess-stale');
   });
 
   it('首 step（新建）执行失败 → 重置 sessionId 但 sessionCount 计入（#95），下一步按新建重试', async () => {
@@ -318,7 +317,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       outputFiles: [], sessionCount: 1,
     });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(step.action).toBe('failed');
     expect(step.metadataUpdates).not.toHaveProperty('sessionId');
@@ -326,7 +325,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
 
     // 下一步重新按新建签发
     mockExecuteLightweight.mockResolvedValue({ ...SUCCESS_RESULT });
-    await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: (await wuService.getById(wu.id))! });
+    await (agentLoop).agentStep({ workUnit: (await wuService.getById(wu.id))! });
     expect(lastTask().parameters?.sessionId).toMatch(UUID_RE);
     expect(lastTask().parameters?.sessionResume).toBeUndefined();
   });
@@ -344,7 +343,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       };
     });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     // 接线：首次续用形态失败 → 策略改参重试一次（新建形态）→ 成功走正常路径
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
@@ -369,7 +368,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       outputFiles: [], sessionCount: 1,
     });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
     expect(step.action).toBe('failed');
@@ -383,7 +382,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
     });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
     expect(step.action).toBe('failed');
@@ -408,7 +407,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       };
     });
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
     expect(step.action).toBe('progress');
@@ -423,7 +422,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     const wu = await setupWorkUnit({ sessionId: 'sess-wu1', sessionCount: 1 });
     mockExecuteLightweight.mockRejectedValue(new Error('spawn claude ENOENT'));
 
-    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const step = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
     expect(step.action).toBe('need_input');
@@ -438,7 +437,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
     });
 
-    await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    await (agentLoop).agentStep({ workUnit: wu });
 
     expect(lastTask().prompt).toContain('## 前序进展');
     expect(lastTask().prompt).toContain('完成数据层');
@@ -451,7 +450,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
     });
 
-    await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    await (agentLoop).agentStep({ workUnit: wu });
 
     expect(lastTask().prompt).not.toContain('## 前序进展');
   });

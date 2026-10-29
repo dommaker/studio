@@ -86,7 +86,7 @@ describe('#95: recordResult progressLog 环形簿记', () => {
 
   const record = async (wuId: string, action: string, summary: string) => {
     const wu = (await wuService.getById(wuId))!;
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action, summary },
     );

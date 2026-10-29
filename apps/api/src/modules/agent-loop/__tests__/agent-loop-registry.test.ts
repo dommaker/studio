@@ -317,7 +317,7 @@ describe('AgentLoopRegistry', () => {
       });
       const entry = registry.get('p1')!;
       expect(entry.status).toBe('running');
-      expect((entry.loop as unknown as { role: AgentProfileData }).role.provider).toBe('kimi');
+      expect(entry.loop.role.provider).toBe('kimi');
 
       // 旧实例 terminated 落盘、新实例 idle
       const states = await fileStore.listStates();
@@ -393,7 +393,7 @@ describe('AgentLoopRegistry', () => {
       const entry = registry.get('p1')!;
       expect(entry.status).toBe('running');
       expect(entry.loop).not.toBe(firstLoop);
-      expect((entry.loop as unknown as { role: AgentProfileData }).role.provider).toBe('codex');
+      expect(entry.loop.role.provider).toBe('codex');
     });
 
     it('重挂等待期间角色被停用 → 不再重挂', async () => {
