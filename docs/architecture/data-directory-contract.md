@@ -33,8 +33,13 @@ data/
     archive/messages-YYYY-MM.jsonl  # 超龄消息冷文件（#327，按消息 createdAt 归月）
   workunits/
     lock             # flock 文件锁目录
-    events.jsonl     # 事件流 (append-only)
-    index.json       # 当前状态快照
+    events.jsonl     # 事件流 (append-only，唯一真源)
+    index.json       # append-only 历史索引（派生物，仅供全量查询/fold）
+    current/         # 可重建 per-WU 当前态投影（PERF-02，v3）
+      manifest.json  # 全局完整提交 head、projection 文件数
+      legacy-pending.json  # legacy 无 events 直写 intent；index 写前存在，恢复成功后删除
+      <sha256-wu-id>.json  # { version, log, snapshot }；log 精确等于该 WU 提交 head
+      heads/<sha256-wu-id>.json  # per-WU 完整提交 head；其他 WU append 不使其失效
   requirements/      # REQ 需求编号体系 (vision §5.3)
     lock             # seq 分配 flock 锁目录
     index.json       # { nextSeq } 序号计数器
@@ -67,6 +72,8 @@ data/
 - 布局新增/改名/删条目 = **契约文档先行修订** + 版本标记（§5）配套抬升；契约修订走 review，迁移代码与契约同 commit 落地。
 - 新代码向数据根写入契约外条目而未先修订本契约 = 违规。
 - 遗产条目只登记不归位（§8）；清理由专门工单执行，不夹带在功能票里。
+- **WU 当前态投影协议（PERF-02）**：`commitSnapshot`/`commitRemoval`/claim/updateMetadata/guarded create/lease flush 等正常事件写仍在同一把 `workunits/lock` 内按 `events.jsonl → index.json → current/<id>.json → current/heads/<id>.json → current/manifest.json` 提交，全局 manifest 最后落盘，协议不变。legacy `upsertSnapshot`/`removeSnapshot` **不写 events**：index 写前先追加持久 pending intent，随后仍走增量 `finalizeCurrentLocked(rows)`，成功后清 pending；正常路径不全量 replace。统一 `recoverLegacyPendingLocked` 在 ensure/rebuild/reconcile/append 最先执行：仅从**当前 index fold** 全量恢复，replace 全程保留 pending，完整提交后清除。pending 后的 rebuild 返回恢复结果且不再按 events 覆盖；reconcile 返回本次恢复一致的安全报告；appendEvent 恢复后 fail-closed 零事件，下一事件改走 `commitSnapshot`，避免只写事件契约与 legacy current 冲突。remove 不存在保持 no-op，撕裂 index 抛错不洗白。
+- **提交 head 与恢复**：projection.log 必须与对应 per-WU head 的 byte offset + `dev:ino` **精确一致**，不得接受同代旧 offset；其他 WU 的后续 append 不改变本 WU head。全局 manifest 与 events 当前完整 head 不符、projection/head 损坏或缺失、projection 文件数不符均自动从 events 重建。events 尾部非换行 = 未提交半行，所有 events/RMW 写 fail-closed 且零副作用，禁止提交或粘连 append；截断该未提交半行后可恢复。锁内点查只读全局 manifest + 目标 projection/head，禁止 fold 历史 index 或使用 mtime cache；guarded create 枚举全当前 projection，也不得 fold index。所有投影写入与重建持锁，旧进程/读者不得锁外回写旧快照。projection/head 是可重建派生物，采用原子 tmp+rename 但不逐个 fsync；全局 manifest 仍 fsync 作为提交点，崩溃由 events head 或 legacy pending 驱动恢复。
 
 ## 5. 版本标记与迁移框架（冻结：方案 A，人审 2026-09-16）
 
@@ -79,6 +86,7 @@ data/
   - 备份范围：只备 `data/` 与根级 JSON/jsonl；`logs/`、`worktrees/` 等可再生产物不备。
 - **骨架先行**：首个迁移 = 空迁移（v0 无标记 → v1 写 manifest），机制跑通；真实迁移随首次布局变更进。
 - 实现票：#572（**已落地，2026-09-16**：`packages/studio-shared/src/migrations/` + `apps/api/src/index.ts` 接入点）。
+- **v3（PERF-02）**：幂等建立 `workunits/current/`（0700）；projection 与 manifest 由锁内写/重建懒生成，迁移不 fold 历史、不预填十万级派生文件。
 
 ## 6. 网络面（回环纪律）
 

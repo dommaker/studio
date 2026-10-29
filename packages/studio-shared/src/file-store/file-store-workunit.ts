@@ -2,11 +2,10 @@
  * WorkUnitStore — FileStore 的 WorkUnit 事件溯源域 store（#681 P1-1 组合化：
  * 自 FileStoreWorkUnitBase 继承层转型为构造注入 FileStoreCore 的独立 store）
  *
- * events.jsonl 事件流 + index.json 快照的读写、claim/upsert/remove 的 flock 互斥。
+ * events.jsonl 事件流 + append-only index.json + current/ per-WU 当前态投影。
  * 裸原语与 withLock 经 ctx.base（FileStoreBase）；默认读写走 ctx.io（CachedFileIo
- * 读穿缓存，唯一实现）；锁内读路径（claim/upsert/flush/updateMetadata/
- * createSnapshotGuarded/reconcile）永远直调 readIndexFile 裸读，不经缓存
- * （#314 D1 例外条款 / ADR 2026-08-24-cache-seam-decision-rules）。
+ * 读穿缓存，唯一实现）；锁内点查直读 current projection/manifest（PERF-02），
+ * 不 fold 历史 index、不经 mtime cache；reconcile/显式重建才全量读事件与 index。
  */
 
 import fs from 'node:fs';
@@ -17,6 +16,15 @@ import type { FileStoreCore } from './file-store-core';
 import { jsonCache, cacheSet, statMtimeMs, cloneCached } from './cache-primitives';
 import { readMetricsBegin, emitReadMetric } from '../read-metrics';
 import type { WorkUnitEvent, WorkUnitSnapshot, WorkUnitFilter } from './file-store-types';
+import {
+  parseWorkUnitCurrentManifest,
+  parseWorkUnitCurrentProjection,
+  parseWorkUnitProjectionHead,
+  sameWorkUnitLogPosition,
+  workUnitProjectionFileName,
+  type WorkUnitCurrentManifest,
+  type WorkUnitLogPosition,
+} from './workunit-current-projection';
 
 /** #314（D2）：租约推前的合并落盘窗口（默认 60s，≪ 5min 租约 TTL，活跃持有方不被误判到期） */
 export const LEASE_FLUSH_INTERVAL_MS = 60_000;
@@ -147,12 +155,45 @@ export class WorkUnitStore {
     return path.join(this.ctx.baseDir, 'workunits', 'index.json');
   }
 
+  private get currentDir(): string {
+    return path.join(this.ctx.baseDir, 'workunits', 'current');
+  }
+
+  private get currentManifestPath(): string {
+    return path.join(this.currentDir, 'manifest.json');
+  }
+
+  private get legacyPendingPath(): string {
+    return path.join(this.currentDir, 'legacy-pending.json');
+  }
+
+  private get currentHeadsDir(): string {
+    return path.join(this.currentDir, 'heads');
+  }
+
+  private currentProjectionPath(wuId: string): string {
+    return path.join(this.currentDir, workUnitProjectionFileName(wuId));
+  }
+
+  private currentHeadPath(wuId: string): string {
+    return path.join(this.currentHeadsDir, workUnitProjectionFileName(wuId));
+  }
+
   // ═══════════════════════
   // WorkUnit Event Sourcing
   // ═══════════════════════
 
+  /** legacy 单事件原语：只追加 events，不写 index/projection；仍持锁并拒绝半行后续写。 */
   async appendEvent(event: WorkUnitEvent): Promise<void> {
-    await this.ctx.io.appendJsonl(this.eventsPath, event);
+    await this.ctx.base.withLock(this.lockDir, async () => {
+      const recovered = await this.recoverLegacyPendingLocked();
+      if (recovered) {
+        // 只写事件的旧契约无法同时提交 legacy index/current；拒绝本次 append，调用方改走 commitSnapshot。
+        throw new Error('WorkUnit legacy pending recovered; appendEvent requires commitSnapshot for the next event');
+      }
+      await this.readLogPositionLocked();
+      await this.ctx.io.appendJsonl(this.eventsPath, event);
+    });
   }
 
   /**
@@ -161,8 +202,8 @@ export class WorkUnitStore {
    * JSONL 缺 id 行 → 抛出带路径的错误（损坏绝不静默当空——防止后续基于空数组
    * 回写把全部已有快照抹掉）；JSONL 撕裂尾行跳过（append 崩溃容错，
    * events 是正本，reconcileIndex 兜底）。
-   * 永远裸读（不走缓存）：锁内路径要求跨进程实时性。锁外只读的 getIndex
-   * 经 readIndexForQuery 走读穿缓存（#314 D1）。
+   * 永远裸读（不走缓存）：仅供 legacy bootstrap、reconcile/显式重建与锁外缓存 miss；
+   * 锁内当前态点查不得调用本方法（PERF-02）。
    */
   private async readIndexFile(): Promise<WorkUnitSnapshot[] | null> {
     let content: string;
@@ -241,7 +282,7 @@ export class WorkUnitStore {
    * getIndex 的读路径（#314 D1）：mtime 校验的读穿缓存（锁外只读场景跨进程安全；
    * #681 组合化后为唯一实现，不再有「基类裸读缺省 + 覆盖」双形态）。
    * 保留 readIndexFile 的严格损坏语义（撕裂/非数组抛错，不静默当空），
-   * 命中返回结构克隆。锁内读路径不经过本方法（readIndexFile 保持裸读）。
+   * 命中返回结构克隆。锁内当前态点查走 current projection，不经过本方法。
    * #406：filter 下推——命中路径在共享缓存数组上按引用选行、只克隆命中行
    * （monitor 等带 status 过滤的读口不再为丢弃的行付克隆税）；无 filter 时
    * 全量克隆，与 #314 行为一致。
@@ -319,14 +360,246 @@ export class WorkUnitStore {
     return snapshotMap;
   }
 
+  /**
+   * 锁内读取 events 完整提交 head；dev:ino 识别轮转/替换。
+   * 尾部不是换行 = 上次 append 崩溃半行：fail-closed，禁止把半行提交进 manifest
+   * 或在半行后继续粘连 append。调用方/运维截断未提交半行后可自动恢复。
+   */
+  private async readLogPositionLocked(): Promise<WorkUnitLogPosition> {
+    let handle: fs.promises.FileHandle;
+    try {
+      handle = await fs.promises.open(this.eventsPath, 'r');
+    } catch (error) {
+      if (isErrnoError(error) && error.code === 'ENOENT') return { dev: 0, ino: 0, offset: 0 };
+      throw error;
+    }
+    try {
+      const stat = await handle.stat();
+      if (stat.size > 0) {
+        const last = Buffer.alloc(1);
+        await handle.read(last as Uint8Array, 0, 1, stat.size - 1);
+        if (last[0] !== 0x0a) {
+          throw new Error(`WorkUnit event log incomplete trailing line (truncate the uncommitted tail before retry): ${this.eventsPath}`);
+        }
+      }
+      return { dev: stat.dev, ino: stat.ino, offset: stat.size };
+    } finally {
+      await handle.close();
+    }
+  }
+
+  private async readCurrentManifestLocked(): Promise<WorkUnitCurrentManifest | null> {
+    try {
+      return parseWorkUnitCurrentManifest(
+        await fs.promises.readFile(this.currentManifestPath, 'utf8'),
+        this.currentManifestPath,
+      );
+    } catch (error) {
+      if (isErrnoError(error) && error.code !== 'ENOENT') throw error;
+      return null; // 缺失或损坏均走事件流重建
+    }
+  }
+
+  private async hasLegacyPendingLocked(): Promise<boolean> {
+    try {
+      await fs.promises.stat(this.legacyPendingPath);
+      return true;
+    } catch (error) {
+      if (isErrnoError(error) && error.code === 'ENOENT') return false;
+      throw error;
+    }
+  }
+
+  private async clearLegacyPendingLocked(): Promise<void> {
+    await fs.promises.unlink(this.legacyPendingPath).catch(error => {
+      if (!isErrnoError(error) || error.code !== 'ENOENT') throw error;
+    });
+  }
+
+  /** 所有 events 重建/append 前的统一闸门：先保住 index 中的 legacy 直写。 */
+  private async recoverLegacyPendingLocked(): Promise<WorkUnitCurrentManifest | null> {
+    if (!await this.hasLegacyPendingLocked()) return null;
+    const snapshots = (await this.readIndexFile()) ?? [];
+    const manifest = await this.replaceCurrentLocked(snapshots);
+    await this.clearLegacyPendingLocked(); // replace 完整提交前保留 pending，恢复可重复
+    return manifest;
+  }
+
+  private async ensureCurrentLocked(): Promise<WorkUnitCurrentManifest> {
+    const recovered = await this.recoverLegacyPendingLocked();
+    if (recovered) return recovered;
+    const head = await this.readLogPositionLocked();
+    const manifest = await this.readCurrentManifestLocked();
+    if (manifest && sameWorkUnitLogPosition(manifest.log, head)) return manifest;
+    return this.rebuildCurrentLocked();
+  }
+
+  /**
+   * 全量恢复只发生在首次升级、崩溃/代际失配或显式重建。
+   * 无事件的 legacy/直写 index 数据从 index  bootstrap；有事件时 events 永远是真源。
+   */
+  private async rebuildCurrentLocked(): Promise<WorkUnitCurrentManifest> {
+    const events = await this.ctx.base.readJsonl<WorkUnitEvent>(this.eventsPath);
+    let snapshots: WorkUnitSnapshot[];
+    if (events.length > 0) {
+      snapshots = Array.from(this.reduceEventsToSnapshots(events).values());
+      await this.ctx.io.writeJsonl(this.indexPath, snapshots);
+    } else {
+      snapshots = (await this.readIndexFile()) ?? [];
+    }
+    return this.replaceCurrentLocked(snapshots);
+  }
+
+  /** 并行派生写必须全部 settled 后才能抛错放锁；任一失败不取消、不吞错。 */
+  private async settleCurrentWritesLocked(writes: readonly Promise<void>[]): Promise<void> {
+    const results = await Promise.allSettled(writes);
+    for (const result of results) {
+      if (result.status === 'rejected') throw result.reason;
+    }
+  }
+
+  private async replaceCurrentLocked(snapshots: WorkUnitSnapshot[]): Promise<WorkUnitCurrentManifest> {
+    await this.ctx.base.ensureDir(this.currentDir);
+    await this.ctx.base.ensureDir(this.currentHeadsDir);
+    const head = await this.readLogPositionLocked();
+    const expectedFiles = new Set(snapshots.map(snapshot => workUnitProjectionFileName(snapshot.id)));
+    // 全量恢复允许 O(active WU)，但串行 fsync 会让其他进程超过 5s 锁预算；有界并行缩短持锁窗口。
+    const batchSize = 32;
+    for (let offset = 0; offset < snapshots.length; offset += batchSize) {
+      const writes = snapshots.slice(offset, offset + batchSize).flatMap(snapshot => {
+        const fileName = workUnitProjectionFileName(snapshot.id);
+        return [
+          this.ctx.io.writeJson(path.join(this.currentDir, fileName), {
+            version: 1, log: head, snapshot,
+          }, false),
+          this.ctx.io.writeJson(path.join(this.currentHeadsDir, fileName), { version: 1, log: head }, false),
+        ];
+      });
+      await this.settleCurrentWritesLocked(writes);
+    }
+    for (const entry of await fs.promises.readdir(this.currentDir)) {
+      if (entry.endsWith('.json') && entry !== 'manifest.json' && entry !== 'legacy-pending.json' && !expectedFiles.has(entry)) {
+        await fs.promises.unlink(path.join(this.currentDir, entry));
+      }
+    }
+    for (const entry of await fs.promises.readdir(this.currentHeadsDir)) {
+      if (entry.endsWith('.json') && !expectedFiles.has(entry)) {
+        await fs.promises.unlink(path.join(this.currentHeadsDir, entry));
+      }
+    }
+    const manifest: WorkUnitCurrentManifest = { version: 1, log: head, count: snapshots.length };
+    await this.ctx.io.writeJson(this.currentManifestPath, manifest); // 最后提交
+    return manifest;
+  }
+
+  /** 正常增量写：events/index 已完成，projection 先于 manifest 落盘。 */
+  private async finalizeCurrentLocked(
+    rows: Array<WorkUnitSnapshot | WorkUnitIndexTombstone>,
+  ): Promise<void> {
+    const head = await this.readLogPositionLocked();
+    const previous = await this.readCurrentManifestLocked();
+    if (!previous) throw new Error(`WorkUnit current manifest missing before commit: ${this.currentManifestPath}`);
+    let count = previous.count;
+    for (const row of rows) {
+      const projectionPath = this.currentProjectionPath(row.id);
+      const headPath = this.currentHeadPath(row.id);
+      let exists = true;
+      try {
+        await fs.promises.stat(projectionPath);
+      } catch (error) {
+        if (!isErrnoError(error) || error.code !== 'ENOENT') throw error;
+        exists = false;
+      }
+      if ((row as WorkUnitIndexTombstone).deleted === true) {
+        if (exists) count--;
+        await this.settleCurrentWritesLocked([projectionPath, headPath].map(filePath =>
+          fs.promises.unlink(filePath).catch(error => {
+            if (!isErrnoError(error) || error.code !== 'ENOENT') throw error;
+          })));
+      } else {
+        if (!exists) count++;
+        await this.settleCurrentWritesLocked([
+          this.ctx.io.writeJson(projectionPath, {
+            version: 1, log: head, snapshot: row as WorkUnitSnapshot,
+          }, false),
+          this.ctx.io.writeJson(headPath, { version: 1, log: head }, false),
+        ]);
+      }
+    }
+    await this.ctx.io.writeJson(this.currentManifestPath, { version: 1, log: head, count });
+  }
+
+  private async readCurrentSnapshotLocked(
+    wuId: string,
+    _manifest: WorkUnitCurrentManifest,
+    allowRebuild = true,
+  ): Promise<WorkUnitSnapshot | null> {
+    const projectionPath = this.currentProjectionPath(wuId);
+    const headPath = this.currentHeadPath(wuId);
+    try {
+      const projectionHead = parseWorkUnitProjectionHead(await fs.promises.readFile(headPath, 'utf8'), headPath);
+      const projection = parseWorkUnitCurrentProjection(
+        await fs.promises.readFile(projectionPath, 'utf8'),
+        wuId,
+        projectionHead,
+        projectionPath,
+      );
+      return projection.snapshot;
+    } catch (error) {
+      if (isErrnoError(error) && error.code !== 'ENOENT') throw error;
+      if (!allowRebuild) {
+        if (isErrnoError(error) && error.code === 'ENOENT') return null;
+        throw error;
+      }
+      // 已有事件的 projection 缺失不能冒充 WU 不存在；重建后仍缺失才返回 null。
+      const rebuilt = await this.rebuildCurrentLocked();
+      return this.readCurrentSnapshotLocked(wuId, rebuilt, false);
+    }
+  }
+
+  /** guarded create 需要全当前态；枚举 projection，不 fold 历史 index。 */
+  private async readAllCurrentSnapshotsLocked(
+    manifest: WorkUnitCurrentManifest,
+    allowRebuild = true,
+  ): Promise<WorkUnitSnapshot[]> {
+    try {
+      const entries = await fs.promises.readdir(this.currentDir);
+      const projectionEntries = entries.filter(entry => /^[a-f0-9]{64}\.json$/.test(entry));
+      if (projectionEntries.length !== manifest.count) {
+        throw new Error(`WorkUnit current projection count mismatch: ${this.currentDir}`);
+      }
+      const snapshots: WorkUnitSnapshot[] = [];
+      for (const entry of projectionEntries) {
+        const projectionPath = path.join(this.currentDir, entry);
+        const headPath = path.join(this.currentHeadsDir, entry);
+        const projectionHead = parseWorkUnitProjectionHead(await fs.promises.readFile(headPath, 'utf8'), headPath);
+        const content = await fs.promises.readFile(projectionPath, 'utf8');
+        const raw = JSON.parse(content) as { snapshot?: { id?: unknown } };
+        if (typeof raw.snapshot?.id !== 'string') throw new Error(`WorkUnit current projection id missing: ${projectionPath}`);
+        snapshots.push(parseWorkUnitCurrentProjection(content, raw.snapshot.id, projectionHead, projectionPath).snapshot);
+      }
+      return snapshots;
+    } catch (error) {
+      if (isErrnoError(error) || !allowRebuild) throw error;
+      const rebuilt = await this.rebuildCurrentLocked();
+      return this.readAllCurrentSnapshotsLocked(rebuilt, false);
+    }
+  }
+
   async rebuildIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
-    const events = await this.ctx.io.readJsonl<WorkUnitEvent>(this.eventsPath);
-    const snapshots = Array.from(this.reduceEventsToSnapshots(events).values());
-
-    // 写回 index.json（#524 P1-2：JSONL 压实写 = 派生物全量重建）
-    await this.ctx.io.writeJsonl(this.indexPath, snapshots);
-
-    return applyFilter(snapshots, filter);
+    return this.ctx.base.withLock(this.lockDir, async () => {
+      const recovered = await this.recoverLegacyPendingLocked();
+      if (recovered) {
+        // 本次调用已按 index-fold 完成恢复；不得再按 events 覆盖 legacy 直写。
+        return applyFilter((await this.readIndexFile()) ?? [], filter);
+      }
+      await this.readLogPositionLocked(); // 半行 fail-closed：任何派生写之前拒绝
+      const events = await this.ctx.base.readJsonl<WorkUnitEvent>(this.eventsPath);
+      const snapshots = Array.from(this.reduceEventsToSnapshots(events).values());
+      await this.ctx.io.writeJsonl(this.indexPath, snapshots);
+      await this.replaceCurrentLocked(snapshots);
+      return applyFilter(snapshots, filter);
+    });
   }
 
   /**
@@ -337,13 +610,9 @@ export class WorkUnitStore {
    */
   async claimWorkUnit(wuId: string, assigneeId: string, opts?: { assigneeRoleId?: string | null; timeoutAt?: string | null }): Promise<boolean> {
     return this.ctx.base.withLock(this.lockDir, async () => {
-      // 读取当前 index（不存在 → 空；撕裂/损坏 → 抛错，不再幻影 "not found"）
-      const snapshots = (await this.readIndexFile()) ?? [];
-
-      const wu = snapshots.find(s => s.id === wuId);
-      if (!wu || wu.status !== 'unassigned') {
-        return false;
-      }
+      const manifest = await this.ensureCurrentLocked();
+      const wu = await this.readCurrentSnapshotLocked(wuId, manifest);
+      if (!wu || wu.status !== 'unassigned') return false;
 
       // B6 指名守卫（锁内）：assigneeId 非空 = 已被指名（mention 落 profile id / 显式指派），
       // 只许同 id 认领方、或其 roleId 命中的运行实例（opts.assigneeRoleId）认领——
@@ -352,32 +621,21 @@ export class WorkUnitStore {
         return false;
       }
 
-      // 认领时冗余 assigneeRoleId 快照：实例回收后展示层仍能解析角色名
       const assigneeRoleId = opts?.assigneeRoleId ?? null;
       const timeoutAt = opts?.timeoutAt !== undefined ? opts.timeoutAt : wu.timeoutAt;
-
-      // append claim event
       const timestamp = new Date().toISOString();
       const claimEvent: WorkUnitEvent = {
         type: 'claimed',
         wuId,
         timestamp,
-        data: {
-          assigneeId,
-          assigneeRoleId,
-          status: 'active',
-          claimedAt: timestamp,
-          updatedAt: timestamp,
-          timeoutAt,
-        },
+        data: { assigneeId, assigneeRoleId, status: 'active', claimedAt: timestamp, updatedAt: timestamp, timeoutAt },
+      };
+      const updated: WorkUnitSnapshot = {
+        ...wu, assigneeId, assigneeRoleId, status: 'active', claimedAt: timestamp, updatedAt: timestamp, timeoutAt,
       };
       await this.ctx.io.appendJsonl(this.eventsPath, claimEvent);
-
-      // #524 P1-2：index append-only——追加一行更新后快照，不再全量重写
-      await this.appendIndexRowsLocked([
-        { ...wu, assigneeId, assigneeRoleId, status: 'active' as const, claimedAt: timestamp, updatedAt: timestamp, timeoutAt },
-      ]);
-
+      await this.appendIndexRowsLocked([updated]);
+      await this.finalizeCurrentLocked([updated]);
       return true;
     });
   }
@@ -389,7 +647,14 @@ export class WorkUnitStore {
    * 全程持有 workunits flock（与 claimWorkUnit 同一把锁），跨进程并发写不会丢更新。
    */
   async upsertSnapshot(snapshot: WorkUnitSnapshot): Promise<void> {
-    return this.ctx.base.withLock(this.lockDir, () => this.upsertSnapshotLocked(snapshot));
+    return this.ctx.base.withLock(this.lockDir, async () => {
+      await this.ensureCurrentLocked();
+      // legacy 无 events：pending 必须先于 index，否则崩溃无法区分新鲜旧 projection。
+      await this.ctx.io.appendJsonl(this.legacyPendingPath, { version: 1, operation: 'upsert', id: snapshot.id });
+      await this.upsertSnapshotLocked(snapshot);
+      await this.finalizeCurrentLocked([snapshot]);
+      await this.clearLegacyPendingLocked();
+    });
   }
 
   /**
@@ -407,16 +672,38 @@ export class WorkUnitStore {
    * 与 upsertSnapshot 同一把 workunits flock。
    */
   async removeSnapshot(id: string): Promise<void> {
-    return this.ctx.base.withLock(this.lockDir, () => this.removeSnapshotLocked(id));
+    return this.ctx.base.withLock(this.lockDir, async () => {
+      await this.ensureCurrentLocked();
+      let hasIndex = true;
+      try {
+        await fs.promises.stat(this.indexPath);
+      } catch (error) {
+        if (!isErrnoError(error) || error.code !== 'ENOENT') throw error;
+        hasIndex = false; // 不存在保持 no-op，不创建 pending/index
+      }
+      if (hasIndex) {
+        await this.ctx.io.appendJsonl(this.legacyPendingPath, { version: 1, operation: 'remove', id });
+      }
+      await this.removeSnapshotLocked(id);
+      if (hasIndex) await this.clearLegacyPendingLocked();
+    });
   }
 
   /** removeSnapshot 的无锁变体：仅供已持有 this.lockDir 的内部路径调用 */
   private async removeSnapshotLocked(id: string): Promise<void> {
-    // index 不存在 → nothing to remove（不创建文件）；撕裂/损坏 → 抛错
-    const snapshots = await this.readIndexFile();
-    if (!snapshots) return;
-    // #524 P1-2：追加墓碑行（fold 时整条移除；rebuildIndex/reconcileIndex 不复活）
-    await this.appendIndexRowsLocked([{ id, deleted: true }]);
+    const tombstone: WorkUnitIndexTombstone = { id, deleted: true };
+    // index 不存在 → 不创建索引；仍提交 projection head（commitRemoval 已追加墓碑事件）。
+    try {
+      await fs.promises.stat(this.indexPath);
+    } catch (error) {
+      if (isErrnoError(error) && error.code === 'ENOENT') {
+        await this.finalizeCurrentLocked([tombstone]);
+        return;
+      }
+      throw error;
+    }
+    await this.appendIndexRowsLocked([tombstone]);
+    await this.finalizeCurrentLocked([tombstone]);
   }
 
   // ═══════════════════════
@@ -430,8 +717,10 @@ export class WorkUnitStore {
    */
   async commitSnapshot(event: WorkUnitEvent, snapshot: WorkUnitSnapshot): Promise<void> {
     return this.ctx.base.withLock(this.lockDir, async () => {
+      await this.ensureCurrentLocked();
       await this.ctx.io.appendJsonl(this.eventsPath, event);
       await this.upsertSnapshotLocked(snapshot);
+      await this.finalizeCurrentLocked([snapshot]);
     });
   }
 
@@ -441,6 +730,7 @@ export class WorkUnitStore {
    */
   async commitRemoval(event: WorkUnitEvent, id: string): Promise<void> {
     return this.ctx.base.withLock(this.lockDir, async () => {
+      await this.ensureCurrentLocked();
       await this.ctx.io.appendJsonl(this.eventsPath, event);
       await this.removeSnapshotLocked(id);
     });
@@ -489,11 +779,10 @@ export class WorkUnitStore {
 
   /**
    * #314（D2）合并落盘：把所有缓冲的租约推前一次写盘。
-   * workunits flock 内：裸读最新索引（readIndexFile，锁内不缓存）→ 逐 dirty 项复核
-   * fencing + status==='active'（易主/已删/已完成的丢弃，一字不写——zombie 推前
-   * 不覆盖新 holder 租约，完成 WU 的 updatedAt 不复活）→ 每 WU 追加一条增量
-   * updated 事件（事件先于索引写，同 commitSnapshot 崩溃恢复顺序）→ 索引逐条
-   * append（#524 P1-2，替代全量重写）。
+   * workunits flock 内：逐 dirty 项裸读 per-WU current projection 复核 fencing +
+   * status==='active'（易主/已删/已完成的丢弃，一字不写——zombie 推前不覆盖新 holder
+   * 租约，完成 WU 的 updatedAt 不复活）→ 每 WU 追加一条增量 updated 事件 → 索引逐条
+   * append → projection → manifest（事件最先、manifest 最后的崩溃恢复顺序）。
    * 测试/关停路径可显式调用；无 dirty 项时为 no-op（不取锁、不写盘）。
    */
   async flushWorkUnitLeases(): Promise<{ flushed: number; dropped: number }> {
@@ -502,15 +791,12 @@ export class WorkUnitStore {
       return { flushed: 0, dropped: 0 };
     }
     return this.ctx.base.withLock(this.lockDir, async () => {
-      const snapshots = (await this.readIndexFile()) ?? [];
+      const manifest = await this.ensureCurrentLocked();
       let flushed = 0;
       let dropped = 0;
-      let changed = false;
-
       const flushedRows: WorkUnitSnapshot[] = [];
       for (const [wuId, pending] of this.pendingLeaseRefreshes) {
-        const idx = snapshots.findIndex(s => s.id === wuId);
-        const current = idx >= 0 ? snapshots[idx] : undefined;
+        const current = await this.readCurrentSnapshotLocked(wuId, manifest);
         if (!current || current.status !== 'active'
           || current.assigneeId !== pending.assigneeId || current.claimedAt !== pending.claimedAt) {
           this.pendingLeaseRefreshes.delete(wuId);
@@ -527,12 +813,11 @@ export class WorkUnitStore {
         flushedRows.push({ ...current, timeoutAt: pending.timeoutAt, updatedAt: pending.updatedAt });
         this.pendingLeaseRefreshes.delete(wuId);
         flushed++;
-        changed = true;
       }
 
-      if (changed) {
-        // #524 P1-2：逐条 append 推前后快照，不再全量重写 index
+      if (flushedRows.length > 0) {
         await this.appendIndexRowsLocked(flushedRows);
+        await this.finalizeCurrentLocked(flushedRows);
       }
       this.lastLeaseFlushAt = Date.now();
       return { flushed, dropped };
@@ -555,8 +840,8 @@ export class WorkUnitStore {
     opts?: { touchUpdatedAt?: boolean },
   ): Promise<WorkUnitSnapshot | null> {
     return this.ctx.base.withLock(this.lockDir, async () => {
-      const snapshots = (await this.readIndexFile()) ?? [];
-      const current = snapshots.find(s => s.id === wuId);
+      const manifest = await this.ensureCurrentLocked();
+      const current = await this.readCurrentSnapshotLocked(wuId, manifest);
       if (!current) return null;
 
       const nextMeta = mutator(parseMetadataTolerant(current.metadata));
@@ -574,14 +859,14 @@ export class WorkUnitStore {
       };
       await this.ctx.io.appendJsonl(this.eventsPath, event);
       await this.upsertSnapshotLocked(updated);
+      await this.finalizeCurrentLocked([updated]);
       return updated;
     });
   }
 
   /**
-   * 锁内 check-then-create（#65-2）：guard 在锁内对最新 index 复查，通过才
-   * appendEvent('created') + upsertSnapshotLocked——并发下同守卫建单只有一个成功
-   * （照抄 claimWorkUnit 锁内复查的既有模式）。review 建子 WU 的同父唯一性走本原语。
+   * 锁内 check-then-create（#65-2）：guard 在锁内对全量当前 projection 复查，
+   * 通过才 appendEvent('created') + upsertSnapshotLocked；不 fold 历史 index。
    * @returns true = 已建单；false = guard 拒绝（未落事件、未落索引）
    */
   async createSnapshotGuarded(
@@ -589,7 +874,8 @@ export class WorkUnitStore {
     guard: (snapshots: WorkUnitSnapshot[]) => boolean,
   ): Promise<boolean> {
     return this.ctx.base.withLock(this.lockDir, async () => {
-      const snapshots = (await this.readIndexFile()) ?? [];
+      const manifest = await this.ensureCurrentLocked();
+      const snapshots = await this.readAllCurrentSnapshotsLocked(manifest);
       if (!guard(snapshots)) return false;
       const event: WorkUnitEvent = {
         type: 'created',
@@ -599,6 +885,7 @@ export class WorkUnitStore {
       };
       await this.ctx.io.appendJsonl(this.eventsPath, event);
       await this.upsertSnapshotLocked(snapshot);
+      await this.finalizeCurrentLocked([snapshot]);
       return true;
     });
   }
@@ -610,7 +897,17 @@ export class WorkUnitStore {
    */
   async reconcileIndex(): Promise<WorkUnitReconcileResult> {
     return this.ctx.base.withLock(this.lockDir, async () => {
-      const events = await this.ctx.io.readJsonl<WorkUnitEvent>(this.eventsPath);
+      const recovered = await this.recoverLegacyPendingLocked();
+      if (recovered) {
+        // consistent 表示本次 index/current 已恢复一致；不把无 events 的 legacy 误判为 stale。
+        const events = await this.ctx.base.readJsonl<WorkUnitEvent>(this.eventsPath);
+        return {
+          consistent: true, rebuilt: true, eventCount: events.length, indexCount: recovered.count,
+          missingInIndex: 0, staleInIndex: 0, diverged: 0,
+        };
+      }
+      await this.readLogPositionLocked();
+      const events = await this.ctx.base.readJsonl<WorkUnitEvent>(this.eventsPath);
       const expected = this.reduceEventsToSnapshots(events);
       const index = (await this.readIndexFile()) ?? [];
       const indexById = new Map(index.map(s => [s.id, s]));
@@ -629,7 +926,11 @@ export class WorkUnitStore {
 
       const consistent = missingInIndex === 0 && staleInIndex === 0 && diverged === 0;
       if (!consistent) {
-        await this.ctx.io.writeJsonl(this.indexPath, Array.from(expected.values()));
+        const snapshots = Array.from(expected.values());
+        await this.ctx.io.writeJsonl(this.indexPath, snapshots);
+        await this.replaceCurrentLocked(snapshots);
+      } else {
+        await this.ensureCurrentLocked();
       }
       return {
         consistent,

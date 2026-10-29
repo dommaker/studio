@@ -132,9 +132,10 @@ export class FileStoreBase {
   /**
    * 写入 JSON 文件（原子写）。
    * 同目录 tmp 文件 + rename（同分区 rename 原子），进程崩溃或并发读不会看到撕裂内容；
-   * tmp 名含 pid + 随机串防并发冲突；rename 前 fsync 落盘；失败时清理 tmp。
+   * tmp 名含 pid + 随机串防并发冲突；sync=true 时 rename 前 fsync 落盘；失败时清理 tmp。
+   * sync=false 仅用于可由真源重建的派生文件，提交点文件仍必须 fsync。
    */
-  public async writeJson(filePath: string, data: unknown): Promise<void> {
+  public async writeJson(filePath: string, data: unknown, sync = true): Promise<void> {
     await this.ensureDir(path.dirname(filePath));
     const tmpPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
     try {
@@ -142,7 +143,7 @@ export class FileStoreBase {
       try {
         await fh.writeFile(JSON.stringify(data, null, 2), 'utf-8');
         await fh.chmod(0o600);
-        await fh.sync();
+        if (sync) await fh.sync();
       } finally {
         await fh.close();
       }

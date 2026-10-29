@@ -170,10 +170,24 @@ const v2WebhookReplayLedger: Migration = {
   },
 };
 
-/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
-export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger];
+/** PERF-02：WU 当前态 projection 目录；文件由锁内写/重建懒生成，迁移不 fold 历史。 */
+const v3WorkUnitCurrentProjection: Migration = {
+  version: 3,
+  name: 'v3-workunit-current-projection',
+  isApplied: async (rootDir) => fs.existsSync(path.join(dataDir(rootDir), 'workunits', 'current')),
+  apply: async (rootDir) => {
+    const workunits = path.join(dataDir(rootDir), 'workunits');
+    const current = path.join(workunits, 'current');
+    await fs.promises.mkdir(current, { recursive: true, mode: 0o700 });
+    await fs.promises.chmod(workunits, 0o700);
+    await fs.promises.chmod(current, 0o700);
+  },
+};
 
-export const CURRENT_SCHEMA_VERSION = 2;
+/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
+export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection];
+
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export interface RunMigrationsOptions {
   /** 测试注入用；缺省 = MIGRATIONS */

@@ -66,9 +66,9 @@ export class CachedFileIo {
     return cloned;
   }
 
-  /** 写入 JSON 文件（原子写，委托 base），写后失效缓存 */
-  public async writeJson(filePath: string, data: unknown): Promise<void> {
-    await this.base.writeJson(filePath, data);
+  /** 写入 JSON 文件（原子写，委托 base），写后失效缓存；派生物可显式 sync=false。 */
+  public async writeJson(filePath: string, data: unknown, sync = true): Promise<void> {
+    await this.base.writeJson(filePath, data, sync);
     invalidateFileKey(filePath);
   }
 

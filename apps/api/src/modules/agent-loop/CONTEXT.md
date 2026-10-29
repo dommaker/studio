@@ -57,3 +57,4 @@
 - **观察/唤醒口径（#330/#493/#523 + B5）**：唤醒只放行不裁决，归属裁决归 observe；B5 回复检测改 `readChannelMessagesDelta` 字节水位增量读
 - **PERF-01 token 写侧契约**：`writeWorkunitTokenEvent` 必须把 appendJsonl 的同一 event 对象传给 `noteTokenLedgerWritten`；账本只在旧 offset 到文件尾精确等于该 event 完整字节时 direct-apply，否则按 byte offset 补扫。direct 保留已有首尾内容锚点，读侧 `syncTokenLedger` 以 size + `dev:ino` + O(1) 首尾 SHA-256 锚点复核；copytruncate/轮转/截断后从事件流重建，调用方不得另传重序列化副本或用最终文件 size 冒充已处理 watermark。
 - **F4 review 派发 / P7 总开关**：`STUDIO_AUTO_REVIEW=false` 闸两条自动路径；事件链失败 30s 进程内重试一次
+- **PERF-02 step 簿记读取复杂度**：`loop-record-persistence → ExecutionJournal → WorkUnitMetadataRepository → updateMetadata` 调用链与 fencing 语义不变；FileStore 锁内改读 per-WU current projection + 精确匹配的 per-WU head，不再随 index 历史行全量 fold。租约 flush 同样逐 WU 点查 projection，zombie/非 active 丢弃纪律不变；events 半行时写路径 fail-closed，不粘连新事件。
