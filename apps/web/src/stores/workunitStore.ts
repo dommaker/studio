@@ -4,6 +4,11 @@ import axios from 'axios';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { createFreshIdTracker } from '../utils/freshIds';
 import { errorMessage } from '../utils/errorMessage';
+import { KeyedCacheLifecycle } from './keyedCacheLifecycle';
+import { createFetchGate, type FetchGate } from './fetchDiscipline';
+
+export const WORKUNIT_DETAIL_CACHE_LIMIT = 64;
+export const WORKUNIT_DETAIL_INACTIVE_MS = 5 * 60 * 1000;
 
 /**
  * #405：未归属判定 —— 无 reqId 且归因戳（pmoId）解析为 null。
@@ -86,6 +91,8 @@ interface WorkUnitState {
   /** #549：WU 详情 REST 打底（drawer 打开/换 id 即拉，不做 TTL 门禁）；404 → notFound 友好态，
    *  其他错误 → error 文案（errorMessage 正本，服务端 error.message 优先） */
   loadWorkUnitDetail: (id: string) => Promise<void>;
+  /** 详情抽屉订阅：引用计数归零后进入有界非活跃 LRU。 */
+  subscribeDetail: (id: string) => () => void;
   /** #549：created 事件路由驱动——新行 id 进 fresh 集（per-id 2s 自清） */
   markWuFresh: (id: string) => void;
   /** #557：列表页挂载/卸载登记录在屏信号 */
@@ -93,6 +100,32 @@ interface WorkUnitState {
   /** 测试重置：detail/fresh 切片 + fresh tracker 计时器（防跨测悬挂） */
   __resetForTests: () => void;
 }
+
+const detailGates = new Map<string, FetchGate>();
+function detailGateOf(id: string): FetchGate {
+  let gate = detailGates.get(id);
+  if (!gate) {
+    gate = createFetchGate();
+    detailGates.set(id, gate);
+  }
+  return gate;
+}
+
+const detailLifecycle = new KeyedCacheLifecycle({
+  maxInactive: WORKUNIT_DETAIL_CACHE_LIMIT,
+  inactiveMs: WORKUNIT_DETAIL_INACTIVE_MS,
+  onEvict: (id) => {
+    detailGates.get(id)?.nextSeq();
+    detailGates.delete(id);
+    useWorkUnitStore.setState(st => {
+      const detailById = { ...st.detailById };
+      delete detailById[id];
+      return { detailById };
+    });
+  },
+});
+
+export const WORKUNIT_DETAIL_CACHE_STATS = () => detailLifecycle.stats();
 
 export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   workunits: [],
@@ -271,10 +304,17 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   },
 
   loadWorkUnitDetail: async (id) => {
+    detailLifecycle.touch(id);
+    const incarnation = detailLifecycle.incarnation(id);
+    const gate = detailGateOf(id);
+    const seq = gate.nextSeq();
+    const isCurrent = () => gate.isLatest(seq) && detailLifecycle.incarnation(id) === incarnation;
     try {
       const { data: env } = await workunitApi.get(id);
+      if (!isCurrent()) return;
       set({ detailById: { ...get().detailById, [id]: { wu: env.data, notFound: false, error: null } } });
     } catch (e) {
+      if (!isCurrent()) return;
       // #241 口径：404 = 悬空 WU 单列友好态（无 error 文案）；其余错误走 errorMessage 正本
       const notFound = axios.isAxiosError(e) && e.response?.status === 404;
       set({
@@ -286,6 +326,8 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
     }
   },
 
+  subscribeDetail: (id) => detailLifecycle.acquire(id),
+
   markWuFresh: (id) => {
     freshTracker.mark(id);
   },
@@ -295,6 +337,8 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   },
 
   __resetForTests: () => {
+    detailLifecycle.dispose();
+    detailGates.clear();
     freshTracker.dispose();
     set({ detailById: {}, freshWuIds: new Set() });
   },

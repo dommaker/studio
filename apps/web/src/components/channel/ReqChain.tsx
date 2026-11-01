@@ -20,7 +20,9 @@ export function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string
   const error = useRequirementChainStore((s) => s.errors[id]);
 
   useEffect(() => {
+    const release = useRequirementChainStore.getState().subscribeChain(id);
     void useRequirementChainStore.getState().ensureChain(id);
+    return release;
   }, [id]);
 
   if (error) return <div className="mc-drawer-note">加载失败: {error}</div>;

@@ -70,6 +70,14 @@ export interface StreamView {
   items: StreamItem[];
   /** 已完成消息总数（> 2 时渲染折叠 toggle，文案用 completedCount - 2） */
   completedCount: number;
+  /** 非枚举版本号：items 原地变更时仍驱动 React memo/effect。 */
+  revision: number;
+}
+
+function makeStreamView(items: StreamItem[], completedCount: number, revision = 0): StreamView {
+  const view = { items, completedCount, revision };
+  Object.defineProperty(view, 'revision', { enumerable: false, writable: true, value: revision });
+  return view;
 }
 
 // ── 以下为迁移自 ChannelDetailPage 的纯计算（行为零变化） ──────────────
@@ -308,8 +316,15 @@ function foldAlertGroups(
  * 消息流管线单一入口：messages + UI 状态 → 渲染就绪 items。
  * 消息引用不变则输出可整树跳过（组件侧 useMemo 消费）。
  */
-export function deriveStreamView(messages: ChannelMessage[], uiState: StreamUiState): StreamView {
-  const { showCompleted, collapsedThreads, expandedProcGroups, expandedAlertGroups, promotedQuestionIds, isWaitingForInput } = uiState;
+type BaseStreamItem = Exclude<StreamItem, { kind: 'alert-group' }>;
+
+interface StreamViewParts {
+  baseItems: BaseStreamItem[];
+  completedCount: number;
+}
+
+function deriveStreamViewParts(messages: ChannelMessage[], uiState: StreamUiState): StreamViewParts {
+  const { showCompleted, collapsedThreads, expandedProcGroups, promotedQuestionIds, isWaitingForInput } = uiState;
 
   // B2-006: 已完成折叠——默认活跃全留 + 最近 2 条已完成
   // F1①②（2026-09-16 性能体检）：completed 建 Set 单遍过滤（旧 completed.includes 为 O(n×c)）；
@@ -342,7 +357,7 @@ export function deriveStreamView(messages: ChannelMessage[], uiState: StreamUiSt
     return !!parseMeta(m.meta).cardType;
   };
 
-  const items: StreamItem[] = grouped.map((item, idx) => {    const m = itemMsgs[idx];
+  const items: BaseStreamItem[] = grouped.map((item, idx) => {    const m = itemMsgs[idx];
     const dateStr = itemDateStrs[idx];
     const showDate = idx === 0 || dateStr !== itemDateStrs[idx - 1];
     // #277 D2：主流连续合并（日期分隔线切断；线程组以其 anchor 参与主流序列）
@@ -386,8 +401,347 @@ export function deriveStreamView(messages: ChannelMessage[], uiState: StreamUiSt
     return { kind: 'message', message: item, ...base };
   });
 
-  // Phase 3（AC3）：主流告警聚合 pass（日期分隔/合并算完之后做，组继承首条的日期分隔站位）
-  return { items: foldAlertGroups(items, expandedAlertGroups, isWaitingForInput), completedCount: completed.length };
+  return { baseItems: items, completedCount: completed.length };
+}
+
+/** 全量入口：首拉、分页/结构重置和 UI 折叠状态变化使用。 */
+export function deriveStreamView(messages: ChannelMessage[], uiState: StreamUiState): StreamView {
+  const parts = deriveStreamViewParts(messages, uiState);
+  return makeStreamView(
+    foldAlertGroups(parts.baseItems, uiState.expandedAlertGroups, uiState.isWaitingForInput),
+    parts.completedCount,
+  );
+}
+
+function baseMessageOf(item: BaseStreamItem): ChannelMessage {
+  return item.kind === 'thread' ? item.anchor : item.message;
+}
+
+function baseMessageIdsOf(item: BaseStreamItem): string[] {
+  if (item.kind === 'message') return [item.message.id];
+  const ids = [item.anchor.id];
+  for (const reply of item.replies) {
+    if (reply.kind === 'msg') ids.push(reply.message.id);
+    else for (const message of reply.messages) ids.push(message.id);
+  }
+  return ids;
+}
+
+function isAlertBase(item: BaseStreamItem, ui: StreamUiState): boolean {
+  return item.kind === 'message' && !item.message.degraded && isMonitorAlert(item.message, ui.isWaitingForInput);
+}
+
+function decorateBaseItem(item: BaseStreamItem, previous: BaseStreamItem | undefined, index: number, ui: StreamUiState): BaseStreamItem {
+  const message = baseMessageOf(item);
+  const prevMessage = previous ? baseMessageOf(previous) : null;
+  const dateStr = dateStrOf(message);
+  const showDate = index === 0 || !previous || dateStr !== dateStrOf(prevMessage!);
+  const compact = (ui.promotedQuestionIds.has(message.id) || ui.promotedQuestionIds.has(prevMessage?.id ?? ''))
+    ? false
+    : !showDate && shouldOmitHead(prevMessage, message);
+  return { ...item, showDate, dateKey: `date-${message.id}`, dateLabel: dateLabelOf(message, dateStr), compact };
+}
+
+export interface StreamDerivationStats {
+  fullDerives: number;
+  patchCount: number;
+  derivedMessages: number;
+}
+
+/**
+ * PERF-06 增量视图：完整派生只发生在首拉/结构重置；append/update 重建目标线程，
+ * 并重算相邻日期/合并项及受影响告警段。输入必须是 store 提供的单调 append 或单点 update。
+ */
+export class StreamViewDerivation {
+  readonly stats: StreamDerivationStats = { fullDerives: 0, patchCount: 0, derivedMessages: 0 };
+  private messages: ChannelMessage[];
+  private byId = new Map<string, ChannelMessage>();
+  private positions = new Map<string, number>();
+  private threadIndex = new Map<string, string[]>();
+  private waitingParents = new Set<string>();
+  private completedIds: string[] = [];
+  private baseItems: BaseStreamItem[] = [];
+  private baseIndex = new Map<string, BaseStreamItem>();
+  private finalIndex = new Map<string, StreamItem>();
+  private completedCount = 0;
+  view: StreamView;
+
+  constructor(messages: ChannelMessage[], private ui: StreamUiState) {
+    this.messages = messages;
+    this.view = makeStreamView([], 0);
+    this.reset(messages, ui);
+  }
+
+  reset(messages: ChannelMessage[], ui: StreamUiState): StreamView {
+    if (this.stats.fullDerives > 0 && messages === this.messages && ui === this.ui) return this.view;
+    return this.rebuild(messages, ui);
+  }
+
+  private rebuild(messages: ChannelMessage[], ui: StreamUiState): StreamView {
+    this.messages = messages;
+    this.ui = ui;
+    const parts = deriveStreamViewParts(messages, ui);
+    this.baseItems = parts.baseItems;
+    this.completedCount = parts.completedCount;
+    this.byId = new Map(messages.map(m => [m.id, m]));
+    this.positions = new Map(messages.map((m, i) => [m.id, i]));
+    this.threadIndex = new Map();
+    this.waitingParents = new Set();
+    this.completedIds = messages.filter(isCompleted).map(m => m.id);
+    for (const message of messages) {
+      const rootId = rootAnchorIdOf(message, this.byId) ?? (!message.replyToId ? message.id : null);
+      if (rootId) {
+        const ids = this.threadIndex.get(rootId) ?? [];
+        ids.push(message.id);
+        this.threadIndex.set(rootId, ids);
+      } else if (message.replyToId) {
+        this.waitingParents.add(message.replyToId);
+      }
+    }
+    this.view = makeStreamView(
+      foldAlertGroups(this.baseItems, ui.expandedAlertGroups, ui.isWaitingForInput),
+      parts.completedCount,
+      this.view.revision + 1,
+    );
+    this.rebuildIndexes();
+    this.stats.fullDerives += 1;
+    this.stats.derivedMessages += messages.length;
+    return this.view;
+  }
+
+  private rebuildIndexes(): void {
+    this.baseIndex = new Map();
+    for (const item of this.baseItems) {
+      for (const id of baseMessageIdsOf(item)) this.baseIndex.set(id, item);
+    }
+    this.finalIndex = new Map();
+    for (const item of this.view.items) {
+      if (item.kind === 'alert-group') for (const message of item.messages) this.finalIndex.set(message.id, item);
+      else for (const id of baseMessageIdsOf(item)) this.finalIndex.set(id, item);
+    }
+  }
+
+  private basePositionOf(item: BaseStreamItem): number {
+    const position = this.positions.get(baseMessageOf(item).id) ?? Number.MAX_SAFE_INTEGER;
+    let lo = 0;
+    let hi = this.baseItems.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const other = this.positions.get(baseMessageOf(this.baseItems[mid]).id) ?? Number.MAX_SAFE_INTEGER;
+      if (other < position) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  private finalPositionOf(item: StreamItem): number {
+    const representative = item.kind === 'alert-group' ? item.messages[0] : baseMessageOf(item);
+    const position = this.positions.get(representative.id) ?? Number.MAX_SAFE_INTEGER;
+    let lo = 0;
+    let hi = this.view.items.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const current = this.view.items[mid];
+      const message = current.kind === 'alert-group' ? current.messages[0] : baseMessageOf(current);
+      const other = this.positions.get(message.id) ?? Number.MAX_SAFE_INTEGER;
+      if (other < position) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  append(messages: ChannelMessage[], ui: StreamUiState, id: string): StreamView {
+    if (messages === this.messages) return this.view;
+    const previousLength = this.messages.length;
+    const appended = messages[messages.length - 1];
+    if (messages.length !== previousLength + 1 || appended?.id !== id || (previousLength > 0 && messages[previousLength - 1] !== this.messages[previousLength - 1])) {
+      return this.rebuild(messages, ui);
+    }
+    return this.patch(messages, ui, id, true);
+  }
+
+  update(messages: ChannelMessage[], ui: StreamUiState, id: string): StreamView {
+    if (messages === this.messages) return this.view;
+    const position = this.positions.get(id);
+    const previous = this.byId.get(id);
+    const next = position === undefined ? undefined : messages[position];
+    if (!previous || !next || next.id !== id || messages.length !== this.messages.length) return this.rebuild(messages, ui);
+    if (previous.replyToId !== next.replyToId || previous.workUnitId !== next.workUnitId || previous.createdAt !== next.createdAt) {
+      return this.rebuild(messages, ui);
+    }
+    return this.patch(messages, ui, id, false);
+  }
+
+  private patch(messages: ChannelMessage[], ui: StreamUiState, id: string, append: boolean): StreamView {
+    if (append && this.waitingParents.has(id)) return this.rebuild(messages, ui);
+    const previousKeep = new Set(this.completedIds.slice(-2));
+    const previous = this.byId.get(id);
+    const position = append ? messages.length - 1 : this.positions.get(id)!;
+    const nextMessage = messages[position];
+    if (isCompleted(previous ?? nextMessage) !== isCompleted(nextMessage)) return this.rebuild(messages, ui);
+    this.messages = messages;
+    this.ui = ui;
+    this.byId.set(id, nextMessage);
+    this.positions.set(id, position);
+    const rootId = rootAnchorIdOf(nextMessage, this.byId) ?? id;
+    const thread = this.threadIndex.get(rootId) ?? [];
+    if (!thread.includes(id)) thread.push(id);
+    this.threadIndex.set(rootId, thread);
+    this.waitingParents.delete(nextMessage.replyToId ?? '');
+
+    const wasCompleted = previous ? isCompleted(previous) : false;
+    const nowCompleted = isCompleted(nextMessage);
+    if (!wasCompleted && nowCompleted) {
+      let lo = 0;
+      let hi = this.completedIds.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if ((this.positions.get(this.completedIds[mid]) ?? Number.MAX_SAFE_INTEGER) < position) lo = mid + 1;
+        else hi = mid;
+      }
+      this.completedIds.splice(lo, 0, id);
+    }
+    if (wasCompleted && !nowCompleted) {
+      let lo = 0;
+      let hi = this.completedIds.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if ((this.positions.get(this.completedIds[mid]) ?? Number.MAX_SAFE_INTEGER) < position) lo = mid + 1;
+        else hi = mid;
+      }
+      if (this.completedIds[lo] === id) this.completedIds.splice(lo, 1);
+    }
+    this.completedCount += nowCompleted === wasCompleted ? 0 : nowCompleted ? 1 : -1;
+    const nextKeep = new Set(this.completedIds.slice(-2));
+    const affected = new Set<string>([id]);
+    if (!ui.showCompleted) {
+      for (const completedId of previousKeep) if (!nextKeep.has(completedId)) affected.add(completedId);
+      for (const completedId of nextKeep) if (!previousKeep.has(completedId)) affected.add(completedId);
+    }
+
+    const roots = new Set([...affected].map(messageId => {
+      const message = this.byId.get(messageId);
+      return message ? rootAnchorIdOf(message, this.byId) ?? messageId : messageId;
+    }));
+    for (const root of roots) {
+      const ids = this.threadIndex.get(root) ?? [root];
+      if (ids.some(messageId => ui.promotedQuestionIds.has(messageId))) return this.rebuild(messages, ui);
+    }
+    for (const root of roots) this.patchRoot(root, append);
+    this.stats.patchCount += 1;
+    return this.view;
+  }
+
+  private patchRoot(rootId: string, append: boolean): void {
+    const ids = this.threadIndex.get(rootId) ?? [rootId];
+    const keepCompleted = new Set(this.completedIds.slice(-2));
+    const groupMessages = ids.map(id => this.byId.get(id)).filter((m): m is ChannelMessage => !!m)
+      .filter(m => this.ui.showCompleted || !isCompleted(m) || keepCompleted.has(m.id));
+    const oldIndices = [...new Set(ids.map(id => this.baseIndex.get(id)).filter((item): item is BaseStreamItem => !!item)
+      .map(item => this.basePositionOf(item)))].sort((a, b) => a - b);
+    if (oldIndices.length === 0 && groupMessages.length === 0) return;
+    // 非尾部新增可见项只可能来自隐藏 completed 的状态回退；按结构重置处理，避免错误插入顺序。
+    if (oldIndices.length === 0 && !append) {
+      this.rebuild(this.messages, this.ui);
+      return;
+    }
+    const insertion = oldIndices[0] ?? this.baseItems.length;
+    const oldStart = oldIndices[0] ?? insertion;
+    const oldEnd = oldIndices[oldIndices.length - 1] ?? insertion - 1;
+    let oldAlertStart = oldStart;
+    let oldAlertEnd = oldEnd;
+    while (oldAlertStart > 0 && isAlertBase(this.baseItems[oldAlertStart - 1], this.ui)) oldAlertStart -= 1;
+    while (oldAlertEnd + 1 < this.baseItems.length && isAlertBase(this.baseItems[oldAlertEnd + 1], this.ui)) oldAlertEnd += 1;
+    const oldFinalStartItem = oldIndices.length === 0 && oldAlertStart === insertion
+      ? undefined
+      : this.finalIndex.get(baseMessageOf(this.baseItems[oldAlertStart]).id);
+    const oldFinalStart = oldFinalStartItem ? this.finalPositionOf(oldFinalStartItem) : this.view.items.length;
+    const oldFinalEndItem = this.finalIndex.get(baseMessageOf(this.baseItems[oldAlertEnd]).id);
+    let oldFinalEnd = oldFinalStart === this.view.items.length
+      ? this.view.items.length - 1
+      : oldFinalEndItem ? this.finalPositionOf(oldFinalEndItem) : this.view.items.length - 1;
+
+    const replacement = groupMessages.length
+      ? deriveStreamViewParts(groupMessages, { ...this.ui, showCompleted: true }).baseItems
+      : [];
+    this.stats.derivedMessages += groupMessages.length;
+    const oldBaseSegment = this.baseItems.slice(oldStart, oldEnd + 1);
+    const tailAppend = oldIndices.length === 0 && append && oldStart === this.baseItems.length;
+    if ((!tailAppend && replacement.length !== oldBaseSegment.length) || (tailAppend && replacement.length !== 1)) {
+      this.rebuild(this.messages, this.ui);
+      return;
+    }
+    if (tailAppend) this.baseItems.push(replacement[0]);
+    else for (let i = 0; i < replacement.length; i++) this.baseItems[oldStart + i] = replacement[i];
+    const decorateStart = Math.max(0, Math.min(oldStart, insertion) - 1);
+    const decorateEnd = Math.min(this.baseItems.length - 1, insertion + replacement.length);
+    for (let i = decorateStart; i <= decorateEnd; i++) {
+      const current = this.baseItems[i];
+      const decorated = decorateBaseItem(current, this.baseItems[i - 1], i, this.ui);
+      if (current.showDate !== decorated.showDate || current.dateKey !== decorated.dateKey
+        || current.dateLabel !== decorated.dateLabel || current.compact !== decorated.compact) {
+        this.baseItems[i] = decorated;
+      }
+    }
+
+    if (replacement.length === 0 && oldStart < this.baseItems.length) {
+      const next = this.finalIndex.get(baseMessageOf(this.baseItems[oldStart]).id);
+      if (next) oldFinalEnd = Math.max(oldFinalEnd, this.finalPositionOf(next));
+    }
+    let finalBaseStart = Math.min(oldAlertStart, insertion);
+    let finalBaseEnd = Math.max(oldAlertEnd, insertion + replacement.length - 1);
+    while (finalBaseStart > 0 && isAlertBase(this.baseItems[finalBaseStart - 1], this.ui)) finalBaseStart -= 1;
+    while (finalBaseEnd + 1 < this.baseItems.length && isAlertBase(this.baseItems[finalBaseEnd + 1], this.ui)) finalBaseEnd += 1;
+    if (replacement.length === 0 && finalBaseEnd < this.baseItems.length) {
+      const next = this.finalIndex.get(baseMessageOf(this.baseItems[finalBaseEnd]).id);
+      if (next) oldFinalEnd = Math.max(oldFinalEnd, this.finalPositionOf(next));
+    }
+    const finalReplacement = foldAlertGroups(
+      this.baseItems.slice(finalBaseStart, finalBaseEnd + 1),
+      this.ui.expandedAlertGroups,
+      this.ui.isWaitingForInput,
+    );
+    const oldFinalSegment = this.view.items.slice(oldFinalStart, oldFinalEnd + 1);
+    if (finalReplacement.length !== oldFinalSegment.length && (!tailAppend || oldFinalSegment.length > 0)) {
+      this.rebuild(this.messages, this.ui);
+      return;
+    }
+    if (oldFinalSegment.length === 0) this.view.items.push(...finalReplacement);
+    else for (let i = 0; i < finalReplacement.length; i++) this.view.items[oldFinalStart + i] = finalReplacement[i];
+    this.view.completedCount = this.completedCount;
+    this.view.revision += 1;
+    this.patchIndexes(oldBaseSegment, oldFinalSegment, finalReplacement, decorateStart, decorateEnd);
+  }
+
+  private patchIndexes(
+    oldBase: BaseStreamItem[],
+    oldFinal: StreamItem[],
+    finalReplacement: StreamItem[],
+    decorateStart: number,
+    decorateEnd: number,
+  ): void {
+    for (const item of oldBase) {
+      for (const id of baseMessageIdsOf(item)) {
+        if (this.baseIndex.get(id) === item) this.baseIndex.delete(id);
+      }
+    }
+    for (const item of oldFinal) {
+      const ids = item.kind === 'alert-group' ? item.messages.map(m => m.id) : baseMessageIdsOf(item);
+      for (const id of ids) if (this.finalIndex.get(id) === item) this.finalIndex.delete(id);
+    }
+    for (let i = decorateStart; i <= decorateEnd; i++) {
+      const item = this.baseItems[i];
+      for (const id of baseMessageIdsOf(item)) this.baseIndex.set(id, item);
+    }
+    for (const item of finalReplacement) {
+      if (item.kind === 'alert-group') for (const message of item.messages) this.finalIndex.set(message.id, item);
+      else for (const id of baseMessageIdsOf(item)) this.finalIndex.set(id, item);
+    }
+  }
+}
+
+export function createStreamViewDerivation(messages: ChannelMessage[], ui: StreamUiState): StreamViewDerivation {
+  return new StreamViewDerivation(messages, ui);
 }
 
 /**

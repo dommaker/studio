@@ -75,6 +75,15 @@ export function planPrune(
   const plan: PrunePlan = { degradeIds };
   if (firstFullIdx > 0 && anchorIdx < firstFullIdx + opts.hydrateDistance) {
     plan.hydrateBefore = messages[firstFullIdx].id;
+    return plan;
+  }
+  // cap 恢复窗口可能在全量前缀之间留下 degraded 间隙；以下一个全量消息为排他游标恢复。
+  const firstDegradedIdx = messages.findIndex(m => m.degraded);
+  if (firstDegradedIdx > 0) {
+    const nextFullIdx = messages.findIndex((m, i) => i > firstDegradedIdx && !m.degraded);
+    if (nextFullIdx > 0 && anchorIdx >= firstDegradedIdx && anchorIdx < nextFullIdx + opts.hydrateDistance) {
+      plan.hydrateBefore = messages[nextFullIdx].id;
+    }
   }
   return plan;
 }

@@ -11,7 +11,7 @@ vi.mock('../../api/requirements', () => ({
   requirementApi: { getChain: mockGetChain },
 }));
 
-import { useRequirementChainStore, REQUIREMENT_CHAIN_TTL_MS } from '../requirementChainStore';
+import { useRequirementChainStore, REQUIREMENT_CHAIN_TTL_MS, REQUIREMENT_CHAIN_CACHE_STATS } from '../requirementChainStore';
 import type { RequirementChain } from '../../api/requirements';
 
 function chainFixture(reqId: string, workunits: Array<{ id: string; status: string; assigneeId?: string | null; title?: string; metadata?: string | null }>): RequirementChain {
@@ -68,20 +68,24 @@ describe('requirementChainStore 拉取去重', () => {
     }
   });
 
-  it('ensureFresh 刷新全部已缓存 key（TTL 过期的）；未缓存的 reqId 不发起', async () => {
+  it('ensureFresh 只刷新活跃 key（TTL 过期的）；非活跃/未缓存 reqId 不发起', async () => {
     mockGetChain.mockImplementation((id: string) =>
       Promise.resolve({ data: { success: true, data: chainFixture(id, []) } }));
     vi.useFakeTimers();
+    const releases: Array<() => void> = [];
     try {
+      releases.push(useRequirementChainStore.getState().subscribeChain('REQ-1'));
       await useRequirementChainStore.getState().ensureChain('REQ-1');
       await useRequirementChainStore.getState().ensureChain('REQ-2');
       vi.advanceTimersByTime(REQUIREMENT_CHAIN_TTL_MS + 1);
+      mockGetChain.mockClear();
       await useRequirementChainStore.getState().ensureFresh();
-      expect(mockGetChain).toHaveBeenCalledTimes(4);
+      expect(mockGetChain).toHaveBeenCalledTimes(1);
       expect(mockGetChain).toHaveBeenCalledWith('REQ-1');
-      expect(mockGetChain).toHaveBeenCalledWith('REQ-2');
+      expect(mockGetChain).not.toHaveBeenCalledWith('REQ-2');
       expect(mockGetChain).not.toHaveBeenCalledWith('REQ-3');
     } finally {
+      for (const release of releases) release();
       vi.useRealTimers();
     }
   });
@@ -159,5 +163,71 @@ describe('requirementChainStore — status_changed 本地推导（#412 验收：
     expect(() => store.applyWorkunitStatusChanged({ id: 'wu-1' } as never)).not.toThrow(); // 缺 status 视为坏负载
     expect(useRequirementChainStore.getState().chains['REQ-1']).toBe(before);
     expect(mockGetChain).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('requirementChainStore — PERF-06 生命周期与定向事件', () => {
+  it('1000 个详情键有界，ensureFresh 只刷新活跃/可见键', async () => {
+    mockGetChain.mockImplementation((id: string) =>
+      Promise.resolve({ data: { data: chainFixture(id, []) } }));
+    const store = useRequirementChainStore.getState();
+    for (let i = 0; i < 1000; i++) {
+      const id = `REQ-${i}`;
+      const release = store.subscribeChain(id);
+      await store.ensureChain(id);
+      release();
+    }
+    expect(REQUIREMENT_CHAIN_CACHE_STATS().keys).toBeLessThanOrEqual(32);
+    console.info('[PERF-06] 1000 requirement chains', REQUIREMENT_CHAIN_CACHE_STATS());
+    const release = store.subscribeChain('REQ-999');
+    mockGetChain.mockClear();
+    await store.ensureFresh({ maxAgeMs: 0 });
+    expect(mockGetChain).toHaveBeenCalledTimes(1);
+    expect(mockGetChain).toHaveBeenCalledWith('REQ-999');
+    release();
+  });
+
+  it('WU 事件按 reqId/wuId 索引点查，不遍历非活跃 chain', async () => {
+    mockGetChain.mockImplementation((id: string) =>
+      Promise.resolve({ data: { data: chainFixture(id, [{ id: `wu-${id}`, status: 'active' }]) } }));
+    const store = useRequirementChainStore.getState();
+    const findSpies: ReturnType<typeof vi.spyOn>[] = [];
+    for (let i = 0; i < 20; i++) {
+      await store.ensureChain(`REQ-${i}`);
+      const workunits = useRequirementChainStore.getState().chains[`REQ-${i}`]!.workunits;
+      findSpies.push(vi.spyOn(workunits, 'findIndex'));
+    }
+    store.applyWorkunitStatusChanged({ id: 'wu-other', reqId: 'REQ-19', status: 'done' });
+    expect(findSpies[19]).toHaveBeenCalledTimes(1);
+    for (const spy of findSpies.slice(0, 19)) expect(spy).not.toHaveBeenCalled();
+    for (const spy of findSpies) spy.mockRestore();
+  });
+
+  it('REQ 旧 catch 不得覆盖重订阅或较新成功响应', async () => {
+    const store = useRequirementChainStore.getState();
+    let rejectOld!: (e: Error) => void;
+    mockGetChain.mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject; }));
+    const oldRequest = store.ensureChain('REQ-aba');
+    store.__resetForTests();
+    mockGetChain.mockResolvedValueOnce({ data: { data: chainFixture('REQ-aba', []) } });
+    await store.ensureChain('REQ-aba');
+    rejectOld(new Error('stale aba failure'));
+    await oldRequest;
+    expect(useRequirementChainStore.getState().errors['REQ-aba']).toBeUndefined();
+    expect(useRequirementChainStore.getState().chains['REQ-aba']).toBeTruthy();
+
+    let rejectFirst!: (e: Error) => void;
+    let resolveSecond!: (v: unknown) => void;
+    mockGetChain
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectFirst = reject; }))
+      .mockImplementationOnce(() => new Promise(r => { resolveSecond = r; }));
+    const first = store.ensureChain('REQ-aba', { maxAgeMs: 0 });
+    const second = store.ensureChain('REQ-aba', { maxAgeMs: 0 });
+    resolveSecond({ data: { data: chainFixture('REQ-aba', [{ id: 'wu-new', status: 'active' }]) } });
+    await second;
+    rejectFirst(new Error('stale failure'));
+    await first;
+    expect(useRequirementChainStore.getState().errors['REQ-aba']).toBeUndefined();
+    expect(useRequirementChainStore.getState().chains['REQ-aba']?.workunits[0].id).toBe('wu-new');
   });
 });

@@ -9,6 +9,11 @@ import { workunitApi, type WorkUnit } from '../api/workunit';
 import { requirementApi, type Requirement, type RequirementStatus } from '../api/requirements';
 import { channelApi, type ChannelSuggestion } from '../api/channel';
 import { createFetchGate, disciplinedFetch, type FetchGate, type FetchGateState } from './fetchDiscipline';
+import { KeyedCacheLifecycle } from './keyedCacheLifecycle';
+
+export const CHANNEL_WORK_CACHE_LIMIT = 16;
+export const CHANNEL_WORK_FILES_CACHE_LIMIT = 256;
+export const CHANNEL_WORK_INACTIVE_MS = 5 * 60 * 1000;
 
 /** 缺省 TTL：与 rosterStore / channelDataStore / requirementChainStore 30s 同频——频道间切换 TTL 内零重拉 */
 export const CHANNEL_WORK_TTL_MS = 30000;
@@ -45,12 +50,14 @@ interface ChannelWorkState {
   ensureReqs: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
   /** sync 接线聚合入口：wus/reqs 走 TTL 门禁（兜底轮询消费）；maxAgeMs:0 = 重连语义全 slice 强刷 */
   ensureChannelWork: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
+  subscribeChannel: (channelId: string) => () => void;
   /** 建议即时重拉（挂载/重连/动作回扫，不经防抖）；无 TTL 纯事件驱动，seq 守卫晚到旧结果 */
   refreshSuggestions: (channelId: string) => Promise<void>;
   /** SSE 触发面统一入口：标脏 + 500ms trailing 防抖合并一次重拉（store 私有定时器） */
   markSuggestionsDirty: (channelId: string) => void;
   /** agent 消息所属 WU 的产出文件集（distinct wuId 合并一次批量拉取并缓存；模块级台账防重拉） */
   ensureWuChangedFiles: (wuIds: string[]) => void;
+  releaseWuChangedFiles: () => void;
   /** SSE status_changed 与闸门动作（#545 gateWriter sink）共用快照落点：全量快照直替 upsert
    * （17 字段快照原样落库，删除编造时间戳）；未打底的频道 no-op（等 REST 打底）；坏负载 no-op */
   applyWorkunitSnapshot: (channelId: string, wu: WorkUnit | null | undefined) => void;
@@ -82,6 +89,58 @@ let dirtyChannelId: string | null = null;
 
 // wuChangedFiles 已拉台账（模块级）：失败记 [] 落库即占台账位，不重试（对齐旧 wuFilesFetchedRef 语义）
 const wuFilesFetched = new Set<string>();
+const fileGates = new Map<string, FetchGate>();
+function fileGateOf(wuId: string): FetchGate {
+  let gate = fileGates.get(wuId);
+  if (!gate) {
+    gate = createFetchGate();
+    fileGates.set(wuId, gate);
+  }
+  return gate;
+}
+const visibleFileReleases = new Map<string, () => void>();
+
+const lifecycle = new KeyedCacheLifecycle({
+  maxInactive: CHANNEL_WORK_CACHE_LIMIT,
+  inactiveMs: CHANNEL_WORK_INACTIVE_MS,
+  onEvict: (channelId) => {
+    for (const slice of ['wus', 'reqs', 'suggestions']) {
+      const key = `${slice}:${channelId}`;
+      book.get(key)?.gate.nextSeq();
+      book.delete(key);
+    }
+    if (dirtyChannelId === channelId) dirtyChannelId = null;
+    useChannelWorkStore.setState(st => {
+      const wus = { ...st.wus };
+      const reqs = { ...st.reqs };
+      const suggestions = { ...st.suggestions };
+      delete wus[channelId];
+      delete reqs[channelId];
+      delete suggestions[channelId];
+      return { wus, reqs, suggestions };
+    });
+  },
+});
+const filesLifecycle = new KeyedCacheLifecycle({
+  maxInactive: CHANNEL_WORK_FILES_CACHE_LIMIT,
+  inactiveMs: CHANNEL_WORK_INACTIVE_MS,
+  onEvict: (wuId) => {
+    fileGates.get(wuId)?.nextSeq();
+    fileGates.delete(wuId);
+    wuFilesFetched.delete(wuId);
+    useChannelWorkStore.setState(st => {
+      const wuChangedFiles = { ...st.wuChangedFiles };
+      delete wuChangedFiles[wuId];
+      return { wuChangedFiles };
+    });
+  },
+});
+
+export const CHANNEL_WORK_CACHE_STATS = () => ({
+  ...lifecycle.stats(),
+  fileKeys: filesLifecycle.stats().keys,
+  timers: lifecycle.stats().timers + filesLifecycle.stats().timers + (suggestionsTimer ? 1 : 0),
+});
 
 /** #488 工作条占位三态的派生（wuIdle 唯一口径，#528 边界：由 store 派生）：
  *  已 resolved（端点成功返回非 degraded）且 currentWuId=null → 空闲态；缺键/未 resolved/有当前工单 → 加载态 */
@@ -129,6 +188,7 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
   wuChangedFiles: {},
 
   ensureWus: (channelId, opts) => {
+    lifecycle.touch(channelId);
     const s = sliceOf(`wus:${channelId}`);
     return disciplinedFetch(
       s.gate,
@@ -137,7 +197,7 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
       async (seq) => {
         try {
           const res = await workunitApi.list({ channelId, limit: 100 });
-          if (!s.gate.isLatest(seq)) return;
+          if (!s.gate.isLatest(seq) || !lifecycle.has(channelId)) return;
           set((st) => ({ wus: { ...st.wus, [channelId]: res.data?.data } }));
           s.state.loadedAt = Date.now();
         } catch {
@@ -148,6 +208,7 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
   },
 
   ensureReqs: (channelId, opts) => {
+    lifecycle.touch(channelId);
     const s = sliceOf(`reqs:${channelId}`);
     return disciplinedFetch(
       s.gate,
@@ -156,7 +217,7 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
       async (seq) => {
         try {
           const res = await requirementApi.list({ channelId });
-          if (!s.gate.isLatest(seq)) return;
+          if (!s.gate.isLatest(seq) || !lifecycle.has(channelId)) return;
           set((st) => ({ reqs: { ...st.reqs, [channelId]: res.data?.data } }));
           s.state.loadedAt = Date.now();
         } catch {
@@ -167,6 +228,7 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
   },
 
   refreshSuggestions: (channelId) => {
+    lifecycle.touch(channelId);
     // 无 TTL（纯事件驱动）：maxAgeMs:0 = force 语义恒强拉（不并入在途），晚到旧结果靠 seq 守卫收敛
     const s = sliceOf(`suggestions:${channelId}`);
     return disciplinedFetch(
@@ -176,7 +238,7 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
       async (seq) => {
         try {
           const res = await channelApi.getSuggestions(channelId);
-          if (!s.gate.isLatest(seq)) return;
+          if (!s.gate.isLatest(seq) || !lifecycle.has(channelId)) return;
           // #490：推导失败被吞（degraded=true）≠「确实无建议」——仅 console 记录不打扰用户；
           // 不落数据不置 resolved（ChannelWorkBar 占位保持加载态，不误显空闲），建议面保持上一份
           if (res.data?.data?.degraded === true) {
@@ -201,7 +263,10 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
     );
   },
 
+  subscribeChannel: (channelId) => lifecycle.acquire(channelId),
+
   markSuggestionsDirty: (channelId) => {
+    lifecycle.touch(channelId);
     dirtyChannelId = channelId;
     if (suggestionsTimer) clearTimeout(suggestionsTimer);
     suggestionsTimer = setTimeout(() => {
@@ -222,8 +287,23 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
   },
 
   ensureWuChangedFiles: (wuIds) => {
+    const current = new Set(wuIds);
+    for (const [id, release] of visibleFileReleases) {
+      if (!current.has(id)) {
+        release();
+        visibleFileReleases.delete(id);
+      }
+    }
+    for (const id of current) {
+      if (!visibleFileReleases.has(id)) visibleFileReleases.set(id, filesLifecycle.acquire(id));
+    }
     const pending = wuIds.filter((id) => !wuFilesFetched.has(id));
     if (pending.length === 0) return;
+    const requests = pending.map(id => ({
+      id,
+      seq: fileGateOf(id).nextSeq(),
+      incarnation: filesLifecycle.incarnation(id),
+    }));
     for (const id of pending) wuFilesFetched.add(id);
     void (async () => {
       // 2026-09-25：批量端点一次拿全部（后端一次窗口读），替代逐 WU 单发；
@@ -235,12 +315,20 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
       } catch { /* 静默降级：全部记 [] */ }
       set((st) => {
         const next = { ...st.wuChangedFiles };
-        for (const id of pending) {
-          next[id] = filesByWu[id] ?? [];
+        for (const request of requests) {
+          const { id, seq, incarnation } = request;
+          if (fileGateOf(id).isLatest(seq) && filesLifecycle.incarnation(id) === incarnation) {
+            next[id] = filesByWu[id] ?? [];
+          }
         }
         return { wuChangedFiles: next };
       });
     })();
+  },
+
+  releaseWuChangedFiles: () => {
+    for (const release of visibleFileReleases.values()) release();
+    visibleFileReleases.clear();
   },
 
   applyWorkunitSnapshot: (channelId, wu) => {
@@ -290,7 +378,11 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
   },
 
   __resetForTests: () => {
+    get().releaseWuChangedFiles();
+    lifecycle.dispose();
+    filesLifecycle.dispose();
     book.clear();
+    fileGates.clear();
     wuFilesFetched.clear();
     if (suggestionsTimer) clearTimeout(suggestionsTimer);
     suggestionsTimer = null;

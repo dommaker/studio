@@ -12,6 +12,10 @@ import { requirementApi, type RequirementChain } from '../api/requirements';
 // #665（ADR 2026-08-24 落地）：workunit.status_changed 负载的 WU 快照 = 契约 WorkUnit，本地声明清零
 import type { WorkUnit } from '../api/workunit';
 import { createFetchGate, disciplinedFetch, type FetchGate, type FetchGateState } from './fetchDiscipline';
+import { KeyedCacheLifecycle } from './keyedCacheLifecycle';
+
+export const REQUIREMENT_CHAIN_CACHE_LIMIT = 32;
+export const REQUIREMENT_CHAIN_INACTIVE_MS = 5 * 60 * 1000;
 
 /** 缺省 TTL：与 rosterStore / channelDataStore 30s 同频——同 chain 会话内零重拉（#412 验收） */
 export const REQUIREMENT_CHAIN_TTL_MS = 30000;
@@ -25,8 +29,9 @@ interface RequirementChainState {
   errors: Record<string, string | undefined>;
 
   ensureChain: (reqId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
-  /** 已缓存 chain 全量对齐（SSE 重连强刷 / 兜底轮询 / 回 visible 补拉，useDataPlaneSync 消费） */
+  /** 只对齐当前有订阅者的 chain；非活跃驻留键等重新可见时再拉。 */
   ensureFresh: (opts?: { maxAgeMs?: number }) => Promise<void>;
+  subscribeChain: (reqId: string) => () => void;
   /** workunit.status_changed 就地更新（唯一一份；见文件头推导规则） */
   applyWorkunitStatusChanged: (wu: WorkUnit | null | undefined) => void;
   /** 测试隔离：清空数据面 + 纪律簿记（模块级 loadedAt/inflight/gate 不在 zustand 内） */
@@ -35,6 +40,39 @@ interface RequirementChainState {
 
 // 纪律簿记按 reqId 粒度模块级持有：数据在 zustand（消费方订阅），门禁状态不进响应式树
 const book = new Map<string, { gate: FetchGate; state: FetchGateState }>();
+const wuToReq = new Map<string, string>();
+const reqToWus = new Map<string, Set<string>>();
+
+function forgetChain(reqId: string): void {
+  book.get(reqId)?.gate.nextSeq(); // 淘汰后晚到响应不得复活 key
+  book.delete(reqId);
+  for (const wuId of reqToWus.get(reqId) ?? []) wuToReq.delete(wuId);
+  reqToWus.delete(reqId);
+  useRequirementChainStore.setState(st => {
+    const chains = { ...st.chains };
+    const errors = { ...st.errors };
+    delete chains[reqId];
+    delete errors[reqId];
+    return { chains, errors };
+  });
+}
+
+const lifecycle = new KeyedCacheLifecycle({
+  maxInactive: REQUIREMENT_CHAIN_CACHE_LIMIT,
+  inactiveMs: REQUIREMENT_CHAIN_INACTIVE_MS,
+  onEvict: forgetChain,
+});
+
+export const REQUIREMENT_CHAIN_CACHE_STATS = () => lifecycle.stats();
+
+function indexChain(reqId: string, chain: RequirementChain): void {
+  for (const id of reqToWus.get(reqId) ?? []) {
+    if (wuToReq.get(id) === reqId) wuToReq.delete(id);
+  }
+  const ids = new Set(chain.workunits.map(w => w.id));
+  reqToWus.set(reqId, ids);
+  for (const id of ids) wuToReq.set(id, reqId);
+}
 
 function sliceOf(reqId: string): { gate: FetchGate; state: FetchGateState } {
   let s = book.get(reqId);
@@ -62,6 +100,8 @@ export const useRequirementChainStore = create<RequirementChainState>((set, get)
   errors: {},
 
   ensureChain: (reqId, opts) => {
+    lifecycle.touch(reqId);
+    const incarnation = lifecycle.incarnation(reqId);
     const s = sliceOf(reqId);
     return disciplinedFetch(
       s.gate,
@@ -70,13 +110,16 @@ export const useRequirementChainStore = create<RequirementChainState>((set, get)
       async (seq) => {
         try {
           const res = await requirementApi.getChain(reqId);
-          if (!s.gate.isLatest(seq)) return;
+          if (!s.gate.isLatest(seq) || lifecycle.incarnation(reqId) !== incarnation) return;
+          const chain = res.data?.data;
+          indexChain(reqId, chain);
           set((st) => ({
-            chains: { ...st.chains, [reqId]: res.data?.data },
+            chains: { ...st.chains, [reqId]: chain },
             errors: { ...st.errors, [reqId]: undefined },
           }));
           s.state.loadedAt = Date.now();
         } catch (e) {
+          if (!s.gate.isLatest(seq) || lifecycle.incarnation(reqId) !== incarnation) return;
           set((st) => ({
             errors: { ...st.errors, [reqId]: e instanceof Error ? e.message : String(e) },
           }));
@@ -86,53 +129,49 @@ export const useRequirementChainStore = create<RequirementChainState>((set, get)
     );
   },
 
+  subscribeChain: (reqId) => lifecycle.acquire(reqId),
+
   ensureFresh: async (opts) => {
-    const ids = Object.keys(get().chains);
-    await Promise.all(ids.map((id) => get().ensureChain(id, opts)));
+    await Promise.all(lifecycle.activeKeys().map((id) => get().ensureChain(id, opts)));
   },
 
   applyWorkunitStatusChanged: (wu) => {
     // 坏负载防护：缺 id/status 一律 no-op（桥接层理论上恒有，防御旧桥/手工事件）
     if (!wu || typeof wu.id !== 'string' || !wu.id || typeof wu.status !== 'string') return;
+    const reqId = (typeof wu.reqId === 'string' && wu.reqId) || wuToReq.get(wu.id);
+    if (!reqId) return;
+    const chain = get().chains[reqId];
+    if (!chain) return;
 
-    // ① 已知 WU：就地 patch（不改数组顺序——服务端链路按 createdAt 排序，原地替换保序）
-    let patched = false;
-    set((st) => {
-      const next: Record<string, RequirementChain | undefined> = { ...st.chains };
-      for (const [reqId, chain] of Object.entries(st.chains)) {
-        if (!chain) continue;
-        const idx = chain.workunits.findIndex((w) => w.id === wu!.id);
-        if (idx < 0) continue;
-        patched = true;
-        const cur = chain.workunits[idx];
-        const wus = [...chain.workunits];
-        wus[idx] = {
-          ...cur,
-          status: wu!.status,
-          assigneeId: wu!.assigneeId !== undefined ? wu!.assigneeId : cur.assigneeId,
-          assigneeRoleId: wu!.assigneeRoleId !== undefined ? wu!.assigneeRoleId : cur.assigneeRoleId,
-          title: deriveWorkunitTitle(wu!.metadata, wu!.scope),
-          metadata: wu!.metadata !== undefined ? wu!.metadata : cur.metadata,
-          claimedAt: wu!.claimedAt !== undefined ? wu!.claimedAt : cur.claimedAt,
-          completedAt: wu!.completedAt !== undefined ? wu!.completedAt : cur.completedAt,
-        };
-        next[reqId] = { ...chain, workunits: wus };
-      }
-      return patched ? { chains: next } : {};
-    });
-    if (patched) return;
-
-    // ② 未知 WU 但 reqId 命中缓存 chain：chain 落库后新建的 WU → 失效强刷一次（seq 守卫兜底旧结果）
-    const reqId = typeof wu.reqId === 'string' ? wu.reqId : null;
-    if (reqId && get().chains[reqId] !== undefined) {
+    // wuId/reqId 索引点查：只读目标 chain，不扫描其他非活跃驻留链。
+    const idx = chain.workunits.findIndex((w) => w.id === wu.id);
+    if (idx < 0) {
       sliceOf(reqId).state.loadedAt = null;
       void get().ensureChain(reqId, { maxAgeMs: 0 });
+      return;
     }
-    // ③ 与任何缓存 chain 无关 → no-op（无消费方展示该链路，不发请求）
+    set((st) => {
+      const cur = chain.workunits[idx];
+      const wus = [...chain.workunits];
+      wus[idx] = {
+        ...cur,
+        status: wu.status,
+        assigneeId: wu.assigneeId !== undefined ? wu.assigneeId : cur.assigneeId,
+        assigneeRoleId: wu.assigneeRoleId !== undefined ? wu.assigneeRoleId : cur.assigneeRoleId,
+        title: deriveWorkunitTitle(wu.metadata, wu.scope),
+        metadata: wu.metadata !== undefined ? wu.metadata : cur.metadata,
+        claimedAt: wu.claimedAt !== undefined ? wu.claimedAt : cur.claimedAt,
+        completedAt: wu.completedAt !== undefined ? wu.completedAt : cur.completedAt,
+      };
+      return { chains: { ...st.chains, [reqId]: { ...chain, workunits: wus } } };
+    });
   },
 
   __resetForTests: () => {
+    lifecycle.dispose();
     book.clear();
+    wuToReq.clear();
+    reqToWus.clear();
     set({ chains: {}, errors: {} });
   },
 }));

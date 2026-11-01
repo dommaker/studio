@@ -263,7 +263,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     mockListReqs.mockResolvedValue({ data: { data: REQS } });
   });
 
-  it('打开频道即读：本频道未读通知标记已读（逐条 POST 同步 + unreadCount 递减），其他频道不动', async () => {
+  it('打开频道即读：本频道未读通知批量标记已读 + unreadCount 递减，其他频道不动', async () => {
     useNotificationStore.setState({
       notifications: [
         { id: 'n-ch1', type: 'auditor_suggestion', channelId: 'ch-1', agentName: 'System', title: '审计建议', content: 'x', time: '10:00', read: false, workUnitId: null, pmoId: null, messageId: null },
@@ -280,9 +280,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     const byId = Object.fromEntries(s.notifications.map(n => [n.id, n.read]));
     expect(byId).toEqual({ 'n-ch1': true, 'n-ch1-b': true, 'n-ch2': false });
     expect(s.unreadCount).toBe(1);
-    expect(mockApiPost).toHaveBeenCalledTimes(2);
-    expect(mockApiPost).toHaveBeenCalledWith('/notifications/n-ch1/read');
-    expect(mockApiPost).toHaveBeenCalledWith('/notifications/n-ch1-b/read');
+    expect(mockApiPost).toHaveBeenCalledTimes(1);
+    expect(mockApiPost).toHaveBeenCalledWith('/notifications/read', { ids: ['n-ch1', 'n-ch1-b'] });
   });
 
   it('?highlight=<mid> 直达消息：滚动定位并高亮（通知中心点击跳转入参）', async () => {

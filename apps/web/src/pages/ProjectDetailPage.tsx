@@ -107,9 +107,11 @@ export function ProjectDetailPage() {
   const chainError = useRequirementChainStore((s) => (reqAlias ? s.errors[reqAlias] : undefined));
   useEffect(() => {
     if (!reqAlias) return;
+    const release = useRequirementChainStore.getState().subscribeChain(reqAlias);
     void useRequirementChainStore.getState().ensureChain(reqAlias);
     // #346：agent 名册走 rosterStore TTL 缓存（ensureFresh 永不 reject，错误落 store 状态）
     void useRosterStore.getState().ensureFresh();
+    return release;
   }, [reqAlias]);
   const chainWus = chainData?.workunits ?? [];
   const chainLoading = !!reqAlias && !chainError && !chainData;

@@ -29,6 +29,11 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
   const error = slice?.error ?? null;
   const hasMore = slice?.hasMore ?? false;
 
+  useEffect(() => {
+    if (!channelId) return;
+    return useChannelMessageStore.getState().subscribeChannel(channelId);
+  }, [channelId]);
+
   const fetchMessages = useCallback(async () => {
     if (!channelId) return;
     await useChannelMessageStore.getState().fetchMessages(channelId);
@@ -90,5 +95,10 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
     useChannelMessageStore.getState().syncPruning(channelId, anchorMid, pruneOptsRef.current);
   }, [channelId]);
 
-  return { messages, loading, error, hasMore, sendMessage, loadMore, refresh: fetchMessages, syncPruning };
+  return {
+    messages, loading, error, hasMore, sendMessage, loadMore, refresh: fetchMessages, syncPruning,
+    change: slice?.change,
+    threadIndex: slice?.threadIndex,
+    agentWorkUnitIds: slice?.agentWorkUnitIds,
+  };
 }

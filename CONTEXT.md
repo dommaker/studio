@@ -119,8 +119,8 @@ SSE 事件作为状态同步 interface 的设计规矩（2026-08-24，docs/adr/2
 _Avoid_: 门铃事件、改现有字段语义、序号/校验回放机制
 
 **降级 / 骨架（频道消息）**:
-频道数据层裁剪形态（#326 grilling 定稿，docs/adr/2026-08-25-channel-message-data-pruning.md）：远离视口的上方历史消息对象留在 `messages` 数组原位、剥离 `content`/`meta` 大头，只留结构字段（id/createdAt/authorType/agentName/replyToId/workUnitId）+ `degraded` 标记 = **骨架**，渲染为固定小高度占位行；该过程 = **降级**。只裁上方，最近 K 条保底全量，其外按视口距离迟滞双阈值（降级 D₁ > 水合 D₂）。验收 = 字节口径（content+meta 合计字节有上界，与频道总长解耦）。
-_Avoid_: 整段释放、cap N 条限载、骨架留摘要、裁下方
+频道数据层裁剪形态（#326 grilling 定稿，docs/adr/2026-08-25-channel-message-data-pruning.md）：远离视口的上方历史消息对象留在 `messages` 数组原位、剥离 `content`/`meta` 大头，只留结构字段（id/createdAt/authorType/agentName/replyToId/workUnitId）+ `degraded` 标记 = **骨架**，渲染为固定小高度占位行；该过程 = **降级**。只裁上方，最近 K 条保底全量，其外按视口距离迟滞双阈值（降级 D₁ > 水合 D₂）。验收 = 字节口径（content+meta 合计字节有上界，与频道总长解耦）。PERF-06 另加驻留生命周期：非活跃频道整键 LRU/超时释放，单频道历史对象硬上限，淘汰后可按 id 游标重新分页；这不改变活跃窗口内的骨架/水合语义。
+_Avoid_: 活跃窗口无界增长、骨架留摘要、裁下方
 
 **水合（频道消息）**:
 骨架恢复全量本体的过程（#326）：virtualizer range 进降级区（防抖）→ 以骨架 mid 为 `before` 游标调现有分页接口整页取数（后端冷热穿透支持任意存在 id 锚点）→ `mergePage` 归并原位复活。唯一复活规则 = 拿到全量本体的任何路径都原位复活（SSE `message_updated` 命中骨架同此，无特例）。

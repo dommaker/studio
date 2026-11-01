@@ -69,7 +69,9 @@ export function WuDetail({ id, autoApprove = false, autoRuling = false, autoDire
 
   // 开抽屉一次性打底：WU 详情进 store detail slice（打开/换 id 即拉，不做 TTL 门禁）
   useEffect(() => {
+    const release = useWorkUnitStore.getState().subscribeDetail(id);
     void useWorkUnitStore.getState().loadWorkUnitDetail(id);
+    return release;
   }, [id]);
 
   // WU 落库后补频道面（best-effort，随 channelId 派生，不随 SSE 快照重拉）：

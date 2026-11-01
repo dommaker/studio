@@ -15,7 +15,12 @@ vi.mock('../../api/channel', () => ({
   channelApi: { listMessages: mockListMessages, sendMessage: mockSendMessage },
 }));
 
-import { useChannelMessageStore, agentAnsweredOf } from '../channelMessageStore';
+import {
+  useChannelMessageStore,
+  agentAnsweredOf,
+  CHANNEL_MESSAGE_CACHE_STATS,
+  CHANNEL_MESSAGE_HISTORY_CAP,
+} from '../channelMessageStore';
 import { setClientPerfSink, resetClientPerfSink } from '../../utils/clientPerf';
 
 const iso = (s: number) => new Date(s * 1000).toISOString();
@@ -379,6 +384,249 @@ describe('channelMessageStore', () => {
       expect(agentAnsweredOf([msg('m1', 6, { authorType: 'human', workUnitId: 'WU-1' })], awaiting)).toBe(false);
       expect(agentAnsweredOf([msg('m1', 6, { authorType: 'agent', workUnitId: 'WU-2' })], awaiting)).toBe(false);
       expect(agentAnsweredOf([msg('m1', 4, { authorType: 'agent', workUnitId: 'WU-1' })], awaiting)).toBe(false);
+    });
+  });
+
+  describe('PERF-06 有界驻留与增量索引', () => {
+    it('100 频道 × 50 页后 key/消息对象/定时器有界，重连只刷活跃键', async () => {
+      const heapUsed = () => {
+        (globalThis as { gc?: () => void }).gc?.();
+        return process.memoryUsage().heapUsed;
+      };
+      const heapBefore = heapUsed();
+      const store = useChannelMessageStore.getState();
+      for (let c = 0; c < 100; c++) {
+        const channelId = `scale-${c}`;
+        const release = store.subscribeChannel(channelId);
+        mockListMessages.mockImplementation((_id: string, opts?: { before?: string }) => {
+          const parsed = opts?.before ? Number(opts.before.match(/(\d+)$/)?.[1]) : CHANNEL_MESSAGE_HISTORY_CAP;
+          const before = Number.isFinite(parsed) ? parsed : CHANNEL_MESSAGE_HISTORY_CAP;
+          const start = Math.max(0, before - 200);
+          return Promise.resolve({ data: { data: {
+            messages: Array.from({ length: before - start }, (_, i) => msg(`${channelId}-m${start + i}`, start + i, { channelId })),
+            hasMore: start > 0,
+          } } });
+        });
+        await store.fetchMessages(channelId);
+        for (let p = 0; p < 49; p++) {
+          if (!useChannelMessageStore.getState().channels[channelId]?.hasMore) break;
+          await store.loadMore(channelId);
+        }
+        store.applyMessageSent(channelId, msg(`${channelId}-live`, CHANNEL_MESSAGE_HISTORY_CAP + 1, { channelId }));
+        expect(useChannelMessageStore.getState().channels[channelId]?.messages).toHaveLength(CHANNEL_MESSAGE_HISTORY_CAP);
+        expect(useChannelMessageStore.getState().channels[channelId]?.messages.at(-1)?.id).toBe(`${channelId}-live`);
+        release();
+      }
+      const stats = CHANNEL_MESSAGE_CACHE_STATS();
+      const heapAfter = heapUsed();
+      console.info('[PERF-06] 100 channels × 50 pages', { ...stats, heapBefore, heapAfter, heapDelta: heapAfter - heapBefore });
+      expect(stats.keys).toBeLessThanOrEqual(8);
+      expect(stats.messages).toBeLessThanOrEqual(8 * CHANNEL_MESSAGE_HISTORY_CAP);
+      expect(stats.timers).toBeLessThanOrEqual(1);
+      const release = store.subscribeChannel('scale-99');
+      mockListMessages.mockClear();
+      await store.ensureFresh({ maxAgeMs: 0 });
+      expect(mockListMessages).toHaveBeenCalledTimes(1);
+      expect(mockListMessages).toHaveBeenCalledWith('scale-99');
+      release();
+    }, 60000);
+
+    it('单频道历史对象有硬上限，淘汰后可继续按 id 游标分页', async () => {
+      const store = useChannelMessageStore.getState();
+      const page = Array.from({ length: CHANNEL_MESSAGE_HISTORY_CAP + 1 }, (_, i) => msg(`dense-${i}`, i));
+      mockListMessages.mockResolvedValue({ data: { data: { messages: page, hasMore: false } } });
+      await store.fetchMessages('ch-1');
+      expect(sliceOf()!.messages).toHaveLength(CHANNEL_MESSAGE_HISTORY_CAP);
+      expect(sliceOf()!.byId?.size).toBe(CHANNEL_MESSAGE_HISTORY_CAP);
+      expect(sliceOf()!.hasMore).toBe(true);
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [msg('older', -1)], hasMore: false } } });
+      await store.loadMore('ch-1');
+      expect(mockListMessages).toHaveBeenLastCalledWith('ch-1', { before: 'dense-1' });
+      expect(sliceOf()!.messages.length).toBeLessThanOrEqual(CHANNEL_MESSAGE_HISTORY_CAP + 1);
+      expect(sliceOf()!.messages[0].id).toBe('older');
+      expect(sliceOf()!.messages.at(-1)!.id).toBe('dense-10000');
+      expect(sliceOf()!.hasMore).toBe(false);
+    });
+
+    it('SSE/乐观发送/水合/loadMore 均保最新端且可继续分页恢复', async () => {
+      const store = useChannelMessageStore.getState();
+      const page = Array.from({ length: CHANNEL_MESSAGE_HISTORY_CAP }, (_, i) => msg(`cap-${i}`, i));
+      mockListMessages.mockResolvedValue({ data: { data: { messages: page, hasMore: true } } });
+      await store.fetchMessages('ch-1');
+
+      store.applyMessageSent('ch-1', msg('sse-live', 10001));
+      expect(sliceOf()!.messages).toHaveLength(CHANNEL_MESSAGE_HISTORY_CAP);
+      expect(sliceOf()!.messages.at(-1)!.id).toBe('sse-live');
+
+      mockSendMessage.mockResolvedValue({ data: { data: msg('sent-live', 10002, { authorType: 'human' }) } });
+      await store.sendMessage('ch-1', '最新');
+      expect(sliceOf()!.messages).toHaveLength(CHANNEL_MESSAGE_HISTORY_CAP);
+      expect(sliceOf()!.messages.at(-1)!.id).toBe('sent-live');
+
+      vi.useFakeTimers();
+      try {
+        mockListMessages.mockResolvedValue({ data: { data: { messages: [msg('hydrated', 10000)], hasMore: true } } });
+        store.syncPruning('ch-1', 'cap-5000', { keepRecent: 3, degradeDistance: 2, hydrateDistance: 1 });
+        await vi.advanceTimersByTimeAsync(250);
+        expect(sliceOf()!.messages.length).toBeLessThanOrEqual(CHANNEL_MESSAGE_HISTORY_CAP);
+        expect(sliceOf()!.messages.at(-1)!.id).toBe('sent-live');
+      } finally {
+        vi.useRealTimers();
+      }
+
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [msg('older-1', -1)], hasMore: true } } });
+      await store.loadMore('ch-1');
+      expect(sliceOf()!.messages.length).toBeLessThanOrEqual(CHANNEL_MESSAGE_HISTORY_CAP + 1);
+      expect(sliceOf()!.messages[0].id).toBe('older-1');
+      expect(sliceOf()!.messages.at(-1)!.id).toBe('sent-live');
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [msg('older-2', -2)], hasMore: false } } });
+      await store.loadMore('ch-1');
+      expect(mockListMessages).toHaveBeenLastCalledWith('ch-1', { before: 'older-1' });
+      expect(sliceOf()!.messages.at(-1)!.id).toBe('sent-live');
+    });
+
+    it('SSE 在 hasMore=false 裁旧后恢复历史窗口，重拉页真实可见且最新端不丢', async () => {
+      const store = useChannelMessageStore.getState();
+      const page = Array.from({ length: CHANNEL_MESSAGE_HISTORY_CAP }, (_, i) => msg(`closed-${i}`, i));
+      mockListMessages.mockResolvedValue({ data: { data: { messages: page, hasMore: false } } });
+      await store.fetchMessages('ch-1');
+      useChannelMessageStore.setState(st => ({
+        channels: { ...st.channels, 'ch-1': { ...st.channels['ch-1']!, hasMore: false, beforeCursor: null } },
+      }));
+      store.applyMessageSent('ch-1', msg('after-close', 10001));
+      expect(sliceOf()!.hasMore).toBe(true);
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [msg('recovered-old', -1)], hasMore: false } } });
+      await store.loadMore('ch-1');
+      expect(sliceOf()!.messages.some(m => m.id === 'recovered-old')).toBe(true);
+      expect(sliceOf()!.messages.at(-1)!.id).toBe('after-close');
+      expect(sliceOf()!.messages.length).toBeLessThanOrEqual(CHANNEL_MESSAGE_HISTORY_CAP + 1);
+    });
+
+    it('真实 before 排他时 cap 恢复有显式间隙且不丢最新端，水合可恢复间隙', async () => {
+      vi.useFakeTimers();
+      try {
+        const store = useChannelMessageStore.getState();
+        const base = Array.from({ length: CHANNEL_MESSAGE_HISTORY_CAP }, (_, i) => msg(`exclusive-${i}`, i));
+        const live = msg('exclusive-10001', CHANNEL_MESSAGE_HISTORY_CAP + 1);
+        const all = [...base, live];
+        mockListMessages.mockImplementation((_id: string, opts?: { before?: string }) => {
+          if (!opts?.before) return Promise.resolve({ data: { data: { messages: base, hasMore: false } } });
+          const beforeSeq = Number(opts.before.match(/(\d+)$/)?.[1] ?? 0);
+          const messages = all.filter(m => Number(m.id.match(/(\d+)$/)?.[1] ?? 0) < beforeSeq);
+          return Promise.resolve({ data: { data: { messages, hasMore: false } } });
+        });
+        await store.fetchMessages('ch-1');
+        useChannelMessageStore.setState(st => ({
+          channels: { ...st.channels, 'ch-1': { ...st.channels['ch-1']!, hasMore: false, beforeCursor: null } },
+        }));
+        store.applyMessageSent('ch-1', live);
+        await store.loadMore('ch-1');
+
+        const window = sliceOf()!.messages;
+        expect(window.at(-1)!.id).toBe(live.id);
+        expect(window.length).toBeLessThanOrEqual(CHANNEL_MESSAGE_HISTORY_CAP + 1);
+        expect(window.some(m => m.degraded)).toBe(true);
+        expect(window.some(m => m.id === 'exclusive-0')).toBe(true);
+
+        store.syncPruning('ch-1', 'exclusive-2', { keepRecent: 3, degradeDistance: 2, hydrateDistance: 1 });
+        await vi.advanceTimersByTimeAsync(250);
+        const recovered = sliceOf()!.messages;
+        expect(recovered.at(-1)!.id).toBe(live.id);
+        expect(recovered.length).toBeLessThanOrEqual(CHANNEL_MESSAGE_HISTORY_CAP + 1);
+        expect(recovered.find(m => m.id === 'exclusive-9999')?.degraded).toBeFalsy();
+        expect(recovered.find(m => m.id === 'exclusive-9999')?.content).toBe('内容-exclusive-9999');
+        expect(recovered.some(m => m.id === 'exclusive-1')).toBe(true);
+        expect(recovered.find(m => m.id === 'exclusive-2')?.degraded).toBeFalsy();
+        expect(recovered.find(m => m.id === 'exclusive-2')?.content).toBe('内容-exclusive-2');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('水合旧响应不得覆盖重订阅后的同 id 新版本', async () => {
+      vi.useFakeTimers();
+      try {
+        const store = useChannelMessageStore.getState();
+        const initial = Array.from({ length: 10 }, (_, i) => msg(`m${i}`, i));
+        mockListMessages.mockResolvedValue({ data: { data: { messages: initial, hasMore: false } } });
+        await store.fetchMessages('ch-1');
+        store.syncPruning('ch-1', 'm8', { keepRecent: 3, degradeDistance: 2, hydrateDistance: 1 });
+        let resolveOld!: (v: unknown) => void;
+        mockListMessages.mockImplementation(() => new Promise(r => { resolveOld = r; }));
+        store.syncPruning('ch-1', 'm6', { keepRecent: 3, degradeDistance: 2, hydrateDistance: 1 });
+        await vi.advanceTimersByTimeAsync(250);
+
+        store.__resetForTests();
+        store.applyMessageSent('ch-1', msg('m0', 0, { content: 'new-version' }));
+        resolveOld({ data: { data: { messages: [msg('m0', 0, { content: 'stale-hydration' })], hasMore: false } } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(sliceOf()!.byId?.get('m0')?.content).toBe('new-version');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('loadMore 淘汰重订阅 ABA 与同键倒序响应均不得覆盖新缓存', async () => {
+      const store = useChannelMessageStore.getState();
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [msg('newest', 10)], hasMore: true } } });
+      await store.fetchMessages('ch-1');
+      let resolveOld!: (v: unknown) => void;
+      mockListMessages.mockImplementation(() => new Promise(r => { resolveOld = r; }));
+      const oldRequest = store.loadMore('ch-1');
+      store.__resetForTests();
+      mockListMessages.mockResolvedValue({ data: { data: { messages: [msg('incarnation-b', 20)], hasMore: true } } });
+      await store.fetchMessages('ch-1');
+      resolveOld({ data: { data: { messages: [msg('stale-aba', -1)], hasMore: true } } });
+      await oldRequest;
+      expect(sliceOf()!.messages.map(m => m.id)).toEqual(['incarnation-b']);
+
+      let resolveFirst!: (v: unknown) => void;
+      let resolveSecond!: (v: unknown) => void;
+      mockListMessages
+        .mockImplementationOnce(() => new Promise(r => { resolveFirst = r; }))
+        .mockImplementationOnce(() => new Promise(r => { resolveSecond = r; }));
+      const first = store.loadMore('ch-1');
+      useChannelMessageStore.setState(st => ({
+        channels: { ...st.channels, 'ch-1': { ...st.channels['ch-1']!, beforeCursor: 'other-cursor' } },
+      }));
+      const second = store.loadMore('ch-1');
+      resolveSecond({ data: { data: { messages: [msg('newer-page', 1)], hasMore: true } } });
+      await second;
+      resolveFirst({ data: { data: { messages: [msg('stale-page', 0)], hasMore: true } } });
+      await first;
+      expect(sliceOf()!.messages.map(m => m.id)).toEqual(['newer-page', 'incarnation-b']);
+    });
+
+    it('byId 与 threadIndex 使更新不扫描消息列表', () => {
+      const store = useChannelMessageStore.getState();
+      const anchor = msg('anchor', 0, { workUnitId: 'WU-1' });
+      store.applyMessageSent('ch-1', anchor);
+      store.applyMessageSent('ch-1', msg('reply', 1, { replyToId: 'anchor' }));
+      const slice = sliceOf()!;
+      expect(slice.byId?.get('reply')?.id).toBe('reply');
+      expect(slice.threadIndex?.get('anchor')).toEqual(['anchor', 'reply']);
+      const before = slice.byId;
+      store.applyMessageUpdated('ch-1', { messageId: 'reply', content: '局部更新' });
+      expect(sliceOf()!.byId).toBe(before);
+      expect(sliceOf()!.byId?.get('reply')?.content).toBe('局部更新');
+    });
+
+    it('结构更新重建 threadIndex 子孙与 agentWorkUnitIds 旧值', () => {
+      const store = useChannelMessageStore.getState();
+      store.applyMessageSent('ch-1', msg('root-a', 0));
+      store.applyMessageSent('ch-1', msg('root-b', 1));
+      store.applyMessageSent('ch-1', msg('mid', 2, { replyToId: 'root-a', workUnitId: 'WU-old' }));
+      store.applyMessageSent('ch-1', msg('leaf', 3, { replyToId: 'mid' }));
+      store.applyMessageUpdated('ch-1', {
+        messageId: 'mid',
+        message: msg('mid', 2, { replyToId: 'root-b', workUnitId: 'WU-new', authorType: 'human' }),
+      });
+      const slice = sliceOf()!;
+      expect(slice.threadIndex?.get('root-a')).toEqual(['root-a']);
+      expect(slice.threadIndex?.get('root-b')).toEqual(['root-b', 'mid', 'leaf']);
+      expect(slice.threadIndex?.has('mid')).toBe(false);
+      expect(slice.agentWorkUnitIds?.has('WU-old')).toBe(false);
+      expect(slice.agentWorkUnitIds?.has('WU-new')).toBe(false);
     });
   });
 });

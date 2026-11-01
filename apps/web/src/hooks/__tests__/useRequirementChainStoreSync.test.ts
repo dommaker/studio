@@ -75,15 +75,17 @@ describe('useRequirementChainStoreSync — SSE 路由', () => {
 });
 
 describe('useRequirementChainStoreSync — 重连对齐', () => {
-  it('onReconnect → ensureFresh({maxAgeMs:0})：已缓存 chain 强刷一次', async () => {
+  it('onReconnect → ensureFresh({maxAgeMs:0})：活跃 chain 强刷一次', async () => {
     let reconnect: (() => void) | null = null;
     mockOnReconnect.mockImplementation((h: () => void) => { reconnect = h; return () => {}; });
     mockGetChain.mockResolvedValue({ data: { success: true, data: chainFixture('REQ-1') } });
+    const release = useRequirementChainStore.getState().subscribeChain('REQ-1');
     await useRequirementChainStore.getState().ensureChain('REQ-1');
     renderHook(() => useRequirementChainStoreSync());
 
     act(() => reconnect!());
     await vi.waitFor(() => expect(mockGetChain).toHaveBeenCalledTimes(2));
     expect(mockGetChain).toHaveBeenLastCalledWith('REQ-1');
+    release();
   });
 });

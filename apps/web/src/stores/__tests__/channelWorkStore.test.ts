@@ -20,7 +20,7 @@ vi.mock('../../api/channel', () => ({
   channelApi: { getSuggestions: mockGetSuggestions },
 }));
 
-import { useChannelWorkStore, CHANNEL_WORK_TTL_MS, wuIdleOf } from '../channelWorkStore';
+import { useChannelWorkStore, CHANNEL_WORK_TTL_MS, CHANNEL_WORK_CACHE_STATS, wuIdleOf } from '../channelWorkStore';
 import type { WorkUnit } from '../../api/workunit';
 import type { Requirement } from '../../api/requirements';
 
@@ -344,5 +344,58 @@ describe('channelWorkStore — wuIdleOf 派生（#488 工作条占位三态）',
     mockGetSuggestions.mockResolvedValue({ data: { success: true, data: { suggestions: [], currentWuId: 'wu-1' } } });
     await useChannelWorkStore.getState().refreshSuggestions('ch-1');
     expect(wuIdleOf(useChannelWorkStore.getState().suggestions['ch-1'])).toBe(false);
+  });
+});
+
+describe('channelWorkStore — PERF-06 有界驻留', () => {
+  it('100 频道与 1000 文件键均有界，订阅释放后可重拉', async () => {
+    mockWuList.mockResolvedValue({ data: { data: [] } });
+    mockReqList.mockResolvedValue({ data: { data: [] } });
+    mockGetSuggestions.mockResolvedValue({ data: { data: { suggestions: [], currentWuId: null } } });
+    mockGetChangedFilesBatch.mockResolvedValue({ data: { data: { filesByWu: {} } } });
+    const store = useChannelWorkStore.getState();
+    for (let i = 0; i < 100; i++) {
+      const id = `scale-ch-${i}`;
+      const release = store.subscribeChannel(id);
+      await store.ensureChannelWork(id, { maxAgeMs: 0 });
+      release();
+    }
+    store.ensureWuChangedFiles(Array.from({ length: 1000 }, (_, i) => `scale-file-${i}`));
+    await vi.waitFor(() => expect(CHANNEL_WORK_CACHE_STATS().fileKeys).toBeGreaterThan(0));
+    store.releaseWuChangedFiles();
+    const stats = CHANNEL_WORK_CACHE_STATS();
+    console.info('[PERF-06] 100 channels + 1000 file keys', stats);
+    expect(stats.keys).toBeLessThanOrEqual(16);
+    expect(stats.fileKeys).toBeLessThanOrEqual(256);
+    expect(stats.timers).toBeLessThanOrEqual(3); // channel + files + suggestions 各至多一个
+  });
+
+  it('超过 256 个当前 WU 也全部请求并返回，释放后驻留收敛', async () => {
+    const store = useChannelWorkStore.getState();
+    const ids = Array.from({ length: 300 }, (_, i) => `visible-${i}`);
+    mockGetChangedFilesBatch.mockResolvedValue({ data: { data: {
+      filesByWu: Object.fromEntries(ids.map(id => [id, [`${id}.ts`]])),
+    } } });
+    store.ensureWuChangedFiles(ids);
+    expect(mockGetChangedFilesBatch).toHaveBeenCalledWith(ids);
+    await vi.waitFor(() => {
+      for (const id of ids) expect(useChannelWorkStore.getState().wuChangedFiles[id]).toEqual([`${id}.ts`]);
+    });
+    store.releaseWuChangedFiles();
+    expect(CHANNEL_WORK_CACHE_STATS().fileKeys).toBeLessThanOrEqual(256);
+  });
+
+  it('文件响应在淘汰重订阅后不得写入新 incarnation', async () => {
+    const store = useChannelWorkStore.getState();
+    let resolveOld!: (v: unknown) => void;
+    mockGetChangedFilesBatch.mockImplementationOnce(() => new Promise(r => { resolveOld = r; }));
+    store.ensureWuChangedFiles(['wu-aba']);
+    store.__resetForTests();
+    mockGetChangedFilesBatch.mockResolvedValueOnce({ data: { data: { filesByWu: { 'wu-aba': ['new.ts'] } } } });
+    store.ensureWuChangedFiles(['wu-aba']);
+    await vi.waitFor(() => expect(useChannelWorkStore.getState().wuChangedFiles['wu-aba']).toEqual(['new.ts']));
+    resolveOld({ data: { data: { filesByWu: { 'wu-aba': ['stale.ts'] } } } });
+    await new Promise(r => setTimeout(r, 0));
+    expect(useChannelWorkStore.getState().wuChangedFiles['wu-aba']).toEqual(['new.ts']);
   });
 });

@@ -71,9 +71,13 @@ export function useChannelWorkStoreSync(channelId: string | undefined): void {
     activeChannelId = channelId ?? null;
     if (!channelId) return;
     const store = useChannelWorkStore.getState();
+    const release = store.subscribeChannel(channelId);
     void store.ensureChannelWork(channelId);
     void store.refreshSuggestions(channelId);
-    return () => { if (activeChannelId === channelId) activeChannelId = null; };
+    return () => {
+      release();
+      if (activeChannelId === channelId) activeChannelId = null;
+    };
   }, [channelId]);
 
   useDataPlaneSync({
