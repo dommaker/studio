@@ -12,6 +12,7 @@
 - `loop/loop-deps.ts` — 各段窄依赖端口：LifecycleDeps / ObserverDeps / ClaimDeps / StepDeps / ResultRecorderDeps，以及 WorkUnit/Discussion/Lease 小接口；不含可变共享状态。
 - `loop/loop-lifecycle.ts` — 生命周期 owner：start/stop/waitForStop + 实例状态 SSE + #179 心跳连败自裁；instance/alive/订阅/心跳连败均由本类独占。start() 健康探针仍走 `core/exec-async.execAsync`。
 - `loop/loop-observe.ts` — 观察段：observe 与事件唤醒；回复水位、pendingWake/wakeIdle 由本类独占，实例与 alive 仅经窄 getter 读取。
+- `loop/loop-observation-coordinator.ts` — PERF-03 调度专用共享观察：按 FileStore 单例，同一 index version 的 WU/channel 读取、依赖 fold、全局排序只做一次，向 LoopObserver 分发角色过滤视图；claimable 事件失效与 15s 兜底共用 single-flight，不是通用系统状态快照。
 - `loop/loop-claim.ts` — 认领段：claimAndAnnounce + 决策 14 适任判断链，仅依赖 ClaimDeps。
 - `loop/loop-step.ts` — 步执行编排：`agentStep(StepContext)` 串起 step-guards / 频道版本锚点与下述四段，返回 StepResult；实例身份由 AgentLoop 在调用边界快照，currentExecutionId 由 StepRunner 独占。
 - `loop/loop-step-worktree.ts` / `loop-step-session.ts` / `loop-step-prompt.ts` / `loop-step-execution.ts` — worktree、会话、prompt、Executor 四段，统一只收 StepDeps；执行段经窄 callback 更新 currentExecutionId。
@@ -29,7 +30,7 @@
 - `executor.ts`（Executor 接口，LocalExecutor 委托 agentRunner）、`execution-step-events.ts`（步级事件落盘+步内流式 SSE；#665 起 payload 类型与 studio-contract/sse-events.ts 同源——ExecutionStepEventPayload/ExecutionStreamChunk 是契约类型别名，改形状先改契约；#687 起 EXECUTION_STREAM_SSE_TYPE 常量正本亦收编契约（本文件 re-export 保持既有 import 路径），wire round-trip 行为校验见 events/__tests__/sse-payload-contract.test.ts）
 - `wu-verification.ts`（兼容 re-export；ARCH-02 起独立实现下沉 `core/wu-verification.ts`，AgentLoop 与 WorkUnit 共用；SEC-01 固定模板 + WU worktree provenance 不变）、`completion-gates.ts`（收口守卫链）、`completion-harvest.ts`（#542 per-WU-type COMPLETE 收割注册表）、`result-bookkeeping.ts`（#655 recordResult 簿记段）、`review-contract.ts`（verdict 语义单一来源）
 - `review-dispatcher.ts`（F4 review 派发）、`dispatch-reconciliation.ts`（派工/评审断链 5min 对账，P2-d 刀5 自 agents 根随迁——依赖 review-dispatcher + monitor-alerts，留 agents 会拉成 agents↔agent-loop 环）
-- `__tests__/` — 60 个测试文件（agents root __tests__ loop 系 48 + 原 loop/__tests__ 9 + #668 新增 2：execution-cwd 直测 / loop-segments 段接线钉线 + #671 新增 1：prompt-composer-snapshot 全九段产出快照钉线（拆分前后逐字节等价兜底）；段行为由既有测试网兜底）
+- `__tests__/` — 61 个测试文件（agents root __tests__ loop 系 48 + 原 loop/__tests__ 9 + #668 新增 2：execution-cwd 直测 / loop-segments 段接线钉线 + #671 新增 1：prompt-composer-snapshot 全九段产出快照钉线 + PERF-03 新增 1：共享观察协调/规模读取回归；段行为由既有测试网兜底）
 
 ### 核心导出
 
@@ -58,3 +59,4 @@
 - **PERF-01 token 写侧契约**：`writeWorkunitTokenEvent` 必须把 appendJsonl 的同一 event 对象传给 `noteTokenLedgerWritten`；账本只在旧 offset 到文件尾精确等于该 event 完整字节时 direct-apply，否则按 byte offset 补扫。direct 保留已有首尾内容锚点，读侧 `syncTokenLedger` 以 size + `dev:ino` + O(1) 首尾 SHA-256 锚点复核；copytruncate/轮转/截断后从事件流重建，调用方不得另传重序列化副本或用最终文件 size 冒充已处理 watermark。
 - **F4 review 派发 / P7 总开关**：`STUDIO_AUTO_REVIEW=false` 闸两条自动路径；事件链失败 30s 进程内重试一次
 - **PERF-02 step 簿记读取复杂度**：`loop-record-persistence → ExecutionJournal → WorkUnitMetadataRepository → updateMetadata` 调用链与 fencing 语义不变；FileStore 锁内改读 per-WU current projection + 精确匹配的 per-WU head，不再随 index 历史行全量 fold。租约 flush 同样逐 WU 点查 projection，zombie/非 active 丢弃纪律不变；events 半行时写路径 fail-closed，不粘连新事件。
+- **PERF-03 共享观察（2026-10-29）**：`getLoopObservationCoordinator(fileStore)` 是调度器内唯一 WU/channel 观察源；本进程 index 写版本经 `FileStore.getIndexVersion()` O(1) 检查，claimable 唤醒主动失效，跨进程写与 channel 配置变更最迟由 15s 共享兜底刷新发现。全局 createdAt 双序、blockedBy fold 与 active 回复边界按观察各算一次；加载中 invalidate/indexVersion 推进会让新调用立即改挂新 single-flight，旧加载完成不得覆盖新 cache；assignee/channel.members/excludeAssignee/unfitRoles 仍在角色视图过滤，唤醒只放行语义不变。回复消息 delta 与水位不进共享缓存，仍属各 LoopObserver。10/50/200 角色 × 1千/1万 WU 回归断言同版空闲读取为 1、事件推进后总读取为 2，并记录 CPU/event-loop/唤醒峰值诊断；统一性能硬门留 PERF-07。

@@ -165,8 +165,9 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     const wu = await createBlockedWu(instanceId, channelId);
     await refreshObserve(); // 刷新 lastActiveWuIds
 
-    const indexSpy = vi.spyOn(fileStore, 'getIndex');
-    const before = indexSpy.mock.calls.length;
+    // PERF-03 后同版本 observe 不再重读 index，唤醒探针改看 observe 本身。
+    const observeSpy = vi.spyOn(agentLoop, 'observe');
+    const before = observeSpy.mock.calls.length;
 
     eventBus.publish('channel.message_sent', {
       channelId,
@@ -175,7 +176,7 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
 
     // 空闲 sleep 是 15s——2s 内 observe 再跑即证明事件唤醒
     await vi.waitFor(() => {
-      expect(indexSpy.mock.calls.length).toBeGreaterThan(before);
+      expect(observeSpy.mock.calls.length).toBeGreaterThan(before);
     }, { timeout: 2000, interval: 20 });
   });
 
@@ -184,8 +185,8 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     const wu = await createBlockedWu(instanceId, channelId);
     await refreshObserve();
 
-    const indexSpy = vi.spyOn(fileStore, 'getIndex');
-    const before = indexSpy.mock.calls.length;
+    const observeSpy = vi.spyOn(agentLoop, 'observe');
+    const before = observeSpy.mock.calls.length;
 
     eventBus.publish('channel.message_sent', {
       channelId, message: { authorType: 'agent', workUnitId: wu.id },
@@ -195,7 +196,7 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     });
 
     await new Promise(resolve => setTimeout(resolve, 400));
-    expect(indexSpy.mock.calls.length).toBe(before);
+    expect(observeSpy.mock.calls.length).toBe(before);
   });
 
   // 2026-09-16 唤醒放宽（只放行不裁决）：归属不再用 lastActiveWuIds 派生缓存否决——
@@ -204,15 +205,15 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
   it('陌生 workUnitId 的人类消息同样唤醒（只放行不裁决）', async () => {
     await startAndWaitFirstObserve(); // 不建任何 WU——myActive 为空
 
-    const indexSpy = vi.spyOn(fileStore, 'getIndex');
-    const before = indexSpy.mock.calls.length;
+    const observeSpy = vi.spyOn(agentLoop, 'observe');
+    const before = observeSpy.mock.calls.length;
 
     eventBus.publish('channel.message_sent', {
       channelId, message: { authorType: 'human', workUnitId: 'wu-stranger' },
     });
 
     await vi.waitFor(() => {
-      expect(indexSpy.mock.calls.length).toBeGreaterThan(before);
+      expect(observeSpy.mock.calls.length).toBeGreaterThan(before);
     }, { timeout: 2000, interval: 20 });
   });
 

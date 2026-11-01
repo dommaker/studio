@@ -131,6 +131,8 @@ export class WorkUnitStore {
   /** #524 P1-2：index 压实阈值与 append 计数（进程内存，重启清零最多延迟一轮评估——同 #319 先例） */
   private readonly indexCompaction: Required<IndexCompactionOptions>;
   private indexAppendCount = 0;
+  /** PERF-03：本进程成功写 index 后单调递增；跨进程新鲜度仍由 mtime/15s 兜底保证。 */
+  private indexVersion = 0;
 
   constructor(ctx: FileStoreCore, opts?: FileStoreWorkUnitOptions) {
     this.ctx = ctx;
@@ -228,6 +230,7 @@ export class WorkUnitStore {
     }
     this.indexAppendCount += rows.length;
     await this.compactIndexIfNeededLocked();
+    this.indexVersion += 1;
   }
 
   /**
@@ -259,6 +262,7 @@ export class WorkUnitStore {
     if (!legacy) return;
     const snapshots = parseWorkUnitIndexContent(await fs.promises.readFile(this.indexPath, 'utf-8'), this.indexPath);
     await this.ctx.io.writeJsonl(this.indexPath, snapshots);
+    this.indexVersion += 1;
   }
 
   /** 定期压实评估（锁内）：行数 ≥ minLines 且死行占比 ≥ deadRatio → 重写为 fold 后 JSONL */
@@ -316,6 +320,11 @@ export class WorkUnitStore {
 
   async getIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
     return (await this.readIndexForQuery(filter)) ?? [];
+  }
+
+  /** O(1) 本进程写版本；不是跨进程序列号，外部写由调用方周期刷新与 mtime 读穿发现。 */
+  getIndexVersion(): number {
+    return this.indexVersion;
   }
 
   /**
@@ -444,6 +453,7 @@ export class WorkUnitStore {
     if (events.length > 0) {
       snapshots = Array.from(this.reduceEventsToSnapshots(events).values());
       await this.ctx.io.writeJsonl(this.indexPath, snapshots);
+      this.indexVersion += 1;
     } else {
       snapshots = (await this.readIndexFile()) ?? [];
     }
@@ -597,6 +607,7 @@ export class WorkUnitStore {
       const events = await this.ctx.base.readJsonl<WorkUnitEvent>(this.eventsPath);
       const snapshots = Array.from(this.reduceEventsToSnapshots(events).values());
       await this.ctx.io.writeJsonl(this.indexPath, snapshots);
+      this.indexVersion += 1;
       await this.replaceCurrentLocked(snapshots);
       return applyFilter(snapshots, filter);
     });
@@ -928,6 +939,7 @@ export class WorkUnitStore {
       if (!consistent) {
         const snapshots = Array.from(expected.values());
         await this.ctx.io.writeJsonl(this.indexPath, snapshots);
+        this.indexVersion += 1;
         await this.replaceCurrentLocked(snapshots);
       } else {
         await this.ensureCurrentLocked();

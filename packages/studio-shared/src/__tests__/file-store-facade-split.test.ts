@@ -32,7 +32,7 @@ const BASELINE_PUBLIC_METHODS = [
   'commitRemoval', 'commitSnapshot', 'createChannel', 'createEvolutionProposal',
   'createProfile', 'createRequirement', 'createSnapshotGuarded', 'createState',
   'deleteChannel', 'deleteDoc', 'deleteProfile', 'deleteState', 'flushWorkUnitLeases', 'getChannel',
-  'getChannelVersion', 'getDataDir', 'getEvolutionProposal', 'getIndex', 'getMessageById',
+  'getChannelVersion', 'getDataDir', 'getEvolutionProposal', 'getIndex', 'getIndexVersion', 'getMessageById',
   'getMessagesSince', 'getProfile', 'getRequirement', 'getState', 'listChannels',
   'listDocs', 'listEvolutionProposals', 'listJsonInDir', 'listMessageChannelIds',
   'listProfiles', 'listRequirements', 'listStates',

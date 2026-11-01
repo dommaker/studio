@@ -1,103 +1,34 @@
 /**
- * 观察段（#668 自 agent-loop.ts 抽出，行为一字不改）：
+ * 观察段（#668 自 agent-loop.ts 抽出）：
  * observe（零 token 观望：myActive 派生 / §9.5 频道成员过滤 / #221 认领陈旧守卫 /
  * 决策 10 显式认领 / F4 excludeAssignee / #109 blockedBy / 决策 14 unfitRoles /
- * B5 字节水位增量回复检测）+ loadChannelMembers +
- * 事件唤醒三件套（#330/#493/#523：idleSleep 可中断 sleep / onChannelMessageSent /
- * onWorkUnitClaimable——只放行不裁决，归属裁决归 observe）。
+ * B5 字节水位增量回复检测）+ 事件唤醒三件套（#330/#493/#523：idleSleep 可中断 sleep /
+ * onChannelMessageSent / onWorkUnitClaimable——只放行不裁决，归属裁决归 observe）。
  * ARCH-05：回复水位与唤醒闩锁由本类独占，实例/存活经窄 getter 读取。
+ * PERF-03：WU/channel 全局观察移交共享协调器，本类只保留角色视图与回复水位。
  */
-import { parseChannels, isStaleClaimSleep, type ChannelMessageData } from '@dommaker/studio-shared';
-import { snapshotToData, hasUnfinishedDeps, buildStatusById } from '../../workunit/index.js';
-import { parseExcludeAssignee } from '../agent-loop-guards.js';
-import { isRoleUnfit } from '../claim-fitness.js';
+import type { ChannelMessageData } from '@dommaker/studio-shared';
 import type { Observations } from '../agent-loop.types.js';
 import type { ObserverDeps } from './loop-deps.js';
+import { getLoopObservationCoordinator, type LoopObservationCoordinator } from './loop-observation-coordinator.js';
 
 export class LoopObserver {
   private readonly replyScanWatermarks = new Map<string, number>();
+  private readonly coordinator: LoopObservationCoordinator;
   private pendingWake = false;
   private wakeIdle: (() => void) | null = null;
 
-  constructor(private readonly deps: ObserverDeps) {}
-
-  /**
-   * §9.5: 加载全部频道的 members（channelId → member profile ids）。
-   * 每次 observe 调用一次；读取失败按空表处理（map miss 放行不裁决，不致停摆）。
-   */
-  private async loadChannelMembers(): Promise<Map<string, string[]>> {
-    const map = new Map<string, string[]>();
-    try {
-      const channels = await this.deps.fileStore.listChannels();
-      for (const ch of channels) {
-        map.set(ch.id, parseChannels(ch.members));
-      }
-    } catch { /* non-blocking — map miss 放行不裁决 */ }
-    return map;
+  constructor(private readonly deps: ObserverDeps) {
+    this.coordinator = getLoopObservationCoordinator(deps.fileStore);
   }
 
   /** Observe: collect state from DB (zero token) */
   async observe(): Promise<Observations> {
     const deps = this.deps;
-    // 工单 27：index.json 每轮只读一次——myActive 由同一批快照本地派生，
-    // 过滤/排序/分页口径与 workUnitService.list({assigneeId}) 完全一致
-    // （含先按 createdAt desc 取前 20 条、再按状态过滤的顺序）。
-    const allSnapshots = await deps.fileStore.getIndex();
-    const myAssigneeId = deps.getInstance()?.id;
-    const mine = myAssigneeId
-      ? allSnapshots.filter(s => s.assigneeId === myAssigneeId)
-      : [...allSnapshots];
-    const myActive = mine
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 20)
-      .map(snapshotToData)
-      .filter(wu => wu.status === 'active' || wu.status === 'blocked');
-    // §9.5: channel.members 为成员关系唯一事实源 — observe 每轮加载一次频道配置
-    // （FileStore 规模小，成本可忽略）。
-    const channelMembers = await this.loadChannelMembers();
-    // #109（M4 接单过滤）：全局 id→status 映射（FileStore index 天然跨 PMO）
-    const statusById = buildStatusById(allSnapshots);
-    const now = Date.now();
-    const unassigned = allSnapshots.filter(s => {
-      if (s.status !== 'unassigned') return false;
-      // #221（#214 决议）：认领陈旧守卫 —— updatedAt 超 72h 的 unassigned WU（含显式指名）
-      // 在可见性层拦截：不可见、状态不动、不迁移、不写事件流 WU 状态。observe 保持纯过滤
-      // 无副作用；首次拦截告警由 monitor 探针 stale_claim_guard 出声。updatedAt 被任何
-      // 写操作刷新后复活（零新增机制）。判定与探针同源（isStaleClaimSleep）。
-      if (isStaleClaimSleep(s.updatedAt, now)) return false;
-      // Assignee-aware claiming（@mention 语义，docs/vision-2026.md §3）：
-      // 显式指派给某个 profile 的 WorkUnit 只能被该 profile 的 loop 认领；
-      // 未指派的保持频道作用域（§9.5: 频道 members 含本 profile）。
-      // 决策 10：认领纯显式，不再有 acceptedTypes 类型过滤（推断只用于 skill 排序，不否决路由）。
-      if (s.assigneeId) {
-        if (s.assigneeId !== deps.role.id) return false;
-      } else if (s.channelId) {
-        const members = channelMembers.get(s.channelId);
-        // §9.5（#696 严格口径）：频道配置读得到 → members 唯一事实源
-        // （空 = 无成员不可见）；读不到（加载失败/频道已删，map miss）→ 放行不裁决。
-        if (members && !members.includes(deps.role.id)) return false;
-      }
-      // F4（reviewer 解锚，决策 5）：评审 WU 排除实现者 —— metadata.excludeAssignee
-      // 命中的 profile 不可见（自评兜底场景 dispatcher 不设该字段，此处自然放行）
-      if (parseExcludeAssignee(s.metadata) === deps.role.id) return false;
-      // #109（M4 接单过滤）：metadata.blockedBy 中有未 done 的 WU → 对所有 loop 不可见
-      if (hasUnfinishedDeps(s.metadata, statusById)) return false;
-      // 决策 14 认领前适任判断：本角色已被判不适任（metadata.unfitRoles 含本 role.id）→ 不可见。
-      // 约束挂 WU 不挂角色身份（合规 ADR D2/决策 10），同 excludeAssignee 口径
-      if (isRoleUnfit(s.metadata, deps.role.id)) return false;
-      return true;
-    }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-      .slice(0, 5)
-      .map(s => ({
-        id: s.id, parentId: s.parentId, type: s.type, scope: s.scope,
-        assigneeId: s.assigneeId, status: s.status, failureType: s.failureType,
-        retryCount: s.retryCount, timeoutAt: s.timeoutAt ? new Date(s.timeoutAt) : null,
-        channelId: s.channelId, projectPath: s.projectPath, workspaceId: s.workspaceId ?? null, metadata: s.metadata,
-        createdAt: new Date(s.createdAt), updatedAt: new Date(s.updatedAt),
-        claimedAt: s.claimedAt ? new Date(s.claimedAt) : null,
-        completedAt: s.completedAt ? new Date(s.completedAt) : null,
-      }));
-
+    // PERF-03：WU/channel 的读取、fold、排序按 FileStore + index version 共享；
+    // 这里只取角色过滤视图，回复水位仍按 observer 独立维护。
+    const shared = await this.coordinator.observe();
+    const { myActive, unassigned } = this.coordinator.viewFor(shared, deps.role, deps.getInstance()?.id);
     const activeWuIds = myActive.map(wu => wu.id);
     // #330 扫描裁剪：只扫活跃 WU 所在频道（通常 1-2 个，原来是全频道无差别全扫）。
     // 任一活跃 WU 无 channelId 时退全扫（该 WU 回复可能落在任意频道）。
@@ -115,12 +46,7 @@ export class LoopObserver {
     // 压实/重写触发原语 valid=false → 当轮回退 0 偏移全读重建水位。
     let allReplies: ChannelMessageData[] = [];
     if (activeWuIds.length > 0) {
-      let boundaryMs = Number.POSITIVE_INFINITY;
-      for (const s of allSnapshots) {
-        if (s.status !== 'active' && s.status !== 'blocked') continue;
-        const t = new Date(s.updatedAt).getTime();
-        if (t < boundaryMs) boundaryMs = t;
-      }
+      const boundaryMs = shared.activeBoundaryMs;
       const channelSet = channelFilter ? new Set(channelFilter) : null;
       const scanChannelIds = (await deps.fileStore.listMessageChannelIds())
         .filter(id => !channelSet || channelSet.has(id));
@@ -177,6 +103,7 @@ export class LoopObserver {
     if (!wu) return;
     const mine = wu.assigneeId != null && wu.assigneeId === this.deps.getInstance()?.id;
     if (wu.claimable !== true && !mine) return;
+    this.coordinator.invalidate();
     this.pendingWake = true;
     this.wakeIdle?.();
   }

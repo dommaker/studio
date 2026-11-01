@@ -155,6 +155,11 @@ export class FileStore {
     return this.workunitStore.getIndex(filter);
   }
 
+  /** PERF-03 调度观察用 O(1) 本进程 index 写版本；跨进程 freshness 仍靠 mtime/兜底刷新。 */
+  getIndexVersion(): number {
+    return this.workunitStore.getIndexVersion();
+  }
+
   rebuildIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
     return this.workunitStore.rebuildIndex(filter);
   }
