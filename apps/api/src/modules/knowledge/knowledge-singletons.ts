@@ -1,7 +1,7 @@
 /**
  * knowledge-singletons — 知识子系统共享单例的唯一所有者 (R4 收敛, 断点 H)
  *
- * #343：sharedStore 已包 MtimeMemoKnowledgeStore（mtime 校验聚合 memo，
+ * #343 / PERF-04：sharedStore 已包 MtimeMemoKnowledgeStore（manifest generation 聚合 memo，
  * 缓存 seam ADR「外部包存储栈」条款）；原 @deprecated KnowledgeBus 兼容壳
  * （knowledge-bus.service.ts）已删除，消费者直连本模块。
  * 本模块接管所有权：
@@ -52,15 +52,15 @@ try {
 } catch { /* no orphans — good */ }
 
 // Singleton store + lifecycle + ingest — shared by all knowledge consumers
-// #343：sharedStore 包 mtime 校验聚合 memo（缓存 seam ADR「外部包存储栈」条款）。
+// #343 / PERF-04：sharedStore 包 manifest generation 聚合 memo（缓存 seam ADR「外部包存储栈」条款）。
 // 底层 FileKnowledgeStore 的 list() = readIndex + 逐条目 readFileSync（N+1 同步读），
 // injectContext 每执行步四连扫（queryEntries×2 + getIndexes + count）；memo 后
-// 稳态每步读口 = 4 次 memo 查（readdir+stat 指纹校验，无文件重读），本进程写穿透失效。
+// 稳态每步读口 = 4 次 memo 查 + 4 次单点 index.json stat（无目录扫描/文件重读）。
 //
 // #411：harness 段计时（bench 分段归因 读口/harness/exec/其他）——调用侧包装，harness 包
 // 本体不动。包装点 = 装配层的 rawKnowledgeStore（memo 之下，仅写方法 + 直通方法）+ 五个
 // facade 单例方法面；嵌套（facade 内 store 调用）只记顶层，且 span 上报自耗时（扣除嵌套
-// 读口）。sink 关闭（默认）时仅多一层直调，行为零变化。注意 memo 自身开销（指纹
+// 读口）。sink 关闭（默认）时仅多一层直调，行为零变化。注意 memo 自身开销（manifest
 // stat/clone）与其 miss 穿透的磁读都已在读口 knowledgeRead 事件内，故不包 memo 实例、
 // 也不包 raw store 的 get/list/readIndex——避免与读口段双重计入（详见测试锁定的口径）。
 const HARNESS_SPAN_STORE_METHODS = [
