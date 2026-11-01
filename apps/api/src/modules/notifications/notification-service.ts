@@ -1,13 +1,14 @@
 /**
- * 通知服务
+ * 通知服务：JSONL 为真源，PERF-05 当前态投影承担 list/unread/已读归属校验。
  */
 
-import { FileStore, foldJsonlById, generateId as sharedGenerateId } from '@dommaker/studio-shared';
+import { FileStore, generateId as sharedGenerateId } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import fs from 'node:fs';
 import { createLazyService } from '../../utils/services.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
+import { NotificationProjection, type NotificationRow } from './notification-projection.js';
 
 /** 全用户 id 列表（auditor 先例：data/users/*.json 文件名，截顶 10；目录缺失返回空） */
 async function listUserIds(): Promise<string[]> {
@@ -24,56 +25,39 @@ async function listUserIds(): Promise<string[]> {
 
 export interface CreateNotificationInput {
   userId: string;
-  // #468：追加 wu_milestone（闸门里程碑备查）/ monitor_alert（监控告警）/ incident（triage 事件）
-  // #523：追加 gate_reminder（人闸催办/认领滞留 tier1 提醒）
   type: 'review_request' | 'review_approved' | 'review_rejected' | 'system' | 'auditor_suggestion'
     | 'wu_milestone' | 'monitor_alert' | 'incident' | 'gate_reminder';
   title: string;
   content: string;
   link?: string;
-  /** #468：结构化直链字段——告警/里程碑类通知免 link 正则解析即可获得 WU 详情跳转 */
   wuId?: string;
   channelId?: string;
 }
 
 const NOTIFICATIONS_JSONL = studioPath('logs', 'notifications.jsonl');
 
-interface NotificationRow {
+export interface NotificationItem {
   id: string;
-  userId?: string;
-  type?: string;
-  title?: string;
-  content?: string;
-  link?: string;
-  /** #468 结构化直链字段（可选，老数据行没有） */
-  wuId?: string;
-  channelId?: string;
-  createdAt?: string;
-  deleted?: boolean;
-  deletedAt?: string;
-}
-
-/**
- * notifications.jsonl 折叠产物：一个 id 的当前通知态（#360 收敛，语义与原三份手写 fold 逐条一致）。
- * 墓碑 = `{ id, deleted: true, deletedAt }` 稀疏行，语义是「已读标记」而非删除：
- * 已读通知保留可见；全墓碑（孤儿墓碑行）的 id 不可见。
- */
-interface FoldedNotification {
-  /** 最新非 deleted 行（数据载体：userId/type/title/content 均取自它） */
-  data: NotificationRow;
-  /** 组内存在 deleted 行即已读 */
+  userId: string;
+  type: string;
+  title: string;
+  content: string;
+  link: string | null;
+  wuId: string | null;
+  channelId: string | null;
+  createdAt: Date;
   read: boolean;
-  /** 首个 deleted 行的 deletedAt（多次追加墓碑时取首个 = 实际首次已读时刻） */
   readAt: Date | null;
 }
 
 export class NotificationService {
-  constructor(private fileStore: FileStore) {}
+  private readonly projection: NotificationProjection;
 
-  /**
-   * 创建通知
-   */
-  async create(input: CreateNotificationInput) {
+  constructor(private fileStore: FileStore) {
+    this.projection = new NotificationProjection(fileStore, NOTIFICATIONS_JSONL);
+  }
+
+  async create(input: CreateNotificationInput): Promise<NotificationRow> {
     const entry: NotificationRow = {
       id: this.generateId(),
       userId: input.userId,
@@ -85,153 +69,97 @@ export class NotificationService {
       channelId: input.channelId,
       createdAt: new Date().toISOString(),
     };
-    await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, entry);
+    await this.fileStore.withLock(this.projection.lockPath, async () => {
+      await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, entry);
+      await this.projection.sync();
+    });
     logger.info(`Notification created: ${entry.id}, userId=${input.userId}, type=${input.type}`);
     return entry;
   }
 
-  /**
-   * 遍历全用户各写一条（#468：auditor-execution 的 readdir 先例收敛为服务方法；
-   * studio 事实单用户，多用户 per-user 精确归属另票）。返回写入条数。
-   */
   async createForAllUsers(input: Omit<CreateNotificationInput, 'userId'>): Promise<number> {
     const userIds = await listUserIds();
-    for (const uid of userIds) {
-      await this.create({ ...input, userId: uid });
-    }
+    for (const uid of userIds) await this.create({ ...input, userId: uid });
     return userIds.length;
   }
 
-  /**
-   * append-only 行折叠（#360）：按 id 分组，最新非 deleted 行作数据载体，
-   * 首个 deleted 行作已读标记。getUserNotifications / markAsRead /
-   * markAllAsRead / getUnreadCount 共用本口径，杜绝 #274 式漏判墓碑的分叉复写。
-   * 分组与最新行取舍走共享 foldJsonlById；墓碑 = 已读标记（非删除）的语义
-   * 留在本 adapter：data 作载体、首墓碑作 readAt。
-   */
-  private foldRows(rows: NotificationRow[]): Map<string, FoldedNotification> {
-    const folded = new Map<string, FoldedNotification>();
-    for (const group of foldJsonlById(rows, row => row.deleted === true).values()) {
-      if (group.data === null) continue; // 全墓碑（孤儿墓碑行）不可见
-      const firstTombstone = group.tombstones[0];
-      folded.set(group.data.id, {
-        data: group.data,
-        read: firstTombstone !== undefined,
-        readAt: firstTombstone?.deletedAt ? new Date(firstTombstone.deletedAt) : null,
-      });
-    }
-    return folded;
-  }
-
-  /**
-   * 获取用户通知列表
-   */
-  async getUserNotifications(userId: string, options?: { unreadOnly?: boolean; limit?: number }) {
-    const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
-    const folded = this.foldRows(rows);
-
-    const results: Array<{
-      id: string;
-      userId: string;
-      type: string;
-      title: string;
-      content: string;
-      link: string | null;
-      wuId: string | null;
-      channelId: string | null;
-      createdAt: Date;
-      read: boolean;
-      readAt: Date | null;
-    }> = [];
-
-    for (const entry of folded.values()) {
-      if (entry.data.userId !== userId) continue;
-
-      results.push({
-        id: entry.data.id,
-        userId: entry.data.userId!,
-        type: entry.data.type!,
-        title: entry.data.title!,
-        content: entry.data.content!,
-        link: entry.data.link || null,
-        wuId: entry.data.wuId || null,
-        channelId: entry.data.channelId || null,
-        createdAt: new Date(entry.data.createdAt!),
+  /** list + unreadCount 共用一次增量同步，但只读取目标接收者 view。 */
+  async getUserNotificationView(userId: string, options?: { unreadOnly?: boolean; limit?: number }) {
+    const recipient = await this.fileStore.withLock(this.projection.lockPath, async () => {
+      await this.projection.sync();
+      return this.projection.readRecipient(userId);
+    });
+    const notifications: NotificationItem[] = [];
+    for (const entry of Object.values(recipient.items)) {
+      const data = entry.data!;
+      notifications.push({
+        id: data.id,
+        userId,
+        type: data.type!,
+        title: data.title!,
+        content: data.content!,
+        link: data.link || null,
+        wuId: data.wuId || null,
+        channelId: data.channelId || null,
+        createdAt: new Date(data.createdAt!),
         read: entry.read,
-        readAt: entry.readAt,
+        readAt: entry.readAt ? new Date(entry.readAt) : null,
       });
     }
-
-    // Sort by createdAt desc
-    results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-    if (options?.unreadOnly) {
-      return results.filter(r => !r.read).slice(0, options?.limit || 50);
-    }
-
-    return results.slice(0, options?.limit || 50);
+    notifications.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const visible = options?.unreadOnly ? notifications.filter(row => !row.read) : notifications;
+    return { notifications: visible.slice(0, options?.limit || 50), unreadCount: recipient.unreadCount };
   }
 
-  /**
-   * 标记已读 — 归属校验通过后追加 tombstone 行
-   * #274: 校验通知活跃归属为 userId，跨用户/不存在的 id 不写入
-   */
-  async markAsRead(notificationId: string, userId: string) {
-    const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
-    const entry = this.foldRows(rows).get(notificationId);
-    if (!entry || entry.data.userId !== userId) return;
+  async getUserNotifications(userId: string, options?: { unreadOnly?: boolean; limit?: number }): Promise<NotificationItem[]> {
+    return (await this.getUserNotificationView(userId, options)).notifications;
+  }
 
-    await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, {
-      id: notificationId,
-      deleted: true,
-      deletedAt: new Date().toISOString(),
+  async markAsRead(notificationId: string, userId: string): Promise<void> {
+    await this.markManyAsRead([notificationId], userId);
+  }
+
+  /** 一次投影同步、一次归属过滤、单句柄批量 append；他人/不存在/已读 id 不写墓碑。 */
+  async markManyAsRead(notificationIds: string[], userId: string): Promise<void> {
+    await this.fileStore.withLock(this.projection.lockPath, async () => {
+      await this.projection.sync();
+      const requested = new Set(notificationIds);
+      const recipient = await this.projection.readRecipient(userId);
+      const ids = Object.entries(recipient.items)
+        .filter(([id, entry]) => requested.has(id) && !entry.read)
+        .map(([id]) => id);
+      if (ids.length === 0) return;
+      const deletedAt = new Date().toISOString();
+      await this.fileStore.appendJsonlBatch(NOTIFICATIONS_JSONL, ids.map(id => ({ id, deleted: true, deletedAt })));
+      await this.projection.sync();
     });
   }
 
-  /**
-   * 标记全部已读
-   */
-  async markAllAsRead(userId: string) {
-    const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
-    const activeIds = [...this.foldRows(rows).values()]
-      .filter(entry => entry.data.userId === userId)
-      .map(entry => entry.data.id);
-
-    for (const id of activeIds) {
-      await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, {
-        id,
-        deleted: true,
-        deletedAt: new Date().toISOString(),
-      });
-    }
+  async markAllAsRead(userId: string): Promise<void> {
+    await this.fileStore.withLock(this.projection.lockPath, async () => {
+      await this.projection.sync();
+      const recipient = await this.projection.readRecipient(userId);
+      const ids = Object.values(recipient.items)
+        .filter(entry => !entry.read)
+        .map(entry => entry.data!.id);
+      if (ids.length === 0) return;
+      const deletedAt = new Date().toISOString();
+      await this.fileStore.appendJsonlBatch(NOTIFICATIONS_JSONL, ids.map(id => ({ id, deleted: true, deletedAt })));
+      await this.projection.sync();
+    });
   }
 
-  /**
-   * 获取未读数量
-   */
   async getUnreadCount(userId: string): Promise<number> {
-    const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
-    let count = 0;
-    for (const entry of this.foldRows(rows).values()) {
-      if (entry.data.userId !== userId) continue;
-      // #274 修复：有 tombstone 即已读，不计入未读数（此前漏判，恒计全部）
-      if (entry.read) continue;
-      count++;
-    }
-    return count;
+    return this.fileStore.withLock(this.projection.lockPath, async () => {
+      await this.projection.sync();
+      return this.projection.readUnreadCount(userId);
+    });
   }
 
-  /**
-   * 生成 ID
-   */
   private generateId(): string {
     return sharedGenerateId('notif');
   }
 }
 
-/**
- * 进程级单例（#684 包下沉）：取代包时代的模块级 `notificationService` 实例——
- * apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
- * 调用时才取 getStore()。测试请自行 new NotificationService(显式 store)。
- */
+/** 进程级单例：首次调用时才取 getStore()；测试自行 new NotificationService(显式 store)。 */
 export const getNotificationService = createLazyService(() => new NotificationService(getStore()));

@@ -72,6 +72,19 @@ describe('#274 归属校验', () => {
     expect(after).toEqual(before);
   });
 
+  it('markManyAsRead：混合他人/不存在 id 只写本人未读，纯越权调用零副作用', async () => {
+    const { a, b } = await seed();
+    const mine = await service.create({ userId: 'user-a', type: 'system', title: 'A2', content: 'a2' });
+    await service.markManyAsRead([a.id, b.id, 'missing'], 'user-a');
+    expect((await service.getUserNotifications('user-a')).find(n => n.id === a.id)?.read).toBe(true);
+    expect((await service.getUserNotifications('user-b')).find(n => n.id === b.id)?.read).toBe(false);
+
+    const before = fs.readFileSync(path.join(tmpRoot.value, 'logs', 'notifications.jsonl'), 'utf8');
+    await service.markManyAsRead([mine.id, 'missing'], 'user-b');
+    expect(fs.readFileSync(path.join(tmpRoot.value, 'logs', 'notifications.jsonl'), 'utf8')).toBe(before);
+    expect((await service.getUserNotifications('user-a')).find(n => n.id === mine.id)?.read).toBe(false);
+  });
+
   it('markAllAsRead：只影响本人通知，他人未读不动', async () => {
     await seed();
     await service.markAllAsRead('user-a');

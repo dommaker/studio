@@ -184,10 +184,24 @@ const v3WorkUnitCurrentProjection: Migration = {
   },
 };
 
-/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
-export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection];
+/** PERF-05：可重建 overview/notification 投影目录；内容在首次读取时懒生成。 */
+const v4ReadModelProjections: Migration = {
+  version: 4,
+  name: 'v4-read-model-projections',
+  isApplied: async (rootDir) => fs.existsSync(path.join(rootDir, 'logs', 'projections')),
+  apply: async (rootDir) => {
+    const logs = path.join(rootDir, 'logs');
+    const projections = path.join(logs, 'projections');
+    await fs.promises.mkdir(projections, { recursive: true, mode: 0o700 });
+    await fs.promises.chmod(logs, 0o700);
+    await fs.promises.chmod(projections, 0o700);
+  },
+};
 
-export const CURRENT_SCHEMA_VERSION = 3;
+/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
+export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections];
+
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export interface RunMigrationsOptions {
   /** 测试注入用；缺省 = MIGRATIONS */

@@ -4,7 +4,7 @@
 // 文案按 §7.5：术语标题 + 大白话副标题 + 每区一个 22px 主数字。不扩监控 API。
 // Phase 3 拆分（2026-10）：提案待审区/六个度量区抽 components/monitoring/ 子组件，
 // SectionError 收敛 components/ui/（拆分来源见各子组件头注释），本文件留数据接线 + tab 骨架。
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { monitoringApi } from '../api/monitoring';
 import { knowledgeApi } from '../api/knowledge';
 import { SectionError } from '../components/ui';
@@ -19,6 +19,7 @@ import { RolesEfficiencySection } from '../components/monitoring/RolesEfficiency
 import { InterventionSection } from '../components/monitoring/InterventionSection';
 import { alertSignatureKeyword, type AlertGroup } from '../components/monitoring/alertGrouping';
 import { useAsyncData } from '../hooks/useAsyncData';
+import { useMonitoringStore } from '../stores/monitoringStore';
 import { toast } from '../utils/toast';
 import { serverErrorMessage } from '../utils/errorMessage';
 
@@ -30,10 +31,18 @@ export function MonitoringPage() {
   const [eventSeed, setEventSeed] = useState<EventSearchFilters | null>(null);
   // 健康度量分区默认折叠（§7.2：度量区整体降为下方分区）
   const [metricsOpen, setMetricsOpen] = useState(false);
-  // #350 useAsyncData 收一次性拉取样板：各区块独立加载；失败不再静默落 null（2026-09 web-ux-optional-fixes
-  // Step 1）——error 由 hook 承接，区块内渲染最小错误行（SectionError）+ 重试，区分「没数据」与「加载失败」
-  // 契约驱动迁移（批次 5/7）：monitoring 响应统一 `{ data }` 壳，r.data → r.data.data
-  const overviewQ = useAsyncData(() => monitoringApi.getOverview().then(r => r.data.data), []);
+  const overview = useMonitoringStore(s => s.overview);
+  const overviewError = useMonitoringStore(s => s.overviewError);
+  const overviewLoadedAt = useMonitoringStore(s => s.overviewLoadedAt);
+  const overviewInflight = useMonitoringStore(s => s.overviewInflight);
+  const loadOverview = useMonitoringStore(s => s.loadOverview);
+  useEffect(() => { void loadOverview(); }, [loadOverview]);
+  const overviewQ = {
+    data: overview,
+    error: overviewError?.message ?? null,
+    loading: overviewInflight !== null || (overviewLoadedAt === null && !overviewError),
+    reload: () => void loadOverview({ maxAgeMs: 0 }),
+  };
   const flywheelQ = useAsyncData(() => monitoringApi.getFlywheel().then(r => r.data.data), []);
   const overheadQ = useAsyncData(() => monitoringApi.getOverhead().then(r => r.data.data), []);
   const efficiencyQ = useAsyncData(() => monitoringApi.getEfficiency().then(r => r.data.data), []);
@@ -46,7 +55,6 @@ export function MonitoringPage() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [armedIds, setArmedIds] = useState<Set<string>>(new Set());
 
-  const overview = overviewQ.data;
   const evidence = overview?.evidence ?? null;
   const roles = overview?.roles.roles ?? null;
   const intervention = overview?.humanIntervention ?? null;

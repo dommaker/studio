@@ -14,7 +14,7 @@
  * 工单 30：类型区 → metrics.types.ts，纯函数聚合区 → metrics-aggregate.ts（re-export 保持导出路径兼容）。
  */
 
-import { FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
@@ -22,6 +22,7 @@ import { buildAssigneeProfileResolver } from '../workunit/index.js';
 import { aggregateOverview, aggregateCacheHitRate, aggregateSectionTrim, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
 import type { OverviewMetrics, EfficiencyMetrics } from './metrics.types.js';
 import { getStore } from '../../core/store.js';
+import { OverviewProjection } from './overview-projection.js';
 
 
 /** D16: 聚合缓存（60s——要扫 index + 多个 jsonl，避免连打） */
@@ -65,6 +66,7 @@ export interface OverviewOptions {
 export class MetricsService {
   private fileStore: FileStore;
   private cache = new Map<string, { at: number; data: OverviewMetrics }>();
+  private overviewInflight = new Map<string, Promise<OverviewMetrics>>();
   private efficiencyCache = new Map<string, { at: number; data: EfficiencyMetrics }>();
 
   constructor(fileStore?: FileStore) {
@@ -84,21 +86,34 @@ export class MetricsService {
     const windowDays = opts?.windowDays ?? DEFAULT_WINDOW_DAYS;
     const now = opts?.now ?? Date.now();
     const cacheKey = `${opts?.eventsFile ?? ''}|${opts?.wuEventsFile ?? ''}|${windowDays}`;
-    if (!opts?.now) {
-      const hit = this.cache.get(cacheKey);
-      if (hit && now - hit.at < CACHE_TTL_MS) return hit.data;
-    }
+    if (opts?.now) return this.loadOverview(opts, windowDays, now);
 
-    const [snapshots, wuEvents, events, humanMessages, states, profiles] = await Promise.all([
-      this.fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]),
-      this.fileStore.readJsonl<WorkUnitEvent>(opts?.wuEventsFile ?? this.defaultWuEventsFile()).catch(() => [] as WorkUnitEvent[]),
-      // #335：窗口外事件不 parse；下游 aggregate 仍按 inWindow(windowDays) 过滤，口径不变。
-      // #456：读取窗口下限 2d——failure24h 趋势要前 24h 样本，windowDays=1 时也必须可算
+    const hit = this.cache.get(cacheKey);
+    if (hit && now - hit.at < CACHE_TTL_MS) return hit.data;
+    const existing = this.overviewInflight.get(cacheKey);
+    if (existing) return existing;
+
+    const inflight = this.loadOverview(opts, windowDays, now)
+      .then(data => {
+        this.cache.set(cacheKey, { at: now, data });
+        return data;
+      })
+      .finally(() => this.overviewInflight.delete(cacheKey));
+    this.overviewInflight.set(cacheKey, inflight);
+    return inflight;
+  }
+
+  private async loadOverview(opts: OverviewOptions | undefined, windowDays: number, now: number): Promise<OverviewMetrics> {
+    const projection = new OverviewProjection(this.fileStore, opts?.wuEventsFile ?? this.defaultWuEventsFile());
+    const [snapshots, windowRows, events, states, profiles] = await Promise.all([
+      this.loadCurrentSnapshots(),
+      projection.load(now).catch(() => ({ wuEvents: [], humanMessages: [] })),
+      // #456：failure24h 趋势要求 windowDays=1 时仍读取 48h。
       readStudioEventsSince({ file: opts?.eventsFile, sinceMs: now - Math.max(windowDays, 2) * 86400_000 }).catch(() => [] as Array<Record<string, unknown>>),
-      this.fileStore.queryAllMessages({ authorType: 'human' }).catch(() => [] as Array<{ createdAt?: string }>),
       this.fileStore.listStates().catch(() => [] as Array<{ id: string; roleId: string }>),
       this.fileStore.listProfiles().catch(() => [] as Array<{ id: string; name: string }>),
     ]);
+    const { wuEvents, humanMessages } = windowRows;
 
     const resolveAssigneeProfile = buildAssigneeProfileResolver({
       states,
@@ -107,7 +122,7 @@ export class MetricsService {
     const profileNames = new Map<string, string>();
     for (const p of profiles) if (p?.id) profileNames.set(p.id, p.name);
 
-    const data = aggregateOverview({
+    return aggregateOverview({
       snapshots,
       wuEvents,
       events,
@@ -117,9 +132,14 @@ export class MetricsService {
       now,
       windowDays,
     });
+  }
 
-    if (!opts?.now) this.cache.set(cacheKey, { at: now, data });
-    return data;
+  private async loadCurrentSnapshots(): Promise<WorkUnitSnapshot[]> {
+    // 轻量测试 stub 没有 PERF-02 门面时保留 getIndex；生产直读 current projection。
+    if (typeof this.fileStore.listCurrentSnapshots === 'function') {
+      return this.fileStore.listCurrentSnapshots().catch(() => [] as WorkUnitSnapshot[]);
+    }
+    return this.fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]);
   }
 
   /**

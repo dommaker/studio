@@ -78,6 +78,12 @@ export class CachedFileIo {
     invalidateFileKey(filePath);
   }
 
+  /** 单次追加一批 JSONL 行（委托 base），写后失效缓存 */
+  public async appendJsonlBatch(filePath: string, rows: unknown[]): Promise<void> {
+    await this.base.appendJsonlBatch(filePath, rows);
+    if (rows.length > 0) invalidateFileKey(filePath);
+  }
+
   /** 写入全部 JSONL 行（覆盖，委托 base 原子写），写后失效缓存 */
   public async writeJsonl(filePath: string, data: unknown[]): Promise<void> {
     await this.base.writeJsonl(filePath, data);

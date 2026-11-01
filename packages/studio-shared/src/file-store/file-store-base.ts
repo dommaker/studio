@@ -154,12 +154,29 @@ export class FileStoreBase {
     }
   }
 
-  /** 追加一行 JSONL */
+  /** 追加一行 JSONL；历史崩溃半行先补换行隔离，禁止粘连下一条完整记录。 */
   public async appendJsonl(filePath: string, data: unknown): Promise<void> {
+    await this.appendJsonlContent(filePath, JSON.stringify(data) + '\n');
+  }
+
+  /** 单次句柄追加一批 JSONL 行；空调用不创建文件。 */
+  public async appendJsonlBatch(filePath: string, rows: unknown[]): Promise<void> {
+    if (rows.length === 0) return;
+    await this.appendJsonlContent(filePath, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
+  }
+
+  private async appendJsonlContent(filePath: string, content: string): Promise<void> {
     await this.ensureDir(path.dirname(filePath));
-    const fh = await fs.promises.open(filePath, 'a', 0o600);
+    const fh = await fs.promises.open(filePath, 'a+', 0o600);
     try {
-      await fh.writeFile(JSON.stringify(data) + '\n', 'utf-8');
+      const { size } = await fh.stat();
+      let prefix = '';
+      if (size > 0) {
+        const last = Buffer.alloc(1);
+        const { bytesRead } = await fh.read(last as Uint8Array, 0, 1, size - 1);
+        if (bytesRead === 1 && last[0] !== 0x0a) prefix = '\n';
+      }
+      await fh.writeFile(prefix + content, 'utf-8');
       await fh.chmod(0o600);
     } finally {
       await fh.close();

@@ -66,7 +66,7 @@ export class MessagesStore {
     channelId: string,
     fromOffset: number,
     opts: { boundarySinceMs: number },
-  ): Promise<{ messages: ChannelMessageData[]; newOffset: number; endOffset: number; valid: boolean }> {
+  ): Promise<{ messages: ChannelMessageData[]; newOffset: number; endOffset: number; valid: boolean; touchedIds?: string[] }> {
     return this.query.readChannelMessagesDelta(channelId, fromOffset, opts);
   }
 

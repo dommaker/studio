@@ -16,7 +16,8 @@
 - `prometheus-metrics.ts` — Prometheus 注册表与 `getMetrics`（#683 自 `src/monitoring/index.ts` 迁入）
 - `monitoring.routes.ts` — Express 路由器，挂载 `/agents`、`/stats`、`/flywheel`、`/overhead`、`/overview`、`/efficiency` 六个 GET 端点
 - `monitoring.service.ts` — `MonitoringService` 监控服务类，封装聚合逻辑，依赖 `KnowledgeMetricsSource` 获取度量数据
-- `metrics.service.ts` — D16 指标聚合服务：`getOverviewMetrics({windowDays})`，60s 内存缓存，`invalidateCache()` 测试用
+- `metrics.service.ts` — D16 指标聚合服务：`getOverviewMetrics({windowDays})`，60s 内存缓存 + 同 key miss single-flight，`invalidateCache()` 测试用
+- `overview-projection.ts` — PERF-05 按日窗口投影：WU events 以完整行 `dev/ino/offset` 增量恢复；human 每频道 head 同含文件代际，压实换 inode 后即使再增长过旧 offset 也重建，更新/墓碑仅重建对应频道；90 天数据仅在 UTC 日变化时 prune，落 `logs/projections/`
 - `metrics-aggregate.ts` — D16 聚合公共面（`aggregateOverview` 经 `metrics-overview.ts` re-export；`aggregateCacheHitRate` / `aggregateSectionTrim` 留本文件，均经 `metrics.service.ts` re-export）；`metrics-overview.ts` — Overview 采样上下文 + 11 个指标组纯函数与 `aggregateOverview` 编排（2026-10-17 纯平移，既有 metrics.service 测试锁定口径）
 - `metrics.types.ts` — D16 类型契约（`OverviewMetrics` 等 9 组指标接口，经 `metrics.service.ts` re-export）
 - `current-wu-context.ts` — #318 共享出口：当前 WU 聚合上下文（快照 + pmo 归属链 + channelId）

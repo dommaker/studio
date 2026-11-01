@@ -321,6 +321,37 @@ describe('NotificationService', () => {
     });
   });
 
+  describe('PERF-05 当前态投影与批量已读', () => {
+    it('重建 service 后 list+unread 不再全量 fold；批量已读只批量 append 一次', async () => {
+      const n1 = await service.create({ userId: 'user-1', type: 'system', title: 'N1', content: 'C1' });
+      const n2 = await service.create({ userId: 'user-1', type: 'system', title: 'N2', content: 'C2' });
+      await service.getUserNotifications('user-1');
+      const readJsonl = vi.spyOn(fileStore, 'readJsonl');
+      const appendBatch = vi.spyOn(fileStore, 'appendJsonlBatch');
+
+      const cold = new NotificationService(fileStore);
+      const [list, unread] = await Promise.all([
+        cold.getUserNotifications('user-1'),
+        cold.getUnreadCount('user-1'),
+      ]);
+      expect(list).toHaveLength(2);
+      expect(unread).toBe(2);
+      expect(readJsonl).not.toHaveBeenCalled();
+
+      await cold.markManyAsRead([n1.id, n2.id], 'user-1');
+      expect(appendBatch).toHaveBeenCalledTimes(1);
+      expect(readJsonl).not.toHaveBeenCalled();
+      expect(await cold.getUnreadCount('user-1')).toBe(0);
+    });
+
+    it('getUnreadCount 直读持久化 count，不调用完整 list view', async () => {
+      await service.create({ userId: 'user-1', type: 'system', title: 'N1', content: 'C1' });
+      const view = vi.spyOn(service, 'getUserNotificationView');
+      expect(await service.getUnreadCount('user-1')).toBe(1);
+      expect(view).not.toHaveBeenCalled();
+    });
+  });
+
   // ============================================
   // AC-005: getUnreadCount
   //

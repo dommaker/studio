@@ -19,6 +19,7 @@ import { defineRoute, HttpError } from '../../core/http.js';
 import {
   ERROR_CODES,
   listNotificationsQuerySchema,
+  markNotificationsReadBodySchema,
   notificationIdParamsSchema,
 } from '@dommaker/studio-contract';
 
@@ -60,6 +61,15 @@ router.get('/unread-count', defineRoute({}, async (req) => {
   const count = await getNotificationService().getUnreadCount(userId);
   return { count };
 }));
+
+/** POST /api/v1/notifications/read：一次请求批量已读，越权 id 由 service 静默忽略。 */
+router.post('/read', defineRoute(
+  { body: markNotificationsReadBodySchema },
+  async (req, _res, { body }) => {
+    await getNotificationService().markManyAsRead(body.ids, resolveUserId(req));
+    return { success: true };
+  },
+));
 
 /**
  * POST /api/v1/notifications/:id/read

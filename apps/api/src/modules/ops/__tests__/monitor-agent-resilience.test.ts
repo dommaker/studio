@@ -28,6 +28,7 @@ vi.mock('@dommaker/studio-shared', () => ({ stripTrailingSlashes: (s: string) =>
   createSettledTracker: () => ({ track: vi.fn(), waitForSettled: vi.fn(() => Promise.resolve()) }),
   // wholesale mock 补出口：历史消费链（原 studio-notification 包单例）需要，#684 下沉后保留以防链上其余模块触碰
   getDefaultFileStore: () => ({}),
+  WorkUnitMetadataRepository: class {},
   FileStore: class {
     getIndex = mockGetIndex;
     upsertSnapshot = mockUpsertSnapshot;

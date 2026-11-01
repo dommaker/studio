@@ -78,6 +78,7 @@ vi.mock('../../components/monitoring/NeedsAttentionSection', () => ({
 }));
 
 import { MonitoringPage } from '../MonitoringPage';
+import { useMonitoringStore } from '../../stores/monitoringStore';
 
 /** 默认 overview 响应：evidence + roles + humanIntervention 三段（#398 起消费） */
 function defaultOverview() {
@@ -132,6 +133,7 @@ async function openMetrics() {
 describe('MonitoringPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useMonitoringStore.getState().__resetForTests();
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
     mockListPendingReview.mockResolvedValue({
@@ -505,6 +507,7 @@ describe('MonitoringPage', () => {
 describe('MonitoringPage — 告警下钻（E4）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useMonitoringStore.getState().__resetForTests();
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
     mockListPendingReview.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
@@ -549,6 +552,7 @@ describe('MonitoringPage — 告警下钻（E4）', () => {
 describe('MonitoringPage — 子拉取失败错误行（web-ux-optional-fixes Step 1）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useMonitoringStore.getState().__resetForTests();
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
     mockListPendingReview.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });

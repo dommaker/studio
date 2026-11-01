@@ -596,6 +596,14 @@ export class WorkUnitStore {
     }
   }
 
+  /** 聚合读当前态：枚举 PERF-02 projection，不 fold append-only index。 */
+  async listCurrentSnapshots(): Promise<WorkUnitSnapshot[]> {
+    return this.ctx.base.withLock(this.lockDir, async () => {
+      const manifest = await this.ensureCurrentLocked();
+      return this.readAllCurrentSnapshotsLocked(manifest);
+    });
+  }
+
   async rebuildIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
     return this.ctx.base.withLock(this.lockDir, async () => {
       const recovered = await this.recoverLegacyPendingLocked();

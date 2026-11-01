@@ -347,6 +347,14 @@ describe('MetricsService', () => {
       } catch { return []; }
     }),
     queryAllMessages: vi.fn(async () => input.humanMessages),
+    withLock: vi.fn(async (_lock: string, fn: () => Promise<unknown>) => fn()),
+    readJsonUncached: vi.fn(async (file: string) => {
+      try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+    }),
+    writeJson: vi.fn(async (file: string, value: unknown) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(value), 'utf8');
+    }),
     listStates: vi.fn(async () => [{ id: 'inst-1', roleId: 'dev' }, { id: 'inst-2', roleId: 'reviewer' }]),
     listProfiles: vi.fn(async () => [{ id: 'dev', name: '开发' }, { id: 'reviewer', name: '评审' }]),
   };
@@ -385,6 +393,27 @@ describe('MetricsService', () => {
     svc.invalidateCache();
     await svc.getOverviewMetrics({ eventsFile, wuEventsFile });
     expect(fileStoreStub.getIndex).toHaveBeenCalledTimes(2);
+  });
+
+  it('PERF-05：投影建立后冷/暖 overview 不再全量读 WU events 与 human messages', async () => {
+    await new MetricsService(fileStoreStub as never).getOverviewMetrics({ eventsFile, wuEventsFile });
+    vi.clearAllMocks();
+
+    const cold = new MetricsService(fileStoreStub as never);
+    await cold.getOverviewMetrics({ eventsFile, wuEventsFile });
+    await cold.getOverviewMetrics({ eventsFile, wuEventsFile });
+
+    expect(fileStoreStub.readJsonl).not.toHaveBeenCalled();
+    expect(fileStoreStub.queryAllMessages).not.toHaveBeenCalled();
+  });
+
+  it('PERF-05：并发 60s 缓存 miss 合并为一次加载', async () => {
+    const svc = new MetricsService(fileStoreStub as never);
+    await Promise.all([
+      svc.getOverviewMetrics({ eventsFile, wuEventsFile }),
+      svc.getOverviewMetrics({ eventsFile, wuEventsFile }),
+    ]);
+    expect(fileStoreStub.getIndex).toHaveBeenCalledTimes(1);
   });
 
   it('不同 windowDays 走不同缓存键', async () => {

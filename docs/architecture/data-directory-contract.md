@@ -59,7 +59,7 @@ data/
 
 ### ③ 可再生产物
 
-`logs/`（统一事件流 `studio-events.jsonl`、`audit.jsonl`、`notifications.jsonl`、`incidents.jsonl`、`tasks-*.jsonl` 及轮转归档）、`worktrees/`（sub-agent git worktree）、`events/`（语义迁移中，见 §8）、各 `*.bak-*` / `*-backup-*` 备份。迁移备份（§5）不覆盖本类。
+`logs/`（统一事件流 `studio-events.jsonl`、`audit.jsonl`、`notifications.jsonl`、`incidents.jsonl`、`tasks-*.jsonl` 及轮转归档；`logs/projections/` 为 PERF-05 overview 按日窗口与 notifications 当前态/unreadCount 可重建投影，记录 source `dev/ino/offset`，损坏或代际失配从真源重建）、`worktrees/`（sub-agent git worktree）、`events/`（语义迁移中，见 §8）、各 `*.bak-*` / `*-backup-*` 备份。迁移备份（§5）不覆盖本类。
 
 ## 3. 可改纪律
 
@@ -87,6 +87,7 @@ data/
 - **骨架先行**：首个迁移 = 空迁移（v0 无标记 → v1 写 manifest），机制跑通；真实迁移随首次布局变更进。
 - 实现票：#572（**已落地，2026-09-16**：`packages/studio-shared/src/migrations/` + `apps/api/src/index.ts` 接入点）。
 - **v3（PERF-02）**：幂等建立 `workunits/current/`（0700）；projection 与 manifest 由锁内写/重建懒生成，迁移不 fold 历史、不预填十万级派生文件。
+- **v4（PERF-05）**：幂等建立 `logs/projections/`（0700）；overview/notification 投影首次读取时懒生成，迁移不扫描历史。通知写路径与投影恢复共用 `notifications.jsonl.lock`；批量已读一次归属过滤、单句柄批量 append 后推进投影。
 
 ## 6. 网络面（回环纪律）
 

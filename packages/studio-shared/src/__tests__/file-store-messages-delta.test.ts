@@ -80,6 +80,21 @@ describe('readChannelMessagesDelta', () => {
     expect(second.newOffset).toBe(first.newOffset);
   });
 
+  it('末尾半行只提交完整 offset；append 换行隔离后新消息继续增量可见', async () => {
+    await store.appendMessage(CH, makeRow('m1', BASE_MS + 1000));
+    const file = path.join(tmpDir, 'channels', CH, 'messages.jsonl');
+    fs.appendFileSync(file, '{"id":"broken"');
+    const first = await store.readChannelMessagesDelta(CH, 0, { boundarySinceMs: Number.POSITIVE_INFINITY });
+    expect(first.valid).toBe(true);
+    expect(first.messages.map(row => row.id)).toEqual(['m1']);
+    expect(first.endOffset).toBeLessThan(messagesFileSize());
+
+    await store.appendMessage(CH, makeRow('m2', BASE_MS + 2000));
+    const second = await store.readChannelMessagesDelta(CH, first.endOffset, { boundarySinceMs: Number.POSITIVE_INFINITY });
+    expect(second.valid).toBe(true);
+    expect(second.messages.map(row => row.id)).toEqual(['m2']);
+  });
+
   it('增量追加：水位只越过 createdAt < boundary 的行，候选行留在窗口重复投递', async () => {
     const boundaryMs = BASE_MS + 5000;
     await store.appendMessage(CH, makeRow('m-old', BASE_MS + 1000)); // < boundary

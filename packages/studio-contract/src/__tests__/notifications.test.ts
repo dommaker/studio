@@ -10,6 +10,7 @@ import {
   notificationReadResultSchema,
   listNotificationsQuerySchema,
   notificationIdParamsSchema,
+  markNotificationsReadBodySchema,
   notificationListResponseSchema,
   unreadCountResponseSchema,
   notificationReadResponseSchema,
@@ -57,6 +58,8 @@ describe('端点请求/响应', () => {
     expect(notificationReadResponseSchema.parse({ data: { success: true } }).data.success).toBe(true);
     expect(notificationIdParamsSchema.parse({ id: 'n-1' }).id).toBe('n-1');
     expect(() => notificationIdParamsSchema.parse({ id: '' })).toThrow();
+    expect(markNotificationsReadBodySchema.parse({ ids: ['n-1', 'n-2'] }).ids).toHaveLength(2);
+    expect(() => markNotificationsReadBodySchema.parse({ ids: [] })).toThrow();
   });
 });
 

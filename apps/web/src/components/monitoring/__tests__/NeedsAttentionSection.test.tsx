@@ -24,6 +24,7 @@ vi.mock('react-router-dom', () => ({
 }));
 
 import { NeedsAttentionSection } from '../NeedsAttentionSection';
+import { useMonitoringStore } from '../../../stores/monitoringStore';
 
 const HOUR = 3600_000;
 const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
@@ -61,6 +62,7 @@ function mockOverview(stuck?: Partial<StuckMock>, failure24h?: Partial<FailureMo
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useMonitoringStore.getState().__resetForTests();
   mockEventsByType({});
   mockOverview();
 });

@@ -259,14 +259,15 @@ export class MessagesQueryStore {
    *   水位只越过「永久非候选」的行——调用方保证 boundarySinceMs 单调不减，未消费候选
    *   永远留在窗口内重复投递。boundarySinceMs = +∞ 时水位直接推进到文件尾。
    * - 失效检测（valid=false，调用方以 0 偏移全量重读重建水位）：fromOffset > 文件 size
-   *   （压实原子重写缩短）；fromOffset-1 字节非 \n（重写+追加后错位）；短读/末字节非 \n。
+   *   （压实原子重写缩短）；fromOffset-1 字节非 \n（重写+追加后错位）；短读。
+   * - 末尾崩溃半行不是整个频道失效：只解析/推进到最后一个完整换行，半行留给后续 append 恢复。
    * - 直读磁盘不进 jsonlCache（同 getMessagesSince 的 seam 口径：增量读口，真源唯一）。
    */
   async readChannelMessagesDelta(
     channelId: string,
     fromOffset: number,
     opts: { boundarySinceMs: number },
-  ): Promise<{ messages: ChannelMessageData[]; newOffset: number; endOffset: number; valid: boolean }> {
+  ): Promise<{ messages: ChannelMessageData[]; newOffset: number; endOffset: number; valid: boolean; touchedIds?: string[] }> {
     let handle: fs.promises.FileHandle | null = null;
     try {
       handle = await fs.promises.open(this.core.messagesPath(channelId), 'r');
@@ -282,7 +283,8 @@ export class MessagesQueryStore {
       }
       const length = stat.size - fromOffset;
       const rows: ChannelMessageRow[] = [];
-      let newOffset = stat.size;
+      let endOffset = stat.size;
+      let newOffset = endOffset;
       if (length > 0) {
         const buf = Buffer.alloc(length);
         let filled = 0;
@@ -291,10 +293,12 @@ export class MessagesQueryStore {
           if (bytesRead === 0) return invalid; // 截断（追加/原子重写协议外） → 全量重来
           filled += bytesRead;
         }
-        if (buf[length - 1] !== 0x0a) return invalid; // 末行不完整 → 水位不可信
+        const completeLength = buf.lastIndexOf(0x0a) + 1;
+        endOffset = fromOffset + completeLength;
+        newOffset = endOffset;
         let lineStart = 0;
         let boundaryFound = false;
-        for (let i = 0; i < length; i++) {
+        for (let i = 0; i < completeLength; i++) {
           if (buf[i] !== 0x0a) continue;
           if (i > lineStart) {
             let row: ChannelMessageRow | null = null;
@@ -317,7 +321,10 @@ export class MessagesQueryStore {
           lineStart = i + 1;
         }
       }
-      return { messages: mergeActiveRows(rows), newOffset, endOffset: stat.size, valid: true };
+      return {
+        messages: mergeActiveRows(rows), newOffset, endOffset, valid: true,
+        touchedIds: rows.map(row => row.id).filter((id): id is string => typeof id === 'string'),
+      };
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') {
         // 频道/文件不存在 → 空窗口 + 水位归零（文件出现后从 0 全读）

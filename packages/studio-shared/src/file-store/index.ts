@@ -130,6 +130,11 @@ export class FileStore {
     return this.ctx.io.appendJsonl(filePath, data);
   }
 
+  /** 单次追加一批 JSONL 行，写后失效缓存 */
+  appendJsonlBatch(filePath: string, rows: unknown[]): Promise<void> {
+    return this.ctx.io.appendJsonlBatch(filePath, rows);
+  }
+
   /** 写入全部 JSONL 行（覆盖，原子写），写后失效缓存 */
   writeJsonl(filePath: string, data: unknown[]): Promise<void> {
     return this.ctx.io.writeJsonl(filePath, data);
@@ -166,6 +171,11 @@ export class FileStore {
 
   claimWorkUnit(wuId: string, assigneeId: string, opts?: { assigneeRoleId?: string | null; timeoutAt?: string | null }): Promise<boolean> {
     return this.workunitStore.claimWorkUnit(wuId, assigneeId, opts);
+  }
+
+  /** 当前 WU 聚合读：直读 current projection，不 fold 历史 index（PERF-05）。 */
+  listCurrentSnapshots(): Promise<WorkUnitSnapshot[]> {
+    return this.workunitStore.listCurrentSnapshots();
   }
 
   upsertSnapshot(snapshot: WorkUnitSnapshot): Promise<void> {
@@ -245,7 +255,7 @@ export class FileStore {
     channelId: string,
     fromOffset: number,
     opts: { boundarySinceMs: number },
-  ): Promise<{ messages: ChannelMessageData[]; newOffset: number; endOffset: number; valid: boolean }> {
+  ): Promise<{ messages: ChannelMessageData[]; newOffset: number; endOffset: number; valid: boolean; touchedIds?: string[] }> {
     return this.messagesStore.readChannelMessagesDelta(channelId, fromOffset, opts);
   }
 

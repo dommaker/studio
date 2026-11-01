@@ -34,6 +34,19 @@ describe('ActionCenterService（#468）', () => {
     expect(unreadCount).toBe(0);
   });
 
+  it('PERF-05：通知 list+unreadCount 取同一份 view，不分开 fold', async () => {
+    const fileStore = new FileStore();
+    const notificationService = {
+      getUserNotificationView: vi.fn().mockResolvedValue({ notifications: [], unreadCount: 0 }),
+      getUserNotifications: vi.fn(),
+      getUnreadCount: vi.fn(),
+    };
+    await new ActionCenterService(fileStore, notificationService as never).getActionCenter('local');
+    expect(notificationService.getUserNotificationView).toHaveBeenCalledWith('local', { limit: 50 });
+    expect(notificationService.getUserNotifications).not.toHaveBeenCalled();
+    expect(notificationService.getUnreadCount).not.toHaveBeenCalled();
+  });
+
   // D-2 项1：reply 深链锚点——messageId = 该 WU 频道线程最新一条非人类消息
   // （与频道页 NEED_INPUT chip「当前提问消息」同口径；fail-closed：缺条件则字段缺省）
   // 注意：本文件共享同一隔离数据根（setup-isolated-data 文件级），断言按 wuId 定位不数全表

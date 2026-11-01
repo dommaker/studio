@@ -309,6 +309,7 @@ export const RESPONSE_MAP: Record<string, ResponseDoc> = {
   'GET /api/v1/notifications': { response: notificationListResponseSchema, summary: '通知列表' },
   'GET /api/v1/notifications/unread-count': { response: unreadCountResponseSchema, summary: '未读数' },
   'POST /api/v1/notifications/:id/read': { response: notificationReadResponseSchema, summary: '标记已读' },
+  'POST /api/v1/notifications/read': { response: notificationReadResponseSchema, summary: '批量标记已读' },
   'GET /api/v1/notify-channels': { response: notifyChannelsStateResponseSchema, summary: '通知渠道配置状态（脱敏）' },
   'PUT /api/v1/notify-channels/wecom': { response: wecomChannelStateResponseSchema, summary: '配置企微 webhook' },
   'POST /api/v1/notify-channels/wecom/test': { response: notifyChannelsSuccessResponseSchema, summary: '企微渠道测试' },

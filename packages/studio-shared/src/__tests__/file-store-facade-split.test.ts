@@ -28,13 +28,13 @@ import { DocsStore } from '../file-store/file-store-docs';
 /** 公共方法面基线（组合前 FileStore 实例可调用的全部公共方法，逐条保留） */
 const BASELINE_PUBLIC_METHODS = [
   'allocateEvolutionSeq', 'allocateRequirementSeq', 'appendChangelog', 'appendEvent',
-  'appendJsonl', 'appendMessage', 'archiveChannelMessages', 'buildIndex', 'claimWorkUnit',
+  'appendJsonl', 'appendJsonlBatch', 'appendMessage', 'archiveChannelMessages', 'buildIndex', 'claimWorkUnit',
   'commitRemoval', 'commitSnapshot', 'createChannel', 'createEvolutionProposal',
   'createProfile', 'createRequirement', 'createSnapshotGuarded', 'createState',
   'deleteChannel', 'deleteDoc', 'deleteProfile', 'deleteState', 'flushWorkUnitLeases', 'getChannel',
   'getChannelVersion', 'getDataDir', 'getEvolutionProposal', 'getIndex', 'getIndexVersion', 'getMessageById',
   'getMessagesSince', 'getProfile', 'getRequirement', 'getState', 'listChannels',
-  'listDocs', 'listEvolutionProposals', 'listJsonInDir', 'listMessageChannelIds',
+  'listCurrentSnapshots', 'listDocs', 'listEvolutionProposals', 'listJsonInDir', 'listMessageChannelIds',
   'listProfiles', 'listRequirements', 'listStates',
   'queryAllMessages', 'queryMessages', 'queryMessagesPage', 'readChannelMessagesDelta',
   'readDoc', 'readDocWithMtime', 'readJson', 'readJsonUncached', 'readJsonl', 'readMessagesTail', 'readdir',

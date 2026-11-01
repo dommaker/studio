@@ -90,11 +90,7 @@ export class ActionCenterService {
       });
     }
 
-    const [notifications, unreadCount] = await Promise.all([
-      this.notificationService.getUserNotifications(userId, { limit: 50 }),
-      this.notificationService.getUnreadCount(userId),
-    ]);
-
+    const { notifications, unreadCount } = await this.notificationService.getUserNotificationView(userId, { limit: 50 });
     return { stateItems, notifications, unreadCount };
   }
 
