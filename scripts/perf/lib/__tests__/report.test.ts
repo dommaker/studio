@@ -124,6 +124,36 @@ describe('compareReports', () => {
     expect(r.regressions.some((x) => x.metric === 'status')).toBe(true);
   });
 
+  it('SSE postToSse/endToEnd 的 p50 相对回归都失败，max 仍只诊断', () => {
+    const baseline = report({ health: 10 });
+    const current = report({ health: 10 });
+    baseline.sse = { rounds: 10, postToSse: { p50: 10, p95: 20 }, endToEnd: { p50: 20, p95: 40 } };
+    current.sse = { rounds: 10, postToSse: { p50: 17, p95: 20 }, endToEnd: { p50: 31, p95: 40 } };
+    current.endpoints[0].max = 10_000;
+    const r = compareReports(baseline, current);
+    expect(r.ok).toBe(false);
+    expect(r.regressions).toEqual([
+      expect.objectContaining({ name: 'sse.postToSse', metric: 'p50', baselineMs: 10, currentMs: 17 }),
+      expect.objectContaining({ name: 'sse.endToEnd', metric: 'p50', baselineMs: 20, currentMs: 31 }),
+    ]);
+    expect(r.observations).toEqual([
+      expect.objectContaining({ name: 'health', metric: 'max', currentMs: 10_000 }),
+    ]);
+  });
+
+  it('SSE 两类 p50 超绝对预算即失败，即使相对变化未超20%', () => {
+    const baseline = report({ health: 10 });
+    const current = report({ health: 10 });
+    baseline.sse = { rounds: 10, postToSse: { p50: 60, p95: 80 }, endToEnd: { p50: 70, p95: 90 } };
+    current.sse = { rounds: 10, postToSse: { p50: 66, p95: 80 }, endToEnd: { p50: 77, p95: 90 } };
+    const r = compareReports(baseline, current, { sseP50BudgetMs: 50 });
+    expect(r.ok).toBe(false);
+    expect(r.regressions).toEqual([
+      expect.objectContaining({ name: 'sse.postToSse', metric: 'p50.absolute', baselineMs: 50, currentMs: 66 }),
+      expect.objectContaining({ name: 'sse.endToEnd', metric: 'p50.absolute', baselineMs: 50, currentMs: 77 }),
+    ]);
+  });
+
   it('seed 不同 → 拒绝直接对比（口径不同）', () => {
     const baseline = report({ health: 10 });
     const current = report({ health: 10 });

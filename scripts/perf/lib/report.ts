@@ -164,13 +164,15 @@ export function compareReports(baseline: BenchReport, current: BenchReport, opts
 
   if (baseline.sse && current.sse) {
     for (const key of ['postToSse', 'endToEnd'] as const) {
-      const b = baseline.sse[key].p95;
-      const c = current.sse[key].p95;
-      if (isRegression(b, c, thresholdPct, minDeltaMs)) {
-        regressions.push(regression(`sse.${key}`, 'p95', b, c));
+      for (const metric of ['p50', 'p95'] as const) {
+        const b = baseline.sse[key][metric];
+        const c = current.sse[key][metric];
+        if (isRegression(b, c, thresholdPct, minDeltaMs)) {
+          regressions.push(regression(`sse.${key}`, metric, b, c));
+        }
+        const budget = (metric === 'p50' ? opts.sseP50BudgetMs : opts.sseP95BudgetMs) ?? (metric === 'p50' ? 50 : 100);
+        if (c > budget) regressions.push(regression(`sse.${key}`, `${metric}.absolute`, budget, c));
       }
-      const budget = opts.sseP95BudgetMs ?? 100;
-      if (c > budget) regressions.push(regression(`sse.${key}`, 'p95.absolute', budget, c));
     }
   }
 
