@@ -54,7 +54,8 @@ vi.mock('../../../middleware/auth.js', () => ({
   },
 }));
 
-vi.mock('../notification-service.js', () => ({
+vi.mock('../notification-service.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../notification-service.js')>(),
   getNotificationService: () => service,
 }));
 

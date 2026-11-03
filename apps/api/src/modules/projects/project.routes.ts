@@ -14,6 +14,8 @@ import { Router } from 'express';
 import {
   discoverProjectsQuerySchema,
   putProjectExcludeBodySchema,
+  localProjectListResponseSchema,
+  projectExcludeResponseSchema,
 } from '@dommaker/studio-contract';
 import { ProjectDiscoveryService } from './project-discovery.service.js';
 import { loadProjectExcludeConfig, saveProjectExcludeConfig } from './project-exclude-config.js';
@@ -23,17 +25,17 @@ const router = Router();
 const service = new ProjectDiscoveryService();
 
 /** GET /discover — scan local directories for projects */
-router.get('/discover', defineRoute({ query: discoverProjectsQuerySchema }, async (_req, _res, { query }) => {
+router.get('/discover', defineRoute({ query: discoverProjectsQuerySchema, response: localProjectListResponseSchema }, async (_req, _res, { query }) => {
   return query.search ? service.search(query.search) : service.discover();
 }));
 
 /** GET /exclude — #266（决策 #258）：排除清单读取（文件损坏降级空清单，不炸） */
-router.get('/exclude', defineRoute({}, async () => {
+router.get('/exclude', defineRoute({ response: projectExcludeResponseSchema }, async () => {
   return { exclude: loadProjectExcludeConfig() };
 }));
 
 /** PUT /exclude — #266：全量保存排除清单；写盘成功后主动失效发现缓存 */
-router.put('/exclude', defineRoute({ body: putProjectExcludeBodySchema }, async (_req, _res, { body }) => {
+router.put('/exclude', defineRoute({ body: putProjectExcludeBodySchema, response: projectExcludeResponseSchema }, async (_req, _res, { body }) => {
   saveProjectExcludeConfig(body.exclude.map(s => s.trim()).filter(Boolean));
   service.invalidateCache();
   return { exclude: loadProjectExcludeConfig() };

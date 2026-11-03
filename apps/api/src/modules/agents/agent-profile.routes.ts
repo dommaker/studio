@@ -22,6 +22,9 @@ import {
   createAgentProfileBodySchema,
   updateAgentProfileBodySchema,
   agentProfileIdParamsSchema,
+  agentProfileListResponseSchema,
+  agentProfileResponseSchema,
+  rolePresetListResponseSchema,
 } from '@dommaker/studio-contract';
 import { AgentProfileService, listRolePresets, type CreateAgentProfileInput, type UpdateAgentProfileInput } from './agent-profile.service.js';
 import { parsePagination } from '../../utils/pagination.js';
@@ -36,7 +39,7 @@ const writeRoutes = Router();
 const getService = createLazyService(() => new AgentProfileService(getStore()));
 
 /** GET / — list AgentProfiles */
-openRoutes.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (req, _res, { query }) => {
+openRoutes.get('/', defineRoute({ query: agentProfileListQuerySchema, response: agentProfileListResponseSchema }, async (req, _res, { query }) => {
   const { page, limit } = parsePagination(req);
 
   const result = await getService().list({
@@ -53,7 +56,7 @@ openRoutes.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (r
 
 /** POST / — create AgentProfile */
 writeRoutes.post('/', defineRoute(
-  { body: createAgentProfileBodySchema },
+  { body: createAgentProfileBodySchema, response: agentProfileResponseSchema },
   {
     status: 201,
     errors: [{ match: 'Unique constraint', status: 409, code: 'DUPLICATE' }],
@@ -66,10 +69,10 @@ writeRoutes.post('/', defineRoute(
 
 /** GET /presets — 角色 preset 清单（#633「从模板开始」数据源；只回 name + description，死字段不浮出）。
  *  须注册在 /:id 之前，否则 'presets' 被当 id 匹配。 */
-openRoutes.get('/presets', defineRoute({}, async () => listRolePresets()));
+openRoutes.get('/presets', defineRoute({ response: rolePresetListResponseSchema }, async () => listRolePresets()));
 
 /** GET /:id — get AgentProfile by id */
-openRoutes.get('/:id', defineRoute({ params: agentProfileIdParamsSchema }, async (_req, _res, { params }) => {
+openRoutes.get('/:id', defineRoute({ params: agentProfileIdParamsSchema, response: agentProfileResponseSchema }, async (_req, _res, { params }) => {
   const profile = await getService().getById(params.id);
   if (!profile) {
     throw new HttpError(404, 'NOT_FOUND', `AgentProfile ${params.id} not found`);
@@ -79,7 +82,7 @@ openRoutes.get('/:id', defineRoute({ params: agentProfileIdParamsSchema }, async
 
 /** PATCH /:id — update AgentProfile */
 writeRoutes.patch('/:id', defineRoute(
-  { params: agentProfileIdParamsSchema, body: updateAgentProfileBodySchema },
+  { params: agentProfileIdParamsSchema, body: updateAgentProfileBodySchema, response: agentProfileResponseSchema },
   {
     errors: [
       // #298: 改名冲突与 create 同口径 -> 409 DUPLICATE

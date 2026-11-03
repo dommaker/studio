@@ -19,6 +19,8 @@ import { Router } from 'express';
 import {
   listKnowledgeEntriesQuerySchema,
   knowledgeLifecycleBodySchema,
+  knowledgeEntryListResponseSchema,
+  knowledgeSuccessResponseSchema,
 } from '@dommaker/studio-contract';
 import { knowledgeService } from '../knowledge-service.js';
 import { eventBus } from '@dommaker/studio-shared';
@@ -36,7 +38,7 @@ knowledgeServiceRoutes.use((req, _res, next) => {
 });
 
 // 审核闭环：监控页待审列表数据源（maturity=draft，消费方 apps/web/src/api/knowledge.ts）
-knowledgeServiceRoutes.get('/entries', defineRoute({ query: listKnowledgeEntriesQuerySchema }, async (req, _res, { query }) => {
+knowledgeServiceRoutes.get('/entries', defineRoute({ query: listKnowledgeEntriesQuerySchema, response: knowledgeEntryListResponseSchema }, async (req, _res, { query }) => {
   const filter: Record<string, unknown> = {};
   if (query.type) filter.types = query.type.split(',');
   if (query.tags) filter.tags = query.tags.split(',');
@@ -51,7 +53,7 @@ knowledgeServiceRoutes.get('/entries', defineRoute({ query: listKnowledgeEntries
 
 // 条目生命周期端点：MonitoringPage 人工 promote/demote（消费方 apps/web/src/api/knowledge.ts）
 knowledgeServiceRoutes.post('/promote', requireNotGuest(), defineRoute(
-  { body: knowledgeLifecycleBodySchema },
+  { body: knowledgeLifecycleBodySchema, response: knowledgeSuccessResponseSchema },
   async (_req, _res, { body }) => {
     await knowledgeService.promote(body.entryId);
     return { success: true };
@@ -60,7 +62,7 @@ knowledgeServiceRoutes.post('/promote', requireNotGuest(), defineRoute(
 
 // 审核闭环 reject 端点：draft → archived（与 /promote 对称）
 knowledgeServiceRoutes.post('/demote', requireNotGuest(), defineRoute(
-  { body: knowledgeLifecycleBodySchema },
+  { body: knowledgeLifecycleBodySchema, response: knowledgeSuccessResponseSchema },
   async (_req, _res, { body }) => {
     await knowledgeService.demote(body.entryId);
     return { success: true };

@@ -24,6 +24,8 @@ import {
   harnessAgentFailBodySchema,
   harnessAgentCompleteBodySchema,
   harnessIdParamsSchema,
+  harnessAgentStateResponseSchema,
+  harnessAgentListResponseSchema,
 } from '@dommaker/studio-contract';
 import type { AgentLifecycle as AgentLifecycleType } from '@dommaker/harness';
 import { loadHarness, harnessModule } from './runtime.js';
@@ -51,7 +53,7 @@ async function getAgentLifecycle(): Promise<AgentLifecycleType | null> {
  * Register an agent
  */
 agentsRoutes.post('/agents', defineRoute(
-  { body: harnessAgentRegisterBodySchema },
+  { body: harnessAgentRegisterBodySchema, response: harnessAgentStateResponseSchema },
   async (_req, _res, { body }) => {
     const lifecycle = await getAgentLifecycle();
     if (!lifecycle) throw HARNESS_UNAVAILABLE();
@@ -63,7 +65,7 @@ agentsRoutes.post('/agents', defineRoute(
       capabilities: body.capabilities,
       ...body.config,
     } as unknown as Parameters<AgentLifecycleType['register']>[0]);
-    return state as unknown as Record<string, unknown>;
+    return state;
   },
 ));
 
@@ -72,14 +74,14 @@ agentsRoutes.post('/agents', defineRoute(
  * Mark agent as started
  */
 agentsRoutes.post('/agents/:id/start', defineRoute(
-  { params: harnessIdParamsSchema },
+  { params: harnessIdParamsSchema, response: harnessAgentStateResponseSchema },
   async (_req, _res, { params }) => {
     const lifecycle = await getAgentLifecycle();
     if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
     const state = lifecycle.start(params.id);
     if (!state) throw new HttpError(404, 'NOT_FOUND', 'Agent not found');
-    return state as unknown as Record<string, unknown>;
+    return state;
   },
 ));
 
@@ -88,14 +90,14 @@ agentsRoutes.post('/agents/:id/start', defineRoute(
  * Mark agent as completed
  */
 agentsRoutes.post('/agents/:id/complete', defineRoute(
-  { params: harnessIdParamsSchema, body: harnessAgentCompleteBodySchema },
+  { params: harnessIdParamsSchema, body: harnessAgentCompleteBodySchema, response: harnessAgentStateResponseSchema },
   async (_req, _res, { params, body }) => {
     const lifecycle = await getAgentLifecycle();
     if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
     const state = lifecycle.complete(params.id, body.metadata as Parameters<AgentLifecycleType['complete']>[1]);
     if (!state) throw new HttpError(404, 'NOT_FOUND', 'Agent not found');
-    return state as unknown as Record<string, unknown>;
+    return state;
   },
 ));
 
@@ -104,14 +106,14 @@ agentsRoutes.post('/agents/:id/complete', defineRoute(
  * Mark agent as failed
  */
 agentsRoutes.post('/agents/:id/fail', defineRoute(
-  { params: harnessIdParamsSchema, body: harnessAgentFailBodySchema },
+  { params: harnessIdParamsSchema, body: harnessAgentFailBodySchema, response: harnessAgentStateResponseSchema },
   async (_req, _res, { params, body }) => {
     const lifecycle = await getAgentLifecycle();
     if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
     const state = lifecycle.fail(params.id, body.error || 'Unknown error');
     if (!state) throw new HttpError(404, 'NOT_FOUND', 'Agent not found');
-    return state as unknown as Record<string, unknown>;
+    return state;
   },
 ));
 
@@ -119,7 +121,7 @@ agentsRoutes.post('/agents/:id/fail', defineRoute(
  * GET /api/v1/harness/agents
  * List all agents
  */
-agentsRoutes.get('/agents', defineRoute({}, async () => {
+agentsRoutes.get('/agents', defineRoute({ response: harnessAgentListResponseSchema }, async () => {
   const lifecycle = await getAgentLifecycle();
   if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
@@ -132,13 +134,13 @@ agentsRoutes.get('/agents', defineRoute({}, async () => {
  * Get agent state
  */
 agentsRoutes.get('/agents/:id', defineRoute(
-  { params: harnessIdParamsSchema },
+  { params: harnessIdParamsSchema, response: harnessAgentStateResponseSchema },
   async (_req, _res, { params }) => {
     const lifecycle = await getAgentLifecycle();
     if (!lifecycle) throw HARNESS_UNAVAILABLE();
 
     const state = lifecycle.getState(params.id);
     if (!state) throw new HttpError(404, 'NOT_FOUND', 'Agent not found');
-    return state as unknown as Record<string, unknown>;
+    return state;
   },
 ));

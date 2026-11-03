@@ -5,8 +5,13 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ChangeHistoryService } from '../change-history.service.js';
+import { ChangeHistoryService, toChangeRecordWire } from '../change-history.service.js';
 import type { ChangeRecord, ChangeLevel } from '../types/change.types.js';
+import {
+  changeRecordResponseSchema,
+  specChangeListResponseSchema,
+  changeStatsResponseSchema,
+} from '@dommaker/studio-contract';
 
 const history = new ChangeHistoryService();
 
@@ -163,5 +168,50 @@ describe('ChangeHistoryService', () => {
   it('AC-010h: should return undefined for non-existent change', () => {
     const record = history.get('non-existent-id');
     expect(record).toBeUndefined();
+  });
+});
+
+describe('toChangeRecordWire', () => {
+  it('三个日期字段均转 ISO，且结果适配详情/分页/统计三种消费形状', () => {
+    const record = createRecord('spec-wire', 'L2', 'applied');
+    record.submittedAt = new Date('2026-01-01T10:00:00.000Z');
+    record.approvedAt = new Date('2026-01-01T11:00:00.000Z');
+    record.appliedAt = new Date('2026-01-01T12:00:00.000Z');
+
+    const wire = toChangeRecordWire(record);
+    expect(wire).toMatchObject({
+      submittedAt: '2026-01-01T10:00:00.000Z',
+      approvedAt: '2026-01-01T11:00:00.000Z',
+      appliedAt: '2026-01-01T12:00:00.000Z',
+    });
+
+    expect(changeRecordResponseSchema.parse({ data: wire }).data.id).toBe(record.id);
+    expect(specChangeListResponseSchema.parse({
+      data: [wire],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    }).data).toHaveLength(1);
+    expect(changeStatsResponseSchema.parse({
+      data: {
+        total: 1,
+        byLevel: { L1: 0, L2: 1, L3: 0, L4: 0 },
+        byStatus: { applied: 1 },
+        recentChanges: [wire],
+      },
+    }).data.recentChanges).toHaveLength(1);
+  });
+
+  it('可选日期缺省保持 undefined，JSON 序列化后不产生空键', () => {
+    const record = createRecord('spec-wire-optional', 'L1', 'pending');
+    record.submittedAt = new Date('2026-01-02T10:00:00.000Z');
+
+    const wire = toChangeRecordWire(record);
+    expect(wire.submittedAt).toBe('2026-01-02T10:00:00.000Z');
+    expect(wire.approvedAt).toBeUndefined();
+    expect(wire.appliedAt).toBeUndefined();
+
+    const serialized = JSON.parse(JSON.stringify(wire)) as Record<string, unknown>;
+    expect(serialized).not.toHaveProperty('approvedAt');
+    expect(serialized).not.toHaveProperty('appliedAt');
+    expect(changeRecordResponseSchema.parse({ data: wire }).data.submittedAt).toBe(wire.submittedAt);
   });
 });

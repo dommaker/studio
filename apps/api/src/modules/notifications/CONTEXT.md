@@ -12,7 +12,7 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| `NotificationService` / `getNotificationService` / `CreateNotificationInput` | `notification-service.ts` | 通知服务类（创建/查询/标记，写 `~/.studio/logs/notifications.jsonl`）；`getNotificationService` 为进程级单例入口（#684，createLazyService 首次调用时才取 getStore()；测试自行 `new NotificationService(显式 store)`） |
+| `NotificationService` / `getNotificationService` / `toNotificationWire` / `CreateNotificationInput` | `notification-service.ts` | 通知服务类（创建/查询/标记，写 `~/.studio/logs/notifications.jsonl`）；`toNotificationWire` 把内存 Date 归一为 ISO/null 供 notifications 与 action-center 共用；`getNotificationService` 为进程级单例入口（#684，createLazyService 首次调用时才取 getStore()；测试自行 `new NotificationService(显式 store)`） |
 | `notifyAlert` / `AlertLevel` / `NotifyAlertOptions` | `alert-notifier.ts` | 告警统一出口，fire-and-forget fan-out 四 sink（告警频道系统消息 / 企微 webhook / 行动中心持久化 / ClawBot），sink 失败仅 warn 不抛 |
 | `DiscordNotifier` / `discordNotifier` / `sendDiscordNotification` / `DiscordMessageOptions` | `discord-notifier.ts` | Discord API 直发（token 读 openclaw 配置，频道 env DISCORD_CHANNEL_ID；curl 代理兜底；错误日志不落明文 token） |
 | `notificationRoutes` | `routes.ts` | Express 路由器，注册 /api/v1/notifications 下的五个端点（route-registry 深路径挂载） |

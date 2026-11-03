@@ -62,11 +62,24 @@ export type RouteInput<S extends RouteSchema> = {
   params: Infer<S, 'params'>;
 };
 
+type WithoutIndexSignature<T> = {
+  [K in keyof T as string extends K ? never : number extends K ? never : symbol extends K ? never : K]: T[K];
+};
+
+/** passthrough 允许额外 wire 键，但不要求 handler 的领域接口声明索引签名；已知必填键不放宽。 */
+type RouteWire<T> = T extends readonly (infer I)[]
+  ? RouteWire<I>[]
+  : T extends object
+    ? keyof WithoutIndexSignature<T> extends never
+      ? T extends Record<string, infer V> ? Record<string, RouteWire<V>> : T
+      : { [K in keyof WithoutIndexSignature<T>]: RouteWire<WithoutIndexSignature<T>[K]> }
+    : T;
+
 /** response 是 wire 壳；普通响应返回 data，分页响应返回完整 paginated() 形状。 */
 export type RouteResult<S extends RouteSchema> = S extends { response: z.ZodTypeAny }
   ? z.infer<S['response']> extends { data: unknown[]; pagination: Pagination }
-    ? z.infer<S['response']>
-    : z.infer<S['response']> extends { data: infer D } ? D : never
+    ? RouteWire<z.infer<S['response']>>
+    : z.infer<S['response']> extends { data: infer D } ? RouteWire<D> : never
   : unknown;
 
 const ROUTE_STATUS_RESULT: unique symbol = Symbol('studio.routeStatusResult');

@@ -60,7 +60,7 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
         });
       }
       if (opts.operation === 'simulate-error') throw new Error('harness down');
-      return { passed: true, operation: opts.operation, violations: [] };
+      return { passed: true, operation: opts.operation, errors: [], warnings: [], warningCount: 0 };
     },
   };
 });
@@ -273,7 +273,7 @@ describe('constraints.routes', () => {
 
     const ok = await api('POST', '/check-constraints', { operation: 'create-requirement' });
     expect(ok.status).toBe(200);
-    expect(ok.json.data).toEqual({ passed: true, operation: 'create-requirement', violations: [] });
+    expect(ok.json.data).toEqual({ passed: true, operation: 'create-requirement', errors: [], warnings: [], warningCount: 0 });
   });
 
   it('POST /check-constraints 剥离请求体自报的 hasRequirement（#641），响应标注降级', async () => {

@@ -17,7 +17,7 @@
  */
 
 import { Router } from 'express';
-import { listResolutionsQuerySchema, knowledgeSearchQuerySchema } from '@dommaker/studio-contract';
+import { listResolutionsQuerySchema, knowledgeSearchQuerySchema, resolutionListResponseSchema, knowledgeSearchResponseSchema } from '@dommaker/studio-contract';
 import { resolutionService } from '../resolution.service.js';
 import { apiCache, CACHE_CONFIG } from '../../../middleware/api-cache.js';
 import { defineRoute } from '../../../core/http.js';
@@ -32,7 +32,7 @@ export const searchRoutes = Router();
  * GET /api/v1/knowledge/resolutions
  * Query: status, errorClass, layer, search, limit, offset
  */
-searchRoutes.get('/resolutions', defineRoute({ query: listResolutionsQuerySchema }, async (_req, _res, { query }) => {
+searchRoutes.get('/resolutions', defineRoute({ query: listResolutionsQuerySchema, response: resolutionListResponseSchema }, async (_req, _res, { query }) => {
   const { status, errorClass, layer, search, limit = '50', offset = '0' } = query;
   const where: Record<string, unknown> = {};
   if (status) where.status = String(status);
@@ -82,7 +82,7 @@ searchRoutes.get('/resolutions', defineRoute({ query: listResolutionsQuerySchema
  * #149（2026-08-15）：document 源随 document-store 退役移除。
  * （q 必填原手写 400 → zod 400）
  */
-searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), defineRoute({ query: knowledgeSearchQuerySchema }, async (_req, _res, { query }) => {
+searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), defineRoute({ query: knowledgeSearchQuerySchema, response: knowledgeSearchResponseSchema }, async (_req, _res, { query }) => {
   const { q, types, limit = '20' } = query;
   const searchQuery = String(q).toLowerCase();
   const searchTypes = types ? String(types).split(',') : ['resolution', 'pattern'];

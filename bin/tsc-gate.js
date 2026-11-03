@@ -23,9 +23,9 @@ const PKGS = [
 // solution 风格 tsconfig（files:[] + references，如 apps/web）：
 // `tsc --noEmit -p` 对它不检查任何文件（盲转），必须用 `tsc -b` 才与
 // CI（apps/web: tsc -b && vite build）等价 —— 2026-08-08 合并产生 4 个类型错误漏检事故
-function isSolutionStyleTsconfig(pkg) {
+function isSolutionStyleTsconfig(configFile) {
   try {
-    const cfg = JSON.parse(fs.readFileSync(`${pkg}/tsconfig.json`, 'utf-8'));
+    const cfg = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
     return Array.isArray(cfg.files) && cfg.files.length === 0 &&
       Array.isArray(cfg.references) && cfg.references.length > 0;
   } catch {
@@ -33,13 +33,13 @@ function isSolutionStyleTsconfig(pkg) {
   }
 }
 
-function runTsc(pkg) {
-  const solution = isSolutionStyleTsconfig(pkg);
+function runTsc(configFile) {
+  const solution = isSolutionStyleTsconfig(configFile);
   try {
     const out = execSync(
       solution
-        ? `npx tsc -b "${pkg}/tsconfig.json" --pretty false 2>&1`
-        : `npx tsc --noEmit --project "${pkg}/tsconfig.json" --pretty false 2>&1`,
+        ? `npx tsc -b "${configFile}" --pretty false 2>&1`
+        : `npx tsc --noEmit --project "${configFile}" --pretty false 2>&1`,
       { encoding: 'utf-8', stdio: 'pipe', timeout: solution ? 120000 : 30000, maxBuffer: 10 * 1024 * 1024 },
     );
     return out;
@@ -69,9 +69,14 @@ if (flag('--check')) {
 
   const errors = [];
   for (const pkg of targets) {
-    if (!fs.existsSync(`${pkg}/tsconfig.json`)) continue;
-    for (const e of parseErrors(runTsc(pkg))) {
-      errors.push(`${e.file}:${e.line}: ${e.code}`);
+    const configs = [`${pkg}/tsconfig.json`];
+    // 类型负例（@ts-expect-error）需独立配置：主 tsconfig 刻意排除测试源码。
+    if (fs.existsSync(`${pkg}/tsconfig.type-tests.json`)) configs.push(`${pkg}/tsconfig.type-tests.json`);
+    for (const config of configs) {
+      if (!fs.existsSync(config)) continue;
+      for (const e of parseErrors(runTsc(config))) {
+        errors.push(`${e.file}:${e.line}: ${e.code}`);
+      }
     }
   }
 

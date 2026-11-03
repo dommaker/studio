@@ -16,6 +16,10 @@ import {
   updateCompanyBodySchema,
   ERROR_CODES,
   type Company,
+  companyListResponseSchema,
+  companyResponseSchema,
+  companySizeConfigResponseSchema,
+  companyHallStatsResponseSchema,
 } from '@dommaker/studio-contract';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
@@ -34,13 +38,13 @@ const COMPANY_SIZE_CONFIG = {
  * GET /api/v1/companies
  * 获取公司列表；空库时自动创建默认公司（#434：设置页公司节删除后，创建兜底挪到服务端）
  */
-router.get('/', defineRoute({}, async () => listCompanies()));
+router.get('/', defineRoute({ response: companyListResponseSchema }, async () => listCompanies()));
 
 /**
  * POST /api/v1/companies
  * 创建公司
  */
-router.post('/', defineRoute({ body: createCompanyBodySchema }, { status: 201 }, async (_req, _res, { body }) => {
+router.post('/', defineRoute({ body: createCompanyBodySchema, response: companyResponseSchema }, { status: 201 }, async (_req, _res, { body }) => {
   return createCompany(body.name);
 }));
 
@@ -48,7 +52,7 @@ router.post('/', defineRoute({ body: createCompanyBodySchema }, { status: 201 },
  * GET /api/v1/companies/sizes/config
  * 获取公司规模配置（须注册在 /:companyId 之前——'sizes' 单段会被 :companyId 吞掉，旧路由顺序如此）
  */
-router.get('/sizes/config', defineRoute({}, async () => {
+router.get('/sizes/config', defineRoute({ response: companySizeConfigResponseSchema }, async () => {
   return COMPANY_SIZE_CONFIG;
 }));
 
@@ -56,7 +60,7 @@ router.get('/sizes/config', defineRoute({}, async () => {
  * GET /api/v1/companies/:companyId/hall-stats
  * 获取公司大厅统计数据（聚合多 API 数据；须注册在 /:companyId 之前，旧路由顺序如此）
  */
-router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema }, async (_req, _res, { params }) => {
+router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema, response: companyHallStatsResponseSchema }, async (_req, _res, { params }) => {
   const { companyId } = params;
 
   const company = await getStore().readJson<Company>(companyPath(companyId));
@@ -81,7 +85,7 @@ router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema
  * GET /api/v1/companies/:companyId
  * 获取公司详情
  */
-router.get('/:companyId', defineRoute({ params: companyIdParamsSchema }, async (_req, _res, { params }) => {
+router.get('/:companyId', defineRoute({ params: companyIdParamsSchema, response: companyResponseSchema }, async (_req, _res, { params }) => {
   const company = await getStore().readJson<Company>(companyPath(params.companyId));
   if (!company) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Company ${params.companyId} not found`);
@@ -94,7 +98,7 @@ router.get('/:companyId', defineRoute({ params: companyIdParamsSchema }, async (
  * 更新公司信息
  */
 router.patch('/:companyId', defineRoute(
-  { params: companyIdParamsSchema, body: updateCompanyBodySchema },
+  { params: companyIdParamsSchema, body: updateCompanyBodySchema, response: companyResponseSchema },
   async (_req, _res, { params, body }) => {
     const existing = await getStore().readJson<Company>(companyPath(params.companyId));
     if (!existing) {

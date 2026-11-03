@@ -27,6 +27,13 @@ import {
   harnessKnowledgeListQuerySchema,
   harnessKnowledgeSaveBodySchema,
   harnessIdParamsSchema,
+  harnessKnowledgeQueryResponseSchema,
+  harnessKnowledgeListResponseSchema,
+  harnessKnowledgeGetResponseSchema,
+  harnessKnowledgeSaveResponseSchema,
+  harnessKnowledgeDeleteResponseSchema,
+  harnessKnowledgeLintResponseSchema,
+  type HarnessKnowledgeListResult,
 } from '@dommaker/studio-contract';
 import {
   loadHarness,
@@ -48,7 +55,7 @@ const HARNESS_UNAVAILABLE = () => new HttpError(503, 'SERVICE_UNAVAILABLE', 'Har
  * Query knowledge with token budget
  */
 knowledgeRoutes.post('/knowledge/query', defineRoute(
-  { body: knowledgeQueryBodySchema },
+  { body: knowledgeQueryBodySchema, response: harnessKnowledgeQueryResponseSchema },
   async (_req, _res, { body }) => {
     const query = await getKnowledgeQuery();
     if (!query) throw HARNESS_UNAVAILABLE();
@@ -63,10 +70,10 @@ knowledgeRoutes.post('/knowledge/query', defineRoute(
  * List knowledge entries
  */
 knowledgeRoutes.get('/knowledge', defineRoute(
-  { query: harnessKnowledgeListQuerySchema },
+  { query: harnessKnowledgeListQuerySchema, response: harnessKnowledgeListResponseSchema },
   async (_req, _res, { query }) => {
     const cacheKey = 'knowledge_list';
-    const cached = getCached<{ entries: unknown[]; total: number }>(cacheKey);
+    const cached = getCached<HarnessKnowledgeListResult>(cacheKey);
     if (cached) return cached;
 
     const store = await getKnowledgeStore();
@@ -90,7 +97,7 @@ knowledgeRoutes.get('/knowledge', defineRoute(
  * Get specific knowledge entry
  */
 knowledgeRoutes.get('/knowledge/:id', defineRoute(
-  { params: harnessIdParamsSchema },
+  { params: harnessIdParamsSchema, response: harnessKnowledgeGetResponseSchema },
   async (_req, _res, { params }) => {
     const store = await getKnowledgeStore();
     if (!store) throw HARNESS_UNAVAILABLE();
@@ -106,7 +113,7 @@ knowledgeRoutes.get('/knowledge/:id', defineRoute(
  * Save knowledge entry
  */
 knowledgeRoutes.post('/knowledge', defineRoute(
-  { body: harnessKnowledgeSaveBodySchema },
+  { body: harnessKnowledgeSaveBodySchema, response: harnessKnowledgeSaveResponseSchema },
   async (_req, _res, { body }) => {
     const store = await getKnowledgeStore();
     if (!store) throw HARNESS_UNAVAILABLE();
@@ -128,7 +135,7 @@ knowledgeRoutes.post('/knowledge', defineRoute(
  * Delete knowledge entry
  */
 knowledgeRoutes.delete('/knowledge/:id', defineRoute(
-  { params: harnessIdParamsSchema },
+  { params: harnessIdParamsSchema, response: harnessKnowledgeDeleteResponseSchema },
   async (_req, _res, { params }) => {
     const store = await getKnowledgeStore();
     if (!store) throw HARNESS_UNAVAILABLE();
@@ -144,7 +151,7 @@ knowledgeRoutes.delete('/knowledge/:id', defineRoute(
  * 知识库全量健康扫描（harness 3.0.0：KnowledgeLinter 随 ADR-0041 出清，
  * 检查面收口为 KnowledgeAudit 唯一正本——audit 规则命中清单）
  */
-knowledgeRoutes.post('/knowledge/lint', defineRoute({}, async () => {
+knowledgeRoutes.post('/knowledge/lint', defineRoute({ response: harnessKnowledgeLintResponseSchema }, async () => {
   const loaded = await loadHarness();
   if (!loaded) throw HARNESS_UNAVAILABLE();
 
@@ -154,5 +161,8 @@ knowledgeRoutes.post('/knowledge/lint', defineRoute({}, async () => {
   const report = new harnessModule!.KnowledgeAudit(store).run();
   const issues = report.issues;
 
-  return { issues, total: issues.length };
+  return {
+    issues: issues.map(issue => Object.fromEntries(Object.entries(issue))),
+    total: issues.length,
+  };
 }));

@@ -23,6 +23,9 @@ import {
   knowledgeGapQuerySchema,
   unifiedKnowledgeQuerySchema,
   createUnifiedEntryBodySchema,
+  knowledgeGapsResponseSchema,
+  unifiedKnowledgeListResponseSchema,
+  createUnifiedEntryResponseSchema,
 } from '@dommaker/studio-contract';
 import { sharedStore, publishKnowledgeEntryChanged } from '../knowledge-singletons.js';
 import { requireNotGuest } from '../../../middleware/auth.js';
@@ -41,7 +44,7 @@ export const entriesRoutes = Router();
  * （非法 type 原手写 400 → zod enum 400，文案变 zod 格式）
  */
 entriesRoutes.get('/gaps/:type', defineRoute(
-  { params: knowledgeGapParamsSchema, query: knowledgeGapQuerySchema },
+  { params: knowledgeGapParamsSchema, query: knowledgeGapQuerySchema, response: knowledgeGapsResponseSchema },
   async (req, _res, { params, query }) => {
     const { type } = params;
 
@@ -73,7 +76,7 @@ async function getUnifiedQuery() {
  * GET /unified — unified knowledge browser
  * Query params: consumptionMode, tags, origin, maturity, limit（默认 20，上限 100 — #359 起统一 parsePagination，原缺省 50）, offset, sortBy
  */
-entriesRoutes.get('/unified', defineRoute({ query: unifiedKnowledgeQuerySchema }, async (req, _res, { query }) => {
+entriesRoutes.get('/unified', defineRoute({ query: unifiedKnowledgeQuerySchema, response: unifiedKnowledgeListResponseSchema }, async (req, _res, { query }) => {
   const uq = await getUnifiedQuery();
   const filter = {
     consumptionModes: query.consumptionMode ? query.consumptionMode.split(',') : undefined,
@@ -95,7 +98,7 @@ entriesRoutes.get('/unified', defineRoute({ query: unifiedKnowledgeQuerySchema }
  * （必填四件套原手写 400 → zod 400）
  */
 entriesRoutes.post('/unified', requireNotGuest(), defineRoute(
-  { body: createUnifiedEntryBodySchema },
+  { body: createUnifiedEntryBodySchema, response: createUnifiedEntryResponseSchema },
   { status: 201 },
   async (req, _res, { body }) => {
     const { type, title, content, consumptionMode, applicableAgents, tags } = body;

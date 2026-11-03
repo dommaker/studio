@@ -21,8 +21,10 @@ describe('派生读形状', () => {
     })).toBeTruthy();
   });
 
-  it('fire 结果：CREATE 带 workUnit、EXECUTE 不带', () => {
+  it('fire 结果：CREATE 带 executeCreateAction 的 WU 摘要、EXECUTE 不带', () => {
     expect(fireTriggerResultSchema.parse({ fired: true, wasDisabled: false })).toEqual({ fired: true, wasDisabled: false });
+    const workUnit = { id: 'w1', type: 'task', scope: 's', status: 'pending', channelId: null, metadata: null };
+    expect(fireTriggerResultSchema.parse({ fired: true, wasDisabled: false, workUnit }).workUnit).toEqual(workUnit);
   });
 });
 

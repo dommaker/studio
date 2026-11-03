@@ -8,7 +8,15 @@ import { Router } from 'express';
 import { MonitoringService } from './monitoring.service.js';
 import { MetricsService } from './metrics.service.js';
 import { defineRoute } from '../../core/http.js';
-import { monitoringWindowQuerySchema } from '@dommaker/studio-contract';
+import {
+  monitoringWindowQuerySchema,
+  agentSummaryResponseSchema,
+  monitoringStatsResponseSchema,
+  flywheelStatsResponseSchema,
+  overheadStatsResponseSchema,
+  overviewMetricsResponseSchema,
+  efficiencyMetricsResponseSchema,
+} from '@dommaker/studio-contract';
 
 const router = Router();
 const service = new MonitoringService();
@@ -21,23 +29,23 @@ function parseWindowDays(raw: string | undefined): number | undefined {
 }
 
 /** GET /agents — AgentProfile + RuntimeInstance aggregation */
-router.get('/agents', defineRoute({}, async () => service.getAgentSummary()));
+router.get('/agents', defineRoute({ response: agentSummaryResponseSchema }, async () => service.getAgentSummary()));
 
 /** GET /stats — WorkUnit + Agent + recent stats aggregation */
-router.get('/stats', defineRoute({}, async () => service.getStats()));
+router.get('/stats', defineRoute({ response: monitoringStatsResponseSchema }, async () => service.getStats()));
 
 /** GET /flywheel — M1: 飞轮指标（hitRate/quality/freshness/proposal 待审/提取活动） */
-router.get('/flywheel', defineRoute({}, async () => service.getFlywheelStats()));
+router.get('/flywheel', defineRoute({ response: flywheelStatsResponseSchema }, async () => service.getFlywheelStats()));
 
 /** GET /overhead — M2: 封装开销（注入 tokens vs 2K 红线 / 开销比 vs 1.2x 红线 / 提取 tokens） */
-router.get('/overhead', defineRoute({}, async () => service.getOverheadStats()));
+router.get('/overhead', defineRoute({ response: overheadStatsResponseSchema }, async () => service.getOverheadStats()));
 
 /**
  * GET /overview — D16: 监控指标聚合（任务流健康/入口转化/人工干预北极星/端到端周期/
  * 角色维度/工程质量/Token/告警）。Query: windowDays（默认 7，1-90 clamp）。60s 缓存。
  */
 router.get('/overview', defineRoute(
-  { query: monitoringWindowQuerySchema },
+  { query: monitoringWindowQuerySchema, response: overviewMetricsResponseSchema },
   async (_req, _res, { query }) => metricsService.getOverviewMetrics({ windowDays: parseWindowDays(query.windowDays) }),
 ));
 
@@ -46,7 +54,7 @@ router.get('/overview', defineRoute(
  * Query: windowDays（默认 7，1-90 clamp）。60s 缓存。
  */
 router.get('/efficiency', defineRoute(
-  { query: monitoringWindowQuerySchema },
+  { query: monitoringWindowQuerySchema, response: efficiencyMetricsResponseSchema },
   async (_req, _res, { query }) => metricsService.getEfficiencyMetrics({ windowDays: parseWindowDays(query.windowDays) }),
 ));
 

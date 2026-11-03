@@ -12,6 +12,7 @@
  */
 
 import { Router } from 'express';
+import { csoValidateResponseSchema } from '@dommaker/studio-contract';
 import { defineRoute } from '../../core/http.js';
 import { loadHarness, harnessModule } from './runtime.js';
 
@@ -22,7 +23,7 @@ export const csoRoutes = Router();
  * GET /api/v1/cso/validate — 校验 skill 描述是否规范
  */
 // Decision #5: CSO 验证 — 直接挂主 router（/api/v1/cso/validate）
-csoRoutes.get('/validate', defineRoute({}, async () => {
+csoRoutes.get('/validate', defineRoute({ response: csoValidateResponseSchema }, async () => {
   try {
     await loadHarness();
     // harness 3.0.0（ADR-0041）：getInstance() 单例壳出清 → 构造器直建。

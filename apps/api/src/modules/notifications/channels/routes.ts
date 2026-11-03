@@ -37,6 +37,11 @@ import {
   ERROR_CODES,
   putWecomBodySchema,
   clawbotBindStatusQuerySchema,
+  notifyChannelsStateResponseSchema,
+  wecomChannelStateResponseSchema,
+  notifyChannelsSuccessResponseSchema,
+  clawbotBindStartResponseSchema,
+  clawbotBindStatusResponseSchema,
 } from '@dommaker/studio-contract';
 
 const WECOM_URL_PREFIX = 'https://qyapi.weixin.qq.com/';
@@ -81,14 +86,14 @@ function clawbotSegment() {
 const router = Router();
 
 /** GET / — 双段状态总览 */
-router.get('/', defineRoute({}, async () => ({
+router.get('/', defineRoute({ response: notifyChannelsStateResponseSchema }, async () => ({
   wecom: wecomSegment(),
   clawbot: clawbotSegment(),
 })));
 
 /** PUT /wecom — 保存 webhook（空串清除）；非企微前缀 400 */
 router.put('/wecom', defineRoute(
-  { body: putWecomBodySchema },
+  { body: putWecomBodySchema, response: wecomChannelStateResponseSchema },
   async (_req, _res, { body }) => {
     const trimmed = body.webhookUrl.trim();
     if (trimmed && !trimmed.startsWith(WECOM_URL_PREFIX)) {
@@ -102,7 +107,7 @@ router.put('/wecom', defineRoute(
 ));
 
 /** POST /wecom/test — 经同一解析（配置存储优先、env 兜底）发一条测试 markdown */
-router.post('/wecom/test', defineRoute({}, async () => {
+router.post('/wecom/test', defineRoute({ response: notifyChannelsSuccessResponseSchema }, async () => {
   const { url } = resolveWeComWebhookUrl();
   if (!url) {
     throw new HttpError(400, ERROR_CODES.BAD_REQUEST, 'WeCom webhook not configured');
@@ -120,11 +125,11 @@ router.post('/wecom/test', defineRoute({}, async () => {
 }));
 
 /** POST /clawbot/bind/start — 取扫码二维码（qrcodeUrl = qrcode_img_content） */
-router.post('/clawbot/bind/start', defineRoute({}, async () => withUpstream(() => getBotQrcode())));
+router.post('/clawbot/bind/start', defineRoute({ response: clawbotBindStartResponseSchema }, async () => withUpstream(() => getBotQrcode())));
 
 /** GET /clawbot/bind/status?qrcode= — 轮询；confirmed 时凭据持久化后返回 bound:true */
 router.get('/clawbot/bind/status', defineRoute(
-  { query: clawbotBindStatusQuerySchema },
+  { query: clawbotBindStatusQuerySchema, response: clawbotBindStatusResponseSchema },
   async (_req, _res, { query }) => withUpstream(async () => {
     const { status, credentials } = await getQrcodeStatus(query.qrcode);
     if (status === 'confirmed' && credentials) {
@@ -143,7 +148,7 @@ router.get('/clawbot/bind/status', defineRoute(
 ));
 
 /** POST /clawbot/unbind — 清除 ClawBot 绑定 */
-router.post('/clawbot/unbind', defineRoute({}, async () => {
+router.post('/clawbot/unbind', defineRoute({ response: notifyChannelsSuccessResponseSchema }, async () => {
   const config = loadNotifyChannelsConfig();
   config.clawbot = null;
   saveNotifyChannelsConfig(config);
@@ -151,7 +156,7 @@ router.post('/clawbot/unbind', defineRoute({}, async () => {
 }));
 
 /** POST /clawbot/test — 向已绑定用户发测试文本（失败 502，errcode 透传，如 -14 = 会话过期需重扫） */
-router.post('/clawbot/test', defineRoute({}, async () => {
+router.post('/clawbot/test', defineRoute({ response: notifyChannelsSuccessResponseSchema }, async () => {
   const clawbot = loadNotifyChannelsConfig().clawbot;
   if (!clawbot?.botToken) {
     throw new HttpError(400, ERROR_CODES.BAD_REQUEST, 'ClawBot not bound');

@@ -12,7 +12,7 @@
  */
 
 import { Router, Request } from 'express';
-import { getNotificationService } from './notification-service.js';
+import { getNotificationService, toNotificationWire } from './notification-service.js';
 
 import { AuthRequest } from '../../middleware/auth.js';
 import { defineRoute, HttpError } from '../../core/http.js';
@@ -21,6 +21,9 @@ import {
   listNotificationsQuerySchema,
   markNotificationsReadBodySchema,
   notificationIdParamsSchema,
+  notificationListResponseSchema,
+  unreadCountResponseSchema,
+  notificationReadResponseSchema,
 } from '@dommaker/studio-contract';
 
 
@@ -42,13 +45,14 @@ function resolveUserId(req: Request): string {
  * 获取通知列表
  */
 router.get('/', defineRoute(
-  { query: listNotificationsQuerySchema },
+  { query: listNotificationsQuerySchema, response: notificationListResponseSchema },
   async (req, _res, { query }) => {
     const userId = resolveUserId(req);
-    return getNotificationService().getUserNotifications(userId, {
+    const items = await getNotificationService().getUserNotifications(userId, {
       unreadOnly: query.unreadOnly === 'true',
       limit: 50,
     });
+    return items.map(toNotificationWire);
   },
 ));
 
@@ -56,7 +60,7 @@ router.get('/', defineRoute(
  * GET /api/v1/notifications/unread-count
  * 获取未读数量
  */
-router.get('/unread-count', defineRoute({}, async (req) => {
+router.get('/unread-count', defineRoute({ response: unreadCountResponseSchema }, async (req) => {
   const userId = resolveUserId(req);
   const count = await getNotificationService().getUnreadCount(userId);
   return { count };
@@ -64,7 +68,7 @@ router.get('/unread-count', defineRoute({}, async (req) => {
 
 /** POST /api/v1/notifications/read：一次请求批量已读，越权 id 由 service 静默忽略。 */
 router.post('/read', defineRoute(
-  { body: markNotificationsReadBodySchema },
+  { body: markNotificationsReadBodySchema, response: notificationReadResponseSchema },
   async (req, _res, { body }) => {
     await getNotificationService().markManyAsRead(body.ids, resolveUserId(req));
     return { success: true };
@@ -76,7 +80,7 @@ router.post('/read', defineRoute(
  * 标记已读
  */
 router.post('/:id/read', defineRoute(
-  { params: notificationIdParamsSchema },
+  { params: notificationIdParamsSchema, response: notificationReadResponseSchema },
   async (req, _res, { params }) => {
     const userId = resolveUserId(req);
     await getNotificationService().markAsRead(params.id, userId);
@@ -88,7 +92,7 @@ router.post('/:id/read', defineRoute(
  * POST /api/v1/notifications/read-all
  * 标记全部已读
  */
-router.post('/read-all', defineRoute({}, async (req) => {
+router.post('/read-all', defineRoute({ response: notificationReadResponseSchema }, async (req) => {
   const userId = resolveUserId(req);
   await getNotificationService().markAllAsRead(userId);
   return { success: true };

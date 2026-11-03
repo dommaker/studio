@@ -1,6 +1,6 @@
 // OKR Service - PMO 模块核心服务
 import { FileStore } from '@dommaker/studio-shared';
-import { isValidOkrQuarter } from '@dommaker/studio-contract';
+import { isValidOkrQuarter, type Okr, type OkrDetail, type OkrMutationResult } from '@dommaker/studio-contract';
 import { studioDir } from '@dommaker/studio-shared/studio-dir';
 import * as path from 'node:path';
 import { getStore } from '../../core/store.js';
@@ -81,6 +81,35 @@ export class OKRService {
     return null;
   }
 
+  private stringMeta(meta: Record<string, unknown>, field: string): string {
+    const value = meta[field];
+    if (typeof value !== 'string') throw new Error(`Invalid OKR ${field}`);
+    return value;
+  }
+
+  private numberMeta(meta: Record<string, unknown>, field: string): number {
+    const value = meta[field];
+    if (typeof value !== 'number') throw new Error(`Invalid OKR ${field}`);
+    return value;
+  }
+
+  private mutationWire(
+    meta: Record<string, unknown>,
+    parsed: { objectives: OKRObjective[]; keyResults: OKRKeyResult[] },
+  ): OkrMutationResult {
+    return {
+      id: this.stringMeta(meta, 'id'),
+      companyId: this.stringMeta(meta, 'companyId'),
+      title: this.stringMeta(meta, 'title'),
+      quarter: this.stringMeta(meta, 'quarter'),
+      status: this.stringMeta(meta, 'status'),
+      progress: this.numberMeta(meta, 'progress'),
+      createdAt: this.stringMeta(meta, 'createdAt'),
+      updatedAt: this.stringMeta(meta, 'updatedAt'),
+      ...parsed,
+    };
+  }
+
   /** 解析 meta 中的 objectives/keyResults JSON 字符串 */
   private parseOKRMeta(meta: Record<string, unknown>): { objectives: OKRObjective[]; keyResults: OKRKeyResult[] } {
     const objectives: OKRObjective[] = typeof meta.objectives === 'string'
@@ -93,7 +122,7 @@ export class OKRService {
   /**
    * 创建 OKR
    */
-  async create(input: CreateOKRInput) {
+  async create(input: CreateOKRInput): Promise<OkrMutationResult> {
     if (!isValidOkrQuarter(input.quarter)) {
       throw new Error('quarter must match ^\\d{4}-Q[1-4]$');
     }
@@ -130,13 +159,13 @@ export class OKRService {
     await this.fileStore.writeDoc(OKR_DIR, input.quarter, meta, body);
 
     logger.info('OKR created', { okrId: id, quarter: input.quarter });
-    return { id, ...meta, objectives: input.objectives, keyResults: input.keyResults };
+    return this.mutationWire(meta, { objectives: input.objectives, keyResults: input.keyResults });
   }
 
   /**
    * 获取 OKR 列表
    */
-  async list(companyId: string, options?: { status?: string }) {
+  async list(companyId: string, options?: { status?: string }): Promise<Okr[]> {
     const keys = await this.fileStore.listDocs(OKR_DIR);
     const docs: { meta: Record<string, unknown>; body: string; key: string }[] = [];
 
@@ -157,17 +186,8 @@ export class OKRService {
     return docs.map(d => {
       const parsed = this.parseOKRMeta(d.meta);
       return {
-        id: d.meta.id,
-        companyId: d.meta.companyId,
-        title: d.meta.title,
-        quarter: d.meta.quarter,
-        status: d.meta.status,
-        progress: d.meta.progress,
-        objectives: parsed.objectives,
-        keyResults: parsed.keyResults,
-        createdAt: d.meta.createdAt,
-        updatedAt: d.meta.updatedAt,
-        projectCount: countByOkr.get(d.meta.id as string) || 0,
+        ...this.mutationWire(d.meta, parsed),
+        projectCount: countByOkr.get(this.stringMeta(d.meta, 'id')) || 0,
       };
     });
   }
@@ -175,7 +195,7 @@ export class OKRService {
   /**
    * 获取 OKR 详情
    */
-  async get(id: string) {
+  async get(id: string): Promise<OkrDetail> {
     const key = await this.findOKRKey(id);
     if (!key) {
       throw new Error('OKR not found');
@@ -197,16 +217,7 @@ export class OKRService {
       }));
 
     return {
-      id: doc.meta.id,
-      companyId: doc.meta.companyId,
-      title: doc.meta.title,
-      quarter: doc.meta.quarter,
-      status: doc.meta.status,
-      progress: doc.meta.progress,
-      objectives: parsed.objectives,
-      keyResults: parsed.keyResults,
-      createdAt: doc.meta.createdAt,
-      updatedAt: doc.meta.updatedAt,
+      ...this.mutationWire(doc.meta, parsed),
       Company: null,
       Execution: recentExecs,
       _count: { Execution: linkedProjects.length },
@@ -216,7 +227,7 @@ export class OKRService {
   /**
    * 更新 OKR
    */
-  async update(id: string, input: UpdateOKRInput) {
+  async update(id: string, input: UpdateOKRInput): Promise<OkrMutationResult> {
     const key = await this.findOKRKey(id);
     if (!key) {
       throw new Error('OKR not found');
@@ -264,7 +275,7 @@ export class OKRService {
     await this.fileStore.writeDoc(OKR_DIR, key, meta, bodyLines.join('\n'));
 
     logger.info('OKR updated', { okrId: id });
-    return { id, ...meta, objectives: updatedObj, keyResults: updatedKR };
+    return this.mutationWire(meta, { objectives: updatedObj, keyResults: updatedKR });
   }
 
   /**

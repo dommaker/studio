@@ -11,6 +11,12 @@ import {
   mcpPermissionsQuerySchema,
   mcpPermissionSetBodySchema,
   mcpAuditQuerySchema,
+  mcpAdminToolListResponseSchema,
+  mcpToolToggleResponseSchema,
+  mcpAdminStatsResponseSchema,
+  mcpRolePermissionsResponseSchema,
+  mcpPermissionSetResponseSchema,
+  mcpAuditResponseSchema,
 } from '@dommaker/studio-contract';
 import { defineRoute, HttpError } from '../../core/http.js';
 
@@ -20,7 +26,7 @@ const router = Router();
  * GET /api/v1/mcp/admin/tools
  * List all tools with status and stats
  */
-router.get('/tools', defineRoute({}, async () => {
+router.get('/tools', defineRoute({ response: mcpAdminToolListResponseSchema }, async () => {
   const tools = toolRegistry.list(true); // include disabled
   const stats = toolRegistry.getStats();
 
@@ -42,7 +48,7 @@ router.get('/tools', defineRoute({}, async () => {
  * Enable/disable a tool
  */
 router.patch('/tools/:name', defineRoute(
-  { params: mcpToolNameParamsSchema, body: mcpToolToggleBodySchema },
+  { params: mcpToolNameParamsSchema, body: mcpToolToggleBodySchema, response: mcpToolToggleResponseSchema },
   async (_req, _res, { params, body }) => {
     const success = toolRegistry.setEnabled(params.name, body.enabled);
     if (!success) {
@@ -56,7 +62,7 @@ router.patch('/tools/:name', defineRoute(
  * GET /api/v1/mcp/admin/stats
  * Aggregate call stats
  */
-router.get('/stats', defineRoute({}, async () => {
+router.get('/stats', defineRoute({ response: mcpAdminStatsResponseSchema }, async () => {
   const stats = toolRegistry.getStats();
   const tools = toolRegistry.list(true);
 
@@ -82,7 +88,7 @@ router.get('/stats', defineRoute({}, async () => {
  * Query permissions for a role
  */
 router.get('/permissions', defineRoute(
-  { query: mcpPermissionsQuerySchema },
+  { query: mcpPermissionsQuerySchema, response: mcpRolePermissionsResponseSchema },
   async (_req, _res, { query }) => {
     const permissions = await mcpPermissionService.getRolePermissions(query.roleId);
     return { roleId: query.roleId, permissions };
@@ -94,7 +100,7 @@ router.get('/permissions', defineRoute(
  * Set permission for role×tool
  */
 router.put('/permissions', defineRoute(
-  { body: mcpPermissionSetBodySchema },
+  { body: mcpPermissionSetBodySchema, response: mcpPermissionSetResponseSchema },
   async (_req, _res, { body }) => {
     await mcpPermissionService.setPermission(body.roleId, body.toolName, body.allowed);
     return { roleId: body.roleId, toolName: body.toolName, allowed: body.allowed };
@@ -106,7 +112,7 @@ router.put('/permissions', defineRoute(
  * Query audit logs
  */
 router.get('/audit', defineRoute(
-  { query: mcpAuditQuerySchema },
+  { query: mcpAuditQuerySchema, response: mcpAuditResponseSchema },
   async (_req, _res, { query }) => {
     const result = await mcpPermissionService.queryAudit({
       toolName: query.toolName,

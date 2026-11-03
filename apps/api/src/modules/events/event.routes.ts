@@ -35,6 +35,8 @@ import {
   ERROR_CODES,
   createStudioEventBodySchema,
   listStudioEventsQuerySchema,
+  createStudioEventResponseSchema,
+  eventSearchResponseSchema,
 } from '@dommaker/studio-contract';
 
 // P2-e 鉴权声明式统一：open（GET /，registry 挂 auth）/ write（POST /，registry 挂
@@ -49,7 +51,7 @@ const writeRoutes = Router();
  * D18：payload 为空（{} / null / undefined）拒绝落盘 → 400（调用方自查）。
  */
 writeRoutes.post('/', defineRoute(
-  { body: createStudioEventBodySchema },
+  { body: createStudioEventBodySchema, response: createStudioEventResponseSchema },
   { status: 201 },
   async (_req, _res, { body }) => {
     const { type, source, payload } = body;
@@ -89,7 +91,7 @@ writeRoutes.post('/', defineRoute(
 const EVENT_LEVELS: StudioEventLevel[] = ['debug', 'info', 'warning', 'critical'];
 
 openRoutes.get('/', defineRoute(
-  { query: listStudioEventsQuerySchema },
+  { query: listStudioEventsQuerySchema, response: eventSearchResponseSchema },
   async (_req, _res, { query }) => {
     const { type, since, until, level: levelStr, keyword, workUnitId, limit: limitStr, cursor } = query;
     const limit = Math.min(Math.max(parseInt(String(limitStr || '50'), 10) || 50, 1), 200);
@@ -130,7 +132,15 @@ openRoutes.get('/', defineRoute(
     // 页内按事件时间倒序兜底（文件追加序基本即时间序，防同文件乱序行）
     events.sort((a, b) => getStudioEventTime(b) - getStudioEventTime(a));
 
-    return { events, total: events.length, nextCursor };
+    const wireEvents = events.map(event => ({
+      ...event,
+      type: typeof event.type === 'string' ? event.type : 'unknown',
+      source: typeof event.source === 'string' ? event.source : undefined,
+      level: studioEventLevelOf(event),
+      payload: typeof event.payload === 'string' ? event.payload : undefined,
+      createdAt: typeof event.createdAt === 'string' ? event.createdAt : undefined,
+    }));
+    return { events: wireEvents, total: wireEvents.length, nextCursor };
   },
 ));
 

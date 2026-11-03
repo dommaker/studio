@@ -18,7 +18,7 @@
  */
 
 import { Router } from 'express';
-import { upsertKnowledgeBodySchema } from '@dommaker/studio-contract';
+import { upsertKnowledgeBodySchema, knowledgeSyncStatusResponseSchema, upsertKnowledgeResponseSchema } from '@dommaker/studio-contract';
 import { upsertKnowledge } from '../knowledge-design-doc.js';
 import type { KnowledgeSource } from '../knowledge-design-doc.js';
 import { knowledgeSync } from '../scheduling/knowledge-sync.service.js';
@@ -29,7 +29,7 @@ export const internalRoutes = Router();
 /**
  * GET /api/knowledge/sync-status — 知识同步状态（新鲜度检测）
  */
-internalRoutes.get('/sync-status', defineRoute({}, async () => {
+internalRoutes.get('/sync-status', defineRoute({ response: knowledgeSyncStatusResponseSchema }, async () => {
   const { stale, unmonitored } = await knowledgeSync.detectStaleness();
   const trackedScopes = knowledgeSync.getTrackedScopes();
 
@@ -39,7 +39,12 @@ internalRoutes.get('/sync-status', defineRoute({}, async () => {
     healed = await knowledgeSync.heal(stale);
   }
 
-  return { trackedScopes, stale, unmonitored, healed };
+  return {
+    trackedScopes,
+    stale: stale.map(row => Object.fromEntries(Object.entries(row))),
+    unmonitored: unmonitored.map(row => Object.fromEntries(Object.entries(row))),
+    healed,
+  };
 }));
 
 /**
@@ -51,7 +56,7 @@ internalRoutes.get('/sync-status', defineRoute({}, async () => {
  * Body: { scope, title, content, type?, source? }
  * （必填三件套原手写 400 → zod 400）
  */
-internalRoutes.post('/upsert', defineRoute({ body: upsertKnowledgeBodySchema }, async (_req, _res, { body }) => {
+internalRoutes.post('/upsert', defineRoute({ body: upsertKnowledgeBodySchema, response: upsertKnowledgeResponseSchema }, async (_req, _res, { body }) => {
   const { scope, title, content, type, source } = body;
 
   // Write to KnowledgeStore (single source of truth)

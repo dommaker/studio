@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 // #665（ADR 2026-08-24 落地）：channel.message_* SSE 负载与 studio-contract 同源——
 // 字段集取自契约 payload 类型；message 在进程内是 MessageRecord（createdAt: Date），
 // wire 上 JSON 序列化为 ISO string 后 = 契约 ChannelMessage（wire parity 见契约 __tests__）。
-import type { SseEventPayloadMap } from '@dommaker/studio-contract';
+import type { ChannelMessage, SseEventPayloadMap } from '@dommaker/studio-contract';
 import { getStore } from '../../core/store.js';
 import { createLazyService } from '../../utils/services.js';
 
@@ -49,8 +49,13 @@ export interface MessageRecord {
   agentName: string | null;
   content: string;
   replyToId: string | null;
-  meta: unknown;
+  meta: MessageMeta;
   createdAt: Date;
+}
+
+/** MessageRecord → REST wire：meta 保持对象，createdAt 归一为 ISO 串。 */
+export function toChannelMessageWire(message: MessageRecord): ChannelMessage {
+  return { ...message, createdAt: message.createdAt.toISOString() };
 }
 
 /** 将 FileStore 的字符串时间转为 Date，解析 meta JSON */

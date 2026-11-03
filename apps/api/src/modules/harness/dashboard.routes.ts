@@ -14,6 +14,7 @@
  */
 
 import { Router } from 'express';
+import { harnessHealthResponseSchema } from '@dommaker/studio-contract';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { loadHarness } from './runtime.js';
 
@@ -23,7 +24,7 @@ export const dashboardRoutes = Router();
  * GET /api/v1/harness/health
  * Overall constraint health summary
  */
-dashboardRoutes.get('/health', defineRoute({}, async () => {
+dashboardRoutes.get('/health', defineRoute({ response: harnessHealthResponseSchema }, async () => {
   const loaded = await loadHarness();
   if (!loaded) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'Harness not available');
 

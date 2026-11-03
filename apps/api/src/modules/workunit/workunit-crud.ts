@@ -19,6 +19,7 @@ import { buildStatusById, parseBlockedBy, resolveClaimable } from './wu-dependen
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
+import type { WorkUnit } from '@dommaker/studio-contract';
 
 export interface CreateWorkUnitInput {
   type?: string;
@@ -115,6 +116,22 @@ export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
     claimedAt: s.claimedAt ? new Date(s.claimedAt) : null,
     completedAt: s.completedAt ? new Date(s.completedAt) : null,
     closedAt: s.closedAt ? new Date(s.closedAt) : null,
+  };
+}
+
+function isoDate(value: Date | string): string {
+  return typeof value === 'string' ? value : value.toISOString();
+}
+
+/** service 内存型的 Date 在 HTTP 边界归一为 contract 的 ISO wire 形状。 */
+export function toWorkUnitWire(wu: WorkUnitData): WorkUnit {
+  return {
+    ...wu,
+    timeoutAt: wu.timeoutAt === null ? null : isoDate(wu.timeoutAt),
+    createdAt: isoDate(wu.createdAt),
+    updatedAt: isoDate(wu.updatedAt),
+    claimedAt: wu.claimedAt === null ? null : isoDate(wu.claimedAt),
+    completedAt: wu.completedAt === null ? null : isoDate(wu.completedAt),
   };
 }
 

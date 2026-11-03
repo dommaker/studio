@@ -12,7 +12,6 @@
 
 import { z } from 'zod';
 import { dataBodySchema } from './envelope.js';
-import { workUnitSchema } from './workunit.js';
 
 /** GET /costs 响应 data（byTrigger/bySource 为 token 数；callsBySource 为调用次数） */
 export const triggerCostsResultSchema = z.object({
@@ -27,7 +26,14 @@ export type TriggerCostsResult = z.infer<typeof triggerCostsResultSchema>;
 export const fireTriggerResultSchema = z.object({
   fired: z.boolean(),
   wasDisabled: z.boolean(),
-  workUnit: workUnitSchema.optional(),
+  workUnit: z.object({
+    id: z.string(),
+    type: z.string(),
+    scope: z.string(),
+    status: z.string(),
+    channelId: z.string().nullable(),
+    metadata: z.string().nullable(),
+  }).optional(),
 });
 export type FireTriggerResult = z.infer<typeof fireTriggerResultSchema>;
 

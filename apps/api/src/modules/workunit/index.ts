@@ -21,7 +21,7 @@ export { TraceLink } from './trace-link.js';
 export { WaitingGate } from './waiting-gate.js';
 export type { WaitingGateCommand } from './waiting-gate.js';
 export { resumeWaitingWorkUnit, scanWaitingForInputReminders } from './waiting-input.js';
-export { snapshotToData } from './workunit-crud.js';
+export { snapshotToData, toWorkUnitWire } from './workunit-crud.js';
 export type { WorkUnitData } from './workunit-crud.js';
 export { WorkUnitService } from './workunit-review.js';
 export { ANALYSIS_TASKS_MAX, DECISION_SPEC_TYPES, INSPECTION_OPPORTUNITIES_MAX, MANUAL_GATE_TYPES, PLAN_STEP_LIMIT, WU_LEASE_TTL_MS } from './workunit.types.js';

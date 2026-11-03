@@ -102,7 +102,7 @@ describe('trigger manual fire + costs', () => {
 
   it('fire 已停用的 yaml 触发器：仍创建 WU，wasDisabled=true', async () => {
     mockStoreGet.mockReturnValue(makeConfig('disabled-yaml', 'CREATE', false));
-    mockExecuteCreateAction.mockResolvedValue({ id: 'wu-1', scope: 'disabled-yaml scope', status: 'queued' });
+    mockExecuteCreateAction.mockResolvedValue({ id: 'wu-1', type: 'analysis', scope: 'disabled-yaml scope', status: 'queued', channelId: null, metadata: null });
 
     const res = await fetch(`${base}/disabled-yaml/fire`, { method: 'POST' });
     expect(res.status).toBe(200);
@@ -132,7 +132,7 @@ describe('trigger manual fire + costs', () => {
     mockGetStates.mockReturnValue([
       { config: makeConfig('knowledge-synthesis', 'CREATE', false), lastFiredAt: null, nextFireAt: null, errorCount: 0 },
     ]);
-    mockExecuteCreateAction.mockResolvedValue({ id: 'wu-2', scope: 'synthesis', status: 'queued' });
+    mockExecuteCreateAction.mockResolvedValue({ id: 'wu-2', type: 'analysis', scope: 'synthesis', status: 'queued', channelId: null, metadata: null });
 
     const res = await fetch(`${base}/knowledge-synthesis/fire`, { method: 'POST' });
     expect(res.status).toBe(200);
@@ -145,8 +145,8 @@ describe('trigger manual fire + costs', () => {
   it('同分钟连续 fire 两次：两次都创建 WU（手动路径不去重）', async () => {
     mockStoreGet.mockReturnValue(makeConfig('twice', 'CREATE'));
     mockExecuteCreateAction
-      .mockResolvedValueOnce({ id: 'wu-a', scope: 'twice', status: 'queued' })
-      .mockResolvedValueOnce({ id: 'wu-b', scope: 'twice', status: 'queued' });
+      .mockResolvedValueOnce({ id: 'wu-a', type: 'task', scope: 'twice', status: 'queued', channelId: null, metadata: null })
+      .mockResolvedValueOnce({ id: 'wu-b', type: 'task', scope: 'twice', status: 'queued', channelId: null, metadata: null });
 
     const r1 = await fetch(`${base}/twice/fire`, { method: 'POST' });
     const r2 = await fetch(`${base}/twice/fire`, { method: 'POST' });
@@ -192,7 +192,7 @@ describe('trigger manual fire + costs', () => {
     mockGetStates.mockReturnValue([
       { config: { ...makeConfig('inspection-scan', 'CREATE'), condition: { type: 'EVENT', event: 'workunit.status_changed' } }, lastFiredAt: null, nextFireAt: null, errorCount: 0 },
     ]);
-    mockExecuteCreateAction.mockResolvedValue({ id: 'wu-insp', scope: '巡检', status: 'pending' });
+    mockExecuteCreateAction.mockResolvedValue({ id: 'wu-insp', type: 'analysis', scope: '巡检', status: 'pending', channelId: null, metadata: null });
 
     const res = await fetch(`${base}/inspection-scan/fire`, { method: 'POST' });
     expect(res.status).toBe(200);

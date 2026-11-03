@@ -1,26 +1,67 @@
 // Contract test: Monitoring Routes — MVP-2 + MVP-6
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockGetAgentSummary, mockGetStats, mockGetOverviewMetrics, mockGetEfficiencyMetrics } = vi.hoisted(() => ({
-  mockGetAgentSummary: vi.fn().mockResolvedValue({
-    agents: [{ id: 'inst-1', name: 'test-agent', status: 'idle', currentWorkUnitId: null, startedAt: '2026-01-01T00:00:00Z' }],
-    summary: { total: 1, idle: 1, active: 0, terminated: 0 },
-  }),
-  mockGetStats: vi.fn().mockResolvedValue({
-    workunits: { total: 5, unassigned: 2, active: 1, in_review: 1, done: 1, blocked: 0, closed: 0 },
-    agents: { total: 1, idle: 1, active: 0, terminated: 0 },
-    recent: { completedLast24h: 1, failedLast24h: 0 },
-  }),
-  mockGetOverviewMetrics: vi.fn().mockResolvedValue({
-    windowDays: 7, generatedAt: '2026-07-27T00:00:00.000Z', source: 'events',
-    humanIntervention: { avgPerCompletedWu: 0.5 },
-  }),
-  mockGetEfficiencyMetrics: vi.fn().mockResolvedValue({
-    windowDays: 7, generatedAt: '2026-07-27T00:00:00.000Z',
-    cacheHitRate: { source: 'events', overall: { hitRatePct: 47, cacheReadTokens: 1400, inputTokens: 1600, events: 4, workUnits: 3 } },
-    sectionTrim: { source: 'events', totals: { trimEvents: 3 }, bySection: [{ section: 'knowledge', trimCount: 2 }] },
-  }),
-}));
+const { mockGetAgentSummary, mockGetStats, mockGetOverviewMetrics, mockGetEfficiencyMetrics } = vi.hoisted(() => {
+  const percentile = { count: 0, p50Hours: null, p95Hours: null };
+  return {
+    mockGetAgentSummary: vi.fn().mockResolvedValue({
+      agents: [{
+        id: 'inst-1', roleId: 'role-1', name: 'test-agent', status: 'idle', currentWorkUnitId: null,
+        startedAt: '2026-01-01T00:00:00Z', lastError: null, lastErrorAt: null,
+        currentWorkUnit: null, pmo: null, channelId: null,
+      }],
+      summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
+    }),
+    mockGetStats: vi.fn().mockResolvedValue({
+      workunits: { total: 5, unassigned: 2, active: 1, in_review: 1, done: 1, blocked: 0, closed: 0 },
+      agents: { total: 1, idle: 1, active: 0, terminated: 0 },
+      recent: { completedLast24h: 1, failedLast24h: 0 },
+    }),
+    mockGetOverviewMetrics: vi.fn().mockResolvedValue({
+      windowDays: 7, generatedAt: '2026-07-27T00:00:00.000Z', source: 'events',
+      taskFlow: {
+        description: 'task flow', byStatus: {},
+        dwell: { ...percentile, description: 'dwell' },
+        createToClaim: { ...percentile, description: 'create to claim' },
+        claimToComplete: { ...percentile, description: 'claim to complete' },
+        failuresByErrorType: { description: 'failures', buckets: {} },
+        steps: { description: 'steps', count: 0, avgStepCount: null, stuckWorkUnits: 0, avgStuckSteps: null },
+      },
+      intake: { description: 'intake', humanMessages: 0, workUnitsCreated: 0, conversionPct: null },
+      humanIntervention: {
+        description: 'human intervention', completedWorkUnits: 2, needInputCount: 1,
+        reviewRejections: 0, mergeConflicts: 0, avgPerCompletedWu: 0.5,
+      },
+      cycleTime: { description: 'cycle', createToDone: percentile, avgHours: null },
+      roles: { description: 'roles', roles: [] },
+      quality: { description: 'quality', verifyPassed: 0, verifyFailing: 0, verifyPassRatePct: null, mergeConflicts: 0, merges: 0 },
+      tokens: {
+        description: 'tokens', totals: { injectedTokens: 0, executionTokens: 0, totalTokens: 0 },
+        workUnits: 0, avgTokensPerWu: null, cacheHitRatePct: null, cacheCoveragePct: 0, byRole: [],
+      },
+      alerts: { description: 'alerts', last24h: 0, inWindow: 0, byLevel: {} },
+      stuck: { description: 'stuck', blocked: 0, staleUnassigned: 0, stalledActive: 0 },
+      failure24h: { description: 'failures', n: 0, rate: null, trend: null },
+      evidence: {
+        description: 'evidence', engaged: 0, l1Approved: 0, l2Approved: 0, l3Approved: 0,
+        selfReviewCount: 0, needsHuman: 0, derivedMismatch: 0, derivedByColumn: {},
+      },
+    }),
+    mockGetEfficiencyMetrics: vi.fn().mockResolvedValue({
+      windowDays: 7, generatedAt: '2026-07-27T00:00:00.000Z',
+      cacheHitRate: {
+        description: 'cache', windowDays: 7, source: 'events',
+        overall: { hitRatePct: 47, cacheReadTokens: 1400, inputTokens: 1600, events: 4, workUnits: 3 },
+        steps: [], byWorkUnit: [], byRole: [], byDay: [], coveragePct: 100,
+      },
+      sectionTrim: {
+        description: 'trim', windowDays: 7, source: 'events',
+        totals: { trimEvents: 3, totalOriginalTokens: 100, totalTrimmedTokens: 80 },
+        bySection: [{ section: 'knowledge', trimCount: 2, avgOriginalTokens: 50, avgTrimmedTokens: 40, avgTrimPct: 20 }],
+      },
+    }),
+  };
+});
 
 vi.mock('../monitoring.service.js', () => ({
   MonitoringService: vi.fn(function MonitoringService() {

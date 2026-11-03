@@ -12,7 +12,7 @@
  */
 
 import { Router } from 'express';
-import { agentInstanceIdParamsSchema } from '@dommaker/studio-contract';
+import { agentInstanceIdParamsSchema, agentInstanceResponseSchema } from '@dommaker/studio-contract';
 import { AgentInstanceService } from './agent-instance.service.js';
 import { defineRoute } from '../../core/http.js';
 
@@ -21,7 +21,7 @@ const service = new AgentInstanceService();
 
 /** POST /:id/terminate — 强制停止实例：unclaim 当前 WorkUnit 并置 blocked 转人工（2026-07 §4 语义修正，活 loop 不会重新认领）+ 实例置 terminated */
 adminRoutes.post('/:id/terminate', defineRoute(
-  { params: agentInstanceIdParamsSchema },
+  { params: agentInstanceIdParamsSchema, response: agentInstanceResponseSchema },
   { errors: [{ match: 'not found', status: 404, code: 'NOT_FOUND' }] },
   async (_req, _res, { params }) => {
     return service.terminate(params.id);

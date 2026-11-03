@@ -10,7 +10,7 @@ Specs 域：变更分析（L1-L4 分级与审批推荐）、变更历史查询�
 | --- | --- | --- |
 | `specsOpenRoutes` / `specsWriteRoutes` | `routes.ts` | Express 路由（open=读+analyze-change / write=validate+import，鉴权挂 route-registry） |
 | `ChangeAnalyzerService` / `changeAnalyzerService` | `change-analyzer.service.ts` | 变更分析：检测变更类型、计算风险、确定级别、推荐审批流程 |
-| `ChangeHistoryService` / `changeHistoryService` | `change-history.service.ts` | 变更历史：进程内 Map 存储与查询 |
+| `ChangeHistoryService` / `changeHistoryService` / `toChangeRecordWire` | `change-history.service.ts` | 变更历史：进程内 Map 存储与查询；路由出口统一把 submittedAt/approvedAt/appliedAt 转为 ISO wire |
 | `GateCheckerService` / `gateCheckerService` | `gate-checker.service.ts` | 门禁检查：L1-L4 策略 + 五个业务 checker 在本模块；通用检查以 harness 原生 Checkpoint/CheckpointCheck 表达，交 harness CheckpointValidator 执行；SEC-01 起 command_success/command/workdir 硬拒绝，文件路径限服务端项目根 |
 | `isHarnessCheck` / `HARNESS_CHECK_TYPES` | `types/gate.types.ts` | Harness 检查判断（type guard）与路由常量；HarnessCheckConfig = harness `CheckConfig` 别名 |
 | 类型（ChangeLevel, CheckpointType, GatePolicy, SpecContent 等） | `types/*.ts` | 变更、门禁类型定义 |

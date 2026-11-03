@@ -15,11 +15,12 @@ import path from 'path';
 
 describe('route-registry 鉴权姿态（P2-e 声明式统一）', () => {
   it('全部 entry 姿态符合声明（describeEntryAuth 派生 + 逐档功能探针）', async () => {
-    const tsxBin = path.resolve(process.cwd(), 'node_modules/.bin/tsx');
+    const apiRoot = path.resolve(__dirname, '../..');
+    const tsxBin = path.resolve(apiRoot, 'node_modules/.bin/tsx');
     const probe = path.resolve(__dirname, 'route-registry-auth.probe.ts');
     const result = await new Promise<{ code: number | null; output: string }>((resolve) => {
       const child = spawn(tsxBin, [probe], {
-        cwd: path.resolve(process.cwd(), 'apps/api'),
+        cwd: apiRoot,
         env: { ...process.env, STUDIO_AUTH: 'on' },
         stdio: ['ignore', 'pipe', 'pipe'],
       });

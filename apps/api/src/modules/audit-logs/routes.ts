@@ -15,6 +15,10 @@ import {
   auditLogListQuerySchema,
   auditLogStatsQuerySchema,
   auditLogExportQuerySchema,
+  auditLogListResponseSchema,
+  auditLogStatsResponseSchema,
+  auditLogActionsResponseSchema,
+  auditLogResourcesResponseSchema,
 } from '@dommaker/studio-contract';
 import { parsePagination } from '../../utils/pagination.js';
 import { queryProposalDecisionRows } from './proposal-source.js';
@@ -38,7 +42,7 @@ function mergeDecisionRows<T extends { createdAt: string }>(...sources: T[][]): 
  * - page/limit：#359 起统一走 parsePagination clamp（1..100）
  */
 router.get('/', defineRoute(
-  { query: auditLogListQuerySchema },
+  { query: auditLogListQuerySchema, response: auditLogListResponseSchema },
   async (req, _res, { query }) => {
     const service = getAuditService();
     // #359：统一 parsePagination（clamp 1..100），堵 limit=999999 直通豁口；缺省 50→20
@@ -78,7 +82,7 @@ router.get('/', defineRoute(
  * GET /api/audit-logs/stats - 获取审计日志统计
  */
 router.get('/stats', defineRoute(
-  { query: auditLogStatsQuerySchema },
+  { query: auditLogStatsQuerySchema, response: auditLogStatsResponseSchema },
   async (_req, _res, { query }) => {
     const service = getAuditService();
     return service.getStats({
@@ -93,12 +97,12 @@ router.get('/stats', defineRoute(
 /**
  * GET /api/audit-logs/actions - 获取操作类型列表
  */
-router.get('/actions', defineRoute({}, async () => Object.values(AuditActions)));
+router.get('/actions', defineRoute({ response: auditLogActionsResponseSchema }, async () => Object.values(AuditActions)));
 
 /**
  * GET /api/audit-logs/resources - 获取资源类型列表
  */
-router.get('/resources', defineRoute({}, async () => Object.values(AuditResources)));
+router.get('/resources', defineRoute({ response: auditLogResourcesResponseSchema }, async () => Object.values(AuditResources)));
 
 /**
  * GET /api/audit-logs/export - 导出审计日志

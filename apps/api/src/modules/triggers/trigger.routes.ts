@@ -13,6 +13,8 @@ import { Router } from 'express';
 import {
   triggerCostsQuerySchema,
   triggerIdParamsSchema,
+  triggerCostsResponseSchema,
+  fireTriggerResponseSchema,
   ERROR_CODES,
 } from '@dommaker/studio-contract';
 import { TriggerStore } from './trigger-store.js';
@@ -36,7 +38,7 @@ const scheduler = getTriggerScheduler(store); // Singleton — shared with Agent
  * #654：读口切 readStudioEventsSince（尾部倒扫、窗口外早停、NaT/损坏行跳过、文件不存在返回空），
  * 不再整文件 readFileSync 同步阻塞；聚合语义不变。
  */
-router.get('/costs', defineRoute({ query: triggerCostsQuerySchema }, async (_req, _res, { query }) => {
+router.get('/costs', defineRoute({ query: triggerCostsQuerySchema, response: triggerCostsResponseSchema }, async (_req, _res, { query }) => {
   const days = Math.min(Math.max(parseInt(String(query.days ?? '30'), 10) || 30, 1), 365);
   const since = Date.now() - days * 24 * 60 * 60 * 1000;
   const byTrigger: Record<string, number> = {};
@@ -65,7 +67,7 @@ router.get('/costs', defineRoute({ query: triggerCostsQuerySchema }, async (_req
  * - CREATE 不传 dedupeWithinMinute：B3 同分钟去重只约束 SCHEDULE 自动路径，手动连点不去重
  * - config 双源查找：yaml store + scheduler 内存（系统默认触发器不落 store）
  */
-router.post('/:id/fire', defineRoute({ params: triggerIdParamsSchema }, async (req, _res, { params }) => {
+router.post('/:id/fire', defineRoute({ params: triggerIdParamsSchema, response: fireTriggerResponseSchema }, async (req, _res, { params }) => {
   const config = store.get(params.id) ?? scheduler.getStates().find(s => s.config.id === params.id)?.config;
   if (!config) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Trigger not found: ${params.id}`);
@@ -89,7 +91,7 @@ router.post('/:id/fire', defineRoute({ params: triggerIdParamsSchema }, async (r
     try {
       const workUnit = await executeCreateAction(config.action, config.id, { traceId });
       recordFire({ outcome: 'created', workUnitId: workUnit?.id });
-      return { fired: true, wasDisabled, workUnit };
+      return { fired: true, wasDisabled, ...(workUnit ? { workUnit } : {}) };
     } catch (err) {
       recordFire({ outcome: 'error', error: (err as Error).message }, 'failure');
       throw err;

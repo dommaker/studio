@@ -24,6 +24,9 @@ import {
   workspaceIdParamsSchema,
   ERROR_CODES,
   type Workspace,
+  workspaceListResponseSchema,
+  workspaceResponseSchema,
+  workspaceRuntimesResponseSchema,
 } from '@dommaker/studio-contract';
 
 import { apiCache } from '../../middleware/api-cache.js';
@@ -72,14 +75,14 @@ async function listWorkspaces(): Promise<Workspace[]> {
 // ─── GET /api/v1/workspaces ───
 // List all workspaces (JWT auth)
 
-router.get('/', defineRoute({}, async () => {
+router.get('/', defineRoute({ response: workspaceListResponseSchema }, async () => {
   return listWorkspaces();
 }));
 
 // ─── GET /api/v1/workspaces/runtimes ───
 // （须注册在 /:id 之前——'runtimes' 单段会被 :id 吞掉，旧路由顺序如此）
 
-router.get('/runtimes', apiCache(60), defineRoute({}, async () => {
+router.get('/runtimes', apiCache(60), defineRoute({ response: workspaceRuntimesResponseSchema }, async () => {
   // 本机 CLI 清单，供角色创建候选列表使用（原 AC-2.6「聚合所有 workspace」语义已废弃，见下）
   // 2026-07：聚合前先重扫本地 CLI（best-effort），保证本地 runtime 新鲜可见
   // #403（缓存 seam 决策树第 2 问）：响应为 HTTP GET、秒级陈旧可接受 → 挂 apiCache 60s。
@@ -115,7 +118,7 @@ router.get('/runtimes', apiCache(60), defineRoute({}, async () => {
 
 // ─── GET /api/v1/workspaces/:id ───
 
-router.get('/:id', defineRoute({ params: workspaceIdParamsSchema }, async (_req, _res, { params }) => {
+router.get('/:id', defineRoute({ params: workspaceIdParamsSchema, response: workspaceResponseSchema }, async (_req, _res, { params }) => {
   const workspace = await readWorkspace(params.id);
   if (!workspace) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Workspace not found');

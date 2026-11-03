@@ -20,6 +20,9 @@ import {
   listSkillsQuerySchema,
   skillIdParamsSchema,
   retractDecideBodySchema,
+  skillListResponseSchema,
+  skillManifestResponseSchema,
+  skillResponseSchema,
   ERROR_CODES,
 } from '@dommaker/studio-contract';
 import { logger } from '../../utils/logger.js';
@@ -38,7 +41,7 @@ const writeRoutes = Router();
  * GET /api/v1/skills
  * 列表（分页、过滤）——scripts/perf/bench.ts perf 基线脚本的消费端点，保留
  */
-openRoutes.get('/', defineRoute({ query: listSkillsQuerySchema }, async (_req, _res, { query }) => {
+openRoutes.get('/', defineRoute({ query: listSkillsQuerySchema, response: skillListResponseSchema }, async (_req, _res, { query }) => {
   const { companyId, status, category, roleId, page = '1', limit = '20' } = query;
   const filter: Record<string, string> = {};
   if (companyId) filter.companyId = companyId;
@@ -77,7 +80,7 @@ openRoutes.get('/', defineRoute({ query: listSkillsQuerySchema }, async (_req, _
  * 源 = loadManifest()（~/.studio/skills/<name>/SKILL.md frontmatter，已过滤非 published）；
  * consumers 含 'loop' 的 hub-service skill 不参与注入，不进候选（与 selectSkillsForInjection 口径一致）。
  */
-openRoutes.get('/manifest', defineRoute({}, async () => {
+openRoutes.get('/manifest', defineRoute({ response: skillManifestResponseSchema }, async () => {
   return loadManifest()
     .filter(s => !(Array.isArray(s.consumers) && s.consumers.some(c => c.toLowerCase() === 'loop')))
     .map(s => ({
@@ -97,7 +100,7 @@ openRoutes.get('/manifest', defineRoute({}, async () => {
  * 前端消费方：useChannelCardActions。
  */
 writeRoutes.post('/:id/retract/decide', defineRoute(
-  { params: skillIdParamsSchema, body: retractDecideBodySchema },
+  { params: skillIdParamsSchema, body: retractDecideBodySchema, response: skillResponseSchema },
   async (_req, _res, { params, body }) => {
     const { decision, messageId, channelId } = body;
     const skill = skillStore.get(params.id);
@@ -108,6 +111,7 @@ writeRoutes.post('/:id/retract/decide', defineRoute(
 
     const nextStatus = decision === 'confirm' ? 'deprecated' : 'published';
     const updated = skillStore.update(params.id, { status: nextStatus });
+    if (!updated) throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Skill not found');
 
     if (typeof messageId === 'string' && messageId) {
       try {

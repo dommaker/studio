@@ -3,7 +3,7 @@
  *
  * 与 route-registry-auth.probe.ts 同管线（生产 bootstrap 同款模块解析）。断言：
  * 1. discover 全量：每条 defineRoute 路由都进了 doc.paths；
- * 2. response-map 防漂移：映射键 ⊆ 实际端点；
+ * 2. route response 全量覆盖：非 204 缺 schema 时只准显式例外，例外不得过期；
  * 3. 结构合法：openapi 3.0.3 / 逐端点参数、请求体、响应壳、鉴权语义；
  * 4. 协议面排除：skipped 集合与 route-registry PROTOCOL_SURFACE_EXCEPTIONS 精确相等
  *    （#664：例外清单之外出现新 raw 路由 = 违规；例外被收编后须同步从清单删除）；
@@ -14,8 +14,7 @@
 import express from 'express';
 import { buildRouteTable, PROTOCOL_SURFACE_EXCEPTIONS } from '../../route-registry.js';
 import { discoverRoutes, toOpenAPIPath } from '../discover.js';
-import { buildOpenApiDocument } from '../build.js';
-import { RESPONSE_MAP, RESPONSELESS_ROUTE_OVERRIDES } from '../response-map.js';
+import { buildOpenApiDocument, RESPONSELESS_ROUTE_OVERRIDES } from '../build.js';
 import { mountApiDocs } from '../index.js';
 
 function fail(label: string, detail: string): never {
@@ -53,20 +52,23 @@ async function main(): Promise<void> {
     if (!op) fail('覆盖', `${r.method.toUpperCase()} ${r.path} 未进 doc.paths`);
   }
 
-  // ── response-map 防漂移：映射键 ⊆ 实际端点 ──
+  // ── response 覆盖：例外键必须对应真实且无 schema 的端点 ──
   const routeKeys = new Set(routes.map(r => `${r.method.toUpperCase()} ${r.path}`));
-  for (const key of Object.keys(RESPONSE_MAP)) {
-    if (!routeKeys.has(key)) fail('response-map', `映射键无对应路由: ${key}`);
-  }
   for (const key of Object.keys(RESPONSELESS_ROUTE_OVERRIDES)) {
     if (!routeKeys.has(key)) fail('response 覆盖清单', `例外键无对应路由: ${key}`);
   }
   for (const route of routes) {
     const key = `${route.method.toUpperCase()} ${route.path}`;
-    const migrated = key.includes('/api/v1/auth/') || key.includes('/api/v1/workunits');
-    if (migrated && route.meta.status !== 204 && !route.meta.schema.response) {
-      fail('route meta', `${key} 未声明 response`);
+    if (route.meta.schema.response && RESPONSELESS_ROUTE_OVERRIDES[key]) {
+      fail('response 覆盖清单', `${key} 已有 route response，须删除过期例外`);
     }
+  }
+  const missingResponses = routes
+    .filter(route => route.meta.status !== 204 && !route.meta.schema.response)
+    .map(route => `${route.method.toUpperCase()} ${route.path}`)
+    .filter(key => !RESPONSELESS_ROUTE_OVERRIDES[key]);
+  if (missingResponses.length > 0) {
+    fail('route meta', `${missingResponses.length} 条端点未声明 response，且不在显式例外清单:\n${missingResponses.join('\n')}`);
   }
 
   // ── 逐端点抽查 ──
@@ -197,7 +199,7 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(`[openapi] OK: ${routes.length} 端点全量进文档，response-map 映射 ${Object.keys(RESPONSE_MAP).length} 键无漂移，/api/docs 冒烟通过`);
+  console.log(`[openapi] OK: ${routes.length} 端点全量进文档，route response ${routes.filter(r => r.meta.schema.response).length} 条，204 ${routes.filter(r => r.meta.status === 204).length} 条，显式响应例外 ${Object.keys(RESPONSELESS_ROUTE_OVERRIDES).length} 条，/api/docs 冒烟通过`);
   process.exit(0);
 }
 

@@ -72,10 +72,9 @@ import {
   discussionMessagesResponseSchema,
   discussionMessageResponseSchema,
   type DiscussionMessage,
-  type WorkUnit,
 } from '@dommaker/studio-contract';
 import { WorkUnitService } from './workunit-review.js';
-import type { WorkUnitData } from './workunit-crud.js';
+import { toWorkUnitWire, type WorkUnitData } from './workunit-crud.js';
 import type { CreateWorkUnitInput, UpdateWorkUnitInput } from './workunit-crud.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
@@ -133,25 +132,6 @@ function rethrowApplicationError(error: unknown): never {
     throw new HttpError(APPLICATION_ERROR_STATUS[error.code], error.code, error.message);
   }
   throw error;
-}
-
-function toIsoDate(value: Date | string): string;
-function toIsoDate(value: Date | string | null): string | null;
-function toIsoDate(value: Date | string | null): string | null {
-  if (value === null) return null;
-  return typeof value === 'string' ? value : value.toISOString();
-}
-
-/** service 内存型的 Date 在 HTTP 边界归一为 contract 的 ISO wire 形状。 */
-function toWorkUnitWire(wu: WorkUnitData): WorkUnit {
-  return {
-    ...wu,
-    timeoutAt: toIsoDate(wu.timeoutAt),
-    createdAt: toIsoDate(wu.createdAt),
-    updatedAt: toIsoDate(wu.updatedAt),
-    claimedAt: toIsoDate(wu.claimedAt),
-    completedAt: toIsoDate(wu.completedAt),
-  };
 }
 
 function toDiscussionMessageWire(

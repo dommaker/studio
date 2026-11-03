@@ -16,13 +16,13 @@
 import { Router } from 'express';
 import { notifyService, NotifyMessage } from './outbound-notify.service.js';
 import { defineRoute } from '../../core/http.js';
-import { notifySendBodySchema } from '@dommaker/studio-contract';
+import { notifySendBodySchema, notifySendResponseSchema } from '@dommaker/studio-contract';
 
 const router = Router();
 
 // ==================== 发送通知 ====================
 router.post('/send', defineRoute(
-  { body: notifySendBodySchema },
+  { body: notifySendBodySchema, response: notifySendResponseSchema },
   async (_req, _res, { body }) => {
     await notifyService.send({
       ...body,

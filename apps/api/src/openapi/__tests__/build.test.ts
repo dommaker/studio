@@ -125,6 +125,12 @@ describe('buildOpenApiDocument（合成 fixture）', () => {
     }
   });
 
+  it('无 response 且不在显式例外清单时拒绝生成，禁止通用壳静默退化', () => {
+    expect(() => buildOpenApiDocument([
+      route({ method: 'get', path: '/api/v1/fixture/missing-response' }),
+    ], [])).toThrow('Missing response schema or explicit override: GET /api/v1/fixture/missing-response');
+  });
+
   it('全部 operation 带 operationId/tags/400/500；JSON 可稳定序列化', () => {
     for (const pathItem of Object.values(doc.paths)) {
       for (const op of Object.values(pathItem)) {

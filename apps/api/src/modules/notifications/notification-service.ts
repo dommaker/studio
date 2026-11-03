@@ -9,6 +9,7 @@ import { createLazyService } from '../../utils/services.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
 import { NotificationProjection, type NotificationRow, type RecipientProjection } from './notification-projection.js';
+import type { NotificationItem as NotificationItemWire } from '@dommaker/studio-contract';
 
 /** 全用户 id 列表（auditor 先例：data/users/*.json 文件名，截顶 10；目录缺失返回空） */
 async function listUserIds(): Promise<string[]> {
@@ -48,6 +49,15 @@ export interface NotificationItem {
   createdAt: Date;
   read: boolean;
   readAt: Date | null;
+}
+
+/** NotificationService 内存型 → contract wire：Date → ISO string/null。 */
+export function toNotificationWire(item: NotificationItem): NotificationItemWire {
+  return {
+    ...item,
+    createdAt: item.createdAt.toISOString(),
+    readAt: item.readAt?.toISOString() ?? null,
+  };
 }
 
 export class NotificationService {

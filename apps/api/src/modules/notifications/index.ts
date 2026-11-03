@@ -10,7 +10,7 @@
  */
 // #684 包下沉：NotificationService 自 packages/studio-notification 并入本模块，
 // getNotificationService 为进程级单例入口（fire-and-forget 消费方共用）
-export { NotificationService, getNotificationService } from './notification-service.js';
+export { NotificationService, getNotificationService, toNotificationWire } from './notification-service.js';
 export type { CreateNotificationInput } from './notification-service.js';
 // 告警统一出口（workunit/agent-loop/ops 外推）
 export { notifyAlert, registerAlertChannelPoster } from './alert-notifier.js';

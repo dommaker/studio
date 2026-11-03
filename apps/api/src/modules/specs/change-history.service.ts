@@ -141,5 +141,15 @@ export class ChangeHistoryService {
   }
 }
 
+/** ChangeRecord 内存型 → contract wire：所有日期字段统一为 ISO string。 */
+export function toChangeRecordWire(record: ChangeRecord) {
+  return {
+    ...record,
+    submittedAt: record.submittedAt.toISOString(),
+    approvedAt: record.approvedAt?.toISOString(),
+    appliedAt: record.appliedAt?.toISOString(),
+  };
+}
+
 // 导出单例
 export const changeHistoryService = new ChangeHistoryService();

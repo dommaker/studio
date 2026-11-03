@@ -11,7 +11,7 @@ Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线
 | 模块 | 导出 | 职责 |
 |------|------|------|
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
-| channel-message.service.ts | `getChannelMessageService()`（惰性单例）/ `ChannelMessageService` | 消息创建/更新/删除 + event/SSE 发布（系统消息唯一发布路径） |
+| channel-message.service.ts | `getChannelMessageService()`（惰性单例）/ `ChannelMessageService` / `toChannelMessageWire` | 消息创建/更新/删除 + event/SSE 发布（系统消息唯一发布路径）；REST 出口把 MessageRecord 的 Date/meta 归一为 contract wire |
 | channel.service.ts | `getChannelService()`（惰性单例）/ `ChannelService` / `ChannelError` / `validateDefaultWorkspaceId()` | #532 频道记录读写收口：404 判定单点（getOrThrow）、写路径内部失效列表缓存（create/update/archive/restore/deleteWithFallback/updateMembers）、初始 agent 创建 |
 | message-routing.ts | `routeMessage()` / `DispatchContext` | 消息路由编排骨架：#281 文件引用校验/剔除面 → replyTo 线程回复（继承 + #327 降级放行 + F5 复活）→ @mention / intent 委托 wu-dispatch → 合并窗口并入（判定委托 merge-target）→ 纯存储 |
 | merge-target.ts | `resolveMergeTarget()` / `getMergeWindowMs()` / `MergeTargetResolution` | #632 合并目标三态判定（唯一并入 / 歧义守卫 fail-closed / 无目标纯存储；#495 在途状态集与窗口 env 覆盖）：发送前预览端点与 routeMessage 共用（预览 = 实际路由）；#688 自 message-routing.ts 拆出 |

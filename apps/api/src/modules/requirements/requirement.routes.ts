@@ -24,6 +24,10 @@ import {
   requirementIdParamsSchema,
   createRequirementBodySchema,
   updateRequirementBodySchema,
+  requirementListResponseSchema,
+  requirementResponseSchema,
+  requirementChainResponseSchema,
+  chainStatsResponseSchema,
   ERROR_CODES,
 } from '@dommaker/studio-contract';
 import { FileStore } from '@dommaker/studio-shared';
@@ -45,13 +49,13 @@ export function createRequirementRoutes(fileStore?: FileStore): RequirementRoute
   const MAX_BATCH_IDS = 100;
 
   /** GET / — list requirements（status/channelId 过滤；status 非法值 zod 400） */
-  openRoutes.get('/', defineRoute({ query: listRequirementsQuerySchema }, async (_req, _res, { query }) => {
+  openRoutes.get('/', defineRoute({ query: listRequirementsQuerySchema, response: requirementListResponseSchema }, async (_req, _res, { query }) => {
     return service.list({ status: query.status, channelId: query.channelId });
   }));
 
   /** POST / — 手动创建需求（B3a: projectId 挂接 PMO 项目，不存在 → 400） */
   writeRoutes.post('/', defineRoute(
-    { body: createRequirementBodySchema },
+    { body: createRequirementBodySchema, response: requirementResponseSchema },
     {
       status: 201,
       errors: [{ match: 'Project not found', status: 400, code: ERROR_CODES.BAD_REQUEST }],
@@ -73,13 +77,13 @@ export function createRequirementRoutes(fileStore?: FileStore): RequirementRoute
    * （finished = workFinished 口径，服务端同源计算）。PMO 卡片专用，消逐项目
    * getChain 的 N+1；不存在的需求不出现在结果里（前端徽章静默缺省）。
    */
-  openRoutes.get('/chain-stats', defineRoute({ query: chainStatsQuerySchema }, async (_req, _res, { query }) => {
+  openRoutes.get('/chain-stats', defineRoute({ query: chainStatsQuerySchema, response: chainStatsResponseSchema }, async (_req, _res, { query }) => {
     const ids = query.reqIds.split(',').map(s => s.trim()).filter(s => s.length > 0);
     return service.getChainStats(ids.slice(0, MAX_BATCH_IDS));
   }));
 
   /** GET /:id — get requirement by id */
-  openRoutes.get('/:id', defineRoute({ params: requirementIdParamsSchema }, async (_req, _res, { params }) => {
+  openRoutes.get('/:id', defineRoute({ params: requirementIdParamsSchema, response: requirementResponseSchema }, async (_req, _res, { params }) => {
     const data = await service.get(params.id);
     if (!data) throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Requirement not found: ${params.id}`);
     return data;
@@ -87,7 +91,7 @@ export function createRequirementRoutes(fileStore?: FileStore): RequirementRoute
 
   /** PATCH /:id — 更新 status/title/docs/description/projectId */
   writeRoutes.patch('/:id', defineRoute(
-    { params: requirementIdParamsSchema, body: updateRequirementBodySchema },
+    { params: requirementIdParamsSchema, body: updateRequirementBodySchema, response: requirementResponseSchema },
     {
       errors: [
         // 顺序敏感：'Project not found' 含 'not found'，须先命中 400
@@ -107,7 +111,7 @@ export function createRequirementRoutes(fileStore?: FileStore): RequirementRoute
   ));
 
   /** GET /:id/chain — 全链路数据（需求 + WorkUnit id/title/status/assignee） */
-  openRoutes.get('/:id/chain', defineRoute({ params: requirementIdParamsSchema }, async (_req, _res, { params }) => {
+  openRoutes.get('/:id/chain', defineRoute({ params: requirementIdParamsSchema, response: requirementChainResponseSchema }, async (_req, _res, { params }) => {
     const chain = await service.getChain(params.id);
     if (!chain) throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Requirement not found: ${params.id}`);
     return chain;
