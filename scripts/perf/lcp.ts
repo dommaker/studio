@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
 import { findFreePort, startServer, stopServer, waitReady, removeTempHome, type ServerHandle } from './lib/server.js';
 import { percentile } from './lib/stats.js';
 
@@ -79,7 +79,7 @@ async function waitHttp200(url: string, proc: ChildProcess, timeoutMs = 60_000, 
 }
 
 /** vite preview 起构建产物；停服用 SIGTERM（同进程，无孙进程） */
-async function startPreview(apiPort: number): Promise<{ proc: ChildProcess; port: number; baseUrl: string }> {
+export async function startPreview(apiPort: number): Promise<{ proc: ChildProcess; port: number; baseUrl: string }> {
   const port = await findFreePort();
   const proc = spawn(process.execPath, [viteCli, 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
     cwd: webDir,
@@ -95,7 +95,7 @@ async function startPreview(apiPort: number): Promise<{ proc: ChildProcess; port
   return { proc, port, baseUrl };
 }
 
-async function registerUser(baseUrl: string): Promise<{ token: string; user: unknown; session: unknown; refreshToken?: string }> {
+export async function registerUser(baseUrl: string): Promise<{ token: string; user: unknown; session: unknown; refreshToken?: string }> {
   const res = await fetch(`${baseUrl}/api/v1/auth/register`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -169,6 +169,7 @@ export async function runLcp(opts: LcpOptions): Promise<{ report: LcpReport; mar
     await waitReady(api);
     const auth = await registerUser(api.baseUrl);
     preview = await startPreview(api.port);
+    const { chromium } = await import('playwright');
     browser = await chromium.launch();
     const rounds = await measureRounds(browser, preview.baseUrl, auth, opts.runs);
     const values = rounds.map((r) => r.lcpMs);

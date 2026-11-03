@@ -25,6 +25,30 @@ function report(p95s: Record<string, number>, coldStartRuns = [2000, 2500, 2300]
 }
 
 describe('compareReports', () => {
+  it('max 只进诊断，不作为回归硬门；p50/p95 仍判回归', () => {
+    const baseline = report({ health: 10 });
+    const current = report({ health: 10 });
+    current.endpoints[0].max = 10_000;
+    const r = compareReports(baseline, current);
+    expect(r.ok).toBe(true);
+    expect(r.regressions).toHaveLength(0);
+    expect(r.observations).toEqual([
+      expect.objectContaining({ name: 'health', metric: 'max', currentMs: 10_000 }),
+    ]);
+  });
+
+  it('p50/p95 超统一绝对预算即失败，即使相对 baseline 没退化', () => {
+    const baseline = report({ health: 150 });
+    const current = report({ health: 150 });
+    current.endpoints[0].p50 = 60;
+    const r = compareReports(baseline, current);
+    expect(r.ok).toBe(false);
+    expect(r.regressions).toEqual([
+      expect.objectContaining({ name: 'health', metric: 'p50.absolute', currentMs: 60 }),
+      expect.objectContaining({ name: 'health', metric: 'p95.absolute', currentMs: 150 }),
+    ]);
+  });
+
   it('p95 恶化 >20% 且超绝对地板 → 回归，ok=false', () => {
     const baseline = report({ health: 50, agents: 4 });
     const current = report({ health: 62.5, agents: 4 });

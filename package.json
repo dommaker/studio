@@ -32,6 +32,8 @@
     "lint:cycles": "node scripts/check-module-cycles.mjs",
     "perf:bench": "node node_modules/tsx/dist/cli.mjs scripts/perf/bench.ts",
     "perf:gate": "node node_modules/tsx/dist/cli.mjs scripts/perf/gate.ts",
+    "perf:scale": "node node_modules/tsx/dist/cli.mjs scripts/perf/scale.ts",
+    "perf:browser": "node node_modules/tsx/dist/cli.mjs scripts/perf/browser.ts",
     "perf:bundle": "node node_modules/tsx/dist/cli.mjs scripts/perf/bundle-budget.ts",
     "perf:lcp": "node node_modules/tsx/dist/cli.mjs scripts/perf/lcp.ts",
     "=== 开发环境 ===": "",

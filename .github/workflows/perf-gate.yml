@@ -1,10 +1,8 @@
 name: Perf Gate
 
 # 性能回归门（#673）：不进日常 CI（不挂 push/PR），每周定时 + 手动触发。
-# 跑 scripts/perf/gate.ts：隔离数据区 bench → 对比 scripts/perf/baseline.json，
-# 回归 >20%（含 5ms 绝对噪声地板）exit 1 即红。红了 = 需要人看的显式报警：
-# 先排除异机噪声（baseline.json 锚定参考机，见 scripts/perf/README.md「基线重锚」），
-# 再查真实退化。
+# PERF-07：隔离空区 bench + 非空规模 + 浏览器长会话，correctness/latency/soak 分类；
+# p50/p95 多轮相对回归 + 绝对预算判红，max 仅诊断。
 
 on:
   workflow_dispatch:
@@ -23,5 +21,9 @@ jobs:
       - name: Enable the packageManager-pinned pnpm
         run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - name: Bench + regression gate (>20% red)
+      - name: Build browser artifact
+        run: pnpm build:web
+      - name: Install Chromium for long-session scenarios
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Scale + browser + legacy regression gate
         run: pnpm perf:gate

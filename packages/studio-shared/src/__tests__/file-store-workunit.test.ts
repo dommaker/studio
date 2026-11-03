@@ -7,13 +7,14 @@
  * upsertSnapshot/removeSnapshot 与索引同步。
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { WorkUnitStore, parseWorkUnitIndexContent } from '../file-store/file-store-workunit';
 import { createFileStoreCore, type FileStoreCore } from '../file-store/file-store-core';
 import type { WorkUnitEvent, WorkUnitSnapshot } from '../file-store/file-store-types';
+import { workUnitProjectionFileName } from '../file-store/workunit-current-projection';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-wu-test-'));
@@ -120,6 +121,9 @@ describe('WorkUnitStore（直接单元测试）', () => {
       expect((await store.getIndex({ type: 'bug' })).map(s => s.id)).toEqual(['wu2']);
       expect((await store.getIndex({ assigneeId: 'a1' })).map(s => s.id)).toEqual(['wu1']);
       expect((await store.getIndex({ channelId: 'ch1' })).map(s => s.id)).toEqual(['wu1']);
+      expect((await store.getIndex({ statuses: ['active', 'unassigned'] })).map(s => s.id)).toEqual(['wu1', 'wu2']);
+      expect((await store.getIndex({ statuses: ['active', 'unassigned'], status: 'unassigned' })).map(s => s.id)).toEqual(['wu2']);
+      expect(await store.getIndex({ statuses: [] })).toEqual([]);
       expect(await store.getIndex({ status: 'active', channelId: 'ch2' })).toEqual([]);
     });
 
@@ -568,6 +572,85 @@ describe('WorkUnitStore（直接单元测试）', () => {
       expect(recon.consistent).toBe(true);
     });
 
+    it('commitSnapshot 事件先落，index 与 projection/head 并行，manifest 最后', async () => {
+      const initial = makeWuSnapshot('wu1', { scope: 'before' });
+      await store.commitSnapshot(createdEvent(initial), initial);
+      const next = makeWuSnapshot('wu1', { scope: 'after' });
+      const projectionPath = path.join(tmpDir, 'workunits', 'current', workUnitProjectionFileName(next.id));
+      const manifestPath = path.join(tmpDir, 'workunits', 'current', 'manifest.json');
+      const indexGate = Promise.withResolvers<void>();
+      const projectionGate = Promise.withResolvers<void>();
+      const indexStarted = Promise.withResolvers<void>();
+      const projectionStarted = Promise.withResolvers<void>();
+      const order: string[] = [];
+      const appendJsonl = core.io.appendJsonl.bind(core.io);
+      const writeJson = core.io.writeJson.bind(core.io);
+      vi.spyOn(core.io, 'appendJsonl').mockImplementation(async (file, row) => {
+        const resolved = path.resolve(String(file));
+        if (resolved === eventsPath()) order.push('event');
+        if (resolved === indexPath()) {
+          order.push('index:start');
+          indexStarted.resolve();
+          await indexGate.promise;
+          order.push('index:end');
+        }
+        return appendJsonl(file, row);
+      });
+      vi.spyOn(core.io, 'writeJson').mockImplementation(async (file, data, sync) => {
+        const resolved = path.resolve(String(file));
+        if (resolved === projectionPath) {
+          order.push('projection:start');
+          projectionStarted.resolve();
+          await projectionGate.promise;
+          order.push('projection:end');
+        } else if (resolved === manifestPath) order.push('manifest');
+        else if (resolved.includes(`${path.sep}heads${path.sep}`)) order.push('head');
+        return writeJson(file, data, sync);
+      });
+
+      const operation = store.commitSnapshot(createdEvent(next), next);
+      try {
+        await indexStarted.promise;
+        await Promise.race([projectionStarted.promise, new Promise(resolve => setTimeout(resolve, 100))]);
+        expect(order).toContain('projection:start');
+      } finally {
+        indexGate.resolve();
+        projectionGate.resolve();
+        await operation;
+        vi.restoreAllMocks();
+      }
+      expect(order[0]).toBe('event');
+      expect(order.at(-1)).toBe('manifest');
+      expect(order.indexOf('index:end')).toBeLessThan(order.indexOf('manifest'));
+      expect(order.indexOf('projection:end')).toBeLessThan(order.indexOf('manifest'));
+    });
+
+    it('index 追加失败保留事件且不提交 manifest，重启后按事件恢复', async () => {
+      const initial = makeWuSnapshot('wu1', { scope: 'before' });
+      await store.commitSnapshot(createdEvent(initial), initial);
+      const next = makeWuSnapshot('wu1', { scope: 'after' });
+      const appendJsonl = core.io.appendJsonl.bind(core.io);
+      const writeJson = core.io.writeJson.bind(core.io);
+      let manifestWrites = 0;
+      vi.spyOn(core.io, 'appendJsonl').mockImplementation(async (file, row) => {
+        if (path.resolve(String(file)) === indexPath()) throw new Error('index append failed');
+        return appendJsonl(file, row);
+      });
+      vi.spyOn(core.io, 'writeJson').mockImplementation(async (file, data, sync) => {
+        if (path.resolve(String(file)).endsWith(path.join('current', 'manifest.json'))) manifestWrites++;
+        return writeJson(file, data, sync);
+      });
+
+      await expect(store.commitSnapshot(createdEvent(next), next)).rejects.toThrow('index append failed');
+      expect(manifestWrites).toBe(0);
+      expect((await core.io.readJsonl<WorkUnitEvent>(eventsPath())).at(-1)?.data).toMatchObject({ scope: 'after' });
+      vi.restoreAllMocks();
+      const recovered = new WorkUnitStore(createFileStoreCore(tmpDir));
+      expect(await recovered.reconcileIndex()).toMatchObject({ rebuilt: true });
+      expect(await recovered.reconcileIndex()).toMatchObject({ consistent: true, rebuilt: false });
+      expect((await recovered.getIndex())[0].scope).toBe('after');
+    });
+
     it('并发 commitSnapshot 20 个不同 id 全部保留', async () => {
       await Promise.all(Array.from({ length: 20 }, (_, i) => {
         const snap = makeWuSnapshot(`p-${i}`);
@@ -965,6 +1048,25 @@ describe('index.json append-only（#524 P1-2）', () => {
     const lines = rawLines();
     expect(lines).toHaveLength(2);
     expect(lines.map(l => JSON.parse(l).id)).toEqual(['wu1', 'wu2']);
+  });
+
+  it('PERF-07：listCurrentSnapshots 并行读取 per-WU 投影，且结果完整', async () => {
+    for (const id of ['wu1', 'wu2', 'wu3']) await store.commitSnapshot(createdEvent(makeWuSnapshot(id)), makeWuSnapshot(id));
+    const original = fs.promises.readFile.bind(fs.promises);
+    const gate = Promise.withResolvers<void>();
+    let calls = 0;
+    vi.spyOn(fs.promises, 'readFile').mockImplementation((async (file: fs.PathLike | fs.promises.FileHandle, options?: unknown) => {
+      calls++;
+      if (calls === 3) await gate.promise;
+      return original(file as fs.PathLike, options as { encoding?: BufferEncoding | null });
+    }) as typeof fs.promises.readFile);
+
+    const pending = store.listCurrentSnapshots();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const parallel = calls > 3;
+    gate.resolve();
+    expect((await pending).map(row => row.id).sort()).toEqual(['wu1', 'wu2', 'wu3']);
+    expect(parallel).toBe(true);
   });
 
   it('parseWorkUnitIndexContent：bench/脚本直读方共用的双格式 fold', async () => {

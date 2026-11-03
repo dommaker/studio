@@ -15,7 +15,7 @@ import { eventBus, FileStore, parseWuPmoId, WorkUnitMetadataRepository, type Wor
 import { workUnitPort } from './workunit-ports.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
-import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
+import { buildStatusById, parseBlockedBy, resolveClaimable } from './wu-dependencies.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
@@ -317,6 +317,7 @@ export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycl
    */
   private async resolveEventClaimable(snapshot: WorkUnitSnapshot): Promise<boolean> {
     if (snapshot.status !== 'unassigned') return false;
+    if (parseBlockedBy(snapshot.metadata).length === 0) return true;
     const statusById = buildStatusById(await this.fileStore.getIndex());
     return resolveClaimable(snapshot, statusById);
   }

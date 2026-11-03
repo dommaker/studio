@@ -28,7 +28,7 @@ export interface FoldedNotification {
 }
 
 interface LogHead { dev: number; ino: number; offset: number }
-interface NotificationManifest { version: 3; head: LogHead | null; recipientIds: string[] }
+export interface NotificationManifest { version: 3; head: LogHead | null; recipientIds: string[] }
 export interface RecipientProjection { unreadCount: number; items: Record<string, FoldedNotification> }
 
 const TAIL_CHUNK = 64 * 1024;
@@ -38,6 +38,12 @@ const fileKey = (id: string): string => createHash('sha256').update(id).digest('
 class CorruptedNotificationEntry extends Error {}
 
 async function committedOffset(handle: fs.promises.FileHandle, size: number): Promise<number> {
+  if (size > 0) {
+    const last = Buffer.alloc(1);
+    const { bytesRead } = await handle.read(last, 0, 1, size - 1);
+    if (bytesRead !== 1) throw new Error('Notification log truncated while locating committed offset');
+    if (last[0] === 0x0a) return size;
+  }
   let end = size;
   while (end > 0) {
     const start = Math.max(0, end - TAIL_CHUNK);
@@ -112,13 +118,14 @@ export class NotificationProjection {
     }
   }
 
-  async readRecipient(userId: string): Promise<RecipientProjection> {
+  async readRecipient(userId: string, syncedManifest?: NotificationManifest): Promise<RecipientProjection> {
+    // 只有本次 sync 返回的可信 manifest 可提前判空；缺失/损坏 manifest 仍先尝试既有 recipient 恢复。
+    if (syncedManifest && !syncedManifest.recipientIds.includes(userId)) return emptyRecipient();
     try {
       const recipient = await this.fileStore.readJsonUncached<RecipientProjection>(this.recipientPath(userId));
       if (recipient && Number.isInteger(recipient.unreadCount) && recipient.items) return recipient;
     } catch { /* 已知接收者走下方定向恢复 */ }
-    // 只有 manifest 中已知的接收者才允许全历史恢复；未知接收者保持 O(1) 空读。
-    const manifest = await this.readManifest();
+    const manifest = syncedManifest ?? await this.readManifest();
     if (!manifest.recipientIds.includes(userId)) return emptyRecipient();
     return this.rebuildRecipient(userId);
   }

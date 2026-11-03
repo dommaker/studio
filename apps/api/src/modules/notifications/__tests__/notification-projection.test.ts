@@ -64,6 +64,40 @@ describe('NotificationProjection 接收者当前态与恢复', () => {
     ]);
   });
 
+  it('复用本次 sync manifest：未知接收者零额外打开，已知接收者仍定向恢复', async () => {
+    fs.writeFileSync(source, JSON.stringify(row('known')) + '\n');
+    const projection = new NotificationProjection(store, source);
+    const manifest = await projection.sync();
+    const reads = vi.spyOn(store, 'readJsonUncached');
+
+    expect(await projection.readRecipient('unknown', manifest)).toEqual({ unreadCount: 0, items: {} });
+    expect(reads).not.toHaveBeenCalled();
+
+    fs.rmSync(recipientFile('user-a'));
+    expect((await projection.readRecipient('user-a', manifest)).unreadCount).toBe(1);
+  });
+
+  it('完整 JSONL 稳态同步只检查末字节，不重复倒读 64KB tail', async () => {
+    fs.writeFileSync(source, JSON.stringify({ ...row('large'), content: 'x'.repeat(70 * 1024) }) + '\n');
+    const projection = new NotificationProjection(store, source);
+    await projection.sync();
+
+    const open = fs.promises.open.bind(fs.promises);
+    let bytesRead = 0;
+    vi.spyOn(fs.promises, 'open').mockImplementation((async (...args: any[]) => {
+      const handle = await (open as any)(...args);
+      const read = handle.read.bind(handle);
+      Object.defineProperty(handle, 'read', { value: async (...readArgs: any[]) => {
+        const result = await read(...readArgs);
+        bytesRead += result.bytesRead;
+        return result;
+      } });
+      return handle;
+    }) as typeof fs.promises.open);
+    await projection.sync();
+    expect(bytesRead).toBe(1);
+  });
+
   it('末尾半行同步不抛错；后续 append 换行隔离，新记录跨实例恢复', async () => {
     fs.writeFileSync(source, JSON.stringify(row('n-1')) + '\n' + '{"id":"broken"');
     const projection = new NotificationProjection(store, source);

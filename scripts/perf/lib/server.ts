@@ -8,11 +8,12 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, openSync, closeSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 
@@ -49,11 +50,14 @@ export function findFreePort(): Promise<number> {
   });
 }
 
-async function pollUntil200(url: string, timeoutMs: number, proc: ChildProcess): Promise<number> {
+async function pollUntil200(url: string, timeoutMs: number, proc: ChildProcess, diagnostics: () => string = () => ''): Promise<number> {
   const start = Date.now();
   const deadline = start + timeoutMs;
   while (Date.now() < deadline) {
-    if (proc.exitCode !== null) throw new Error(`API 进程提前退出（code=${proc.exitCode}）`);
+    if (proc.exitCode !== null) {
+      await new Promise(resolve => setTimeout(resolve, 50)); // 等 stdout/stderr data 事件落齐
+      throw new Error(`API 进程提前退出（code=${proc.exitCode}）\n${diagnostics()}`);
+    }
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(1000) });
       if (res.status === 200) return Date.now() - start;
@@ -68,31 +72,77 @@ async function pollUntil200(url: string, timeoutMs: number, proc: ChildProcess):
 export interface StartOptions {
   studioHome?: string;
   timeoutMs?: number;
+  /** PERF-07：preload 只向隔离数据区写 event-loop/RSS/读取量诊断。 */
+  telemetry?: boolean;
   /** 追加环境变量（#674 LCP 测量需要 REGISTER_ENABLED=true 造已认证用户） */
   extraEnv?: Record<string, string>;
+}
+
+export interface ServerTelemetry {
+  readBytes: number;
+  parsedLines: number;
+  cacheMisses: number;
+  eventLoopDelayMs: { p50: number; p95: number; max: number };
+  rssBytes: { start: number; peak: number; end: number };
+}
+
+export function readServerTelemetry(studioHome: string): ServerTelemetry {
+  return JSON.parse(readFileSync(join(studioHome, 'perf-telemetry.json'), 'utf8')) as ServerTelemetry;
+}
+
+const EXTRA_ENV_ALLOWLIST = new Set([
+  'PATH', 'REGISTER_ENABLED', 'STUDIO_AGENT_LOOP_ENABLED', 'STUDIO_REQUIREMENT_GUARD',
+  'STUDIO_CLAIM_FITNESS', 'STUDIO_KNOWLEDGE_EXTRACTION', 'STUDIO_AUTO_REVIEW', 'WORKTREES_DIR',
+]);
+
+/** 最小进程环境：不继承宿主 secret，不让 dotenv/config 读取仓内真实 .env。 */
+export function buildServerEnv(opts: StartOptions & { studioHome: string; port: number }): NodeJS.ProcessEnv {
+  const home = opts.studioHome;
+  const env: NodeJS.ProcessEnv = {
+    HOME: home,
+    TMPDIR: join(home, 'tmp'),
+    PATH: opts.extraEnv?.PATH ?? process.env.PATH,
+    STUDIO_HOME: home,
+    STUDIO_DATA_DIR: join(home, 'data'),
+    STUDIO_EVENTS_FILE: join(home, 'logs', 'studio-events.jsonl'),
+    DOTENV_CONFIG_PATH: join(home, 'perf-empty.env'),
+    PORT: String(opts.port),
+    HOST: '127.0.0.1',
+    STUDIO_AUTH: 'none',
+    NODE_ENV: 'production',
+    // 仅当前随机隔离进程使用；不读取、不复用宿主或仓内凭证。
+    JWT_SECRET: randomBytes(32).toString('hex'),
+    ENCRYPTION_KEY: randomBytes(32).toString('hex'),
+  };
+  for (const [key, value] of Object.entries(opts.extraEnv ?? {})) {
+    if (!EXTRA_ENV_ALLOWLIST.has(key)) throw new Error(`perf server env 非 allowlist：${key}`);
+    env[key] = value;
+  }
+  if (opts.telemetry) {
+    env.PERF_TELEMETRY_FILE = join(home, 'perf-telemetry.json');
+    env.NODE_OPTIONS = `--import ${fileURLToPath(new URL('./telemetry.mjs', import.meta.url))}`;
+  }
+  return env;
 }
 
 export async function startServer(opts: StartOptions = {}): Promise<ServerHandle> {
   const studioHome = opts.studioHome ?? makeTempHome();
   const port = await findFreePort();
+  mkdirSync(join(studioHome, 'tmp'), { recursive: true });
+  writeFileSync(join(studioHome, 'perf-empty.env'), '', { mode: 0o600 });
+  const logPath = join(studioHome, 'perf-server.log');
+  const logFd = openSync(logPath, 'a');
   const proc = spawn(process.execPath, [tsxCli, 'apps/api/src/index.ts'], {
     cwd: repoRoot,
-    env: {
-      ...process.env,
-      STUDIO_HOME: studioHome,
-      PORT: String(port),
-      STUDIO_AUTH: 'none',
-      NODE_ENV: 'production',
-      ...opts.extraEnv,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    env: buildServerEnv({ ...opts, studioHome, port }),
+    stdio: ['ignore', logFd, logFd],
     // 独立进程组：npx→tsx→node 三层派生，停服须杀整个组，否则孙进程成孤儿
     detached: true,
   });
-  proc.stdout?.resume(); // 排空管道防缓冲写满阻塞
-  proc.stderr?.resume();
+  closeSync(logFd);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const coldStartMs = await pollUntil200(`${baseUrl}/api/v1/health`, opts.timeoutMs ?? 180_000, proc);
+  const coldStartMs = await pollUntil200(`${baseUrl}/api/v1/health`, opts.timeoutMs ?? 180_000, proc, () =>
+    existsSync(logPath) ? readFileSync(logPath, 'utf8').slice(-16_384) : '');
   return { proc, port, studioHome, baseUrl, coldStartMs };
 }
 

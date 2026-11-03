@@ -5,7 +5,7 @@
  * N 条 workunit 再测（FileStore 全量扫描端点的数据量画像）。
  *
  * 用法：pnpm perf:bench -- [--seed N] [--runs 50] [--sse-rounds 20]
- *        [--cold-runs 3] [--out report.json] [--quiet]
+ *        [--cold-runs 3] [--repeats 3] [--out report.json] [--quiet]
  * stdout 恒输出 markdown 报告；JSON 写 --out（缺省 tmp 文件并打印路径）。
  */
 
@@ -33,6 +33,8 @@ export interface BenchOptions {
   runs?: number;
   sseRounds?: number;
   coldRuns?: number;
+  /** 每端点独立重复轮数；p50/p95 跨轮汇总，max 仅诊断。 */
+  repeats?: number;
   out?: string;
   quiet?: boolean;
 }
@@ -46,6 +48,7 @@ export function parseBenchArgs(argv: string[]): BenchOptions {
       case '--runs': opts.runs = Number(next()); break;
       case '--sse-rounds': opts.sseRounds = Number(next()); break;
       case '--cold-runs': opts.coldRuns = Number(next()); break;
+      case '--repeats': opts.repeats = Number(next()); break;
       case '--out': opts.out = next(); break;
       case '--quiet': opts.quiet = true; break;
       default: throw new Error(`未知参数：${argv[i]}`);
@@ -196,6 +199,9 @@ export async function runBench(opts: BenchOptions = {}): Promise<{ report: Bench
   const runs = opts.runs ?? 50;
   const sseRounds = opts.sseRounds ?? 20;
   const coldRuns = opts.coldRuns ?? 3;
+  const repeats = opts.repeats ?? 3;
+  if (!Number.isInteger(repeats) || repeats <= 0) throw new Error('repeats 须为正整数');
+  const sampleRuns = runs * repeats;
   const log = (m: string) => {
     if (!opts.quiet) console.error(`[perf] ${m}`);
   };
@@ -222,15 +228,15 @@ export async function runBench(opts: BenchOptions = {}): Promise<{ report: Bench
 
     const endpoints: EndpointMetric[] = [];
     for (const e of READ_ENDPOINTS) {
-      log(`${e.name} ${runs} 发…`);
-      endpoints.push(toMetric(e.name, 'GET', e.path, await measureEndpoint(baseUrl, 'GET', e.path, runs)));
+      log(`${e.name} ${runs}×${repeats} 发…`);
+      endpoints.push(toMetric(e.name, 'GET', e.path, await measureEndpoint(baseUrl, 'GET', e.path, sampleRuns)));
     }
 
-    log(`写 create ${runs} 发…`);
+    log(`写 create ${runs}×${repeats} 发…`);
     endpoints.push(
-      toMetric('workunits create', 'POST', '/api/v1/workunits', await measureEndpoint(baseUrl, 'POST', '/api/v1/workunits', runs, (i) => ({ scope: `perf-write-${i}`, type: 'task' }))),
+      toMetric('workunits create', 'POST', '/api/v1/workunits', await measureEndpoint(baseUrl, 'POST', '/api/v1/workunits', sampleRuns, (i) => ({ scope: `perf-write-${i}`, type: 'task' }))),
     );
-    log(`写 update ${runs} 发…`);
+    log(`写 update ${runs}×${repeats} 发…`);
     const probe = await fetch(`${baseUrl}/api/v1/workunits`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -238,10 +244,10 @@ export async function runBench(opts: BenchOptions = {}): Promise<{ report: Bench
     });
     const updateId = ((await probe.json()) as { data: { id: string } }).data.id;
     endpoints.push(
-      toMetric('workunits update', 'PUT', '/api/v1/workunits/:id', await measureEndpoint(baseUrl, 'PUT', `/api/v1/workunits/${updateId}`, runs, (i) => ({ scope: `perf-write-updated-${i}` }))),
+      toMetric('workunits update', 'PUT', '/api/v1/workunits/:id', await measureEndpoint(baseUrl, 'PUT', `/api/v1/workunits/${updateId}`, sampleRuns, (i) => ({ scope: `perf-write-updated-${i}` }))),
     );
 
-    const sseSamples = await measureSse(baseUrl, sseRounds, log);
+    const sseSamples = await measureSse(baseUrl, sseRounds * repeats, log);
     const e2e = summarize(sseSamples.map((s) => s.endToEnd));
     const p2s = summarize(sseSamples.map((s) => s.postToSse));
 
@@ -253,6 +259,7 @@ export async function runBench(opts: BenchOptions = {}): Promise<{ report: Bench
         date: new Date().toISOString().slice(0, 10),
         seed,
         runs,
+        repeats,
       },
       coldStart: { runs: coldStartRuns },
       endpoints,

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { createLazyService } from '../../utils/services.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
-import { NotificationProjection, type NotificationRow } from './notification-projection.js';
+import { NotificationProjection, type NotificationRow, type RecipientProjection } from './notification-projection.js';
 
 /** 全用户 id 列表（auditor 先例：data/users/*.json 文件名，截顶 10；目录缺失返回空） */
 async function listUserIds(): Promise<string[]> {
@@ -52,6 +52,7 @@ export interface NotificationItem {
 
 export class NotificationService {
   private readonly projection: NotificationProjection;
+  private readonly recipientFlights = new Map<string, Promise<RecipientProjection>>();
 
   constructor(private fileStore: FileStore) {
     this.projection = new NotificationProjection(fileStore, NOTIFICATIONS_JSONL);
@@ -83,12 +84,23 @@ export class NotificationService {
     return userIds.length;
   }
 
+  /** 同接收者并发读共享一次锁内增量同步；对象映射和分页仍在各调用方独立执行。 */
+  private loadRecipient(userId: string): Promise<RecipientProjection> {
+    const existing = this.recipientFlights.get(userId);
+    if (existing) return existing;
+    const flight = this.fileStore.withLock(this.projection.lockPath, async () => {
+      const manifest = await this.projection.sync();
+      return this.projection.readRecipient(userId, manifest);
+    });
+    this.recipientFlights.set(userId, flight);
+    return flight.finally(() => {
+      if (this.recipientFlights.get(userId) === flight) this.recipientFlights.delete(userId);
+    });
+  }
+
   /** list + unreadCount 共用一次增量同步，但只读取目标接收者 view。 */
   async getUserNotificationView(userId: string, options?: { unreadOnly?: boolean; limit?: number }) {
-    const recipient = await this.fileStore.withLock(this.projection.lockPath, async () => {
-      await this.projection.sync();
-      return this.projection.readRecipient(userId);
-    });
+    const recipient = await this.loadRecipient(userId);
     const notifications: NotificationItem[] = [];
     for (const entry of Object.values(recipient.items)) {
       const data = entry.data!;

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
-import { makeTempHome, removeTempHome, findFreePort } from '../server.js';
+import { makeTempHome, removeTempHome, findFreePort, buildServerEnv } from '../server.js';
 
 describe('makeTempHome / removeTempHome', () => {
   const homes: string[] = [];
@@ -45,5 +45,24 @@ describe('findFreePort', () => {
       srv.once('error', reject);
       srv.listen(port, '127.0.0.1', () => srv.close(() => resolve()));
     });
+  });
+});
+
+describe('buildServerEnv', () => {
+  it('最小 allowlist：宿主 secret 不继承，dotenv 指向隔离空配置', () => {
+    process.env.PERF_TEST_HOST_SECRET = 'must-not-leak';
+    const home = makeTempHome();
+    try {
+      const env = buildServerEnv({ studioHome: home, port: 39001, telemetry: true, extraEnv: { REGISTER_ENABLED: 'true' } });
+      expect(env.PERF_TEST_HOST_SECRET).toBeUndefined();
+      expect(env.HOME).toBe(home);
+      expect(env.STUDIO_DATA_DIR).toBe(join(home, 'data'));
+      expect(env.DOTENV_CONFIG_PATH).toBe(join(home, 'perf-empty.env'));
+      expect(env.REGISTER_ENABLED).toBe('true');
+      expect(env.NODE_OPTIONS).toContain('--import');
+    } finally {
+      removeTempHome(home);
+      delete process.env.PERF_TEST_HOST_SECRET;
+    }
   });
 });

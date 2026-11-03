@@ -160,6 +160,8 @@ export interface WorkUnitSnapshot {
 export interface WorkUnitFilter {
   id?: string;
   status?: string;
+  /** 多状态 OR；与 status/其他字段按 AND 组合。空数组不匹配任何行。 */
+  statuses?: readonly string[];
   type?: string;
   assigneeId?: string;
   channelId?: string;

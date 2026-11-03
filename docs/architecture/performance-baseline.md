@@ -238,3 +238,76 @@ listen 前移复盘发现四处同源/伴生根因并修复（计划 docs/plans/
 - worker_threads 未采用（同 #663 判断）：瓶颈是同步 IO 的**连续拼接**而非单点 CPU，逐条让出已把秒级连续阻塞拆成毫秒级碎片。
 - 残余 ~100–140ms 级单窗 max 与同窗口其他 warmup 任务（knowledge 域 coldStartAll/ruleScanner 等）及本机内存压力叠加，量级已在请求预算内，不再细分。
 - 口径备注：票面引用的「10.9s」是 #663 修复前（execFileSync 时代）的实测；本票前后对比以 #663 后现状为基线（§7 的「另立票」即 #663 已先行落地，本票收口其残余）。
+
+---
+
+## 11. PERF-07 规模/并发/soak 门禁（2026-11-02）
+
+门禁正本和使用方法见 `scripts/perf/README.md`。旧空区 baseline 保留原端点；默认 gate 另跑非空 `scale` 与 `browser`，不混比数据口径。p50/p95 同时受多次重复相对回归和绝对预算约束，max 仅诊断。所有结果来自隔离临时数据区和本机回环服务，不是生产 SLA。
+
+### 11.1 Action Center 过滤读穿与默认 scale
+
+Action Center 已改为 `getIndex({status})` 过滤读穿，blocked/in_review/pending 并行查询共享 index miss single-flight，只克隆命中行并只对 actionable 子集排序；不再使用 per-WU `listCurrentSnapshots` 聚合，也不做未过滤全量读取。生产测试证明无 per-WU 读取、30 次过滤调用仅一次 index 磁盘读、派生语义不变。共享 `listCurrentSnapshots` 的并行 I/O 改动保留给 overview 等现有消费方。
+
+旧报告 `/tmp/studio-perf07-filtered-scale-default.json` 的 HTTP 阶段读取 49,356,521B；定位到通知投影即使真源完整也以 64KB 块查找末尾换行，稳态查询反复倒读 tail。已修为完整 JSONL 只读末字节，末尾半行才回退倒扫。telemetry 另以 owner PID 防止继承 `NODE_OPTIONS` 的 node 子进程覆盖 API 报告，消除 RSS/计数被重置的假诊断。
+
+最新默认 scale `/tmp/studio-perf07-notification-tail-scale-default.json`：correctness 10/10；HTTP readBytes/parsedLines/cacheMisses=0/0/0，SSE p50/p95=44.0/62.2ms 已绿；action-center p50/p95=41.0/118.3ms，p95 仍超 100ms，不能记全绿。HTTP event-loop p50/p95/max=20.1/22.5/396.1ms，RSS start/peak/end=54.2/60.4/54.2MB；同端点 B/C p95=77.9/118.3ms 显示运行内漂移。未改阈值或缩矩阵。
+
+### 11.2 拆分浏览器矩阵（独立命令全硬门通过）
+
+独立命令 `pnpm perf:browser --out /tmp/studio-perf07-split-browser-default-2.json` 退出码 0。完整 soak 仅一次，覆盖 100 频道、2000 长历史消息、50 持续 SSE、1000 详情访问；真实旧页锚点、精确 SSE id、1000 目标 DOM 和 GC heap 全部完成。LCP/INP 另走同一长历史页的轻量真实交互，共 20 个有效样本，不重复详情 soak。
+
+- correctness 全绿；LCP n=20，p50/p95=548/1045.8ms，通过 1000/2000ms。
+- INP n=20，p50/p95=16/25.2ms，通过 100/200ms。
+- GC heap start/after=7.49/10.69MB，通过增长预算；long task/dropped frames 仅诊断。
+- 首用 dismiss fixture 避免把一次性角色设置弹窗计入持续交互；未缩减矩阵。
+
+### 11.3 完整默认 gate（60 legacy 样本，保留红色）
+
+完整 `pnpm perf:gate` 的 legacy 相对回归共 6 项，均仍满足绝对预算，未将 relative 改诊断：notifications p50/p95 0.8→6.4 / 1→11.4ms；create p50/p95 6.2→12.8 / 9.3→19.9ms；update p50/p95 5.9→13.8 / 8.5→21.0ms。红色来自旧静态 baseline 相对回归。
+
+默认 gate 已将完整浏览器 soak 前置，曾在第 372 个详情时 `Target crashed`。环境诊断后的独立默认 browser 又在第 952 个详情崩溃，现场保留于 `/tmp/studio-perf-browser-OqTZrM`：page crash/disconnect 已落日志，JS heap 约 10.26MB；同一时刻 earlyoom 记录可用内存 371MiB（9.97%）并向 `chrome-headless` 发送 SIGTERM。根因是宿主内存压力杀浏览器，不是 heap 无界或 gate/独立矩阵差异；未通过重试或旧绿结果掩盖，完整 gate 仍不能记绿。浏览器后续版本仅捕获 `pw:browser`、crash/disconnect 和脱敏失败报告，不记录 `pw:api` 认证参数。
+
+### 11.4 当次内层报告与写链根修（2026-11-03）
+
+gate 改为 scale → browser → legacy，并保存每次内层 JSON。通知读取复用本次 sync manifest，未知接收者零额外打开；`commitSnapshot` 在事件先落后并行写 index 与 projection/head，全部 settled 后才提交 manifest；无 blockedBy 的 `workunit.created` 不再为 claimable 重读全量 index。上述行为均有直接 RED→GREEN 与崩溃恢复测试，baseline/阈值未改。
+
+最新 gate 日志 `/tmp/studio-perf07-optimized2-gate-default.log`，内层报告为 `/tmp/studio-perf-gate-scale-1793637339639-982390.json` 与 `/tmp/studio-perf-gate-browser-1793637339639-982390.json`：
+
+- scale correctness 10/10；SSE p50/p95=46.0/62.5ms 已绿；action-center p50/p95=36.0/109.7ms，p95 仍红。其 B/C p95=94.5/109.7ms、max=330ms，HTTP 读取量诊断为零，当前没有支持继续改业务读口的证据。
+- browser correctness 全绿；LCP n=20、p50/p95=660/845.2ms，INP n=20、16/24ms，100 频道/1000 详情完成，GC heap 7.49→10.66MB。
+- legacy 仍有 6 项相对红、绝对预算均绿：notifications p50/p95=0.8→6.4 / 1→9.1ms；create=6.2→20.2 / 9.3→33.1ms；update=5.9→20.4 / 8.5→30.6ms。完整 gate 因 action-center 尾延迟与这些旧静态 baseline 相对回归保持红色，未重锚或删项。
+
+### 11.5 Action Center 多状态下推与 legacy 协议冲突证据
+
+`WorkUnitFilter.statuses` 以多状态 OR、其他字段 AND 的兼容语义下推；ActionCenter 改为一次 `getIndex({statuses:['blocked','in_review','pending']})`，每次派生仅一次 index stat/cache 校验且只克隆 actionable 行。RED 旧路径为 10 次请求 30 次调用/30 次 stat，GREEN 为 10 次调用/10 次 stat，结果语义不变；shared/action-center 90 项测试通过。
+
+默认 scale `/tmp/studio-perf07-statuses-scale-default.json` 全绿：correctness 10/10，action-center p50/p95=29.9/56.2ms，SSE=38.5/46.6ms，其余绝对预算均通过，未改阈值。
+
+legacy create/update 的红色属于**新持久化协议与旧静态 baseline 的口径冲突**，不是绝对预算失守：旧 baseline commit `ff546ba9` 为 current projection 之前的架构，当前写链为了保证崩溃恢复需要 events、append-only index、per-WU current/head 和最后 manifest 等独立派生写。并行化只能压缩这些必要写的墙钟，不能把它们假装成旧架构成本。最近完整 gate 的 create p50/p95=20.2/33.1ms、update=20.4/30.6ms，仍远低于写预算 150/300ms；但相对旧值 create 6.2/9.3ms、update 5.9/8.5ms 触发 >20% 相对门。保留该相对红作为协议成本证据，不重锚、不删门。
+
+### 11.6 PERF-07 持久化架构重锚（2026-11-03，经用户明确授权）
+
+新 baseline 来自完整默认 gate `/tmp/studio-perf07-statuses-gate-default-2.log` 的同次 legacy 报告 `/tmp/studio-perf-report-1793667847470.json`，不是更快单次或 cherry-pick。基础 HEAD=`25255f53`；环境为 Linux x86_64、4 vCPU、3.7 GiB RAM、8 GiB swap、Node v22.22.0，本机回环隔离空区，测量开始时 MemAvailable 约 1.1 GiB。每端点 60 样本（20×3），SSE 10 轮，cold start 3 轮。相对门仍为 20%+5ms，绝对预算、9 个端点及 max 诊断均保留。
+
+旧值来自 commit `ff546ba9` 的 current-projection 前架构；新值包含 events、append-only index、per-WU current/head、manifest 的崩溃恢复成本。通知面也已使用当前态投影。下表完整保留旧值与重锚值，格式为 p50/p95/max（ms）：
+
+| 场景 | 旧 baseline | PERF-07 baseline |
+|---|---:|---:|
+| health | 5.7 / 9.5 / 12.9 | 7.0 / 10.5 / 19.7 |
+| channels 列表 | 1.2 / 1.7 / 2.9 | 1.1 / 2.5 / 3.7 |
+| workunits 列表 | 1.2 / 2.7 / 3.5 | 1.4 / 3.5 / 6.7 |
+| pmo 项目列表 | 1.4 / 2.8 / 4.6 | 1.8 / 3.7 / 4.3 |
+| skills 列表 | 1.0 / 1.4 / 3.0 | 1.5 / 3.9 / 9.4 |
+| monitoring 汇总 | 1.2 / 3.5 / 10.8 | 2.5 / 10.5 / 12.1 |
+| notifications | 0.8 / 1.0 / 1.8 | 8.1 / 12.9 / 18.0 |
+| workunits create | 6.2 / 9.3 / 10.9 | 15.7 / 31.0 / 139.3 |
+| workunits update | 5.9 / 8.5 / 9.8 | 16.1 / 21.9 / 39.9 |
+
+SSE postToSse p50/p95：0.2/1.3 → 0.4/0.6ms；endToEnd：11.7/23.8 → 21.4/36.5ms。coldStart 三轮：1500/2600/2300 → 3890/1639/2154ms。max 仍只诊断，不因重锚改判红。
+
+### 11.7 quick/full 分层与 full 历史边界
+
+日常本地门使用 `pnpm perf:gate --quick`：scale/browser 小矩阵，HTTP 与 browser 各20样本，legacy 空区保持60样本及相同冷启/SSE口径；复杂度、correctness、有界性仍由直接测试和同一硬门覆盖。每周 workflow 与发布前继续运行完整默认矩阵，不缩100频道/1000详情，不改阈值。
+
+full 历史上曾完成 scale/browser：重锚前 `/tmp/studio-perf07-statuses-gate-default-2.log` 的 scale correctness/绝对预算和 browser correctness/LCP/INP 均绿，legacy 有8项旧架构相对红。重锚后的 `/tmp/studio-perf07-final-gate.log`、`final-gate-2.log`、`final-gate-3.log` 分别出现时延红或 earlyoom 导致的 browser 中断，**没有完整全绿记录**。单 Chromium 实验 `/tmp/studio-perf07-single-chromium-gate.log` 也在详情283被 earlyoom 终止，已精确撤销；恢复独立进程采样不等于 full gate 已绿。

@@ -8,7 +8,7 @@
  * 约定与 workunit-status-events.test.ts / waiting-input.test.ts 一致：
  * 真实 FileStore（tmpdir）+ 真实 Service 实例，不 mock。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -886,6 +886,19 @@ describe('事件负载 claimable 标记（#318 additive）', () => {
     const evt = createdEvents.find(e => e.id === wu.id);
     expect(evt).toBeDefined();
     expect((evt as WorkUnitData & { claimable?: boolean })!.claimable).toBe(true);
+  });
+
+  it('workunit.created：无依赖不重读全量 index，有依赖仍按实时状态判定', async () => {
+    const reads = vi.spyOn(fileStore, 'getIndex');
+    try {
+      await service.create({ scope: '无依赖快速发布', status: 'unassigned' });
+      expect(reads).not.toHaveBeenCalled();
+
+      await service.create({ scope: '有依赖按状态发布', status: 'unassigned', metadata: { blockedBy: ['wu-nonexistent'] } });
+      expect(reads).toHaveBeenCalledTimes(1);
+    } finally {
+      reads.mockRestore();
+    }
   });
 
   it('workunit.created：unassigned 有未了结依赖 → claimable: false', async () => {

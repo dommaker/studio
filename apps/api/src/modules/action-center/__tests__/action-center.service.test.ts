@@ -1,6 +1,7 @@
 // ActionCenterService 派生口径（#468）——服务层直测（HTTP 层见 routes.test.ts）
 // 覆盖：三种 kind 同池共存、waitingSince 缺失回退 updatedAt、通知面按 userId 隔离。
 import { describe, it, expect, vi } from 'vitest';
+import fs from 'node:fs';
 import { FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '../../notifications/index.js';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
@@ -32,6 +33,58 @@ describe('ActionCenterService（#468）', () => {
 
     expect(notifications).toHaveLength(0);
     expect(unreadCount).toBe(0);
+  });
+
+  it('PERF-07：只做 blocked/in_review/pending 过滤读穿，不做全量或 per-WU 聚合读取', async () => {
+    const fileStore = new FileStore();
+    const wuService = new WorkUnitService(fileStore);
+    const blocked = await wuService.create({ type: 'task', scope: '挂起', status: 'blocked', metadata: { waitingForInput: true } });
+    const review = await wuService.create({ type: 'analysis', scope: '验收', status: 'in_review' });
+    const pending = await wuService.create({ type: 'task', scope: '确认', status: 'pending' });
+    const getIndex = vi.spyOn(fileStore, 'getIndex');
+    const listCurrentSnapshots = vi.spyOn(fileStore, 'listCurrentSnapshots');
+
+    const { stateItems } = await new ActionCenterService(fileStore).getActionCenter('local');
+
+    expect(getIndex.mock.calls).toEqual([
+      [{ statuses: ['blocked', 'in_review', 'pending'] }],
+    ]);
+    expect(listCurrentSnapshots).not.toHaveBeenCalled();
+    expect(stateItems.filter(item => [blocked.id, review.id, pending.id].includes(item.wuId)).map(item => item.kind).sort()).toEqual(['confirm', 'reply', 'review']);
+  });
+
+  it('PERF-07：并发 Action Center 共享过滤读穿，派生互不影响', async () => {
+    const fileStore = new FileStore();
+    const wuService = new WorkUnitService(fileStore);
+    const blocked = await wuService.create({ type: 'task', scope: '挂起', status: 'blocked', metadata: { waitingForInput: true } });
+    const review = await wuService.create({ type: 'analysis', scope: '验收', status: 'in_review' });
+    const pending = await wuService.create({ type: 'task', scope: '确认', status: 'pending' });
+    const getIndex = vi.spyOn(fileStore, 'getIndex');
+    const listCurrentSnapshots = vi.spyOn(fileStore, 'listCurrentSnapshots');
+    const originalRead = fs.promises.readFile.bind(fs.promises);
+    const originalStat = fs.promises.stat.bind(fs.promises);
+    let indexReads = 0;
+    let indexStats = 0;
+    vi.spyOn(fs.promises, 'readFile').mockImplementation((async (file: fs.PathLike | fs.promises.FileHandle, options?: unknown) => {
+      if (String(file).endsWith('workunits/index.json')) indexReads++;
+      return originalRead(file as fs.PathLike, options as { encoding?: BufferEncoding | null });
+    }) as typeof fs.promises.readFile);
+    vi.spyOn(fs.promises, 'stat').mockImplementation((async (file: fs.PathLike, options?: unknown) => {
+      if (String(file).endsWith('workunits/index.json')) indexStats++;
+      return originalStat(file, options as never);
+    }) as typeof fs.promises.stat);
+    const service = new ActionCenterService(fileStore);
+
+    const results = await Promise.all(Array.from({ length: 10 }, () => service.getActionCenter('local')));
+
+    expect(getIndex).toHaveBeenCalledTimes(10);
+    expect(getIndex.mock.calls.every(([filter]) => filter && Object.keys(filter).length === 1 && 'statuses' in filter)).toBe(true);
+    expect(indexStats).toBe(10);
+    expect(indexReads).toBe(1);
+    expect(listCurrentSnapshots).not.toHaveBeenCalled();
+    for (const result of results) {
+      expect(result.stateItems.filter(item => [blocked.id, review.id, pending.id].includes(item.wuId)).map(item => item.kind).sort()).toEqual(['confirm', 'reply', 'review']);
+    }
   });
 
   it('PERF-05：通知 list+unreadCount 取同一份 view，不分开 fold', async () => {
@@ -139,6 +192,50 @@ describe('ActionCenterService（#468）', () => {
       expect(item?.messageId).toBe('m-tail-q');
       expect(tailSpy).toHaveBeenCalledWith('ch-d2-tail', expect.objectContaining({ limit: 1 }));
       expect(querySpy).not.toHaveBeenCalled();
+    });
+
+    it('PERF-07：同一 channel version 复用提问锚点，版本推进后重扫', async () => {
+      const fileStore = new FileStore();
+      const wuService = new WorkUnitService(fileStore);
+      const wu = await wuService.create({
+        type: 'task', scope: '挂起单', channelId: 'ch-d2-cache', status: 'blocked',
+        metadata: { waitingForInput: true, waitingQuestion: '选哪个方案？' },
+      });
+      await fileStore.appendMessage('ch-d2-cache', msg('m-cache-q', 'ch-d2-cache', wu.id, 'agent', '2026-09-09T09:00:00Z'));
+      const service = new ActionCenterService(fileStore);
+      const tailSpy = vi.spyOn(fileStore, 'readMessagesTail');
+
+      await service.getActionCenter('local');
+      await service.getActionCenter('local');
+      const targetCalls = () => tailSpy.mock.calls.filter(([channelId]) => channelId === 'ch-d2-cache').length;
+      expect(targetCalls()).toBe(1);
+
+      await fileStore.appendMessage('ch-d2-cache', msg('m-cache-new', 'ch-d2-cache', null, 'human', '2026-09-09T10:00:00Z'));
+      await service.getActionCenter('local');
+      expect(targetCalls()).toBe(2);
+    });
+
+    it('PERF-07：waitingMessageCache 有界且完结清理，不影响全部 stateItems', async () => {
+      const fileStore = new FileStore();
+      const wuService = new WorkUnitService(fileStore);
+      const service = new ActionCenterService(fileStore);
+      const created = [];
+      for (let i = 0; i < 70; i++) {
+        created.push(await wuService.create({
+          type: 'task', scope: `cache-${i}`, channelId: 'ch-lru', status: 'blocked',
+          metadata: { waitingForInput: true, waitingQuestion: `q-${i}` },
+        }));
+      }
+
+      const first = await service.getActionCenter('local');
+      const cache = (service as unknown as { waitingMessageCache: Map<string, unknown> }).waitingMessageCache;
+      expect(cache.size).toBeLessThanOrEqual(64);
+      expect(created.every(wu => first.stateItems.some(item => item.wuId === wu.id))).toBe(true);
+
+      for (const wu of created.slice(0, 69)) await wuService.close(wu.id, { reason: 'perf cache cleanup', closedBy: 'human-command' });
+      await service.getActionCenter('local');
+      for (const wu of created.slice(0, 69)) expect(cache.has(`${wu.id}:ch-lru`)).toBe(false);
+      expect(cache.has(`${created[69].id}:ch-lru`)).toBe(true);
     });
   });
 });

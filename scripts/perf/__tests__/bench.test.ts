@@ -7,11 +7,12 @@ describe('parseBenchArgs', () => {
   });
 
   it('解析全部选项', () => {
-    expect(parseBenchArgs(['--seed', '500', '--runs', '30', '--sse-rounds', '10', '--cold-runs', '2', '--out', '/tmp/x.json', '--quiet'])).toEqual({
+    expect(parseBenchArgs(['--seed', '500', '--runs', '30', '--sse-rounds', '10', '--cold-runs', '2', '--repeats', '3', '--out', '/tmp/x.json', '--quiet'])).toEqual({
       seed: 500,
       runs: 30,
       sseRounds: 10,
       coldRuns: 2,
+      repeats: 3,
       out: '/tmp/x.json',
       quiet: true,
     });

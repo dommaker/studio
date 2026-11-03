@@ -131,6 +131,8 @@ export class WorkUnitStore {
   /** #524 P1-2：index 压实阈值与 append 计数（进程内存，重启清零最多延迟一轮评估——同 #319 先例） */
   private readonly indexCompaction: Required<IndexCompactionOptions>;
   private indexAppendCount = 0;
+  /** 同文件读穿 miss 合并；命中后仍只克隆过滤行。 */
+  private indexReadFlight: Promise<WorkUnitSnapshot[] | null> | null = null;
   /** PERF-03：本进程成功写 index 后单调递增；跨进程新鲜度仍由 mtime/15s 兜底保证。 */
   private indexVersion = 0;
 
@@ -310,7 +312,18 @@ export class WorkUnitStore {
       if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
       return cached;
     }
-    const value = await this.readIndexFile();
+    let value: WorkUnitSnapshot[] | null;
+    if (this.indexReadFlight) {
+      value = await this.indexReadFlight;
+    } else {
+      const flight = this.readIndexFile();
+      this.indexReadFlight = flight;
+      try {
+        value = await flight;
+      } finally {
+        if (this.indexReadFlight === flight) this.indexReadFlight = null;
+      }
+    }
     const t2 = t?.() ?? 0;
     cacheSet(jsonCache, filePath, { value, mtimeMs });
     const cloned = cloneCached(value === null ? null : applyFilter(value, filter)) as WorkUnitSnapshot[] | null;
@@ -502,9 +515,10 @@ export class WorkUnitStore {
     return manifest;
   }
 
-  /** 正常增量写：events/index 已完成，projection 先于 manifest 落盘。 */
+  /** 正常增量写：projection/head 先于 manifest；beforeManifest 可屏障并行的 index 派生写。 */
   private async finalizeCurrentLocked(
     rows: Array<WorkUnitSnapshot | WorkUnitIndexTombstone>,
+    beforeManifest?: Promise<unknown>,
   ): Promise<void> {
     const head = await this.readLogPositionLocked();
     const previous = await this.readCurrentManifestLocked();
@@ -536,6 +550,7 @@ export class WorkUnitStore {
         ]);
       }
     }
+    if (beforeManifest) await beforeManifest;
     await this.ctx.io.writeJson(this.currentManifestPath, { version: 1, log: head, count });
   }
 
@@ -578,17 +593,17 @@ export class WorkUnitStore {
       if (projectionEntries.length !== manifest.count) {
         throw new Error(`WorkUnit current projection count mismatch: ${this.currentDir}`);
       }
-      const snapshots: WorkUnitSnapshot[] = [];
-      for (const entry of projectionEntries) {
+      return Promise.all(projectionEntries.map(async entry => {
         const projectionPath = path.join(this.currentDir, entry);
         const headPath = path.join(this.currentHeadsDir, entry);
-        const projectionHead = parseWorkUnitProjectionHead(await fs.promises.readFile(headPath, 'utf8'), headPath);
-        const content = await fs.promises.readFile(projectionPath, 'utf8');
+        const [projectionHead, content] = await Promise.all([
+          fs.promises.readFile(headPath, 'utf8').then(raw => parseWorkUnitProjectionHead(raw, headPath)),
+          fs.promises.readFile(projectionPath, 'utf8'),
+        ]);
         const raw = JSON.parse(content) as { snapshot?: { id?: unknown } };
         if (typeof raw.snapshot?.id !== 'string') throw new Error(`WorkUnit current projection id missing: ${projectionPath}`);
-        snapshots.push(parseWorkUnitCurrentProjection(content, raw.snapshot.id, projectionHead, projectionPath).snapshot);
-      }
-      return snapshots;
+        return parseWorkUnitCurrentProjection(content, raw.snapshot.id, projectionHead, projectionPath).snapshot;
+      }));
     } catch (error) {
       if (isErrnoError(error) || !allowRebuild) throw error;
       const rebuilt = await this.rebuildCurrentLocked();
@@ -738,8 +753,11 @@ export class WorkUnitStore {
     return this.ctx.base.withLock(this.lockDir, async () => {
       await this.ensureCurrentLocked();
       await this.ctx.io.appendJsonl(this.eventsPath, event);
-      await this.upsertSnapshotLocked(snapshot);
-      await this.finalizeCurrentLocked([snapshot]);
+      const indexWrite = this.upsertSnapshotLocked(snapshot);
+      await this.settleCurrentWritesLocked([
+        indexWrite,
+        this.finalizeCurrentLocked([snapshot], indexWrite),
+      ]);
     });
   }
 
@@ -997,6 +1015,7 @@ export function applyFilter(snapshots: WorkUnitSnapshot[], filter?: WorkUnitFilt
   return snapshots.filter(s => {
     if (filter.id && s.id !== filter.id) return false;
     if (filter.status && s.status !== filter.status) return false;
+    if (filter.statuses && !filter.statuses.includes(s.status)) return false;
     if (filter.type && s.type !== filter.type) return false;
     if (filter.assigneeId && s.assigneeId !== filter.assigneeId) return false;
     if (filter.channelId && s.channelId !== filter.channelId) return false;

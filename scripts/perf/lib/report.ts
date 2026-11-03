@@ -1,9 +1,9 @@
 /**
  * Bench 报告模型 + baseline 同口径渲染 + 回归对比（#673）。
  *
- * 回归判定（票规：回归 >20% 红）：相对变化严格大于 thresholdPct 且绝对增量
- * 大于 minDeltaMs（异机/毫秒级噪声地板，默认 5ms）才算回归；缺失端点与
- * 非 2xx 状态码出现也算失败（防漏测静默变绿）。seed 不同的报告口径不同，拒绝对比。
+ * 回归判定（PERF-07）：p50/p95 相对变化严格大于 thresholdPct 且绝对增量
+ * 大于 minDeltaMs，或超过统一绝对预算才算回归；max 只进 observations。
+ * 缺失端点与非 2xx 状态码出现也算失败。seed 不同的报告口径默认拒绝对比。
  */
 
 export interface EndpointMetric {
@@ -32,8 +32,10 @@ export interface BenchReport {
     date: string;
     /** 预置数据条数（0 = 空数据区） */
     seed: number;
-    /** 每端点串行发数 */
+    /** 每轮每端点串行发数 */
     runs: number;
+    /** 独立重复轮数；旧 baseline 缺省视为 1。 */
+    repeats?: number;
     note?: string;
   };
   /** 各轮端口可服务耗时（/health 首次 200），ms */
@@ -53,6 +55,8 @@ export interface Regression {
 export interface CompareResult {
   ok: boolean;
   regressions: Regression[];
+  /** max 尖刺只进诊断，绝不参与 ok。 */
+  observations: Regression[];
   /** baseline 有而 current 缺的端点名 */
   missing: string[];
 }
@@ -63,6 +67,22 @@ export interface CompareOptions {
   minDeltaMs?: number;
   /** 冷启动绝对噪声地板——秒级量级，机器负载方差同量级，默认 1000ms */
   coldStartMinDeltaMs?: number;
+  /** 绝对预算依据 performance-baseline.md §5/§7.1。 */
+  readP50BudgetMs?: number;
+  readP95BudgetMs?: number;
+  writeP50BudgetMs?: number;
+  writeP95BudgetMs?: number;
+  sseP50BudgetMs?: number;
+  sseP95BudgetMs?: number;
+  coldStartBudgetMs?: number;
+  lcpP50BudgetMs?: number;
+  lcpP95BudgetMs?: number;
+  inpP50BudgetMs?: number;
+  inpP95BudgetMs?: number;
+  browserHeapGrowthBytes?: number;
+  browserRetainedChannelKeys?: number;
+  /** gate 默认改测规模区，仍保留旧空区 baseline 的全部回归项。 */
+  allowSeedMismatch?: boolean;
 }
 
 function isRegression(baselineMs: number, currentMs: number, thresholdPct: number, minDeltaMs: number): boolean {
@@ -92,12 +112,13 @@ function median(values: number[]): number {
 }
 
 export function compareReports(baseline: BenchReport, current: BenchReport, opts: CompareOptions = {}): CompareResult {
-  if (baseline.meta.seed !== current.meta.seed) {
+  if (!opts.allowSeedMismatch && baseline.meta.seed !== current.meta.seed) {
     throw new Error(`口径不同拒绝对比：baseline seed=${baseline.meta.seed} vs current seed=${current.meta.seed}`);
   }
   const thresholdPct = opts.thresholdPct ?? 20;
   const minDeltaMs = opts.minDeltaMs ?? 5;
   const regressions: Regression[] = [];
+  const observations: Regression[] = [];
   const missing: string[] = [];
 
   const currentByName = new Map(current.endpoints.map((e) => [e.name, e]));
@@ -110,9 +131,22 @@ export function compareReports(baseline: BenchReport, current: BenchReport, opts
     if (hasNon2xx(cur.statusCounts) && !hasNon2xx(base.statusCounts)) {
       regressions.push(regression(base.name, 'status', 0, 1));
     }
-    for (const metric of ['p50', 'p95', 'max'] as const) {
+    for (const metric of ['p50', 'p95'] as const) {
       if (isRegression(base[metric], cur[metric], thresholdPct, minDeltaMs)) {
         regressions.push(regression(base.name, metric, base[metric], cur[metric]));
+      }
+    }
+    if (isRegression(base.max, cur.max, thresholdPct, minDeltaMs)) {
+      observations.push(regression(base.name, 'max', base.max, cur.max));
+    }
+    const write = base.method !== 'GET';
+    const budgets = {
+      p50: (write ? opts.writeP50BudgetMs : opts.readP50BudgetMs) ?? (write ? 150 : 50),
+      p95: (write ? opts.writeP95BudgetMs : opts.readP95BudgetMs) ?? (write ? 300 : 100),
+    };
+    for (const metric of ['p50', 'p95'] as const) {
+      if (cur[metric] > budgets[metric]) {
+        regressions.push(regression(base.name, `${metric}.absolute`, budgets[metric], cur[metric]));
       }
     }
   }
@@ -125,6 +159,8 @@ export function compareReports(baseline: BenchReport, current: BenchReport, opts
   if (bMed > 0 && cMed > 0 && isRegression(bMed, cMed, thresholdPct, coldStartFloor)) {
     regressions.push(regression('coldStart.median', 'ms', bMed, cMed));
   }
+  const coldBudget = opts.coldStartBudgetMs ?? 10_000;
+  if (cMed > coldBudget) regressions.push(regression('coldStart.median', 'absolute', coldBudget, cMed));
 
   if (baseline.sse && current.sse) {
     for (const key of ['postToSse', 'endToEnd'] as const) {
@@ -133,10 +169,12 @@ export function compareReports(baseline: BenchReport, current: BenchReport, opts
       if (isRegression(b, c, thresholdPct, minDeltaMs)) {
         regressions.push(regression(`sse.${key}`, 'p95', b, c));
       }
+      const budget = opts.sseP95BudgetMs ?? 100;
+      if (c > budget) regressions.push(regression(`sse.${key}`, 'p95.absolute', budget, c));
     }
   }
 
-  return { ok: regressions.length === 0 && missing.length === 0, regressions, missing };
+  return { ok: regressions.length === 0 && missing.length === 0, regressions, observations, missing };
 }
 
 // ── baseline 同口径渲染 ──

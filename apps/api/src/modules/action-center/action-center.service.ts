@@ -8,9 +8,7 @@
  */
 import { FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '../notifications/index.js';
-import { WorkUnitService } from '../workunit/index.js';
-import { MANUAL_GATE_TYPES } from '../workunit/index.js';
-import { parseWuMetadata, parseWuTitle } from '../workunit/index.js';
+import { MANUAL_GATE_TYPES, parseWuMetadata, parseWuTitle, snapshotToData } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
 
 
@@ -35,24 +33,55 @@ export interface ActionCenterPayload {
 }
 
 export class ActionCenterService {
+  private static readonly WAITING_MESSAGE_CACHE_LIMIT = 64;
+  private readonly waitingMessageCache = new Map<string, { version: string | null; messageId: string | null }>();
+
   constructor(
     private fileStore: FileStore = getStore(),
     private notificationService: NotificationService = new NotificationService(fileStore),
   ) {}
 
+  private pruneWaitingMessageCache(activeKeys: ReadonlySet<string>): void {
+    for (const key of this.waitingMessageCache.keys()) {
+      if (!activeKeys.has(key)) this.waitingMessageCache.delete(key);
+    }
+    while (this.waitingMessageCache.size > ActionCenterService.WAITING_MESSAGE_CACHE_LIMIT) {
+      const oldest = this.waitingMessageCache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.waitingMessageCache.delete(oldest);
+    }
+  }
+
+  private rememberWaitingMessage(key: string, version: string | null, messageId: string | null): void {
+    this.waitingMessageCache.delete(key);
+    this.waitingMessageCache.set(key, { version, messageId });
+    while (this.waitingMessageCache.size > ActionCenterService.WAITING_MESSAGE_CACHE_LIMIT) {
+      const oldest = this.waitingMessageCache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.waitingMessageCache.delete(oldest);
+    }
+  }
+
   async getActionCenter(userId: string): Promise<ActionCenterPayload> {
-    const wuService = new WorkUnitService(this.fileStore);
-    const [blocked, inReview, pending] = await Promise.all([
-      wuService.list({ status: 'blocked', limit: 1000 }),
-      wuService.list({ status: 'in_review', limit: 1000 }),
-      wuService.list({ status: 'pending', limit: 1000 }),
+    const [actionable, { notifications, unreadCount }] = await Promise.all([
+      this.fileStore.getIndex({ statuses: ['blocked', 'in_review', 'pending'] }),
+      this.notificationService.getUserNotificationView(userId, { limit: 50 }),
     ]);
+    const sortByCreatedAtDesc = <T extends { createdAt: Date }>(rows: T[]): T[] =>
+      rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const blockedSorted = sortByCreatedAtDesc(actionable.filter(wu => wu.status === 'blocked').map(snapshotToData));
+    const inReviewSorted = sortByCreatedAtDesc(actionable.filter(wu => wu.status === 'in_review').map(snapshotToData));
+    const pendingSorted = sortByCreatedAtDesc(actionable.filter(wu => wu.status === 'pending').map(snapshotToData));
+    const activeWaitingKeys = new Set(blockedSorted
+      .filter(wu => parseWuMetadata(wu.metadata).waitingForInput && wu.channelId)
+      .map(wu => `${wu.id}:${wu.channelId}`));
+    this.pruneWaitingMessageCache(activeWaitingKeys);
 
     const stateItems: ActionCenterStateItem[] = [];
 
     // reply = blocked + waitingForInput（设计稿：不再排除 decision/spec，
     // 排除规则从 chip 的「避免红点焦虑」改为面板分区解决）
-    for (const wu of blocked.data) {
+    for (const wu of blockedSorted) {
       const meta = parseWuMetadata(wu.metadata);
       if (!meta.waitingForInput) continue;
       const messageId = await this.resolveWaitingMessageId(wu.id, wu.channelId);
@@ -68,7 +97,7 @@ export class ActionCenterService {
     }
 
     // review = in_review 且人工闸门类（MANUAL_GATE_TYPES 单一事实源）
-    for (const wu of inReview.data) {
+    for (const wu of inReviewSorted) {
       if (!MANUAL_GATE_TYPES.has(wu.type)) continue;
       stateItems.push({
         kind: 'review',
@@ -80,7 +109,7 @@ export class ActionCenterService {
     }
 
     // confirm = pending（人闸待确认）
-    for (const wu of pending.data) {
+    for (const wu of pendingSorted) {
       stateItems.push({
         kind: 'confirm',
         wuId: wu.id,
@@ -90,7 +119,6 @@ export class ActionCenterService {
       });
     }
 
-    const { notifications, unreadCount } = await this.notificationService.getUserNotificationView(userId, { limit: 50 });
     return { stateItems, notifications, unreadCount };
   }
 
@@ -106,11 +134,17 @@ export class ActionCenterService {
   private async resolveWaitingMessageId(wuId: string, channelId: string | null): Promise<string | null> {
     if (!channelId) return null;
     try {
+      const { lastMessageId: version } = await this.fileStore.getChannelVersion(channelId);
+      const key = `${wuId}:${channelId}`;
+      const cached = this.waitingMessageCache.get(key);
+      if (cached && cached.version === version) return cached.messageId;
       const { messages } = await this.fileStore.readMessagesTail(channelId, {
         limit: 1,
         match: m => m.workUnitId === wuId && m.authorType !== 'human',
       });
-      return messages[0]?.id ?? null;
+      const messageId = messages[0]?.id ?? null;
+      this.rememberWaitingMessage(key, version, messageId);
+      return messageId;
     } catch {
       return null;
     }

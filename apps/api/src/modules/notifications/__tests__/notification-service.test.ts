@@ -344,6 +344,32 @@ describe('NotificationService', () => {
       expect(await cold.getUnreadCount('user-1')).toBe(0);
     });
 
+    it('同接收者并发 view 合并为一次锁内 sync，调用方仍各得独立列表', async () => {
+      await service.create({ userId: 'user-1', type: 'system', title: 'N1', content: 'C1' });
+      const withLock = vi.spyOn(fileStore, 'withLock');
+
+      const views = await Promise.all(Array.from({ length: 10 }, () => service.getUserNotificationView('user-1')));
+
+      expect(withLock).toHaveBeenCalledTimes(1);
+      expect(views.every(view => view.notifications.length === 1 && view.unreadCount === 1)).toBe(true);
+      expect(new Set(views.map(view => view.notifications)).size).toBe(10);
+    });
+
+    it('single-flight 不跨接收者共享通知或 unreadCount', async () => {
+      const mine = await service.create({ userId: 'user-1', type: 'system', title: 'MINE', content: 'C1' });
+      await service.create({ userId: 'user-2', type: 'system', title: 'OTHER', content: 'C2' });
+
+      const [first, second] = await Promise.all([
+        service.getUserNotificationView('user-1'),
+        service.getUserNotificationView('user-2'),
+      ]);
+
+      expect(first.notifications.map(row => row.id)).toEqual([mine.id]);
+      expect(first.unreadCount).toBe(1);
+      expect(second.notifications.every(row => row.id !== mine.id)).toBe(true);
+      expect(second.unreadCount).toBe(1);
+    });
+
     it('getUnreadCount 直读持久化 count，不调用完整 list view', async () => {
       await service.create({ userId: 'user-1', type: 'system', title: 'N1', content: 'C1' });
       const view = vi.spyOn(service, 'getUserNotificationView');
