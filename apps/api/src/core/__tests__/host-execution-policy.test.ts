@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const { mockExecSh } = vi.hoisted(() => ({ mockExecSh: vi.fn() }));
-vi.mock('@dommaker/studio-shared/node', () => ({ execSh: mockExecSh }));
+const { mockExecFile, mockExecSh } = vi.hoisted(() => ({ mockExecFile: vi.fn(), mockExecSh: vi.fn() }));
+vi.mock('@dommaker/studio-shared/node', () => ({ execFile: mockExecFile, execSh: mockExecSh }));
 
 import {
   assertTrustedWuWorktree,
@@ -55,22 +55,23 @@ describe('HostExecutionPolicy', () => {
     expect(() => resolveHostPath(root, 'link.txt')).toThrow(/项目根/);
   });
 
-  it('只执行服务端登记模板，子进程不继承宿主环境并有资源上限', async () => {
-    mockExecSh.mockResolvedValue({ stdout: '', stderr: '' });
+  it('只执行服务端固定 argv，子进程不继承宿主环境并有资源上限', async () => {
+    mockExecFile.mockResolvedValue({ stdout: '', stderr: '' });
 
-    await runHostCheck('pnpm run test', root);
+    await runHostCheck('test', root);
 
-    expect(mockExecSh).toHaveBeenCalledWith('pnpm run test', expect.objectContaining({
+    expect(mockExecFile).toHaveBeenCalledWith('pnpm', ['exec', 'vitest', 'run'], expect.objectContaining({
       cwd: fs.realpathSync(root),
       timeoutMs: 600_000,
       maxBuffer: 1024 * 1024,
       killProcessGroup: true,
       inheritProcessEnv: false,
     }));
-    const options = mockExecSh.mock.calls[0][1];
+    const options = mockExecFile.mock.calls[0][2];
     expect(Object.keys(options.env)).toEqual(['PATH', 'CI', 'NO_COLOR']);
+    expect(mockExecSh).not.toHaveBeenCalled();
 
-    await expect(runHostCheck('custom-command', root)).rejects.toThrow(/未登记/);
-    expect(mockExecSh).toHaveBeenCalledTimes(1);
+    await expect(runHostCheck('custom-command' as never, root)).rejects.toThrow(/未登记/);
+    expect(mockExecFile).toHaveBeenCalledTimes(1);
   });
 });

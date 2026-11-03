@@ -1,7 +1,7 @@
 export { logger } from './logger';
 export type { Logger } from './logger';
 export { generateId } from './id';
-export { execSh, resolveSessionId, readSessionIdFile, readPhaseBridge } from './process-io';
+export { execFile, execSh, resolveSessionId, readSessionIdFile, readPhaseBridge } from './process-io';
 export type { ExecShOptions, SessionIdOptions, PhaseBridge } from './process-io';
 export { toKebab, parseSddFrontmatter, stringifySddFrontmatter, listLegacySddDocs, readLegacySddDoc, findLegacySddDocById, findLegacySddDocs } from './sdd-legacy';
 export type { SddFrontmatter, LegacySddLayer } from './sdd-legacy';

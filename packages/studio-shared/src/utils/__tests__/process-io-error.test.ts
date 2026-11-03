@@ -6,7 +6,7 @@
  *   2. Error message falls back to stdout when stderr is empty
  */
 import { describe, test, expect } from 'vitest';
-import { execSh } from '../process-io';
+import { execFile, execSh } from '../process-io';
 
 const baseOpts = { cwd: '/tmp', timeoutMs: 10_000 };
 
@@ -65,5 +65,19 @@ describe('execSh error message aggregation', () => {
     } finally {
       delete process.env.STUDIO_EXEC_SH_TEST_MARKER;
     }
+  });
+});
+
+describe('execFile argv execution', () => {
+  test('直接执行文件且不解释 argv 中的 shell 元字符', async () => {
+    const literal = 'literal;echo not-a-command';
+    const result = await execFile(process.execPath, [
+      '-e', 'process.stdout.write(process.argv[1])', literal,
+    ], {
+      ...baseOpts,
+      inheritProcessEnv: false,
+      env: { PATH: process.env.PATH },
+    });
+    expect(result.stdout).toBe(literal);
   });
 });

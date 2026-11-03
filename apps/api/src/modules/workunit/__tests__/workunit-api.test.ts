@@ -9,10 +9,10 @@ import { eventBus, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit-review.js';
 import { getChannelMessageService } from '../../channels/channel-message.service.js';
 
-const { mockExecSh } = vi.hoisted(() => ({ mockExecSh: vi.fn() }));
+const { mockHostExecFile, mockExecSh } = vi.hoisted(() => ({ mockHostExecFile: vi.fn(), mockExecSh: vi.fn() }));
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
-  return { ...orig, execSh: mockExecSh };
+  return { ...orig, execFile: mockHostExecFile, execSh: mockExecSh };
 });
 
 describe('WorkUnit API service', () => {
@@ -677,8 +677,8 @@ describe('WorkUnit API service', () => {
     beforeAll(() => {
       previousWorktreesDir = process.env.WORKTREES_DIR;
       process.env.WORKTREES_DIR = path.join(tmpDir, 'worktrees');
-      // service 测试在 execSh 边界截断：不依赖宿主 npm 的时序、环境或真实退出码。
-      mockExecSh.mockResolvedValue({ stdout: '', stderr: '' });
+      // service 测试在 execFile 边界截断：不依赖宿主工具的时序、环境或真实退出码。
+      mockHostExecFile.mockResolvedValue({ stdout: '', stderr: '' });
     });
 
     afterAll(() => {
@@ -751,28 +751,29 @@ describe('WorkUnit API service', () => {
       const result = await service.verifyManually(wu.id, { by: 'tester' });
       expect(result).toMatchObject({ kind: 'verified' });
       if (result.kind !== 'verified') return;
-      expect(result.report).toMatchObject({ commands: ['npm run test'], source: 'convention' });
-      expect(mockExecSh).toHaveBeenCalledWith('npm run test', expect.objectContaining({
+      expect(result.report).toMatchObject({ commands: ['test'], source: 'convention' });
+      expect(mockHostExecFile).toHaveBeenCalledWith('pnpm', ['exec', 'vitest', 'run'], expect.objectContaining({
         cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/),
         inheritProcessEnv: false,
       }));
+      expect(mockExecSh).not.toHaveBeenCalled();
 
       const after = await service.getById(wu.id);
       const meta = JSON.parse(after!.metadata ?? '{}');
       expect(meta.attestations.l1).toMatchObject({ verdict: 'approved', by: 'tester', kind: 'verify' });
-      expect(meta.verifyReport.commands).toEqual(['npm run test']);
+      expect(meta.verifyReport.commands).toEqual(['test']);
     });
 
-    it('命令失败 → failed（首个失败命令 + tail）+ 台账 l1 rejected，不写 verifyReport', async () => {
+    it('检查失败 → failed（首个失败检查 + tail）+ 台账 l1 rejected，不写 verifyReport', async () => {
       const wu = await service.create({ scope: 'verify fail', type: 'bug' });
       testIds.push(wu.id);
       await attachWorktree(wu.id, { test: 'node -e "process.exit(1)"' });
-      mockExecSh.mockRejectedValueOnce({ stderr: 'assert failed', message: 'exit 1' });
+      mockHostExecFile.mockRejectedValueOnce({ stderr: 'assert failed', message: 'exit 1' });
 
       const result = await service.verifyManually(wu.id, { by: 'tester' });
       expect(result.kind).toBe('failed');
       if (result.kind !== 'failed') return;
-      expect(result.failure.command).toBe('npm run test');
+      expect(result.failure.command).toBe('test');
       expect(result.failure.tail).toContain('assert failed');
 
       const after = await service.getById(wu.id);

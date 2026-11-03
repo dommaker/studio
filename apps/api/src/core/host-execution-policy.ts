@@ -1,18 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSh } from '@dommaker/studio-shared/node';
+import { execFile } from '@dommaker/studio-shared/node';
 
 export const HOST_CHECK_TIMEOUT_MS = 600_000;
 export const HOST_CHECK_MAX_BUFFER = 1024 * 1024;
 
-const REGISTERED_COMMANDS = new Set([
-  'pnpm run test',
-  'pnpm run typecheck',
-  'pnpm run lint',
-  'npm run test',
-  'npm run typecheck',
-  'npm run lint',
-]);
+const HOST_CHECKS = {
+  test: ['exec', 'vitest', 'run'],
+  typecheck: ['exec', 'tsc', '--noEmit'],
+  lint: ['exec', 'eslint', '.'],
+} as const;
+
+export type HostCheckName = keyof typeof HOST_CHECKS;
 
 function isWithin(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
@@ -64,11 +63,12 @@ export function resolveHostPath(projectRoot: string, candidate: string): string 
   return resolved;
 }
 
-/** 仅执行服务端登记的固定检查；命令、环境、超时与输出上限均不接受调用方覆盖。
+/** 仅执行服务端登记的固定 argv；检查名、环境、超时与输出上限均不接受调用方覆盖。
  * cwd 必须来自已校验目录 capability，禁止再 realpath 回原始路径。 */
-export async function runHostCheck(command: string, cwd: string): Promise<void> {
-  if (!REGISTERED_COMMANDS.has(command)) throw new Error(`未登记的宿主检查命令: ${command}`);
-  await execSh(command, {
+export async function runHostCheck(check: HostCheckName, cwd: string): Promise<void> {
+  const args = (HOST_CHECKS as Record<string, readonly string[]>)[check];
+  if (!args) throw new Error(`未登记的宿主检查: ${check}`);
+  await execFile('pnpm', [...args], {
     cwd,
     timeoutMs: HOST_CHECK_TIMEOUT_MS,
     maxBuffer: HOST_CHECK_MAX_BUFFER,

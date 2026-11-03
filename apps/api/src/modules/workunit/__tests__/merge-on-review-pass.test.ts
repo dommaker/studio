@@ -12,9 +12,10 @@ import type { WorkUnitMetadata } from '../workunit.types.js';
 import type { WorkUnitData } from '../workunit-crud.js';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from '../merge-on-review-pass.js';
 
-const { mockExecSh, mockExecFile, mockPostWuSystemMessage, mockResolvePmoProjectId, mockSystemExecRun, mockLoadSingleSkill } = vi.hoisted(() => ({
+const { mockExecSh, mockExecFile, mockHostExecFile, mockPostWuSystemMessage, mockResolvePmoProjectId, mockSystemExecRun, mockLoadSingleSkill } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
   mockExecFile: vi.fn(),
+  mockHostExecFile: vi.fn(),
   mockPostWuSystemMessage: vi.fn(),
   mockResolvePmoProjectId: vi.fn(),
   mockSystemExecRun: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock('child_process', async (importOriginal) => {
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
-  return { ...orig, execSh: mockExecSh };
+  return { ...orig, execFile: mockHostExecFile, execSh: mockExecSh };
 });
 
 // 2026-08 归因统一：merge-on-review-pass 经 lazy import 的 resolvePmoProjectIdForWU 重解析
@@ -118,6 +119,7 @@ async function studioMessages(wuId: string) {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  mockHostExecFile.mockResolvedValue({ stdout: '', stderr: '' });
   // 归属解析 mock 默认实现：按创建期戳 metadata.pmoId 解析（坏 JSON / 无戳 → null）
   mockResolvePmoProjectId.mockImplementation(async (wu: { metadata?: string | null }) => {
     try {
@@ -603,12 +605,12 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     fs.writeFileSync(path.join(REPO, 'package.json'), JSON.stringify({ scripts: { typecheck: 'tsc' } }));
     fs.writeFileSync(path.join(REPO, 'pnpm-lock.yaml'), '');
     mockExecSh.mockImplementation(async (cmd: string) => {
-      if (cmd === 'pnpm run typecheck') {
-        throw Object.assign(new Error('exit 1'), { stderr: 'TS2322: type mismatch in merged code' });
-      }
       if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
       return { stdout: '', stderr: '' };
     });
+    mockHostExecFile.mockRejectedValueOnce(
+      Object.assign(new Error('exit 1'), { stderr: 'TS2322: type mismatch in merged code' }),
+    );
     const wu = await createWu(worktreeMeta());
 
     const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
@@ -617,7 +619,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     const cmds = calledCommands();
     // merge 成功 + verify 在合并目标目录跑过；红 → 不删 worktree、不删分支
     expect(cmds.some(c => c.includes('merge --no-ff'))).toBe(true);
-    expect(mockExecSh).toHaveBeenCalledWith('pnpm run typecheck', expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
+    expect(mockHostExecFile).toHaveBeenCalledWith('pnpm', ['exec', 'tsc', '--noEmit'], expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
     expect(cmds.some(c => c.includes('worktree remove'))).toBe(false);
     expect(cmds.some(c => c.includes('branch -d'))).toBe(false);
     // 无冲突 → 不走 LLM 解冲突
@@ -628,7 +630,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
     expect(meta.mergedAt).toBeUndefined();
     expect(meta.blockReason).toContain('merge-verify-failed');
-    expect(meta.blockReason).toContain('pnpm run typecheck');
+    expect(meta.blockReason).toContain('typecheck');
 
     const msgs = await studioMessages(wu.id);
     expect(msgs).toHaveLength(1);
@@ -644,9 +646,9 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
 
     expect(outcome).toEqual({ attempted: true, merged: true, mergeCommit: HEAD });
-    // verify 命令在合并目标目录（非 worktree）依次跑过
-    expect(mockExecSh).toHaveBeenCalledWith('pnpm run test', expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
-    expect(mockExecSh).toHaveBeenCalledWith('pnpm run typecheck', expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
+    // verify 固定 argv 在合并目标目录（非 worktree）依次跑过
+    expect(mockHostExecFile).toHaveBeenCalledWith('pnpm', ['exec', 'vitest', 'run'], expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
+    expect(mockHostExecFile).toHaveBeenCalledWith('pnpm', ['exec', 'tsc', '--noEmit'], expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
     const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
     expect(meta.mergedAt).toBeDefined();
   });

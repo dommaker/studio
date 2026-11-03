@@ -6,9 +6,10 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-const { mockExecSh } = vi.hoisted(() => ({ mockExecSh: vi.fn() }));
+const { mockExecFile, mockExecSh } = vi.hoisted(() => ({ mockExecFile: vi.fn(), mockExecSh: vi.fn() }));
 vi.mock('@dommaker/studio-shared/node', async importOriginal => ({
   ...await importOriginal<typeof import('@dommaker/studio-shared/node')>(),
+  execFile: mockExecFile,
   execSh: mockExecSh,
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -67,13 +68,13 @@ describe('resolveVerifyCommands', () => {
   it('metadata/workspace 自定义命令不能改变服务端检查模板', async () => {
     writePkg({ test: 't' });
     const r = await resolveVerifyCommands(wu(), { verifyCommands: ['custom-command'] }, tmpDir);
-    expect(r).toEqual({ commands: ['npm run test'], source: 'convention' });
+    expect(r).toEqual({ commands: ['test'], source: 'convention' });
   });
 
-  it('约定：按 scripts 存在性依次取 test/typecheck/lint，lockfile 选 pnpm', async () => {
+  it('约定：按 scripts 存在性依次取 test/typecheck/lint，lockfile 不改变模板', async () => {
     writePkg({ typecheck: 'tsc', test: 't', lint: 'l' }, { pnpmLock: true });
     const r = await resolveVerifyCommands(wu(), {}, tmpDir);
-    expect(r).toEqual({ commands: ['pnpm run test', 'pnpm run typecheck', 'pnpm run lint'], source: 'convention' });
+    expect(r).toEqual({ commands: ['test', 'typecheck', 'lint'], source: 'convention' });
   });
 
   it('约定：无 scripts / 无 package.json / 坏 JSON → 空数组', async () => {
@@ -86,29 +87,47 @@ describe('resolveVerifyCommands', () => {
 });
 
 describe('runWuVerification', () => {
+  it('恶意 package script 只启用检查，不进入 shell 或成为宿主 argv', async () => {
+    const worktree = createWorktree();
+    writePkg({ test: 'host-side-effect-must-not-run --from-package-script' }, {}, worktree);
+    mockExecFile.mockResolvedValue({ stdout: '', stderr: '' });
+
+    await runWuVerification(wu(), {}, worktree);
+
+    expect(mockExecSh).not.toHaveBeenCalled();
+    expect(mockExecFile).toHaveBeenCalledTimes(1);
+    expect(mockExecFile).toHaveBeenCalledWith('pnpm', ['exec', 'vitest', 'run'], expect.any(Object));
+    expect(JSON.stringify(mockExecFile.mock.calls)).not.toContain('host-side-effect-must-not-run');
+  });
+
   it('伪造 worktree 在 spawn 前拒绝', async () => {
     await expect(runWuVerification(wu(), { verifyCommands: ['custom-command'] }, tmpDir))
       .rejects.toThrow(/worktree/);
+    expect(mockExecFile).not.toHaveBeenCalled();
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
-  it('合法 worktree 全绿，篡改 metadata 不改变执行定义', async () => {
+  it('合法 worktree 全绿，三个固定模板均按预期 argv 调用', async () => {
     const worktree = createWorktree();
-    writePkg({ test: 't', typecheck: 'tsc' }, {}, worktree);
-    mockExecSh.mockResolvedValue({ stdout: '', stderr: '' });
+    writePkg({ test: 't', typecheck: 'tsc', lint: 'l' }, {}, worktree);
+    mockExecFile.mockResolvedValue({ stdout: '', stderr: '' });
 
     const r = await runWuVerification(wu(), { verifyCommands: ['custom-command'] }, worktree);
 
-    expect(r).toEqual({ ran: ['npm run test', 'npm run typecheck'], source: 'convention' });
-    expect(mockExecSh).toHaveBeenCalledTimes(2);
-    expect(mockExecSh.mock.calls[0][0]).toBe('npm run test');
-    expect(mockExecSh.mock.calls[0][1].cwd).toMatch(/^\/proc\/\d+\/fd\/\d+$/);
+    expect(r).toEqual({ ran: ['test', 'typecheck', 'lint'], source: 'convention' });
+    expect(mockExecFile.mock.calls.map(call => call.slice(0, 2))).toEqual([
+      ['pnpm', ['exec', 'vitest', 'run']],
+      ['pnpm', ['exec', 'tsc', '--noEmit']],
+      ['pnpm', ['exec', 'eslint', '.']],
+    ]);
+    expect(mockExecFile.mock.calls[0][2].cwd).toMatch(/^\/proc\/\d+\/fd\/\d+$/);
+    expect(mockExecSh).not.toHaveBeenCalled();
   });
 
   it('篡改项目 scripts 与 Agent metadata 仍不能注入自定义命令、cwd 或 env', async () => {
     const worktree = createWorktree();
     writePkg({ test: 'custom-command --injected', custom: 'custom-command' }, {}, worktree);
-    mockExecSh.mockResolvedValue({ stdout: '', stderr: '' });
+    mockExecFile.mockResolvedValue({ stdout: '', stderr: '' });
 
     const r = await runWuVerification(wu(), {
       verifyCommands: ['custom-command'],
@@ -116,42 +135,45 @@ describe('runWuVerification', () => {
       env: { INJECTED: '1' },
     } as WorkUnitMetadata, worktree);
 
-    expect(r).toEqual({ ran: ['npm run test'], source: 'convention' });
-    expect(mockExecSh).toHaveBeenCalledTimes(1);
-    expect(mockExecSh).toHaveBeenCalledWith('npm run test', expect.objectContaining({
+    expect(r).toEqual({ ran: ['test'], source: 'convention' });
+    expect(mockExecFile).toHaveBeenCalledTimes(1);
+    expect(mockExecFile).toHaveBeenCalledWith('pnpm', ['exec', 'vitest', 'run'], expect.objectContaining({
       cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/),
       inheritProcessEnv: false,
     }));
-    expect(mockExecSh.mock.calls[0][1].env).not.toHaveProperty('INJECTED');
+    expect(mockExecFile.mock.calls[0][2].env).not.toHaveProperty('INJECTED');
+    expect(mockExecSh).not.toHaveBeenCalled();
   });
 
-  it('任一失败即短路：ran 只含已通过项，failure 带命令与输出尾部', async () => {
+  it('任一失败即短路：ran 只含已通过项，failure 带检查名与输出尾部', async () => {
     const worktree = createWorktree();
     writePkg({ test: 't', typecheck: 'tsc', lint: 'l' }, {}, worktree);
-    mockExecSh
+    mockExecFile
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockRejectedValueOnce({ stderr: 'assert failed', message: 'exit 1' });
 
     const r = await runWuVerification(wu(), {}, worktree);
 
-    expect(r.ran).toEqual(['npm run test']);
-    expect(r.failure?.command).toBe('npm run typecheck');
+    expect(r.ran).toEqual(['test']);
+    expect(r.failure?.command).toBe('typecheck');
     expect(r.failure?.tail).toContain('assert failed');
-    expect(mockExecSh).toHaveBeenCalledTimes(2);
+    expect(mockExecFile).toHaveBeenCalledTimes(2);
   });
 
   it('无命令可跑 → ran 空、无 failure（跳过验证维持现状）', async () => {
     const worktree = createWorktree();
     const r = await runWuVerification(wu(), {}, worktree);
     expect(r).toEqual({ ran: [], source: 'convention' });
+    expect(mockExecFile).not.toHaveBeenCalled();
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
   it('合并后验证可使用服务端合并场景 cwd', async () => {
     writePkg({ test: 't' });
-    mockExecSh.mockResolvedValue({ stdout: '', stderr: '' });
+    mockExecFile.mockResolvedValue({ stdout: '', stderr: '' });
     const r = await runWuVerification(wu(), {}, tmpDir, { cwdProvenance: 'merge-target' });
-    expect(r.ran).toEqual(['npm run test']);
-    expect(mockExecSh).toHaveBeenCalledTimes(1);
+    expect(r.ran).toEqual(['test']);
+    expect(mockExecFile).toHaveBeenCalledTimes(1);
+    expect(mockExecSh).not.toHaveBeenCalled();
   });
 });
