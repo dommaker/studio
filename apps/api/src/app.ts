@@ -72,7 +72,7 @@ app.get('/readyz', (req: any, res: any) => {
 });
 
 // Prometheus 指标
-app.get('/metrics', async (req: any, res: any) => {
+app.get('/metrics', async (req: any, res: any, next: any) => {
   try {
     // #683：ops barrel 动态 import——静态引入会把整个 ops 模块图提前到 app.ts 加载期，破坏启动瘦身
     const { getMetrics } = await import('./modules/ops/index.js');
@@ -80,7 +80,7 @@ app.get('/metrics', async (req: any, res: any) => {
     res.set('Content-Type', 'text/plain; version=0.0.4');
     res.send(metrics);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    next(error);
   }
 });
 
