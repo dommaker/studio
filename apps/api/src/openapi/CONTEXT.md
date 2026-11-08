@@ -14,6 +14,7 @@ OpenAPI 文档派生与 /api/docs 挂载（Phase 4 复活 Phase 0 删掉的死�
 
 ## 注意事项
 
+- **#700 确认载荷派生**：`reviewConfirmPayloadSchema` 拆为 decision/spec/analysis/plan 四个判别分支；plan 的 tasks 支持字符串或 `{title,ac}`，OpenAPI `oneOf` 数量同步为 4，LEG/blockedBy 不在本票公开。
 - 文档是 contract 的派生物不是正本：请求与响应 schema 均来自 defineRoute 实际挂载；手工 response-map 已随 ARCH-01 删除。__tests__/openapi.probe.ts 对全部路由断言「非 204 必有 response 或显式例外」，同时拒绝无对应路由/已有 response 的过期例外；build.test.ts 另覆盖清单外缺失直接抛错及三种例外形状。
 - Phase 4 孤儿端点收缩（2026-10-17 起）逐批同步删本表映射：批1 knowledge-service 域 19→3 行（保留 entries/promote/demote）；批2 knowledge 域 8 条（顺带修正 /gaps/:type 原误挂概览响应壳的既有错误）；批3 skills 域 20→3 条（保留列表/manifest/retract-decide）；批4 evolution 5 条 + iron-laws 4 条（两域映射清零，规模兜底断言 >200 降 >150）；批5 triggers 6 条 + agent-instances 4 条 + token-usage 1 条（保留 costs/fire/terminate）；批6 audit-logs 2 条 + admin docs-freshness 1 条 + workspaces 2 条 + events agent-events 1 条（admin 域映射清零）。
 - 协议面不进文档（discord/deploy webhook、SSE、MCP 消息面、health 运维探针）——它们不是 defineRoute 路由，自然落 skipped。例外清单唯一正本 = route-registry.ts `PROTOCOL_SURFACE_EXCEPTIONS`（#664 固化）：probe 断言「skipped 集合 ≡ 例外清单」双向精确相等，清单外新 raw 路由 = 红，例外被收编后不同步删清单条目 = 红。
