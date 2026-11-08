@@ -40,16 +40,19 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function parseMetadataRecord(metadata: unknown): Record<string, unknown> | null {
+  if (typeof metadata === 'string') {
+    try { return asRecord(JSON.parse(metadata)); } catch { return null; }
+  }
+  return asRecord(metadata);
+}
+
 function mergeReceiptParts(metadata: unknown): {
   meta: Record<string, unknown>;
   receipt: Record<string, unknown>;
   verification: Record<string, unknown> | null;
 } | null {
-  let raw = metadata;
-  if (typeof raw === 'string') {
-    try { raw = JSON.parse(raw); } catch { return null; }
-  }
-  const meta = asRecord(raw);
+  const meta = parseMetadataRecord(metadata);
   const receipt = asRecord(meta?.mergeReceipt);
   if (!meta || !receipt) return null;
   return { meta, receipt, verification: asRecord(receipt.verification) };
@@ -70,6 +73,16 @@ export function isAcceptedMergeReceipt(metadata: unknown): boolean {
   if (!parts || !hasCompleteMergeReceipt(metadata)) return false;
   return parts.verification?.status === 'passed'
     || parseAttestations(parts.meta)?.l3?.verdict === 'approved';
+}
+
+/** 恢复与最终交付共用：merge intent 未结束，或已合并但验证/最终 settle 尚未完成。 */
+export function hasUnsettledMergeEffect(metadata: unknown): boolean {
+  const meta = parseMetadataRecord(metadata);
+  const intent = asRecord(meta?.mergeIntent)?.state;
+  if (intent === 'queued' || intent === 'running') return true;
+  const receipt = asRecord(meta?.mergeReceipt);
+  const verification = asRecord(receipt?.verification)?.status;
+  return receipt?.merged === true && (verification === 'not-run' || verification === 'passed');
 }
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
@@ -216,8 +229,9 @@ export interface WorkUnitMetadata {
   // B3b-ii 评审通过后自动合并（决策 D1/D3 后半，merge-on-review-pass.ts）
   mergeIntent?: WorkUnitMergeIntent;   // 评审接受后的持久合并意图；queued/running 时 WU 保持 in_review
   mergeReceipt?: WorkUnitMergeReceipt; // 真实 Git 合并与目标验证回执；代码 WU 的完成/交付证据
-  mergedAt?: string;          // task 分支合并回 base 分支完成时间 ISO 8601（防重哨兵：存在即跳过合并）
-  mergeCommit?: string;       // 合并后 baseRepo HEAD（merge commit 全哈希）
+  mergedAt?: string;          // task 分支合并回 base 分支完成时间；#704 起仅作 Git 事实，不再代表 verify/cleanup 已完成
+  mergeCommit?: string;       // 本任务真实 merge commit 全哈希
+  mergeCleanedAt?: string;    // worktree/task 分支幂等清理完成时间；done 后崩溃恢复哨兵
   mergeConflict?: boolean;    // 自动合并（含 rebase 重试）仍冲突，已转人工（WU 置 blocked）
   conflictFiles?: string[];   // 合并冲突文件清单（diff-filter=U）
   mergeResolution?: {         // 合并冲突 LLM 解审计（merge/rebase 冲突现场交 LLM 解时落档，仿 distill runs 审计思路）

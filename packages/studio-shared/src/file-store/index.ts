@@ -25,6 +25,7 @@
 
 import type fs from 'node:fs';
 import { createFileStoreCore, type FileStoreCore } from './file-store-core';
+import type { FileStoreLockOptions } from './file-store-base';
 import { WorkUnitStore, type WorkUnitReconcileResult } from './file-store-workunit';
 import { MessagesStore, type FileStoreOptions } from './file-store-messages';
 import { EntityStore } from './file-store-entities';
@@ -106,8 +107,13 @@ export class FileStore {
   }
 
   /** 跨进程 mkdir 文件锁（语义见 file-store-base.ts） */
-  withLock<T>(lockDir: string, fn: () => Promise<T>, timeoutMs?: number): Promise<T> {
-    return this.ctx.base.withLock(lockDir, fn, timeoutMs);
+  withLock<T>(
+    lockDir: string,
+    fn: () => Promise<T>,
+    timeoutMs?: number,
+    options?: FileStoreLockOptions,
+  ): Promise<T> {
+    return this.ctx.base.withLock(lockDir, fn, timeoutMs, options);
   }
 
   /** 读取 JSON 文件（读穿缓存），不存在或损坏返回 null */

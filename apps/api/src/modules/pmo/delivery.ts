@@ -19,15 +19,16 @@
  * 全项目无 WU 仍不可交付）；auto-merge 全腿交付才写项目级 deliveredAt。
  * 单腿（无 deliveries / 合成单腿）：不输出 legs 字段，行为与现状逐字节一致。
  */
-import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { FileStore, LockTimeoutError, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { isValidGitBranch } from '@dommaker/studio-contract';
 import { execFileAsync } from '../../core/exec-async.js';
+import { withDeliveryLegLock } from '../../core/delivery-leg-lock.js';
 import { projectService, resolveDeliveries, resolveDeliveryPolicy, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type DeliveryLegStatus, type DeliveryPolicy, type ProjectData } from './project.service.js';
 import { RequirementService } from '../requirements/index.js';
 import { selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg, type EvidenceSummary } from './evidence-summary.js';
 import { postProjectMilestone } from './delivery-notify.js';
 // P2-c 拆环：sumTokensForWorkUnits 转调用点动态 import（pmo→agents 静态边清零）
-import { parseWuMetadata } from '../workunit/index.js';
+import { hasUnsettledMergeEffect, parseWuMetadata } from '../workunit/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
 import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
@@ -104,6 +105,7 @@ export interface LegDeliveryStatus {
 
 export interface DeliveryDeps {
   getProject?: (id: string) => Promise<ProjectData | null>;
+  getProjectFresh?: (id: string) => Promise<ProjectData | null>;
   listRequirements?: () => Promise<Array<{ id: string; projectId?: string | null }>>;
   getIndex?: () => Promise<WorkUnitSnapshot[]>;
   updateProject?: (id: string, input: Record<string, unknown>) => Promise<ProjectData>;
@@ -111,6 +113,27 @@ export interface DeliveryDeps {
   sumTokens?: (workUnitIds: Set<string>) => Promise<number>;
   /** 执行根 capability 注入点；生产缺省统一 execution-repo-policy，测试可传原路径 passthrough。 */
   withRepo?: <T>(repo: string, callback: (capabilityPath: string) => Promise<T>) => Promise<T>;
+  /** 同腿 Git 临界区注入点；生产使用 common-dir + branch 跨进程锁。 */
+  withLegLock?: <T>(repo: string, branch: string, callback: () => Promise<T>) => Promise<T>;
+}
+
+function mergePendingIds(snapshots: WorkUnitSnapshot[]): string[] {
+  return snapshots.filter(snapshot => snapshot.status === 'in_review'
+    && hasUnsettledMergeEffect(snapshot.metadata)).map(snapshot => snapshot.id);
+}
+
+function legSnapshots(project: ProjectData, snapshots: WorkUnitSnapshot[], leg: LegDeliveryStatus): WorkUnitSnapshot[] {
+  const legs = resolveDeliveries(project);
+  if (legs.length <= 1) return snapshots;
+  const index = legs.findIndex(candidate => candidate.gitRepo === leg.gitRepo && candidate.branch === leg.branch);
+  const { perLeg, shared } = partitionSnapshotsByLeg(legs, snapshots);
+  return index >= 0 ? [...perLeg[index], ...shared] : [];
+}
+
+function resolveLegLocker(fileStore: FileStore | undefined, deps?: DeliveryDeps): NonNullable<DeliveryDeps['withLegLock']> {
+  if (deps?.withLegLock) return deps.withLegLock;
+  const fs = fileStore ?? getStore();
+  return (repo, branch, callback) => withDeliveryLegLock({ fileStore: fs, repo, branch, timeoutMs: 50 }, callback);
 }
 
 /** WU 展示名：metadata.title 优先（metadata 是 JSON 字符串，解析失败/缺失回退 scope） */
@@ -167,13 +190,22 @@ async function buildLedger(
   return { summary, missing, gaps, tokens };
 }
 
+interface DeliveryLedgerSnapshot {
+  status: DeliveryStatus;
+  project: ProjectData;
+  snapshots: WorkUnitSnapshot[];
+}
+
 /** PMO 台账：WU 汇总 + 证据齐缺（只读，无任何副作用）；多腿项目附逐腿台账 */
-export async function getDeliveryStatus(
+async function loadDeliveryStatus(
   projectId: string,
   fileStore?: FileStore,
   deps?: DeliveryDeps,
-): Promise<DeliveryStatus | null> {
-  const getProject = deps?.getProject ?? (async (id: string) => projectService.get(id));
+  fresh = false,
+): Promise<DeliveryLedgerSnapshot | null> {
+  const getProject = fresh
+    ? deps?.getProjectFresh ?? deps?.getProject ?? (async (id: string) => projectService.getFresh(id))
+    : deps?.getProject ?? (async (id: string) => projectService.get(id));
   const project = await getProject(projectId);
   if (!project) return null;
 
@@ -237,36 +269,48 @@ export async function getDeliveryStatus(
   }
 
   return {
-    projectId: project.id,
-    pmoNumber: project.pmoNumber,
-    branch: project.gitBranch || project.pmoNumber || null,
-    policy: resolveDeliveryPolicy(project),
-    gitRepo: project.gitRepo ?? null,
-    wu: { total: summary.total, finished: summary.finished, inFlight: summary.inFlight, byStatus: summary.byStatus },
-    evidence: {
-      l1Missing: summary.l1Missing,
-      l2Missing: summary.l2Missing,
-      l3Missing: summary.l3Missing,
-      mergeMissing: summary.mergeMissing,
-      verificationUnavailable: summary.verificationUnavailable,
-      selfReviewCount: summary.selfReviewCount,
+    status: {
+      projectId: project.id,
+      pmoNumber: project.pmoNumber,
+      branch: project.gitBranch || project.pmoNumber || null,
+      policy: resolveDeliveryPolicy(project),
+      gitRepo: project.gitRepo ?? null,
+      wu: { total: summary.total, finished: summary.finished, inFlight: summary.inFlight, byStatus: summary.byStatus },
+      evidence: {
+        l1Missing: summary.l1Missing,
+        l2Missing: summary.l2Missing,
+        l3Missing: summary.l3Missing,
+        mergeMissing: summary.mergeMissing,
+        verificationUnavailable: summary.verificationUnavailable,
+        selfReviewCount: summary.selfReviewCount,
+      },
+      deliverable,
+      missing,
+      tokens: ledger.tokens,
+      // #376：completed + 实时重算零 WU = 归档分叉（progress 历史快照 vs 存储已清理）。
+      // 谓词只看 COMPLETED（状态机唯一终点）：deliveredAt 不是终态代理——deliverProject
+      // 只落档不翻 status，且 in_review → cancelled 合法，带上它会误标 cancelled/在途项目。
+      // 已知边界：零任务直接 completed 的项目同样命中（无从分辨「从未有过 WU」与
+      // 「WU 已清理」），属保守误报——归档提示文案两种情形都成立。
+      archived: snapshots.length === 0 && project.status === PROJECT_STATUS.COMPLETED,
+      gaps: ledger.gaps,
+      deliveredAt: project.deliveredAt ?? null,
+      deliveredBy: project.deliveredBy ?? null,
+      deliverCommit: project.deliverCommit ?? null,
+      channelId: project.channelId ?? null,
+      ...(legStatuses ? { legs: legStatuses } : {}),
     },
-    deliverable,
-    missing,
-    tokens: ledger.tokens,
-    // #376：completed + 实时重算零 WU = 归档分叉（progress 历史快照 vs 存储已清理）。
-    // 谓词只看 COMPLETED（状态机唯一终点）：deliveredAt 不是终态代理——deliverProject
-    // 只落档不翻 status，且 in_review → cancelled 合法，带上它会误标 cancelled/在途项目。
-    // 已知边界：零任务直接 completed 的项目同样命中（无从分辨「从未有过 WU」与
-    // 「WU 已清理」），属保守误报——归档提示文案两种情形都成立。
-    archived: snapshots.length === 0 && project.status === PROJECT_STATUS.COMPLETED,
-    gaps: ledger.gaps,
-    deliveredAt: project.deliveredAt ?? null,
-    deliveredBy: project.deliveredBy ?? null,
-    deliverCommit: project.deliverCommit ?? null,
-    channelId: project.channelId ?? null,
-    ...(legStatuses ? { legs: legStatuses } : {}),
+    project,
+    snapshots,
   };
+}
+
+export async function getDeliveryStatus(
+  projectId: string,
+  fileStore?: FileStore,
+  deps?: DeliveryDeps,
+): Promise<DeliveryStatus | null> {
+  return (await loadDeliveryStatus(projectId, fileStore, deps))?.status ?? null;
 }
 
 /** #113 T7：单腿交付结果（多腿 deliverProject 逐腿产出） */
@@ -274,7 +318,7 @@ export interface LegDeliverResult {
   gitRepo: string | null;
   branch: string | null;
   delivered: boolean;
-  reason?: 'already-delivered' | 'skipped-no-wu' | 'no-repo' | 'checkout-mismatch' | 'conflict';
+  reason?: 'already-delivered' | 'skipped-no-wu' | 'no-repo' | 'checkout-mismatch' | 'conflict' | 'not-ready' | 'merge-pending';
   deliverCommit?: string;
   conflictFiles?: string[];
   detail?: string;
@@ -282,7 +326,7 @@ export interface LegDeliverResult {
 
 export type DeliverOutcome =
   | { delivered: true; deliverCommit: string; legs?: LegDeliverResult[] }
-  | { delivered: false; reason: 'branch-only' | 'not-ready' | 'no-repo' | 'checkout-mismatch' | 'conflict' | 'not-found'; missing?: string[]; conflictFiles?: string[]; detail?: string; legs?: LegDeliverResult[] };
+  | { delivered: false; reason: 'branch-only' | 'not-ready' | 'merge-pending' | 'no-repo' | 'checkout-mismatch' | 'conflict' | 'not-found'; missing?: string[]; conflictFiles?: string[]; detail?: string; legs?: LegDeliverResult[] };
 
 type MergeResult =
   | { ok: true; deliverCommit: string }
@@ -340,7 +384,12 @@ async function mergeBranchIntoDefaultCapability(repo: string, branch: string, me
   try {
     const stdout = await execFileAsync('git', ['-C', repo, 'rev-parse', 'HEAD'], { cwd: repo, timeout: GIT_OP_TIMEOUT_MS });
     deliverCommit = stdout.trim();
-  } catch { /* 空字符串兜底 */ }
+  } catch (err) {
+    return { ok: false, reason: 'conflict', detail: `交付合并后无法读取 HEAD，未写交付回执: ${getErrorMessage(err)}` };
+  }
+  if (!deliverCommit) {
+    return { ok: false, reason: 'conflict', detail: '交付合并后 HEAD 为空，未写交付回执' };
+  }
   return { ok: true, deliverCommit };
 }
 
@@ -378,15 +427,21 @@ export async function deliverProject(
   fileStore?: FileStore,
   deps?: DeliveryDeps,
 ): Promise<DeliverOutcome> {
-  const status = await getDeliveryStatus(projectId, fileStore, deps);
-  if (!status) return { delivered: false, reason: 'not-found' };
+  const initial = await loadDeliveryStatus(projectId, fileStore, deps);
+  if (!initial) return { delivered: false, reason: 'not-found' };
+  const { status } = initial;
   if (status.policy === 'branch-only') {
     return { delivered: false, reason: 'branch-only', missing: status.missing, detail: `分支交付模式：请自行合并分支 ${status.branch ?? '(未设置)'} 并走下游发布链路` };
+  }
+  const initialPending = mergePendingIds(initial.snapshots);
+  if (initialPending.length > 0) {
+    return { delivered: false, reason: 'merge-pending', detail: `同腿合并未决：${initialPending.join(', ')}` };
   }
   if (!status.deliverable) {
     return { delivered: false, reason: 'not-ready', missing: status.missing };
   }
 
+  const withLegLock = resolveLegLocker(fileStore, deps);
   const updateProject = deps?.updateProject
     ?? (async (id: string, input: Record<string, unknown>) => projectService.update(id, input));
 
@@ -397,7 +452,6 @@ export async function deliverProject(
     const newLegs: DeliveryLeg[] = [];
     for (const leg of status.legs) {
       if (leg.status === LEG_STATUS.DELIVERED) {
-        // 幂等跳过：不重复合并，原腿级落档字段保真透传
         results.push({
           gitRepo: leg.gitRepo, branch: leg.branch, delivered: true, reason: 'already-delivered',
           ...(leg.deliverCommit ? { deliverCommit: leg.deliverCommit } : {}),
@@ -418,22 +472,58 @@ export async function deliverProject(
         newLegs.push({ gitRepo: leg.gitRepo, branch: leg.branch, status: leg.status });
         continue;
       }
-      const merge = await mergeBranchIntoDefault(leg.gitRepo, leg.branch, `deliver: ${status.pmoNumber} [${leg.branch}]`, deps?.withRepo);
-      // 注：本包 tsconfig 未开 strict，可辨识联合须用 === 字面量比较收窄（routes.ts 同款）
-      if (merge.ok === true) {
-        results.push({ gitRepo: leg.gitRepo, branch: leg.branch, delivered: true, deliverCommit: merge.deliverCommit });
-        newLegs.push({ gitRepo: leg.gitRepo, branch: leg.branch, status: LEG_STATUS.DELIVERED, deliveredAt: now, deliverCommit: merge.deliverCommit });
-      } else {
-        results.push({
-          gitRepo: leg.gitRepo, branch: leg.branch, delivered: false, reason: merge.reason,
-          ...(merge.conflictFiles ? { conflictFiles: merge.conflictFiles } : {}),
-          ...(merge.detail ? { detail: merge.detail } : {}),
+
+      let result: LegDeliverResult;
+      let nextLeg: DeliveryLeg = { gitRepo: leg.gitRepo, branch: leg.branch, status: leg.status };
+      try {
+        await withLegLock(leg.gitRepo, leg.branch, async () => {
+          const latest = await loadDeliveryStatus(projectId, fileStore, deps, true);
+          const latestLeg = latest?.status.legs?.find(candidate => candidate.gitRepo === leg.gitRepo && candidate.branch === leg.branch);
+          if (!latest || !latestLeg) {
+            result = { gitRepo: leg.gitRepo, branch: leg.branch, delivered: false, reason: 'conflict', detail: '交付腿在复核时消失' };
+            return;
+          }
+          const pending = mergePendingIds(legSnapshots(latest.project, latest.snapshots, latestLeg));
+          if (pending.length > 0) {
+            result = { gitRepo: leg.gitRepo, branch: leg.branch, delivered: false, reason: 'merge-pending', detail: `同腿合并未决：${pending.join(', ')}` };
+            return;
+          }
+          if (latestLeg.status === LEG_STATUS.DELIVERED) {
+            result = {
+              gitRepo: leg.gitRepo, branch: leg.branch, delivered: true, reason: 'already-delivered',
+              ...(latestLeg.deliverCommit ? { deliverCommit: latestLeg.deliverCommit } : {}),
+            };
+            nextLeg = {
+              gitRepo: leg.gitRepo, branch: leg.branch, status: latestLeg.status,
+              deliveredAt: latestLeg.deliveredAt, deliverCommit: latestLeg.deliverCommit,
+            };
+            return;
+          }
+          if (!latestLeg.deliverable) {
+            result = { gitRepo: leg.gitRepo, branch: leg.branch, delivered: false, reason: 'not-ready', detail: latestLeg.missing.join('；') };
+            return;
+          }
+
+          const merge = await mergeBranchIntoDefault(latestLeg.gitRepo!, latestLeg.branch!, `deliver: ${status.pmoNumber} [${latestLeg.branch}]`, deps?.withRepo);
+          if (merge.ok === true) {
+            result = { gitRepo: leg.gitRepo, branch: leg.branch, delivered: true, deliverCommit: merge.deliverCommit };
+            nextLeg = { gitRepo: leg.gitRepo, branch: leg.branch, status: LEG_STATUS.DELIVERED, deliveredAt: now, deliverCommit: merge.deliverCommit };
+          } else {
+            result = {
+              gitRepo: leg.gitRepo, branch: leg.branch, delivered: false, reason: merge.reason,
+              ...(merge.conflictFiles ? { conflictFiles: merge.conflictFiles } : {}),
+              ...(merge.detail ? { detail: merge.detail } : {}),
+            };
+          }
         });
-        newLegs.push({ gitRepo: leg.gitRepo, branch: leg.branch, status: leg.status });
+      } catch (err) {
+        if (!(err instanceof LockTimeoutError)) throw err;
+        result = { gitRepo: leg.gitRepo, branch: leg.branch, delivered: false, reason: 'merge-pending', detail: '同腿 Git 操作进行中' };
       }
+      results.push(result!);
+      newLegs.push(nextLeg);
     }
 
-    // 整体交付 = 每腿 delivered 或无活可交（skipped-no-wu）
     const allSatisfied = results.every(r => r.delivered || r.reason === 'skipped-no-wu');
     const lastCommit = [...results].reverse().find(r => r.deliverCommit)?.deliverCommit ?? '';
     if (allSatisfied) {
@@ -443,17 +533,19 @@ export async function deliverProject(
         deliveredBy: by,
         deliverCommit: lastCommit,
       });
-      // #469：全腿交付 → 频道播报（腿数 = 显式腿数）
       await broadcastDelivered(status, lastCommit, by, status.legs.length, fileStore);
       return { delivered: true, deliverCommit: lastCommit, legs: results };
     }
 
-    // 部分失败：成功的腿独立落档 delivered，项目级交付记录不写
     await updateProject(projectId, { deliveries: newLegs });
     const firstFailure = results.find(r => !r.delivered && r.reason !== 'skipped-no-wu')!;
+    const reason = firstFailure.reason === 'no-repo' || firstFailure.reason === 'checkout-mismatch'
+      || firstFailure.reason === 'merge-pending' || firstFailure.reason === 'not-ready'
+      ? firstFailure.reason
+      : 'conflict';
     return {
       delivered: false,
-      reason: firstFailure.reason === 'no-repo' ? 'no-repo' : firstFailure.reason === 'checkout-mismatch' ? 'checkout-mismatch' : 'conflict',
+      reason,
       ...(firstFailure.conflictFiles ? { conflictFiles: firstFailure.conflictFiles } : {}),
       ...(firstFailure.detail ? { detail: firstFailure.detail } : {}),
       legs: results,
@@ -464,26 +556,46 @@ export async function deliverProject(
     return { delivered: false, reason: 'no-repo' };
   }
 
-  const merge = await mergeBranchIntoDefault(status.gitRepo, status.branch, `deliver: ${status.pmoNumber}`, deps?.withRepo);
-  if (merge.ok === false) {
-    return {
-      delivered: false,
-      reason: merge.reason,
-      ...(merge.conflictFiles ? { conflictFiles: merge.conflictFiles } : {}),
-      ...(merge.detail ? { detail: merge.detail } : {}),
-    };
+  try {
+    return await withLegLock(status.gitRepo, status.branch, async () => {
+      const latest = await loadDeliveryStatus(projectId, fileStore, deps, true);
+      if (!latest) return { delivered: false as const, reason: 'not-found' as const };
+      const pending = mergePendingIds(latest.snapshots);
+      if (pending.length > 0) {
+        return { delivered: false as const, reason: 'merge-pending' as const, detail: `同腿合并未决：${pending.join(', ')}` };
+      }
+      if (!latest.status.deliverable) {
+        return { delivered: false as const, reason: 'not-ready' as const, missing: latest.status.missing };
+      }
+      if (latest.project.deliveredAt) {
+        return { delivered: true as const, deliverCommit: latest.project.deliverCommit ?? '' };
+      }
+      if (!latest.status.gitRepo || !latest.status.branch) {
+        return { delivered: false as const, reason: 'no-repo' as const };
+      }
+
+      const merge = await mergeBranchIntoDefault(latest.status.gitRepo, latest.status.branch, `deliver: ${status.pmoNumber}`, deps?.withRepo);
+      if (merge.ok === false) {
+        return {
+          delivered: false as const,
+          reason: merge.reason,
+          ...(merge.conflictFiles ? { conflictFiles: merge.conflictFiles } : {}),
+          ...(merge.detail ? { detail: merge.detail } : {}),
+        };
+      }
+
+      await updateProject(projectId, {
+        deliveredAt: new Date().toISOString(),
+        deliveredBy: by,
+        deliverCommit: merge.deliverCommit,
+      });
+      await broadcastDelivered(latest.status, merge.deliverCommit, by, 1, fileStore);
+      return { delivered: true as const, deliverCommit: merge.deliverCommit };
+    });
+  } catch (err) {
+    if (!(err instanceof LockTimeoutError)) throw err;
+    return { delivered: false, reason: 'merge-pending', detail: '同腿 Git 操作进行中' };
   }
-
-  await updateProject(projectId, {
-    deliveredAt: new Date().toISOString(),
-    deliveredBy: by,
-    deliverCommit: merge.deliverCommit,
-  });
-
-  // #469：单腿交付 → 频道播报
-  await broadcastDelivered(status, merge.deliverCommit, by, 1, fileStore);
-
-  return { delivered: true, deliverCommit: merge.deliverCommit };
 }
 
 // ============================================
@@ -492,14 +604,12 @@ export async function deliverProject(
 
 export type MarkDeliveredOutcome =
   | { marked: true; deliverCommit: string; deliveredAt: string }
-  | { marked: false; reason: 'not-found' | 'not-branch-only' | 'already-delivered'; detail?: string };
+  | { marked: false; reason: 'not-found' | 'not-branch-only' | 'already-delivered' | 'merge-pending'; detail?: string };
 
 /**
- * branch-only 交付闭环：系统外合并发生后，人工把 commit 哈希落档
- * （deliveredAt/deliveredBy/deliverCommit），台账不再永停「✓ 可交付」。
- * 不设证据闸——合并在系统外发生，落档时点的证据态不可考，人是唯一权威（human-only
- * 由 routes 层兜底）；仅守三条：项目存在 / 策略为 branch-only（auto-merge 走 deliver）/
- * 未落档过（幂等拒绝，不覆盖首报）。落档成功发交付播报（同 deliver 成功路径）。
+ * branch-only 交付闭环：系统外合并发生后，人工把 commit 哈希落档。
+ * 不设证据闸——人是系统外交付的权威；但同腿仍有持久 merge intent / 未结束验证时
+ * 必须拒绝，避免人工回执覆盖系统内尚未落定的真实 Git 状态。多腿锁按身份排序获取。
  */
 export async function markProjectDelivered(
   projectId: string,
@@ -508,32 +618,57 @@ export async function markProjectDelivered(
   fileStore?: FileStore,
   deps?: DeliveryDeps,
 ): Promise<MarkDeliveredOutcome> {
-  const getProject = deps?.getProject ?? (async (id: string) => projectService.get(id));
-  const project = await getProject(projectId);
-  if (!project) return { marked: false, reason: 'not-found' };
-  if (resolveDeliveryPolicy(project) !== 'branch-only') {
+  const initial = await loadDeliveryStatus(projectId, fileStore, deps);
+  if (!initial) return { marked: false, reason: 'not-found' };
+  if (resolveDeliveryPolicy(initial.project) !== 'branch-only') {
     return { marked: false, reason: 'not-branch-only', detail: 'auto-merge 项目请走交付合并（deliver），无需人工落档' };
   }
-  if (project.deliveredAt) {
-    return { marked: false, reason: 'already-delivered', detail: `已于 ${project.deliveredAt} 落档（commit ${project.deliverCommit ?? '未知'}），不重复标记` };
+  if (initial.project.deliveredAt) {
+    return { marked: false, reason: 'already-delivered', detail: `已于 ${initial.project.deliveredAt} 落档（commit ${initial.project.deliverCommit ?? '未知'}），不重复标记` };
+  }
+  const initialPending = mergePendingIds(initial.snapshots);
+  if (initialPending.length > 0) {
+    return { marked: false, reason: 'merge-pending', detail: `同腿合并未决：${initialPending.join(', ')}` };
   }
 
+  const withLegLock = resolveLegLocker(fileStore, deps);
+  const legs = resolveDeliveries(initial.project)
+    .filter((leg): leg is DeliveryLeg & { gitRepo: string; branch: string } => Boolean(leg.gitRepo && leg.branch))
+    .sort((a, b) => `${a.gitRepo}\0${a.branch}`.localeCompare(`${b.gitRepo}\0${b.branch}`));
   const updateProject = deps?.updateProject
     ?? (async (id: string, input: Record<string, unknown>) => projectService.update(id, input));
-  const deliveredAt = new Date().toISOString();
-  await updateProject(projectId, {
-    deliveredAt,
-    deliveredBy: by,
-    deliverCommit: commit,
-  });
 
-  await broadcastDelivered(
-    { projectId: project.id, pmoNumber: project.pmoNumber, channelId: project.channelId ?? null },
-    commit,
-    by,
-    resolveDeliveries(project).length,
-    fileStore,
-  );
+  const markAfterLocks = async (index: number): Promise<MarkDeliveredOutcome> => {
+    if (index < legs.length) {
+      const leg = legs[index];
+      return withLegLock(leg.gitRepo, leg.branch, () => markAfterLocks(index + 1));
+    }
+    const latest = await loadDeliveryStatus(projectId, fileStore, deps, true);
+    if (!latest) return { marked: false, reason: 'not-found' };
+    if (latest.project.deliveredAt) {
+      return { marked: false, reason: 'already-delivered', detail: `已于 ${latest.project.deliveredAt} 落档，不重复标记` };
+    }
+    const pending = mergePendingIds(latest.snapshots);
+    if (pending.length > 0) {
+      return { marked: false, reason: 'merge-pending', detail: `同腿合并未决：${pending.join(', ')}` };
+    }
 
-  return { marked: true, deliverCommit: commit, deliveredAt };
+    const deliveredAt = new Date().toISOString();
+    await updateProject(projectId, { deliveredAt, deliveredBy: by, deliverCommit: commit });
+    await broadcastDelivered(
+      { projectId: latest.project.id, pmoNumber: latest.project.pmoNumber, channelId: latest.project.channelId ?? null },
+      commit,
+      by,
+      resolveDeliveries(latest.project).length,
+      fileStore,
+    );
+    return { marked: true, deliverCommit: commit, deliveredAt };
+  };
+
+  try {
+    return await markAfterLocks(0);
+  } catch (err) {
+    if (!(err instanceof LockTimeoutError)) throw err;
+    return { marked: false, reason: 'merge-pending', detail: '同腿 Git 操作进行中' };
+  }
 }

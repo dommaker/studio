@@ -12,7 +12,7 @@
 | `getCurrentQuarter` / `OKRService` / `getOkrService()`（惰性单例） | `okr.service.ts` | OKR 核心 + 季度计算 + 单例 |
 | `OKRMetricQueries` | `okr-metric-queries.ts` | OKR 数据源查询基类，22 个 metric 查询 + `checkDataSourceHealth` |
 | `ProjectData` / `CreateProjectInput` / `UpdateProjectInput` / `PmoMap` / `DeliveryLeg` / `LEG_STATUS` / `PROJECT_STATUS` | `model.ts` | ARCH-04 纯领域模型与投影：交付策略、探路地图、多交付腿、状态机、PMO 号/命令解析；零存储与跨域依赖 |
-| `projectRepository` / `generatePmoNumber` | `project-repository.ts` | ARCH-04 FileStore 仓储：统一编号 max(PM/PMO,REQ)+1、项目 CRUD、状态写口与 OKR 关联；#702 起创建/更新/状态写共用 PMO/REQ 跨进程锁保证并发安全 |
+| `projectRepository` / `generatePmoNumber` | `project-repository.ts` | ARCH-04 FileStore 仓储：统一编号 max(PM/PMO,REQ)+1、项目 CRUD、状态写口与 OKR 关联；#702 起创建/更新/状态写共用 PMO/REQ 跨进程锁保证并发安全；#704 `getFresh` 绕过读穿缓存供交付腿锁内复核 |
 | `projectRead` / `matchWuToLeg` | `project-read.ts` | ARCH-04 只读适配器：项目 get/list/别名/杂务查询 + 交付纯投影 + WU→腿归属；不加载频道/WorkUnit/publish，经 Requirements `ProjectReadPort` 注入 |
 | `publishProject` / `resolvePlanTokenBudget` | `publish-project.ts` | ARCH-04 发布编排唯一实现：频道消息 + plan WU + 项目激活；非 pending/不存在时零消息、零建单、零项目写入 |
 | `getLinkedSDDs` | `project-documents.ts` | ARCH-04 项目文档查询：读业务仓 `.studio/specs/*.md` 与 frontmatter |
@@ -26,7 +26,7 @@
 | `applyPlanRuling` / `validateRulingItems` / `PlanRulingError` | `plan-ruling.ts` | #467 裁决轮提交唯一正本：一次性裁决（采纳/打回重议）批量落探路台账（decisions[] + fog resolved/open，map 未建就地初始化）+ 组合结果文本复活 plan 同会话（pendingReplies 注入） |
 | `applyPlanDirection` / `validateDirectionPick` / `PlanDirectionError` | `plan-direction.ts` | #567 方向锁定提交唯一正本：选定方向落探路台账（decisions[] 追加「方向：…（人锁定）」，方向抉择点命中 fog 置 resolved、缺失不补建；幂等不双写）+ 组合选定文本复活 plan 同会话 |
 | `SpecMaterialization` / `initSpecMaterialization` / `parseSpecTasks` / `serializeSpecTasks` | `spec-materialization.ts` | spec done -> 批量建 task 子 WU（提取 TASK:/AC:/BLOCKEDBY:/LEG: 清单；#471 起只服务存量 spec 单）；#463 起哨兵改「无 TASK 行不落档」（人审有意不物化 ≠ 未处理，补确认可再触发），serializeSpecTasks 为确认表单后端序列化出口（parse 逆运算） |
-| `getDeliveryStatus` / `deliverProject` / `markProjectDelivered` | `delivery.ts` | 交付台账（证据齐缺 + gaps）+ auto-merge 交付（逐腿独立合并）+ #469 branch-only 人工落档（填 commit 写 deliveredAt/By/Commit，幂等拒绝重复，成功发播报）；#376 起响应带 `archived`（终态项目实时重算零 WU = 历史任务数据已清理，前端显示归档提示而非全 0）；#469 起响应带 `channelId`（交付播报取数） |
+| `getDeliveryStatus` / `deliverProject` / `markProjectDelivered` | `delivery.ts` | 交付台账（证据齐缺 + gaps）+ auto-merge 交付（逐腿独立合并）+ #469 branch-only 人工落档（填 commit 写 deliveredAt/By/Commit，幂等拒绝重复，成功发播报）；#376 起响应带 `archived`；#469 起响应带 `channelId`；#704 起同腿复用 delivery-leg-lock，锁内 fresh 重读项目/WU/evidence，queued/running 或 merged+not-run 立即拒绝 merge-pending（HTTP 409 MERGE_PENDING），HEAD 读取失败不写交付回执 |
 | `postProjectMilestone` | `delivery-notify.ts` | #469 项目里程碑出声统一出口：频道面（channelId 非空 → 'Studio' 系统消息，meta pmoId+atHuman）+ 持久面（createForAllUsers type 'system'，link `/pmo/project/:id`），全程 best-effort |
 | 默认导出 Express Router | `routes.ts` | REST 路由（`/project`、`/okr` 等 18 端点，全走 core/http.ts defineRoute + contract pmo.ts schema） |
 

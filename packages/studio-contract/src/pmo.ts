@@ -279,7 +279,7 @@ export const legDeliverResultSchema = z.object({
   gitRepo: z.string().nullable(),
   branch: z.string().nullable(),
   delivered: z.boolean(),
-  reason: z.enum(['already-delivered', 'skipped-no-wu', 'no-repo', 'checkout-mismatch', 'conflict']).optional(),
+  reason: z.enum(['already-delivered', 'skipped-no-wu', 'no-repo', 'checkout-mismatch', 'conflict', 'not-ready', 'merge-pending']).optional(),
   deliverCommit: z.string().optional(),
   conflictFiles: z.array(z.string()).optional(),
   detail: z.string().optional(),

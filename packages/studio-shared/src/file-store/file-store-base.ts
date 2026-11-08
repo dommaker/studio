@@ -23,6 +23,11 @@ export class LockTimeoutError extends Error {
   }
 }
 
+export interface FileStoreLockOptions {
+  heartbeatIntervalMs?: number;
+  mutexTimeoutMs?: number;
+}
+
 // ─── 常量 ───
 
 const LOCK_RETRY_INTERVAL_MS = 10;
@@ -52,17 +57,35 @@ type StaleCriterion = 'pid_dead' | 'age';
 // 同进程并发在 mutex 层排队，不打到 mkdir；跨进程互斥仍由 mkdir 保证。
 const inProcessLocks = new Map<string, Promise<void>>();
 
-async function acquireInProcessLock(lockDir: string): Promise<() => void> {
+async function acquireInProcessLock(lockDir: string, timeoutMs?: number): Promise<() => void> {
   const prev = inProcessLocks.get(lockDir) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>(resolve => { release = resolve; });
   const tail = prev.then(() => current);
   inProcessLocks.set(lockDir, tail);
-  await prev;
   // 尾结点 settle 后清理 map，避免无限增长；有新等待者接上时不动
   void tail.then(() => {
     if (inProcessLocks.get(lockDir) === tail) inProcessLocks.delete(lockDir);
   });
+  if (timeoutMs === undefined) {
+    await prev;
+  } else {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        prev,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new LockTimeoutError(timeoutMs)), timeoutMs);
+        }),
+      ]);
+    } catch (err) {
+      // 超时等待者不能留下永不 settle 的尾结点，否则后续所有调用都会被毒化。
+      release();
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
   return release;
 }
 
@@ -238,8 +261,13 @@ export class FileStoreBase {
    * - 超时抛 LockTimeoutError 前发 lock.acquire_timeout；
    * - 同进程并发经进程内 per-lockDir mutex 排队，不打到 mkdir。
    */
-  async withLock<T>(lockDir: string, fn: () => Promise<T>, timeoutMs: number = DEFAULT_LOCK_TIMEOUT_MS): Promise<T> {
-    const releaseMutex = await acquireInProcessLock(lockDir);
+  async withLock<T>(
+    lockDir: string,
+    fn: () => Promise<T>,
+    timeoutMs: number = DEFAULT_LOCK_TIMEOUT_MS,
+    options?: FileStoreLockOptions,
+  ): Promise<T> {
+    const releaseMutex = await acquireInProcessLock(lockDir, options?.mutexTimeoutMs);
     try {
       // 确保父目录存在，防止 mkdir 因 ENOENT 失败
       await fs.promises.mkdir(path.dirname(lockDir), { recursive: true });
@@ -287,11 +315,44 @@ export class FileStoreBase {
           throw err;
         }
       }
+
+      // 长临界区可选保活：acquiredAt 兼作最近心跳锚；写入前复核属主代际，
+      // 防止进程停顿期间锁被回收后，旧 holder 又重建/删除新 holder 的锁。
+      let ownerAcquiredAt = options?.heartbeatIntervalMs
+        ? (await this.readLockOwner(lockDir))?.acquiredAt ?? 0
+        : 0;
+      let heartbeatBusy = false;
+      const heartbeat = options?.heartbeatIntervalMs
+        ? setInterval(() => {
+            if (heartbeatBusy) return;
+            heartbeatBusy = true;
+            void (async () => {
+              const current = await this.readLockOwner(lockDir);
+              if (current?.pid !== process.pid || current.acquiredAt !== ownerAcquiredAt) return;
+              const nextAcquiredAt = Date.now();
+              await this.writeJson(this.lockOwnerPath(lockDir), {
+                pid: process.pid,
+                hostname: os.hostname(),
+                acquiredAt: nextAcquiredAt,
+              });
+              ownerAcquiredAt = nextAcquiredAt;
+            })().catch(() => {}).finally(() => { heartbeatBusy = false; });
+          }, options.heartbeatIntervalMs)
+        : undefined;
+      heartbeat?.unref();
       try {
         return await fn();
       } finally {
-        // 锁目录内含 owner.json，需 recursive 删除
-        await fs.promises.rm(lockDir, { recursive: true, force: true }).catch(() => {});
+        if (heartbeat) clearInterval(heartbeat);
+        let ownsLock = true;
+        if (options?.heartbeatIntervalMs) {
+          const current = await this.readLockOwner(lockDir).catch(() => null);
+          ownsLock = current?.pid === process.pid && current.acquiredAt === ownerAcquiredAt;
+        }
+        if (ownsLock) {
+          // 锁目录内含 owner.json，需 recursive 删除
+          await fs.promises.rm(lockDir, { recursive: true, force: true }).catch(() => {});
+        }
       }
     } finally {
       releaseMutex();

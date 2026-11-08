@@ -134,6 +134,12 @@ export const projectRepository = {
     return data ? withReadDefaults(data) : null;
   },
 
+  /** 交付腿锁内复核专用：绕过读穿缓存，读取其他进程刚提交的项目状态。 */
+  async getFresh(projectId: string): Promise<ProjectData | null> {
+    const data = await getStore().readJsonUncached<ProjectData>(projectPath(projectId));
+    return data ? withReadDefaults(data) : null;
+  },
+
   async getByReqAlias(reqId: string): Promise<ProjectData | null> {
     const projects = await readAllProjects();
     return projects.find(p => p.reqAlias === reqId) || null;

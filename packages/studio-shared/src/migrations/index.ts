@@ -198,10 +198,24 @@ const v4ReadModelProjections: Migration = {
   },
 };
 
-/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
-export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections];
+/** #704：同交付腿跨进程锁目录；锁目录及 owner 文件均可回收重建，不备份。 */
+const v5DeliveryLegLocks: Migration = {
+  version: 5,
+  name: 'v5-delivery-leg-locks',
+  isApplied: async (rootDir) => fs.existsSync(path.join(rootDir, 'worktrees', '.delivery-locks')),
+  apply: async (rootDir) => {
+    const worktrees = path.join(rootDir, 'worktrees');
+    const locks = path.join(worktrees, '.delivery-locks');
+    await fs.promises.mkdir(locks, { recursive: true, mode: 0o700 });
+    await fs.promises.chmod(worktrees, 0o700);
+    await fs.promises.chmod(locks, 0o700);
+  },
+};
 
-export const CURRENT_SCHEMA_VERSION = 4;
+/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
+export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections, v5DeliveryLegLocks];
+
+export const CURRENT_SCHEMA_VERSION = 5;
 
 export interface RunMigrationsOptions {
   /** 测试注入用；缺省 = MIGRATIONS */

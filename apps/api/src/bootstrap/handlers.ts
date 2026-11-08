@@ -36,6 +36,9 @@ const SCAN_HANDLERS: readonly ScanHandler[] = [
   ['dispatch-reconciliation-scan', async () => {
     const { reconcileDispatchBreaks } = await import('../modules/agent-loop/index.js');
     await reconcileDispatchBreaks();
+    const { WorkUnitService, recoverWorktreeMerges } = await import('../modules/workunit/index.js');
+    const fileStore = getStore();
+    await recoverWorktreeMerges(new WorkUnitService(fileStore), fileStore);
   }],
 ];
 
