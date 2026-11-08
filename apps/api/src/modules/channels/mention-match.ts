@@ -3,7 +3,7 @@
  *
  * 口径：
  * - §9.5：mention 匹配以 channel.members 为界——只能 @ 到本频道成员；
- *   members 为空（历史频道未回填）时回退全量 active profile 匹配。
+ *   members 为空或频道记录缺失即无匹配，不回退全量 active profile（#699）。
  * - #632：系统角色（studio）不参与精确匹配与前缀兜底——@studio 按未匹配走
  *   「转自动认领」提示。
  * - #496：手打中文连写兜底——token 整体精确匹配失败时，对成员名做最长前缀匹配
@@ -37,7 +37,7 @@ export function detectMention(content: string): string | null {
 
 /**
  * mentionName → 成员 profile 匹配（精确优先，#496 最长前缀兜底）。
- * channel 缺省或 members 为空 → 回退全量匹配（历史频道未回填口径）。
+ * channel 缺省或 members 为空 → 无匹配（#699 严格成员口径）。
  */
 export function matchMentionAgent<T extends MentionProfileLike>(
   profiles: T[],
@@ -45,7 +45,7 @@ export function matchMentionAgent<T extends MentionProfileLike>(
   channel: Pick<ChannelData, 'members'> | null | undefined,
 ): MentionMatch<T> {
   const memberIds = parseChannels(channel?.members);
-  const inScope = (p: T) => memberIds.length === 0 || memberIds.includes(p.id);
+  const inScope = (p: T) => memberIds.includes(p.id);
   // #632：系统角色（studio）不参与精确匹配——@studio 永不建指向 studio 的 WU，
   // 按未匹配 mention 走「转自动认领」提示（defaultProfileId 转派分支已随 #632 退役）
   let agent = profiles.find(p => p.name === mentionName && inScope(p) && !isSystemRole(p)) ?? null;

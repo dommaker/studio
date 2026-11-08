@@ -40,14 +40,14 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
   const titleTouchedRef = useRef(false);
 
   // #403：agent 候选 = rosterStore 全量 active 切片 ∩ 频道成员面（channelDataStore）；
-  // 缺键（未拉到，含失败）→ 暂无候选；空 = 所有 Agent 可见
+  // 缺键（未拉到，含失败）或空数组 → 暂无候选；空频道不回退全部 active（#699）
   const profiles = useRosterStore((s) => s.profiles);
   const channelMembers = useChannelDataStore((s) => (channelId ? s.members[channelId] : undefined));
   const agents = useMemo(() => {
     const active = activeAgentsOf(profiles);
     if (!channelId) return active;
     if (!channelMembers) return [] as AgentProfile[];
-    return channelMembers.length === 0 ? active : active.filter((a) => channelMembers.includes(a.id));
+    return active.filter((a) => channelMembers.includes(a.id));
   }, [channelId, profiles, channelMembers]);
 
   // open 上升沿（或打开状态下 channelId/messageId 切换）在渲染期同步重置表单与加载态
@@ -80,7 +80,10 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
       .then((suggestion) => {
         if (suggestion.title && !titleTouchedRef.current) setTitle(suggestion.title);
         if (suggestion.description) setDescription(suggestion.description);
-        if (suggestion.suggestedAssigneeId) setAssigneeId(suggestion.suggestedAssigneeId);
+        // LLM 建议也受显式频道成员边界约束；空/未加载均不接受（#699）
+        if (suggestion.suggestedAssigneeId && useChannelDataStore.getState().members[channelId]?.includes(suggestion.suggestedAssigneeId)) {
+          setAssigneeId(suggestion.suggestedAssigneeId);
+        }
         if (suggestion.suggestedProjectPath) setProjectPath(suggestion.suggestedProjectPath);
       })
       .finally(() => setLoading(false));

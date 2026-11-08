@@ -59,7 +59,7 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
 
   // #403：agent 列表读 rosterStore 客户端切片（listAllAgents 全量正本；ADR 决策 2，不再打
   // /agent-profiles?channelId）。成员面（channel.members）读 channelDataStore：
-  // 缺键（未拉到，含失败）→ 不献候选（对齐旧 listAgents 失败路径）；空 = 所有 Agent 可见。
+  // 缺键（未拉到，含失败）或空数组 → 不献候选；空频道不回退全部 active（#699）。
   const profiles = useRosterStore((s) => s.profiles);
   const memberIds = useChannelDataStore((s) => (channelId ? s.members[channelId] : undefined));
 
@@ -82,11 +82,10 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
 
   const agents = useMemo(() => {
     const active = activeAgentsOf(profiles);
-    // 无频道上下文 → 全部 active（旧 AC-B4 回退）；成员面未拉到（含拉取失败）→ 暂无候选；
-    // 空 = 所有 Agent 可见 → 全部 active（对齐服务端空 members 回退）
+    // 无频道上下文 → 全部 active（旧 AC-B4 回退）；频道内只展示显式成员。
     if (!channelId) return active;
     if (!memberIds) return [] as AgentProfile[];
-    return memberIds.length === 0 ? active : active.filter((a) => memberIds.includes(a.id));
+    return active.filter((a) => memberIds.includes(a.id));
   }, [channelId, profiles, memberIds]);
 
   // #638：@ 与 # 同时命中时互斥——起始位置靠后（更贴近光标 = 最近意图）者生效

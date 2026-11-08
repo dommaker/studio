@@ -5,8 +5,7 @@
  * 循环是输入校验问题（创建时刻拦截），运行时不需要兜底。
  *
  * 校验项（任一不满足即拒绝，附人类可读原因）：
- *  1. 目标 profile 存在、active、且是父 WU 频道成员（members 为空 → 允许任意 active profile，
- *     与 message-routing 的过渡期口径一致）；
+ *  1. 目标 profile 存在、active、且是父 WU 频道显式成员（members 为空 = 无可委派成员，#699）；
  *  2. 目标 ≠ 派出方（禁止自派生）；
  *  3. 深度：父 collab.depth（根=0）+ 1 ≤ MAX_DEPTH（P1 = 1，STUDIO_COLLAB_MAX_DEPTH 覆盖）；
  *  4. 宽度：父 collab.delegationCount < 3；
@@ -131,11 +130,11 @@ export async function checkDelegation(input: DelegationCheckInput): Promise<Dele
     return { pass: false, reason: `目标 @${targetName} 不存在或未激活` };
   }
 
-  // 1b. 频道成员约束（members 为空 → 过渡期放行任意 active profile，同 message-routing）
+  // 1b. 频道成员约束（members 为空 = 无可委派成员，不回退全量 active profile）
   if (parent.channelId) {
     const channel = await fileStore.getChannel(parent.channelId);
     const memberIds = parseChannels(channel?.members);
-    if (memberIds.length > 0 && !memberIds.includes(target.id)) {
+    if (!memberIds.includes(target.id)) {
       return { pass: false, reason: `目标 @${targetName} 不是本频道成员` };
     }
   }

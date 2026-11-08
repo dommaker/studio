@@ -5,7 +5,7 @@
  * and LLM-based suggestions for task creation (AC-E2，走 SystemExecutor /
  * studio 角色绑定的 CLI；角色未配置或调用失败时 suggest 返回空建议，非阻断).
  */
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, parseChannels } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/index.js';
 import type { WorkUnitData } from '../workunit/index.js';
 import { ChannelMessageService, getChannelMessageService } from './channel-message.service.js';
@@ -55,6 +55,13 @@ export class ConvertToTaskService {
     if (found.message.workUnitId) {
       throw new Error(`Message already has WorkUnit ${found.message.workUnitId}`);
     }
+    if (input.assigneeId) {
+      const channel = await this.fileStore.getChannel(channelId);
+      const memberIds = parseChannels(channel?.members);
+      if (!memberIds.includes(input.assigneeId)) {
+        throw new Error(`Assignee ${input.assigneeId} is not a channel member`);
+      }
+    }
 
     // 2. Create WorkUnit via WorkUnitService (FileStore)
     // REQ 需求编号（vision §5.3）：显式 > 原消息 #REQ-XXXX token > 自动新建（best-effort）
@@ -99,8 +106,8 @@ export class ConvertToTaskService {
    * Returns empty suggestion on failure (non-blocking).
    */
   async suggest(
+    channelId: string,
     messageContent: string,
-    agents: Array<{ id: string; name: string; description?: string }>,
     projects: Array<{ name: string; path: string }>,
   ): Promise<ConvertSuggestion> {
     if (!messageContent || !messageContent.trim()) {
@@ -108,8 +115,16 @@ export class ConvertToTaskService {
     }
 
     try {
-      const result = await this.callLLM(messageContent, agents, projects);
-      return result;
+      // 只把显式 active 频道成员提供给 LLM；空频道候选为空（#699）
+      const [profiles, channel] = await Promise.all([
+        this.fileStore.listProfiles({ status: 'active' }),
+        this.fileStore.getChannel(channelId),
+      ]);
+      const memberIds = parseChannels(channel?.members);
+      const agents = profiles
+        .filter(p => memberIds.includes(p.id))
+        .map(p => ({ id: p.id, name: p.name, description: p.description ?? undefined }));
+      return await this.callLLM(messageContent, agents, projects);
     } catch (error) {
       logger.warn('[ConvertToTask] LLM suggestion failed (non-blocking)', { error: String(error) });
       return {};

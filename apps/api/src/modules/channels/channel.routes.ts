@@ -335,6 +335,7 @@ writeRoutes.post('/:id/messages/:messageId/convert-to-task', defineRoute(
     errors: [
       { match: 'not found', status: 404, code: ERROR_CODES.NOT_FOUND },
       { match: 'already', status: 400, code: ERROR_CODES.BAD_REQUEST },
+      { match: 'not a channel member', status: 400, code: ERROR_CODES.BAD_REQUEST },
     ],
   },
   async (_req, _res, { params, body }) => {
@@ -354,17 +355,11 @@ writeRoutes.post('/:id/messages/:messageId/convert-to-task/suggest', defineRoute
       }
       const message = found.message;
 
-      // 2/3. Get available agents + projects（互不依赖，并行拉取——B2）
-      const [allProfiles, projects] = await Promise.all([
-        getStore().listProfiles({ status: 'active' }),
-        projectDiscoveryService.discover(),
-      ]);
-      const agents = allProfiles.map(p => ({ id: p.id, name: p.name, description: p.description ?? undefined }));
-
-      // 4. Get LLM suggestion
+      // 2/3. 工程发现与成员边界/LLM 建议由 service 承担，路由只做 HTTP 翻译
+      const projects = await projectDiscoveryService.discover();
       return await getConvertToTaskService().suggest(
+        params.id,
         message.content,
-        agents,
         projects.map(p => ({ name: p.name, path: p.path })),
       );
     } catch (error) {

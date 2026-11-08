@@ -17,8 +17,8 @@ export interface RosterSectionDeps {
 /**
  * A2A §4.1 机制 2: 组装 `## 频道成员与委派` 段（成员花名册 + DELEGATE 协议教学）。
  * 花名册 = 本频道 active 成员的 name + description + provider（排除自己——委派质量取决于
- * 模型对角色能力的理解，没有花名册的 DELEGATE 是盲派）；members 为空（历史频道未回填）
- * 时回退到全部 active profile，与 DelegationGate 的过渡期口径一致。
+ * 模型对角色能力的理解，没有花名册的 DELEGATE 是盲派）；members 为空即无可见成员，
+ * 不回退到全部 active profile，与 DelegationGate 的严格成员口径一致（#699）。
  * 预算：调用方传入有效预算（#91 定额 + 池余量），超出按 estimateTokens 口径截断。
  */
 export async function buildRosterSection(
@@ -30,14 +30,10 @@ export async function buildRosterSection(
 
   const channel = await deps.fileStore.getChannel(wu.channelId);
   const memberIds = parseChannels(channel?.members);
-  let members: AgentProfileData[];
-  if (memberIds.length > 0) {
-    const resolved = await Promise.all(memberIds.map(id => deps.fileStore.getProfile(id).catch(() => null)));
-    members = resolved.filter((p): p is AgentProfileData => !!p && p.status === 'active');
-  } else {
-    members = await deps.fileStore.listProfiles({ status: 'active' });
-  }
-  members = members.filter(p => p.id !== deps.role.id);
+  const resolved = await Promise.all(memberIds.map(id => deps.fileStore.getProfile(id).catch(() => null)));
+  const members = resolved
+    .filter((p): p is AgentProfileData => !!p && p.status === 'active')
+    .filter(p => p.id !== deps.role.id);
   if (members.length === 0) return { section: '', tokens: 0, originalTokens: 0 };
 
   const rosterLines = members.map(p =>

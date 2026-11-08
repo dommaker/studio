@@ -64,7 +64,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
   }, [channelId]);
 
   // 两分支合并：全量 active 为底本（activeAgentsOf 对齐服务端默认排除 studio 语义）；
-  // memberIds 空 = 所有 Agent 可见（成员区展示空态）
+  // memberIds 空 = 无频道成员（成员区展示空态，#699）
   const allAgents = useMemo(() => activeAgentsOf(profiles), [profiles]);
   const members = useMemo(
     () => (memberIds && memberIds.length > 0 ? allAgents.filter((a) => memberIds.includes(a.id)) : []),
@@ -147,7 +147,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
         className={triggerClassName ?? 'mc-btn'}
         title="Channel 成员管理"
       >
-        成员 <span>{memberCount > 0 ? `${memberCount} agents` : 'All'}</span>
+        成员 <span>{memberCount} agents</span>
       </button>
 
       {isOpen && (
@@ -155,15 +155,15 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
           <div className="border-b u-border py-2 px-2.5">
             <h3 className="mc-card-body font-semibold">频道成员</h3>
             {memberCount === 0 && (
-              <p className="mc-drawer-note">空 = 所有 Agent 可见</p>
+              <p className="mc-drawer-note">空频道无可见 Agent</p>
             )}
           </div>
 
           {/* Current members */}
           <div className="max-h-40 overflow-y-auto py-1 px-1.5">
             {members.length === 0 && memberCount === 0 && (
-              /* #290（清单 #25）：空成员三处文案统一口径「空 = 所有 Agent 可见」（按钮 All / 说明 / 空态） */
-              <p className="mc-drawer-note text-center py-2">未配置成员（空 = 所有 Agent 可见）</p>
+              /* #699：按钮计数 / 说明 / 空态统一为严格零成员口径 */
+              <p className="mc-drawer-note text-center py-2">未配置成员，请显式添加 Agent</p>
             )}
             {members.map((m) => (
               <div key={m.id} className="mc-mention-item justify-between">

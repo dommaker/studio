@@ -341,9 +341,9 @@ export class ReviewDispatcher {
       reviewInput: { mode: 'diff-only', skill: 'code-review' },
     };
 
-    // 会话/执行簿记绝不继承到子 WU：14 字段权威清单与 2026-07-30 事故实录已收敛到
+    // 会话/执行簿记绝不继承到子 WU：19 字段权威清单与 2026-07-30 事故实录已收敛到
     // workunit/wu-metadata.ts 的 clearSessionBookkeeping（返回浅拷贝，不改 childMetaRaw）——
-    // agent-loop 新增簿记字段必须同步该清单，否则静默泄漏进 review 子 WU
+    // 包含 Claude sessionId 与其他 provider 的 cliSessionId；新增簿记字段必须同步清单与测试
     const childMeta = clearSessionBookkeeping(childMetaRaw);
 
     // R3 评审输入契约（2026-07-28 分析文档 §4-R3）：diff-only + code-review skill。

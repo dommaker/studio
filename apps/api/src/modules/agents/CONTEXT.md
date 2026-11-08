@@ -8,7 +8,7 @@ P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 
 
 ### 目录结构
 
-- `agent-profile.routes.ts` / `agent-profile.service.ts` — profile CRUD + 角色 preset 浮出水面 + 删除反向收敛引用
+- `agent-profile.routes.ts` / `agent-profile.service.ts` — profile CRUD + 角色 preset 浮出水面 + 删除反向收敛引用；`list({channelId})` 只返回显式 channel.members，空数组 = 空结果（#699，不再回退全部 active）
 - `agent-instance.routes.ts` / `agent-instance.service.ts` — 运行实例：Phase 4 批5（2026-10-17）后 HTTP 面只剩 POST /:id/terminate（前端 api/monitoring.ts:66 terminateInstance，AgentDetailPage 等共用）；管理面 GET/POST/PATCH 4 条孤儿端点已删（ops roster 走 service 与 /monitoring/agents；agent-loop 经 service 建实例）。service 本体保留（ops/instance-timeout-scan、workunit-review 直调）+ isOnline/最新 error 聚合（summarizeRoleStates 单源）
 - `token-usage.service.ts` — 角色级 token 视图（30d 窗口读口；Phase 4 批5 起无 HTTP 面——token-usage.routes 已删，service 由 pmo/delivery、workunit 内部直调）
 - （legacy agents-registry CRUD 路由已随 2026-10 架构精简刀2 删除——web 消费方 #347 已清，连带 AgentRegistry/memoryStore 退役）
@@ -67,7 +67,7 @@ P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 
 - **#471 plan 一脉会话**：publish 建单即钉 scope `+requirement-clarify +to-tickets`（parseSkillHintsFromScope 既有管线注入索引，selectSkillsForInjection 按名去重为现状）；CONTRACT_TEMPLATES 新增 plan 契约段（TASK/FOG/DESTINATION 输出协议 + 台账续跑指引）；失败恢复以 prompt map 段（buildPmoMapSection 按 metadata.pmoId 类型无关注入）的探路台账为唯一恢复事实源，零新机制。
 - **WU 租约心跳**：每 30s 推前 timeoutAt（now+5min），fencing（claimedAt 代际令牌+assigneeId 双比对）；#314 起每跳只写内存缓冲，FileStore flushWorkUnitLeases 默认 60s 窗口锁内复核 fencing 后合并落盘；易主 -> 停跳+onLost。**#635 stop 语义收窄**：`AgentLoop.stop()` 只置退出意图（alive=false），不停租约心跳、不清租约轨道——在飞 step 全程租约保护（续租不中断；窗口内被外部 unclaim 时心跳下一跳检出易主，handleLost 杀在飞 CLI 进程组链路可达）；停心跳收尾统一在 runLoop 主循环退出点，此后租约按既有 5min TTL 到期回收。「无租约轨道 fencing 不拦」契约不变；已知行为变化 = 停用/删除角色后 WU 占用变长（在飞 step 跑完 + 5min 回收）
 - **CLI 上下文溢出**：纯反应式 -> 滚动摘要落盘 -> 新会话带摘要重试 -> 再败 NEED_INPUT
-- **子 WU 不继承会话簿记**：clearSessionBookkeeping 清除 14 字段（sessionId/startedAt/sessionResumes/sessionCount/lastSessionResumed/blockReason/stepCount/consecutiveStuck/errorType/errorDetail/errorAt/_cumulativeTokens/progressLog/sessionSummary）；新增簿记字段必须同步
+- **子 WU 不继承会话簿记**：clearSessionBookkeeping 清除 19 字段（含 sessionId/cliSessionId 及执行、阻塞、错误、token、进展簿记）；#699 起四种 provider 的 review 建单测试均覆盖真实 CLI 会话号隔离，新增簿记字段必须同步清单与测试
 - **鉴权（P2-e 声明式统一）**：姿态唯一来源 = route-registry——agent-instance 原 open/write/admin 三档中 open/write 两档随 Phase 4 批5 孤儿端点删除一并摘除（4 条管理面端点零消费方），只剩 admin 档 terminate；agent-profile 拆 open/write；token-usage 路由整文件已删（/api/v1/agents 前缀无活端点）。路由内不再挂鉴权。（legacy agents 的 open/write/admin 三 entry 已随架构精简刀2 同路由一并删除。）
 - **SystemExecutor 输出形态（#364）**：claude 模板固定带 `--verbose`，`--output-format json --verbose` stdout 是单行 stream-json 事件数组（产出与 usage 在末位 `type=result` 事件），非单 envelope；`extractResultEnvelope` 统一归一两种形态，mock CLI 输出时必须按真实形态（数组）写，否则测试绿生产哑
 - **SystemExecutor 按源超时（#369）**：`run()` 超时解析 = 显式 `timeoutMs` > `DEFAULT_TIMEOUT_BY_EVENT_SOURCE[eventSource]` > 30s 全局默认；注册表收编重 prompt 源 knowledge-distill / knowledge-maintenance =120s（依据 #365 实测蒸馏 21-27s 撞 30s；constraint-audit 源已随 #617 审计子通道拆除出表）。新调用点必须带 eventSource（同时是 system:tokens 成本聚合键）；轻源不进表走裸 30s，durationMs 遥测贴上限再评估

@@ -290,14 +290,11 @@ export class AgentProfileService {
     // When filtering by channelId, fetch all (no pagination) to avoid missing members across pages
     const fetchAll = !!channelId;
 
-    // Filter by channelId (Channel.members contains AgentProfile IDs)
+    // Filter by channelId (Channel.members contains AgentProfile IDs; empty = no members, #699)
     if (channelId) {
       const channel = await this.fileStore.getChannel(channelId);
       const memberIds: string[] = channel?.members ? JSON.parse(channel.members) : [];
-      if (memberIds.length > 0) {
-        profiles = profiles.filter(p => memberIds.includes(p.id));
-      }
-      // Fallback: if channel has no members configured, return all (empty members fallback)
+      profiles = profiles.filter(p => memberIds.includes(p.id));
     }
 
     // Filter by provider (exact match; null matches only null-provider profiles)
