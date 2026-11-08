@@ -50,10 +50,10 @@ describe('ChannelInput @文件引用（#281）', () => {
     mockListAgents.mockResolvedValue({ data: { data: mockAgents } });
     mockGetFileVocabulary.mockResolvedValue({ data: { data: mockVocabulary } });
     // #403：agent 列表改读 rosterStore 客户端切片、成员面走 channelDataStore——
-    // seed 正本 + fresh TTL 锚点（ensureFresh/ensureMembers 零请求）；空成员 = 全部 active 可见
+    // seed 正本 + fresh TTL 锚点（ensureFresh/ensureMembers 零请求）；显式成员参与 @ 分组测试
     useChannelDataStore.getState().__resetForTests();
     useRosterStore.setState({ profiles: mockAgents, loadedAt: Date.now(), inflight: null, forbidden: false, lastToken: null });
-    useChannelDataStore.getState().setMembers('ch-1', []);
+    useChannelDataStore.getState().setMembers('ch-1', ['a1', 'a2']);
   });
 
   it('拉取频道词表；弹框分组展示：上 Agents 下 Files，文件按路径后缀补全', async () => {

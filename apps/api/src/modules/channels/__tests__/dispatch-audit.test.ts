@@ -59,6 +59,7 @@ describe('dispatch 决策埋点（#591）', () => {
   it('@mention 精确命中 → dispatch 行（actor=被指名 profile，via=mention，traceId 透传）', async () => {
     const channelId = await createChannelWith();
     await createProfile('prof-dev', 'Dev');
+    await fileStore.updateChannel(channelId, { members: JSON.stringify(['prof-dev']) });
 
     const msg = await routeMessage(channelId, '@Dev 看下这个', undefined, { fs: fileStore, traceId: 'trace-d1' });
 

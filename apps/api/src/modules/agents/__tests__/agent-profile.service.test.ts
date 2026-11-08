@@ -310,7 +310,7 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
     await fileStore.deleteChannel(ch1Id);
   });
 
-  it('list({ channelId }) returns all active agents when Channel.members=[]', async () => {
+  it('#699: list({ channelId }) returns no agents when Channel.members=[]', async () => {
     const ch2Id = `ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const now = new Date().toISOString();
     await fileStore.createChannel({
@@ -324,8 +324,8 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
     testProfileIds.push(agent3.id);
 
     const result = await service.list({ channelId: ch2Id });
-    // Empty members → returns all active agents (fallback)
-    expect(result.data.length).toBeGreaterThanOrEqual(1);
+    expect(result.data).toEqual([]);
+    expect(result.total).toBe(0);
 
     await fileStore.deleteChannel(ch2Id);
   });

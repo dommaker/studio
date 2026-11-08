@@ -17,15 +17,16 @@ vi.mock('../../../api/channel', () => ({
 
 import { ChannelInput } from '../ChannelInput';
 import { useRosterStore } from '../../../stores/rosterStore';
+import { useChannelDataStore } from '../../../stores/channelDataStore';
 
 const mockAgents = [
   { id: 'a1', name: 'dev-agent', description: null, status: 'active' },
   { id: 'a2', name: 'pm-agent', description: null, status: 'active' },
 ];
 
-function setup() {
+function setup(channelId?: string) {
   const onSend = vi.fn();
-  const { container } = render(<ChannelInput onSend={onSend} sending={false} />);
+  const { container } = render(<ChannelInput onSend={onSend} sending={false} channelId={channelId} />);
   const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
   return { onSend, textarea, container };
 }
@@ -40,6 +41,7 @@ describe('ChannelInput mention', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListAgents.mockResolvedValue({ data: { data: mockAgents } });
+    useChannelDataStore.getState().__resetForTests();
     // #403：agent 列表改读 rosterStore 客户端切片——seed 正本 + fresh TTL 锚点（ensureFresh 零请求）
     useRosterStore.setState({ profiles: mockAgents, loadedAt: Date.now(), inflight: null, forbidden: false, lastToken: null });
   });
@@ -90,5 +92,16 @@ describe('ChannelInput mention', () => {
     // 重置后再输入 @ 仍能正常弹候选（cursorPos 未停留在旧位置）
     typeAt(textarea, '@');
     await screen.findByText('@dev-agent');
+  });
+
+  it('#699: 频道 members 为空 → @ 不展示全部 active Agent', () => {
+    useChannelDataStore.getState().setMembers('ch-1', []);
+    const { textarea, container } = setup('ch-1');
+
+    typeAt(textarea, '@');
+
+    expect(popupOpen(container)).toBe(false);
+    expect(screen.queryByText('@dev-agent')).toBeNull();
+    expect(screen.queryByText('@pm-agent')).toBeNull();
   });
 });

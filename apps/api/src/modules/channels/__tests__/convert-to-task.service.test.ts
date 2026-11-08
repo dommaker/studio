@@ -167,6 +167,7 @@ describe('AC-E1+E2: Convert to Task', () => {
       const agentId = `agent-e1-${Date.now()}`;
       const now = new Date().toISOString();
       await fileStore.createProfile({ id: agentId, name: `e1-agent`, description: null, channels: '[]', status: 'active', createdAt: now, updatedAt: now });
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([agentId]) });
       const service = new ConvertToTaskService(fileStore);
       const workUnit = await service.convert(channelId, msgId, { assigneeId: agentId });
       testWorkUnitIds.push(workUnit.id);
@@ -187,6 +188,15 @@ describe('AC-E1+E2: Convert to Task', () => {
       expect(snapshot?.assigneeId).toBe(instanceId);
     });
 
+    it('#699: 空频道不接受 LLM/调用方建议的非成员 assigneeId', async () => {
+      const { channelId, msgId } = await createFsMessage('assign suggested agent');
+      const service = new ConvertToTaskService(fileStore);
+
+      await expect(service.convert(channelId, msgId, { assigneeId: 'active-but-not-member' }))
+        .rejects.toThrow(/not a channel member/i);
+      expect((await fileStore.getIndex()).filter(s => s.channelId === channelId)).toEqual([]);
+    });
+
     it('without assigneeId → WorkUnit.status = unassigned', async () => {
       const { channelId, msgId } = await createFsMessage('no assignee');
       const service = new ConvertToTaskService(fileStore);
@@ -202,33 +212,47 @@ describe('AC-E1+E2: Convert to Task', () => {
 
   describe('AC-E2: LLM suggest', () => {
     it('normal suggest → returns suggestion object', async () => {
-      const service = new ConvertToTaskService(undefined);
+      const { channelId } = await createFsMessage('Please fix the login bug');
+      const service = new ConvertToTaskService(fileStore);
 
       // Mock the LLM call
       const mockSuggest = vi.spyOn(service as unknown as Record<string, unknown>, 'callLLM' as never)
         .mockResolvedValue({ title: 'Fix bug', description: 'Login issue', suggestedAssigneeId: undefined, suggestedProjectPath: undefined });
 
-      const result = await service.suggest('Please fix the login bug', [], []);
+      const result = await service.suggest(channelId, 'Please fix the login bug', []);
       expect(result).toBeDefined();
       expect(result.title).toBeDefined();
 
       mockSuggest.mockRestore();
     });
 
+    it('#699: 空频道给 LLM 的 Agent 候选为空', async () => {
+      const { channelId } = await createFsMessage('Suggest an assignee');
+      const now = new Date().toISOString();
+      await fileStore.createProfile({ id: 'active-outsider', name: 'Outsider', description: null, channels: '[]', status: 'active', createdAt: now, updatedAt: now });
+      const service = new ConvertToTaskService(fileStore);
+      const llmSpy = vi.spyOn(service, 'callLLM').mockResolvedValue({});
+
+      await service.suggest(channelId, 'Suggest an assignee', []);
+
+      expect(llmSpy.mock.calls[0][1]).toEqual([]);
+    });
+
     it('empty message → returns empty suggestion', async () => {
-      const service = new ConvertToTaskService(undefined);
-      const result = await service.suggest('', [], []);
+      const service = new ConvertToTaskService(fileStore);
+      const result = await service.suggest('ch-empty', '', []);
       expect(result).toEqual({});
     });
 
     it('LLM call failure → returns empty suggestion (non-blocking)', async () => {
-      const service = new ConvertToTaskService(undefined);
+      const { channelId } = await createFsMessage('Some message content');
+      const service = new ConvertToTaskService(fileStore);
 
       // Force LLM to fail by mocking the internal call (SystemExecutor 未配置/出错同路径)
       const llmSpy = vi.spyOn(service as unknown as Record<string, unknown>, 'callLLM' as never)
         .mockRejectedValue(new Error('LLM unavailable'));
 
-      const result = await service.suggest('Some message content', [], []);
+      const result = await service.suggest(channelId, 'Some message content', []);
       expect(result).toEqual({});
 
       llmSpy.mockRestore();

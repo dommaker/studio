@@ -178,48 +178,54 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(meta.reviewInput).toEqual({ mode: 'diff-only', skill: 'code-review' });
   });
 
-  it('2026-07-30: 子 WU 不继承父 WU 的会话/执行簿记（防跨 WU 会话续用），域血缘保留', async () => {
-    const parent = await wuService.create({
-      scope: '实现功能 S',
-      type: 'feature',
-      channelId: 'ch-test',
-      assigneeId: executorProfile.id,
-      status: 'active',
-      metadata: {
-        pmoId: 'proj-1',
-        pmoNumber: 'PM-001',
-        sessionId: 'sess-parent-123',
-        startedAt: '2026-07-29T00:00:00Z',
-        sessionResumes: 2,
-        stepCount: 3,
-        consecutiveStuck: 1,
-        _cumulativeTokens: 999,
-        errorType: 'execution_failed',
-        errorDetail: 'x',
-        errorAt: '2026-07-29T01:00:00Z',
-      },
-    });
-    await wuService.transitionStatus(parent.id, 'in_review');
-    await dispatcher.waitForSettled();
+  it.each(['claude', 'kimi', 'codex', 'opencode'] as const)(
+    '#699: %s review 子 WU 不继承父 WU 的真实 CLI session/执行簿记，域血缘保留',
+    async (provider) => {
+      await fileStore.updateProfile(executorProfile.id, { provider });
+      const parent = await wuService.create({
+        scope: '实现功能 S',
+        type: 'feature',
+        channelId: 'ch-test',
+        assigneeId: executorProfile.id,
+        status: 'active',
+        metadata: {
+          pmoId: 'proj-1',
+          pmoNumber: 'PM-001',
+          sessionId: 'sess-parent-123',
+          cliSessionId: `cli-${provider}-parent-123`,
+          startedAt: '2026-07-29T00:00:00Z',
+          sessionResumes: 2,
+          stepCount: 3,
+          consecutiveStuck: 1,
+          _cumulativeTokens: 999,
+          errorType: 'execution_failed',
+          errorDetail: 'x',
+          errorAt: '2026-07-29T01:00:00Z',
+        },
+      });
+      await wuService.transitionStatus(parent.id, 'in_review');
+      await dispatcher.waitForSettled();
 
-    const snapshots = await fileStore.getIndex();
-    const child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
-    expect(child).toBeDefined();
-    const meta = metaOf(child!.metadata);
-    // 会话/执行簿记一律不继承
-    expect(meta.sessionId).toBeUndefined();
-    expect(meta.startedAt).toBeUndefined();
-    expect(meta.sessionResumes).toBeUndefined();
-    expect(meta.stepCount).toBeUndefined();
-    expect(meta.consecutiveStuck).toBeUndefined();
-    expect(meta._cumulativeTokens).toBeUndefined();
-    expect(meta.errorType).toBeUndefined();
-    expect(meta.errorDetail).toBeUndefined();
-    expect(meta.errorAt).toBeUndefined();
-    // 域血缘字段保留
-    expect(meta.pmoId).toBe('proj-1');
-    expect(meta.pmoNumber).toBe('PM-001');
-  });
+      const snapshots = await fileStore.getIndex();
+      const child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
+      expect(child).toBeDefined();
+      const meta = metaOf(child!.metadata);
+      // 四种 provider 的真实 CLI 会话号与执行簿记一律不继承
+      expect(meta.sessionId).toBeUndefined();
+      expect(meta.cliSessionId).toBeUndefined();
+      expect(meta.startedAt).toBeUndefined();
+      expect(meta.sessionResumes).toBeUndefined();
+      expect(meta.stepCount).toBeUndefined();
+      expect(meta.consecutiveStuck).toBeUndefined();
+      expect(meta._cumulativeTokens).toBeUndefined();
+      expect(meta.errorType).toBeUndefined();
+      expect(meta.errorDetail).toBeUndefined();
+      expect(meta.errorAt).toBeUndefined();
+      // 域血缘字段保留
+      expect(meta.pmoId).toBe('proj-1');
+      expect(meta.pmoNumber).toBe('PM-001');
+    },
+  );
 
   it('AC-4.3: 已有未完结 review 子 WU -> 跳过（同父唯一性）', async () => {
     const parent = await wuService.create({

@@ -69,8 +69,9 @@ describe('wu-dispatch：@mention 派单', () => {
 
   it('命中成员 → 建单指名 + anchorMessageId 锚定派发消息 + 消息回填 workUnitId', async () => {
     await createTestAgent(fileStore, 'developer');
-    // 频道 defaultPath 提供归属（#481 起机器指针退役，defaultPath = 归属链频道默认 rung），避免 parked
-    await fileStore.updateChannel(channelId, { defaultPath: tmpDir });
+    const agent = (await fileStore.listProfiles()).find(p => p.name === 'developer')!;
+    // 显式频道成员 + defaultPath 归属（#699 起空 members 不再匹配全量 active）
+    await fileStore.updateChannel(channelId, { defaultPath: tmpDir, members: JSON.stringify([agent.id]) });
     const message = await dispatchMentionMessage(channelId, '@developer 看下这个', 'developer', {}, makeDeps());
 
     expect(message.workUnitId).toBeTruthy();

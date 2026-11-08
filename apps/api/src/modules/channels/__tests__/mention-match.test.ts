@@ -1,5 +1,5 @@
 // #688：mention 匹配纯函数单元测试（自 message-routing.ts 内联逻辑拆出为 mention-match.ts）。
-// 行为口径锁定：§9.5 成员界匹配、members 空回退全量、系统角色不参与、
+// 行为口径锁定：§9.5 成员界匹配、members 空即无匹配（#699）、系统角色不参与、
 // #496 手打中文连写最长前缀兜底（等长歧义回退未匹配）、scope 剥离两种口径。
 import { describe, it, expect } from 'vitest';
 import { detectMention, matchMentionAgent, stripMentionScope } from '../mention-match.js';
@@ -40,10 +40,11 @@ describe('matchMentionAgent（§9.5 成员界 + #496 前缀兜底）', () => {
     expect(agent).toBeNull();
   });
 
-  it('members 为空 → 回退全量匹配（历史频道未回填）', () => {
+  it('#699: members 为空 → 无可匹配成员，不回退全量', () => {
     const dev = profile('p1', 'developer');
-    const { agent } = matchMentionAgent([dev], 'developer', members([]));
-    expect(agent?.id).toBe('p1');
+    const { agent, prefixMatchName } = matchMentionAgent([dev], 'developer', members([]));
+    expect(agent).toBeNull();
+    expect(prefixMatchName).toBeNull();
   });
 
   it('系统角色不参与精确匹配（@studio → null）', () => {
@@ -81,10 +82,10 @@ describe('matchMentionAgent（§9.5 成员界 + #496 前缀兜底）', () => {
     expect(agent).toBeNull();
   });
 
-  it('channel 缺省/无 members 字段 → 按空成员回退全量', () => {
+  it('channel 缺省/无 members 字段 → 同样按无成员拒绝匹配', () => {
     const dev = profile('p1', 'developer');
     const { agent } = matchMentionAgent([dev], 'developer', null);
-    expect(agent?.id).toBe('p1');
+    expect(agent).toBeNull();
   });
 });
 

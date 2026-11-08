@@ -87,6 +87,7 @@ describe('#632: @studio → 未匹配 mention（未指派 + 频道说明）', ()
 
   it('@pm 正常直达（不受 @studio 退役影响）', async () => {
     await fileStore.createProfile(profile('pm-1', 'pm'));
+    await fileStore.updateChannel(channelId, { members: JSON.stringify(['pm-1']) });
 
     const result = await routeMessage(channelId, '@pm 拆解这个需求', undefined, { fs: fileStore });
 

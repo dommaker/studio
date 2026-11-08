@@ -416,14 +416,14 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
       expect(opts.maxTokens).toBeGreaterThan(SECTION_QUOTAS.knowledge);
     });
 
-    it('members 为空 → 回退到全部 active profile（与闸门口径一致）', async () => {
+    it('#699: members 为空 → 无花名册段，不回退到全部 active profile', async () => {
       await fileStore.updateChannel(channelId, { members: '[]' });
       const parent = await setupParent();
       await runStep(parent.id);
 
-      const ctx = mockExecuteLightweight.mock.calls[0][0].parameters.knowledgeContext as string;
-      expect(ctx).toContain('## 频道成员与委派');
-      expect(ctx).toContain('AgentB');
+      const ctx = mockExecuteLightweight.mock.calls[0][0].parameters.knowledgeContext;
+      expect(ctx ?? '').not.toContain('## 频道成员与委派');
+      expect(ctx ?? '').not.toContain('AgentB');
     });
 
     it('无频道 → 无花名册段', async () => {

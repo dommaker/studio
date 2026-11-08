@@ -70,9 +70,9 @@ describe('ChannelMemberManager', () => {
     expect(screen.getByTitle('Channel 成员管理').className).toBe('mc-topbar-menu-item');
   });
 
-  it('shows "All" when no members configured', () => {
+  it('shows zero agents when no members configured', () => {
     render(<ChannelMemberManager channelId="ch-1" />);
-    expect(screen.getByText('All')).toBeTruthy();
+    expect(screen.getByText('0 agents')).toBeTruthy();
   });
 
   it('shows member count when store members has ids', () => {
@@ -118,7 +118,7 @@ describe('ChannelMemberManager', () => {
   it('syncs member ids when store members arrive asynchronously (refresh bug)', () => {
     // 页面刷新时频道记录异步加载：首渲 store 成员面为空，数据后到（写穿水合）
     const { rerender } = render(<ChannelMemberManager channelId="ch-1" />);
-    expect(screen.getByText('All')).toBeTruthy();
+    expect(screen.getByText('0 agents')).toBeTruthy();
     act(() => {
       useChannelDataStore.getState().setMembers('ch-1', ['a1', 'a2']);
     });
@@ -154,15 +154,15 @@ describe('ChannelMemberManager', () => {
     });
   });
 
-  it('store 成员面为 []（空 = 所有 Agent 可见）→ All', () => {
+  it('#699: store 成员面为 []（无可见 Agent）→ 0 agents', () => {
     seedStores([]);
     render(<ChannelMemberManager channelId="ch-1" />);
-    expect(screen.getByText('All')).toBeTruthy();
+    expect(screen.getByText('0 agents')).toBeTruthy();
   });
 
-  it('store 成员面缺键（未拉到）→ All，不抛错', () => {
+  it('store 成员面缺键（未拉到）→ 0 agents，不抛错', () => {
     render(<ChannelMemberManager channelId="ch-1" />);
-    expect(screen.getByText('All')).toBeTruthy();
+    expect(screen.getByText('0 agents')).toBeTruthy();
   });
 
   it('添加成员成功 → store 成员面写穿', async () => {

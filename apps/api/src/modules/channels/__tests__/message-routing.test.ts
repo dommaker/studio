@@ -93,6 +93,7 @@ describe('Message Routing (AC-B1-B4)', () => {
         updatedAt: new Date().toISOString(),
       };
       await fileStore.createProfile(agentData);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([agentData.id]) });
 
       const result = await routeMessage(channelId, '@AssignAgent do this', undefined, { fs: fileStore });
 
@@ -127,6 +128,7 @@ describe('Message Routing (AC-B1-B4)', () => {
         updatedAt: new Date().toISOString(),
       };
       await fileStore.createProfile(agentData);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([agentData.id]) });
       // Pre-create a WorkUnit for this agent (simulating busy state)
       await workUnitService.create({ scope: 'existing task', channelId, type: 'task', status: 'active', assigneeId: agentData.id });
 
@@ -141,7 +143,8 @@ describe('Message Routing (AC-B1-B4)', () => {
 
   describe('AC-B1: @mention → WorkUnit', () => {
     it('creates WorkUnit when @mention matches active AgentProfile', async () => {
-      await createTestAgent(fileStore, 'TestAgent');
+      await createTestAgent(fileStore, 'TestAgent', 'active', { id: 'test-agent-1' });
+      await fileStore.updateChannel(channelId, { members: JSON.stringify(['test-agent-1']) });
 
       const result = await routeMessage(channelId, '@TestAgent do this task', undefined, { fs: fileStore });
 
@@ -560,15 +563,17 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(meta.matched).toBe(false);
     });
 
-    it('falls back to matching any active profile when channel members is empty', async () => {
+    it('#699: does not match any active profile when channel members is empty', async () => {
       const agent = activeProfile('legacy-agent-1', 'LegacyAgent');
       await fileStore.createProfile(agent);
-      await fileStore.updateChannel(channelId, { members: '[]' }); // 历史频道：members 未回填
+      await fileStore.updateChannel(channelId, { members: '[]' });
 
       const result = await routeMessage(channelId, '@LegacyAgent do this', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
-      expect(wu!.assigneeId).toBe(agent.id);
+      expect(wu!.assigneeId).toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(false);
     });
 
     it('matches a CJK-named member and strips the mention from scope', async () => {

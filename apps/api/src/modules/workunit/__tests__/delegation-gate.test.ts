@@ -124,11 +124,13 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
     expect(result.reason).toContain('不是本频道成员');
   });
 
-  it('members 为空：过渡期放行任意 active profile（同 message-routing 口径）', async () => {
+  it('#699: members 为空：频道无可委派成员，即使目标 active 也拒绝', async () => {
     await fileStore.updateChannel(channelId, { members: '[]' });
     const parent = await makeParent();
     const result = await check(parent, 'AgentB');
-    expect(result.pass).toBe(true);
+    expect(result.pass).toBe(false);
+    expect(result.reason).toContain('不是本频道成员');
+    expect(result.target).toBeUndefined();
   });
 
   it('目标 = 派出方自己 → 拒绝（禁止自派生）', async () => {
