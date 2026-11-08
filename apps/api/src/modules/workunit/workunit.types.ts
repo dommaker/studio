@@ -211,6 +211,9 @@ export interface WorkUnitMetadata {
   // PMO 分析接力（analysis-handoff）：analysis WU COMPLETE 时 agent-loop 解析 TASK: 行落档；
   // 人工确认（reviewPassed → done）后由 analysis-handoff 据此建未指派 task 子 WU 派工
   analysisTasks?: string[];       // TASK: 拆分行解析结果（≤8 条，每条 ≤300 字符）
+  // #700：plan 逐 TASK 验收标准（按 title 与 analysisTasks 对应；LEG/依赖校验由 #701 消费）
+  analysisTaskDetails?: Array<{ title: string; ac: string[]; blockedBy: string[]; leg?: string }>;
+  analysisTaskIndex?: number;      // plan 子 WU 对应 TASK 位置；同名任务的 AC 关联与对账去重键
   analysisTasksSpawnedAt?: string; // 子 WU 已建时间戳（幂等哨兵：存在即不再重复派生）
   // #183（#159 决议 2）：哨兵清单化——已建子 WU id 清单，5min 对账扫描据此补差集
   // （analysisTasks − 清单）；人工关闭的子 WU 仍在清单中 → 对账不复活（决议 3）。

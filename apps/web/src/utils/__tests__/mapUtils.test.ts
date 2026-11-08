@@ -130,6 +130,19 @@ describe('#463 buildAnalysisConfirmPrefill：analysis 确认弹窗结构化预�
     });
   });
 
+  it('#700：analysisTaskDetails → plan 逐任务 AC 预填', () => {
+    const metadata = JSON.stringify({
+      analysisTasks: ['实现存储层'],
+      analysisTaskDetails: [{ title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'], blockedBy: [] }],
+    });
+    expect(buildAnalysisConfirmPrefill(metadata)).toEqual({
+      destination: '',
+      fog: [],
+      tasks: ['实现存储层'],
+      taskDetails: [{ title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'] }],
+    });
+  });
+
   it('无清单 / 坏 JSON / null → 全空结构（弹窗空手评）', () => {
     const EMPTY = { destination: '', fog: [], tasks: [] };
     expect(buildAnalysisConfirmPrefill(null)).toEqual(EMPTY);

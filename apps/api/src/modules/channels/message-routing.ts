@@ -234,9 +234,13 @@ export async function routeMessage(
   // fail-closed 总原则：拿不准就不动——显式 intent 优先，缺省走合并窗口判定，
   // 歧义（窗口内 ≥2 个不同在途 WU）/ 无目标一律纯存储，不再有任何自动建单路径。
   if (ctx?.intent === 'new-task') {
-    // 发送前归属预览的「新任务」选择：建未指派 WU 走涌现认领（与 mention 并列的显式建单，
-    // 同收口 wu-dispatch.ts；#494 先落派发消息再建 WU 骨架共享）
-    return dispatchNewTaskMessage(channelId, content, { traceId: ctx?.traceId }, {
+    // 发送前归属预览的「新任务」选择：与 mention 共用 REQ/工程归属解析；有归属时建未指派
+    // WU 走涌现认领，无归属挂起澄清（#700；#494 先落派发消息再建 WU 骨架共享）
+    return dispatchNewTaskMessage(channelId, content, {
+      reqId: ctx.reqId,
+      traceId: ctx.traceId,
+      channel: ctx.channel,
+    }, {
       fs: resolvedFs, wuService, filesMeta, reportDroppedRefs,
     });
   }

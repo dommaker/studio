@@ -172,6 +172,25 @@ describe('B3a: 归属解析优先级接线', () => {
     expect(meta.waitingForInput).toBeUndefined();
   });
 
+  it('#700：显式 new-task 与 mention 共用 #PMO 别名归属解析', async () => {
+    const channelId = await createChannel(null);
+    const project = await createRealProject('/data/new-task-repo');
+
+    const msg = await routeMessage(channelId, `#${project.pmoNumber} 拆一个独立任务`, undefined, {
+      fs: fileStore,
+      intent: 'new-task',
+    });
+
+    const wu = await findWu(msg.workUnitId!);
+    expect(wu!.status).toBe('unassigned');
+    expect(wu!.reqId).toBe(project.reqAlias);
+    const meta = metaOf(wu!);
+    expect(meta.ownershipSource).toBe('requirement');
+    expect(meta.workspaceRoot).toBe('/data/new-task-repo');
+    expect(meta.pmoId).toBe(project.id);
+    expect(meta.waitingReason).toBeUndefined();
+  });
+
   it('频道只配 defaultWorkspaceId（默认执行机器）→ #481 后等同无归属，挂起问人', async () => {
     const channelId = await createChannel('ws-channel-default');
 

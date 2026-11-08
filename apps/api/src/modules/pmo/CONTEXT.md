@@ -38,6 +38,7 @@
 
 ### 运行时约定
 
+- **#700 plan 线程与逐任务血缘**：publish 将 `project.reqAlias` 写入 plan 一等列 reqId、`anchorMessageId` 写入原 PMO 消息 id，并经 `linkWorkUnit` 回填原消息 ↔ plan；plan TASK 使用 `TASK: ... | AC: ...`，COMPLETION 收割 `analysisTaskDetails`，确认表单逐条编辑 AC，AnalysisHandoff 将对应 REQ/AC 写入 task 子 WU，并以 `analysisTaskIndex` 保证同名 TASK 在派生及对账补建中仍各守其 AC。LEG/blockedBy 的结构化校验仍属 #701。
 - 项目数据存储在 `~/.studio/projects/{id}.json`，OKR 数据存储在 `~/.studio/okr/` JSONL 文件。所有服务基于 FileStore。
 - **P2-e 存储收口**：projects 目录清单走 FileStore `listJsonInDir` seam。OKR md 删除自 SEC-04 起走 FileStore `deleteDoc`；保留裸 fs 仅 REQ 序号目录扫描（`scanMaxRequirementSeq`，序号匹配非实体读取）。
 - **OKR 项目关联（2026-10 架构精简刀1）**：OKR 列表 `projectCount` / 详情 `Execution`+`_count.Execution` / 删除解关联原读 `~/.studio/logs/executions.jsonl`（越域深读），已随 executions 模块整删改由 pmo 自身项目存储供应——`projectService.countByOkr/listByOkrId/unlinkOkr`（`~/.studio/projects/{id}.json` 的 `okrId` 字段）；wire 形状不变（`Execution`/`_count.Execution` 为 Prisma 时代遗留键名，内容 = 关联项目投影）。

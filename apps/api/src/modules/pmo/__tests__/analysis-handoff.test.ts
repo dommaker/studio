@@ -325,6 +325,7 @@ describe('#471 plan WU 接力（确认闸 + TASK 派工）', () => {
       scope: '规划需求 PMO-1: 测试需求 +requirement-clarify +to-tickets',
       channelId: 'ch-test',
       status: 'active',
+      reqId: 'REQ-0042',
       metadata,
     });
   }
@@ -345,6 +346,10 @@ describe('#471 plan WU 接力（确认闸 + TASK 派工）', () => {
   it('plan → done：按 analysisTasks 建未指派 task 子 WU（PMO 溯源继承）+ 幂等哨兵', async () => {
     const wu = await createPlanWu({
       analysisTasks: ['实现存储层', '接热线'],
+      analysisTaskDetails: [
+        { title: '实现存储层', ac: ['存储单测通过'], blockedBy: [] },
+        { title: '接热线', ac: ['频道可回复'], blockedBy: [] },
+      ],
       pmoId: 'proj-1',
       pmoNumber: 'PMO-1',
       workspaceRoot: '/root/projects/demo',
@@ -357,6 +362,9 @@ describe('#471 plan WU 接力（确认闸 + TASK 派工）', () => {
     const children = (await fileStore.getIndex()).filter(s => s.parentId === wu.id);
     expect(children.every(c => c.type === 'task')).toBe(true);
     expect(children.every(c => c.status === 'unassigned')).toBe(true);
+    expect(children.every(c => c.reqId === 'REQ-0042')).toBe(true);
+    expect(metaOf(children.find(c => c.scope === '实现存储层')!.metadata).ac).toEqual(['存储单测通过']);
+    expect(metaOf(children.find(c => c.scope === '接热线')!.metadata).ac).toEqual(['频道可回复']);
     expect(metaOf(children[0].metadata).pmoNumber).toBe('PMO-1');
     expect(metaOf(children[0].metadata).workspaceRoot).toBe('/root/projects/demo');
 
@@ -366,6 +374,33 @@ describe('#471 plan WU 接力（确认闸 + TASK 派工）', () => {
     const msgOk = await waitFor(async () =>
       (await channelMessages()).some(m => m.content.includes('拆分 2 个任务')));
     expect(msgOk).toBe(true);
+  });
+
+  it('#700：同名 TASK 按位置保留各自 AC，不复制第一条', async () => {
+    const wu = await createPlanWu({
+      analysisTasks: ['重复任务', '重复任务'],
+      analysisTaskDetails: [
+        { title: '重复任务', ac: ['第一条验收'], blockedBy: [] },
+        { title: '重复任务', ac: ['第二条验收'], blockedBy: [] },
+      ],
+    });
+    emitStatus(wu, 'done');
+
+    const ok = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu.id).length === 2);
+    expect(ok).toBe(true);
+    const children = (await fileStore.getIndex()).filter(s => s.parentId === wu.id);
+    expect(children.map(child => metaOf(child.metadata).ac)).toEqual([['第一条验收'], ['第二条验收']]);
+
+    // 对账补建也不能把第二个同名 TASK 错认成第一条子 WU。
+    await wuService.delete(children[1].id);
+    const fresh = (await wuService.getById(wu.id))!;
+    const missing = await handoff.listMissingSpawnScopes(fresh);
+    expect(missing).toEqual(['重复任务']);
+    const respawned = await handoff.respawnScopes(fresh, missing);
+    expect(respawned.adoptedIds).toEqual([]);
+    expect(respawned.createdIds).toHaveLength(1);
+    expect(metaOf((await wuService.getById(respawned.createdIds[0]))!.metadata).ac).toEqual(['第二条验收']);
   });
 
   it('plan 无 TASK 拆分行：不派生，频道提示可手动转任务', async () => {

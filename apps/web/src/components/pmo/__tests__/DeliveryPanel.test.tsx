@@ -277,7 +277,7 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByText('确认开图'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-p1', undefined, undefined, {
-      kind: 'plan', fog: ['存储选型用哪个？'], tasks: ['实现存储层'],
+      kind: 'plan', fog: ['存储选型用哪个？'], tasks: [{ title: '实现存储层', ac: [] }],
     }));
     expect(onRefresh).toHaveBeenCalled();
   });

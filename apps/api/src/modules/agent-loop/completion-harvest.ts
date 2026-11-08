@@ -5,7 +5,7 @@
  * 长串 if 分支改为「type → 收割器组」注册表调度：
  *   - 新 WU type 收割 = 在 COMPLETION_HARVEST_REGISTRY 注册一行；
  *   - 注册表键 = wu.type 单键（开放问题 1 决议）；变体走收割器内部读 ctx.metadata
- *     （inspection 标记），plan 与 analysis 共享同一收割器组（#471 一脉会话，契约不变）；
+ *     （inspection 标记），plan 与 analysis 共享 FOG/巡检收割器；#700 起 plan 另有逐 TASK AC 收割器；
  *   - 失败语义（开放问题 2 决议）：单个收割器抛错仅 warn 跳过该收割器，其余收割器
  *     与整条收割链不受影响；解析器本身返回 null/[] 不抛（解析无获不落档、不阻断完成，
  *     语义与各分支原实现逐一对应）。
@@ -40,10 +40,23 @@ const reviewReportHarvester: CompletionHarvester = (outputText, ctx) => {
   return {};
 };
 
-/** analysis/plan：TASK: 拆分行 → analysisTasks（analysis-handoff 派工数据源） */
+/** analysis：TASK: 拆分行 → analysisTasks（analysis-handoff 派工数据源） */
 const analysisTasksHarvester: CompletionHarvester = (outputText) => {
   const tasks = parseTaskBreakdown(outputText);
   return tasks.length > 0 ? { analysisTasks: tasks } : {};
+};
+
+/** #700 plan：复用 spec TASK codec，逐任务保留 AC；字符串清单继续供既有确认/派工链消费。 */
+const planTasksHarvester: CompletionHarvester = (outputText) => {
+  const tasks = parseSpecTasks(outputText);
+  if (tasks.length === 0) return {};
+  return {
+    analysisTasks: tasks.map(task => task.title),
+    // 旧纯 TASK 输出保持原 metadata 形状；出现结构化段才新增明细。
+    ...(tasks.some(task => task.ac.length > 0 || task.blockedBy.length > 0 || task.leg)
+      ? { analysisTaskDetails: tasks }
+      : {}),
+  };
 };
 
 /** analysis/plan：FOG:/DESTINATION: 行 → analysisFog/analysisDestination（确认弹窗预填） */
@@ -82,11 +95,19 @@ const specTasksHarvester: CompletionHarvester = (outputText) => {
   return specTasks.length > 0 ? { specTasks } : {};
 };
 
-/** analysis 与 plan 共享的收割器组（#471：plan 沿用 analysis 字段名与解析契约） */
-const ANALYSIS_HARVESTERS: CompletionHarvester[] = [
-  analysisTasksHarvester,
+const ANALYSIS_SHARED_HARVESTERS: CompletionHarvester[] = [
   mapOpeningHarvester,
   inspectionOpportunitiesHarvester,
+];
+
+const ANALYSIS_HARVESTERS: CompletionHarvester[] = [
+  analysisTasksHarvester,
+  ...ANALYSIS_SHARED_HARVESTERS,
+];
+
+const PLAN_HARVESTERS: CompletionHarvester[] = [
+  planTasksHarvester,
+  ...ANALYSIS_SHARED_HARVESTERS,
 ];
 
 /**
@@ -97,7 +118,7 @@ const ANALYSIS_HARVESTERS: CompletionHarvester[] = [
 export const COMPLETION_HARVEST_REGISTRY: Record<string, CompletionHarvester[]> = {
   review: [reviewReportHarvester],
   analysis: ANALYSIS_HARVESTERS,
-  plan: ANALYSIS_HARVESTERS,
+  plan: PLAN_HARVESTERS,
   decision: [decisionSuggestionHarvester],
   spec: [specTasksHarvester],
 };

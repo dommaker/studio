@@ -39,7 +39,7 @@ export class WaitingGate {
           };
         case 'bind-ownership':
           return {
-            ...latest, waitingForInput: false, waitingReminded: false,
+            ...latest, waitingForInput: false, waitingReminded: false, waitingReason: undefined,
             workspaceRoot: command.workspaceRoot, ownershipSource: 'human-reply', ownershipAttempts: undefined,
             pendingReplies, ...trace,
           };

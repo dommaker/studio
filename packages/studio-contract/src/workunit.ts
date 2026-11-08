@@ -222,10 +222,22 @@ export const reviewConfirmPayloadSchema = z.discriminatedUnion('kind', [
     })).optional(),
   }),
   z.object({
-    kind: z.enum(['analysis', 'plan']),
+    kind: z.literal('analysis'),
     destination: z.string().optional(),
     fog: z.array(z.string()).optional(),
     tasks: z.array(z.string()).optional(),
+  }),
+  z.object({
+    kind: z.literal('plan'),
+    destination: z.string().optional(),
+    fog: z.array(z.string()).optional(),
+    tasks: z.array(z.union([
+      z.string(),
+      z.object({
+        title: z.string(),
+        ac: z.array(z.string()).optional(),
+      }),
+    ])).optional(),
   }),
 ]);
 export type ReviewConfirmPayload = z.infer<typeof reviewConfirmPayloadSchema>;

@@ -212,7 +212,7 @@ describe('WuGateActions — #463 结构化确认弹窗（analysis/decision/spec�
 
     fireEvent.click(screen.getByText('确认开图'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined, {
-      kind: 'plan', destination: '目的地', fog: ['问题1'], tasks: ['干活'],
+      kind: 'plan', destination: '目的地', fog: ['问题1'], tasks: [{ title: '干活', ac: [] }],
     }));
   });
 

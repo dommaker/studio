@@ -74,6 +74,7 @@ vi.mock('../../channels/channel-message.service.js', () => ({
   getChannelMessageService: () => ({
     createHumanMessage: (...args: unknown[]) => mockCreateHumanMessage(...args),
     updateMessageMeta: (...args: unknown[]) => mockUpdateMessageMeta(...args),
+    linkWorkUnit: vi.fn().mockResolvedValue({ id: 'msg-1', workUnitId: 'wu-1', meta: { pmoId: 'proj-1' } }),
   }),
 }));
 

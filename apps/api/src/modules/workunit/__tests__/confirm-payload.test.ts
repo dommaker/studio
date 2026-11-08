@@ -76,6 +76,21 @@ describe('#463 resolveReviewConfirm（确认表单 → l3.summary 序列化）',
     expect(resolveReviewConfirm({ kind: 'analysis' })).toEqual({});
   });
 
+  it('#700 plan：逐 TASK 对象保留人审后的 AC，并派生字符串任务清单', () => {
+    const r = resolveReviewConfirm({
+      kind: 'plan',
+      tasks: [
+        { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'] },
+        { title: '接通派工', ac: ['子单可认领'] },
+      ],
+    });
+    expect(r.analysisTasks).toEqual(['实现存储层', '接通派工']);
+    expect(r.analysisTaskDetails).toEqual([
+      { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'], blockedBy: [] },
+      { title: '接通派工', ac: ['子单可认领'], blockedBy: [] },
+    ]);
+  });
+
   it('#471 plan：与 analysis 同形（destination+fog → 目标：/待决：行；tasks → analysisTasks 覆写）', () => {
     const r = resolveReviewConfirm({
       kind: 'plan',
@@ -121,6 +136,21 @@ describe('#463 reviewPassed options.analysisTasks（人审编辑后的 TASK 清�
     const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
     expect(meta.analysisTasks).toEqual(['人审改后的唯一任务']);
     expect(meta.attestations?.l3?.summary).toBe('待决：问题？');
+  });
+
+  it('#700：plan 确认把 analysisTaskDetails 一并落档，供派生子 WU 消费', async () => {
+    const wu = await wuService.create({
+      scope: '规划需求', type: 'plan', status: 'active',
+      metadata: { analysisTasks: ['agent 拆的'] },
+    });
+    await wuService.transitionStatus(wu.id, 'in_review');
+    await wuService.reviewPassed(wu.id, { by: 'human', kind: 'human-confirm' }, {
+      analysisTasks: ['人审后的任务'],
+      analysisTaskDetails: [{ title: '人审后的任务', ac: ['验收通过'], blockedBy: [] }],
+    });
+
+    const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
+    expect(meta.analysisTaskDetails).toEqual([{ title: '人审后的任务', ac: ['验收通过'], blockedBy: [] }]);
   });
 
   it('options.analysisTasks 缺省 → 不动 metadata.analysisTasks（兼容旧路径）', async () => {

@@ -58,7 +58,7 @@ export async function waitForReviewPassSettled(): Promise<void> {
 }
 
 export interface WorkUnitReview {
-  reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string; analysisTasks?: string[] }): Promise<WorkUnitData>;
+  reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string; analysisTasks?: string[]; analysisTaskDetails?: WorkUnitMetadata['analysisTaskDetails'] }): Promise<WorkUnitData>;
   reviewRejected(id: string, reason?: string, attestation?: ReviewAttestationSource): Promise<WorkUnitData>;
   recordL1Verification(id: string, input: {
     by: string;
@@ -95,7 +95,7 @@ export class WorkUnitReviewService implements WorkUnitReview {
    * F6-c（断点 3）：agent-review 且当前已是 done 且 l2 缺失 → 幂等补写 l2
    * （人工直推 done 抢跑评审链，迟到的评审结论无处落账的补票口），同不改状态、不触发合并。
    */
-  async reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string; analysisTasks?: string[] }): Promise<WorkUnitData> {
+  async reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string; analysisTasks?: string[]; analysisTaskDetails?: WorkUnitMetadata['analysisTaskDetails'] }): Promise<WorkUnitData> {
     const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
@@ -122,6 +122,9 @@ export class WorkUnitReviewService implements WorkUnitReview {
     // analysis-handoff 消费人审定稿而非 agent 原始拆分；缺省不动（兼容旧路径）
     if (options?.analysisTasks !== undefined) {
       metadata.analysisTasks = options.analysisTasks;
+    }
+    if (options?.analysisTaskDetails !== undefined) {
+      metadata.analysisTaskDetails = options.analysisTaskDetails;
     }
     if (attestation) {
       const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';

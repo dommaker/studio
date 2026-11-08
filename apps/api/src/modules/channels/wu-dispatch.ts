@@ -42,7 +42,42 @@ export interface MentionDispatchOptions {
 }
 
 export interface NewTaskDispatchOptions {
+  reqId?: string | null;
   traceId?: string | null;
+  channel?: ChannelData | null;
+}
+
+type Ownership = Awaited<ReturnType<typeof resolveWorkspaceForWU>> | null;
+
+/** #700：mention/new-task/convert 共用的归属落档与挂起字段。 */
+export function buildOwnershipMetadata(ownership: Ownership, parked: boolean): NonNullable<CreateWuInput['metadata']> {
+  return {
+    ownershipSource: ownership?.source ?? 'fallback',
+    ...(ownership?.workspaceRoot ? { workspaceRoot: ownership.workspaceRoot } : {}),
+    ...(ownership?.projectId ? { pmoId: ownership.projectId } : {}),
+    ...(parked
+      ? {
+          waitingForInput: true,
+          waitingQuestion: OWNERSHIP_WAITING_QUESTION,
+          waitingSince: new Date().toISOString(),
+          waitingReason: 'ownership',
+        }
+      : {}),
+  };
+}
+
+/** #700：三条建单入口共用的 ownership 澄清通知（best-effort）。 */
+export async function postOwnershipQuestion(workUnit: WorkUnitData, replyToId: string, fileStore: FileStore): Promise<void> {
+  await postWuSystemMessage(
+    workUnit,
+    `任务「${workUnit.scope.slice(0, 50)}」正在等待你的回复：${OWNERSHIP_WAITING_QUESTION}`,
+    { replyToId, fileStore, milestone: true },
+  ).catch(err =>
+    logger.warn('[Channels] Post ownership question failed (non-blocking)', {
+      workUnitId: workUnit.id,
+      error: String(err),
+    })
+  );
 }
 
 /**
@@ -174,20 +209,8 @@ export async function dispatchMentionMessage(
       ...(opts.traceId ? { traceId: opts.traceId } : {}),
       // #285: @文件引用落档（仅在有有效引用时写字段；prompt-composer files 段消费）
       ...(filesMeta?.files ? { fileRefs: filesMeta.files } : {}),
-      // B3a: 归属解析结果落档（来源区分供日志/审计）
-      ownershipSource: ownership?.source ?? 'fallback',
-      ...(ownership?.workspaceRoot ? { workspaceRoot: ownership.workspaceRoot } : {}),
-      // 2026-08 归因统一：创建期 PMO 归因戳 canonical key = pmoId（legacy 名 ownershipProjectId 废弃，
-      // 读取侧同级兼容，见 requirements/wu-pmo-attribution.ts）
-      ...(ownership?.projectId ? { pmoId: ownership.projectId } : {}),
-      ...(parked
-        ? {
-            waitingForInput: true,
-            waitingQuestion: OWNERSHIP_WAITING_QUESTION,
-            waitingSince: new Date().toISOString(),
-            waitingReason: 'ownership',
-          }
-        : {}),
+      // B3a: 归属解析结果落档（来源区分供日志/审计；pmoId 为 canonical 归因戳）
+      ...buildOwnershipMetadata(ownership, parked),
     },
   }, deps);
   logger.info('[MessageRouting] WorkUnit created from @mention', {
@@ -220,18 +243,7 @@ export async function dispatchMentionMessage(
   // B3a: 无归属挂起 → 频道发 Studio 系统消息提问（挂在派发消息线程，回复即触发解析）
   // #464：milestone=true（atHuman 响铃 + 行动中心通知双写）——挂起提问是「需要人答」，
   // 此前只上屏不响铃，非在线人看不到（票体补充评论并入项）。
-  if (parked) {
-    await postWuSystemMessage(
-      workUnit,
-      `任务「${scope.slice(0, 50)}」正在等待你的回复：${OWNERSHIP_WAITING_QUESTION}`,
-      { replyToId: message.id, fileStore: fs, milestone: true },
-    ).catch(err =>
-      logger.warn('[MessageRouting] Post ownership question failed (non-blocking)', {
-        workUnitId: workUnit.id,
-        error: String(err),
-      })
-    );
-  }
+  if (parked) await postOwnershipQuestion(workUnit, message.id, fs);
   // #464: @mention 未匹配（角色不存在/非本频道成员/系统角色）→ 线程说明。
   // 此前 WU 照建、matched=false 落档但频道零提示，用户以为已派给某人。
   if (!agent) {
@@ -252,8 +264,7 @@ export async function dispatchMentionMessage(
 
 /**
  * #632 显式 intent='new-task'：发送前归属预览的「新任务」选择——建未指派 WU 走
- * 涌现认领（与 mention 并列的显式建单；本路径不做归属解析，文件引用仅落档供
- * prompt-composer files 段消费）。
+ * 涌现认领。#700 起与 mention 共用 REQ/#PMO 别名和工程归属解析；无归属时同样挂起问人。
  */
 export async function dispatchNewTaskMessage(
   channelId: string,
@@ -261,21 +272,52 @@ export async function dispatchNewTaskMessage(
   opts: NewTaskDispatchOptions,
   deps: WuDispatchDeps,
 ): Promise<MessageRecord> {
+  const { fs, filesMeta } = deps;
+  const [channel, reqId] = await Promise.all([
+    opts.channel !== undefined ? Promise.resolve(opts.channel) : fs.getChannel(channelId),
+    resolveReqIdForDispatch({
+      explicitReqId: opts.reqId,
+      content,
+      channelId,
+      createdBy: 'new-task',
+      fileStore: fs,
+    }).catch(err => {
+      logger.warn('[MessageRouting] New-task REQ binding failed (non-blocking)', { error: String(err) });
+      return null;
+    }),
+  ]);
+  const ownership = await resolveWorkspaceForWU({
+    reqId,
+    channelId,
+    fileRefs: filesMeta?.files,
+    fileStore: fs,
+    channel,
+  }).catch(err => {
+    logger.warn('[MessageRouting] New-task ownership resolution failed, continuing without attribution', {
+      error: String(err),
+    });
+    return null;
+  });
+  const parked = ownership?.source === 'none';
   const { dispatchMessage, workUnit } = await createDispatchedWorkUnit(channelId, content, {
     scope: content,
-    status: 'unassigned',
+    status: parked ? 'blocked' : 'unassigned',
     assigneeId: undefined, // 涌现认领（agent-loop observe 未指派过滤）
+    reqId,
     metadata: {
       creationMode: 'channel-new-task',
       // #519: traceId 贯穿（与 @mention 路径同写法）
       ...(opts.traceId ? { traceId: opts.traceId } : {}),
-      // #285: @文件引用落档（本路径不做归属解析，仅落档供 prompt-composer files 段消费）
-      ...(deps.filesMeta?.files ? { fileRefs: deps.filesMeta.files } : {}),
+      ...(filesMeta?.files ? { fileRefs: filesMeta.files } : {}),
+      ...buildOwnershipMetadata(ownership, parked),
     },
   }, deps);
   logger.info('[MessageRouting] WorkUnit created by explicit new-task intent', {
     channelId,
     workUnitId: workUnit.id,
+    reqId,
+    ownershipSource: ownership?.source ?? 'fallback',
+    parked,
   });
   // #591：显式建单埋点（词表 dispatch，via=new-task；未指派无 actor）
   recordAgentDecision({
@@ -285,5 +327,7 @@ export async function dispatchNewTaskMessage(
     details: { via: 'new-task', channelId },
     requestId: opts.traceId ?? undefined,
   });
-  return linkDispatchMessage(channelId, dispatchMessage, workUnit, deps);
+  const message = await linkDispatchMessage(channelId, dispatchMessage, workUnit, deps);
+  if (parked) await postOwnershipQuestion(workUnit, message.id, fs);
+  return message;
 }

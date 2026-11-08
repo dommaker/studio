@@ -170,8 +170,9 @@ describe('#632: 合并窗口解耦 + 歧义守卫 + 显式意图', () => {
     expect(parseMeta((await findWu(result.workUnitId!))!.metadata).creationMode).toBe('mention');
   });
 
-  it('intent=new-task：即便有唯一合并目标也建未指派 WU（creationMode=channel-new-task，涌现认领）', async () => {
+  it('intent=new-task：有归属时即便有唯一合并目标也建未指派 WU（creationMode=channel-new-task，涌现认领）', async () => {
     const wu = await seedInFlightWuWithMessage('在途任务', { status: 'unassigned' });
+    await fileStore.updateChannel(channelId, { defaultPath: tmpDir });
 
     const result = await routeMessage(channelId, '这是一件新事', undefined, { fs: fileStore, intent: 'new-task' });
 

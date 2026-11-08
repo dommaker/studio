@@ -98,6 +98,19 @@ describe('harvestCompletionMetadata', () => {
     });
   });
 
+  it('#700：plan 的 TASK 逐条收割 AC，同时保留字符串任务清单', () => {
+    expect(harvestCompletionMetadata(
+      'TASK: 实现存储层 | AC: 单测覆盖 | AC: 通过 typecheck\nTASK: 接通派工 | AC: 子单可认领',
+      ctx({ wuType: 'plan' }),
+    )).toEqual({
+      analysisTasks: ['实现存储层', '接通派工'],
+      analysisTaskDetails: [
+        { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'], blockedBy: [] },
+        { title: '接通派工', ac: ['子单可认领'], blockedBy: [] },
+      ],
+    });
+  });
+
   describe('decision', () => {
     it.each([
       {

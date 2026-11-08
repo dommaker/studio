@@ -7,6 +7,7 @@ const {
   mockCreateHumanMessage,
   mockCreateAgentMessage,
   mockUpdateMessageMeta,
+  mockLinkWorkUnit,
   mockWuCreate,
   mockGetChannel,
   mockGetProfile,
@@ -27,6 +28,11 @@ const {
   mockCreateAgentMessage: vi.fn().mockResolvedValue({ id: 'msg-sys-1' }),
   mockUpdateMessageMeta: vi.fn().mockResolvedValue({
     id: 'msg-1',
+    meta: { pmoId: 'proj-1' },
+  }),
+  mockLinkWorkUnit: vi.fn().mockResolvedValue({
+    id: 'msg-1',
+    workUnitId: 'wu-1',
     meta: { pmoId: 'proj-1' },
   }),
   mockWuCreate: vi.fn().mockResolvedValue({
@@ -81,6 +87,7 @@ vi.mock('../../channels/channel-message.service.js', () => ({
     createHumanMessage: (...args: unknown[]) => mockCreateHumanMessage(...args),
     createAgentMessage: (...args: unknown[]) => mockCreateAgentMessage(...args),
     updateMessageMeta: (...args: unknown[]) => mockUpdateMessageMeta(...args),
+    linkWorkUnit: (...args: unknown[]) => mockLinkWorkUnit(...args),
   }),
 }));
 
@@ -193,6 +200,18 @@ describe('AC-5: PMO Publish API', () => {
     );
   });
 
+  it('#700：PMO 原消息与 plan WU 双向关联，plan 携带 REQ 与消息锚点', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({ reqAlias: 'REQ-0001' }));
+
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    expect(mockWuCreate).toHaveBeenCalledWith(expect.objectContaining({
+      reqId: 'REQ-0001',
+      metadata: expect.objectContaining({ anchorMessageId: 'msg-1' }),
+    }));
+    expect(mockLinkWorkUnit).toHaveBeenCalledWith('msg-1', 'wu-1', 'ch-1');
+  });
+
   it('#471：plan WU scope 首行钉 +requirement-clarify +to-tickets（方法论跟活走）', async () => {
     await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
@@ -249,7 +268,8 @@ describe('AC-5: PMO Publish API', () => {
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
     expect(scope).toContain('一脉会话');
     expect(scope).toContain('.studio/specs/');
-    expect(scope).toContain('TASK:');
+    expect(scope).toContain('TASK: <任务描述> | AC: <验收标准>');
+    expect(scope).toContain('每条 TASK 至少一条 AC');
     expect(scope).toContain('FOG:');
     expect(scope).toContain('DESTINATION:');
     expect(scope).not.toContain('只读分析');

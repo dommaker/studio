@@ -49,12 +49,12 @@ describe('AC-E1+E2: Convert to Task', () => {
   });
 
   /** 在 FileStore 中创建消息，返回 {channelId, msgId} */
-  async function createFsMessage(content: string, opts?: { workUnitId?: string; createdAt?: string }): Promise<{ channelId: string; msgId: string }> {
+  async function createFsMessage(content: string, opts?: { workUnitId?: string; createdAt?: string; files?: Array<{ repo: string; path: string }> }): Promise<{ channelId: string; msgId: string }> {
     const chId = `test-ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     testChannelIds.push(chId);
     await fileStore.createChannel({
       id: chId, name: `#e1-test`, type: 'rnd',
-      defaultWorkspaceId: null, defaultPath: null,
+      defaultWorkspaceId: null, defaultPath: tmpDir,
       discordChannelId: null, discordWebhookUrl: null, members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
@@ -62,7 +62,7 @@ describe('AC-E1+E2: Convert to Task', () => {
     const msg: ChannelMessageData = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       channelId: chId, authorType: 'human', agentName: null,
-      content, replyToId: null, meta: '{}',
+      content, replyToId: null, meta: JSON.stringify(opts?.files ? { files: opts.files } : {}),
       workUnitId: opts?.workUnitId ?? null, createdAt: opts?.createdAt ?? now,
     };
     await fileStore.appendMessage(chId, msg);
@@ -90,6 +90,38 @@ describe('AC-E1+E2: Convert to Task', () => {
       const found = await fileStore.getMessageById(msgId);
       expect(found).not.toBeNull();
       expect(found!.message.workUnitId).toBe(workUnit.id);
+    });
+
+    it('#700：转任务与频道建单共用频道默认工程归属，并锚定原消息', async () => {
+      const { channelId, msgId } = await createFsMessage('Fix the login bug');
+      await fileStore.updateChannel(channelId, { defaultPath: '/data/convert-repo' });
+      const service = new ConvertToTaskService(fileStore);
+
+      const workUnit = await service.convert(channelId, msgId, { title: 'Fix login bug' });
+      testWorkUnitIds.push(workUnit.id);
+
+      expect(workUnit.reqId).toMatch(/^REQ-\d+$/);
+      expect(workUnit.status).toBe('unassigned');
+      const metadata = JSON.parse(workUnit.metadata ?? '{}');
+      expect(metadata.workspaceRoot).toBe('/data/convert-repo');
+      expect(metadata.ownershipSource).toBe('channel-default-path');
+      expect(metadata.anchorMessageId).toBe(msgId);
+    });
+
+    it('#700：转任务沿用原消息的同仓文件引用确定归属', async () => {
+      const { channelId, msgId } = await createFsMessage('Fix the login bug', {
+        files: [{ repo: '/data/file-ref-repo', path: 'src/login.ts' }],
+      });
+      await fileStore.updateChannel(channelId, { defaultPath: null });
+      const service = new ConvertToTaskService(fileStore);
+
+      const workUnit = await service.convert(channelId, msgId, {});
+      testWorkUnitIds.push(workUnit.id);
+
+      expect(workUnit.status).toBe('unassigned');
+      const metadata = JSON.parse(workUnit.metadata ?? '{}');
+      expect(metadata.workspaceRoot).toBe('/data/file-ref-repo');
+      expect(metadata.ownershipSource).toBe('file-refs');
     });
 
     it('关联后新版本消息 createdAt 保持原诞生时刻，不被 bump（#332）', async () => {

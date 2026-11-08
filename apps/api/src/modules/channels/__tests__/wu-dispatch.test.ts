@@ -164,18 +164,19 @@ describe('wu-dispatch：intent=new-task 显式建单', () => {
     getChannelMessageService().setFileStore(fileStore);
   });
 
-  it('建未指派 WU 走涌现认领（creationMode=channel-new-task，scope=原文，不做归属解析）', async () => {
+  it('#700：无归属时与 mention 同样挂起澄清（creationMode=channel-new-task，scope=原文）', async () => {
     const message = await dispatchNewTaskMessage(channelId, '全新任务内容', {}, makeDeps());
 
     expect(message.workUnitId).toBeTruthy();
     const wu = await findWuById(message.workUnitId!);
-    expect(wu!.status).toBe('unassigned');
+    expect(wu!.status).toBe('blocked');
     expect(wu!.assigneeId).toBeNull();
     expect(wu!.scope).toBe('全新任务内容');
     const meta = JSON.parse(wu!.metadata ?? '{}');
     expect(meta.creationMode).toBe('channel-new-task');
     expect(meta.anchorMessageId).toBe(message.id);
-    expect(meta.ownershipSource).toBeUndefined();
+    expect(meta.ownershipSource).toBe('none');
+    expect(meta.waitingReason).toBe('ownership');
   });
 
   it('traceId 透传落 WU metadata（#519，与 mention 路径同口径）', async () => {

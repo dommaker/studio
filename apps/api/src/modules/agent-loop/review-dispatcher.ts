@@ -380,7 +380,8 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
       channelId: parent.channelId,
       parentId: parent.id,
       workspaceId: parent.workspaceId ?? null,
-      reqId: typeof parentMeta.reqId === 'string' ? parentMeta.reqId : null,
+      // #700：REQ 是 WU 一等列；metadata.reqId 仅作 legacy 数据回退。
+      reqId: parent.reqId ?? (typeof parentMeta.reqId === 'string' ? parentMeta.reqId : null),
       metadata: childMeta,
     }, this.hasNoUnfinishedReviewChild(parent.id));
 

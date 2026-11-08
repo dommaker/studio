@@ -8,8 +8,9 @@
 import { FileStore, parseChannels } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/index.js';
 import type { WorkUnitData } from '../workunit/index.js';
-import { ChannelMessageService, getChannelMessageService } from './channel-message.service.js';
-import { resolveReqIdForDispatch } from '../requirements/index.js';
+import { ChannelMessageService, getChannelMessageService, type MessageMeta } from './channel-message.service.js';
+import { buildOwnershipMetadata, postOwnershipQuestion } from './wu-dispatch.js';
+import { resolveReqIdForDispatch, resolveWorkspaceForWU } from '../requirements/index.js';
 import { getSystemExecutor } from '../agents/index.js';
 import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
@@ -75,28 +76,47 @@ export class ConvertToTaskService {
       logger.warn('[ConvertToTask] REQ binding failed (non-blocking)', { error: String(err) });
       return null;
     });
+    // #700：与 mention/new-task 共用同一 REQ/#PMO 别名及工程归属链；显式 projectPath 优先。
+    let messageMeta: MessageMeta = {};
+    try {
+      messageMeta = typeof found.message.meta === 'string'
+        ? JSON.parse(found.message.meta) as MessageMeta
+        : found.message.meta ?? {};
+    } catch { /* 畸形 meta 按无文件引用处理 */ }
+    const ownership = await resolveWorkspaceForWU({
+      explicitWorkspaceRoot: input.projectPath,
+      reqId,
+      channelId,
+      fileRefs: messageMeta.files,
+      fileStore: this.fileStore,
+    }).catch(err => {
+      logger.warn('[ConvertToTask] Ownership resolution failed, continuing without attribution', { error: String(err) });
+      return null;
+    });
+    const parked = ownership?.source === 'none';
     const workUnit = await this.workUnitService.create({
       scope: input.title || found.message.content.slice(0, 500),
       channelId,
       type: 'task',
-      // L1（2026-07-28）：有 assigneeId 也建 unassigned——UI 传的是 profile.id（指名语义，
-      // §1.2-b），由被指名 profile 的 loop 认领（与 @mention/委派口径一致）。
-      // 直接建 active + assigneeId=profile.id 是卡死态：myActive 按 instance.id 续跑查询、
-      // 认领过滤要求 unassigned，两边都看不到该 WU（同 d7bd1e8 修过的 ownership resume）。
-      status: 'unassigned',
+      // L1（2026-07-28）：有归属且有 assigneeId 也建 unassigned——UI 传的是 profile.id
+      // （指名语义），由被指名 profile 的 loop 认领；无归属时与频道建单同样挂起澄清。
+      status: parked ? 'blocked' : 'unassigned',
       assigneeId: input.assigneeId ?? undefined,
       projectPath: input.projectPath ?? null,
       reqId,
       metadata: {
         creationMode: 'convert',
         originalMessageId: messageId,
+        anchorMessageId: messageId,
         description: input.description,
+        ...buildOwnershipMetadata(ownership, parked),
       },
     });
 
     // 3. Link message to WorkUnit —— #333：经 ChannelMessageService 统一更新路径
     // （append 新版保留原 createdAt，自带 eventBus + SSE channel.message_updated 双发）
     await this.messageService.linkWorkUnit(messageId, workUnit.id, channelId);
+    if (parked) await postOwnershipQuestion(workUnit, messageId, this.fileStore);
 
     return workUnit;
   }

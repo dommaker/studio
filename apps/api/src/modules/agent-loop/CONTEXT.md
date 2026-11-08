@@ -48,6 +48,7 @@
 
 - **多实例单活**：`STUDIO_AGENT_LOOP_ENABLED=false` 实例 standby；`AgentLoop.start()` 内置同角色单活守卫
 - **#635 stop 语义收窄**：`AgentLoop.stop()` 只置退出意图（alive=false），不停租约心跳、不清租约轨道——在飞 step 全程租约保护；停心跳收尾统一在 runLoop 主循环退出点
+- **#700 plan 收割与 review 血缘**：plan COMPLETE 使用 spec TASK codec 收割逐任务 AC 到 `analysisTaskDetails`（旧纯 TASK 保持原形状），prompt 输出约定要求每条 TASK 至少一条 AC；ReviewDispatcher 的子 WU reqId 优先继承父 WU 一等列，metadata.reqId 仅作 legacy 回退。
 - **step-guards 需求/AC 前置守卫（#585）**：仅实现类系统派生 WU 受检；豁免 = from-message/manual、metadata.triggerSource、requirementOverride=true；判定 = reqId + metadata.ac[] 缺一即 need_input 挂起；总开关 `STUDIO_REQUIREMENT_GUARD=false`（测试环境默认关）
 - **认领门槛**：纯显式三门槛（assigneeId 排他+excludeAssignee+blockedBy）+ 决策 14 适任判断；#579 总开关 `STUDIO_CLAIM_FITNESS=false`
 - **completion-gates 零同步子进程（#374 + SEC-04）**：全部走 `core/exec-async.ts` 的 execFileAsync。dirty/HEAD 在 recordResult 同一 `withDirectoryCapability` 回调内完成；rev-list/git log/analysis report 同样走通用 capability（服务端 WORKTREES_DIR 下 worktree 不受 PMO 允许根限制）。capability 创建失败向外抛出、危险替换 fail-closed；capability 内普通 Git 故障保持原 fail-open 口径。

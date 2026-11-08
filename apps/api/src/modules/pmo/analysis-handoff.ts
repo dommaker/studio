@@ -214,9 +214,9 @@ export class AnalysisHandoff {
       if (resolution.profileId) defaultAssigneeId = resolution.profileId;
       else routingNotice = notice;
     }
-    for (const scope of tasks) {
+    for (const [taskIndex, scope] of tasks.entries()) {
       try {
-        const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId);
+        const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId, taskIndex);
         created.push(scope);
         // 清单随建单逐个追加（锁内合并写）；追加失败不阻断——对账扫描的活体去重兜底
         await this.appendSpawnedId(fresh.id, child.id).catch(err =>
@@ -255,7 +255,9 @@ export class AnalysisHandoff {
     scope: string,
     meta: WorkUnitMetadata,
     defaultAssigneeId: string | null,
+    taskIndex: number,
   ): Promise<WorkUnitData> {
+    const detail = meta.analysisTaskDetails?.[taskIndex];
     return this.workUnitService.create({
       type: 'task',
       scope,
@@ -267,9 +269,12 @@ export class AnalysisHandoff {
       reqId: fresh.reqId ?? null,
       metadata: {
         creationMode: 'analysis-breakdown',
+        analysisTaskIndex: taskIndex,
         // PMO 溯源（progress-rollup / delivery 台账消费）
         pmoId: meta.pmoId,
         pmoNumber: meta.pmoNumber,
+        // #700：plan 逐 TASK AC；LEG/blockedBy 的校验与物化由 #701 接续。
+        ...(detail && detail.ac.length > 0 ? { ac: detail.ac } : {}),
         // B3a 归属链继承：analysis WU 的 workspaceRoot（publish 时由 project.gitRepo
         // 落档）传给 task 子 WU——agent-loop 据此走 per-WU worktree + PMO 分支合并，
         // 不继承则 task 直接在共享开发仓落地。
@@ -290,25 +295,37 @@ export class AnalysisHandoff {
    * 口径以 id 清单为准——人工关闭的子 WU 仍在清单中（closed 不删 index）→ 覆盖、不复活；
    * 清单 id 已从 index 消失（硬删除墓碑）→ 不覆盖，进差集补建。
    */
-  async listMissingSpawnScopes(wu: WorkUnitData): Promise<string[]> {
-    const meta = this.readMeta(wu);
+  private async missingTaskIndexes(meta: WorkUnitMetadata): Promise<number[]> {
     const tasks = this.taskScopes(meta);
     const spawned = Array.isArray(meta.analysisTasksSpawned) ? meta.analysisTasksSpawned : [];
 
-    // 清单 id → scope 多重集（同 scope 多条时按个数抵扣）
-    const covered = new Map<string, number>();
+    // #700 新子 WU 以 TASK 位置戳覆盖；旧数据无位置戳时保留 scope 多重集抵扣。
+    const coveredIndexes = new Set<number>();
+    const coveredScopes = new Map<string, number>();
     for (const id of spawned) {
       const child = await this.workUnitService.getById(id).catch(() => null);
       if (!child) continue;
-      covered.set(child.scope, (covered.get(child.scope) ?? 0) + 1);
+      const taskIndex = this.readMeta(child).analysisTaskIndex;
+      if (typeof taskIndex === 'number' && Number.isInteger(taskIndex) && taskIndex >= 0 && taskIndex < tasks.length) {
+        coveredIndexes.add(taskIndex);
+      } else {
+        coveredScopes.set(child.scope, (coveredScopes.get(child.scope) ?? 0) + 1);
+      }
     }
-    const missing: string[] = [];
-    for (const scope of tasks) {
-      const n = covered.get(scope) ?? 0;
-      if (n > 0) covered.set(scope, n - 1);
-      else missing.push(scope);
+    const missing: number[] = [];
+    for (const [taskIndex, scope] of tasks.entries()) {
+      if (coveredIndexes.has(taskIndex)) continue;
+      const n = coveredScopes.get(scope) ?? 0;
+      if (n > 0) coveredScopes.set(scope, n - 1);
+      else missing.push(taskIndex);
     }
     return missing;
+  }
+
+  async listMissingSpawnScopes(wu: WorkUnitData): Promise<string[]> {
+    const meta = this.readMeta(wu);
+    const tasks = this.taskScopes(meta);
+    return (await this.missingTaskIndexes(meta)).map(taskIndex => tasks[taskIndex]);
   }
 
   /**
@@ -331,17 +348,24 @@ export class AnalysisHandoff {
       if (routing.profileId) defaultAssigneeId = routing.profileId;
     }
     const siblings = (await this.workUnitService.list({ parentId: fresh.id, limit: 1000 })).data;
+    const tasks = this.taskScopes(meta);
+    const respawnIndexes = (await this.missingTaskIndexes(meta)).filter(taskIndex => scopes.includes(tasks[taskIndex]));
 
-    for (const scope of scopes) {
+    for (const taskIndex of respawnIndexes) {
+      const scope = tasks[taskIndex];
       try {
-        // 活体去重：同 parentId+scope 且未关闭的子 WU 已存在 → 认养（不重建）
-        const live = siblings.find(s => s.scope === scope && s.status !== 'closed');
+        // 活体去重：新子 WU 按 TASK 位置戳认养；仅唯一 scope 的旧数据回退 scope 匹配，
+        // 同名 TASK 不再把不同位置错认成第一条子 WU。
+        const live = siblings.find(s => this.readMeta(s).analysisTaskIndex === taskIndex && s.status !== 'closed')
+          ?? (tasks.filter(title => title === scope).length === 1
+            ? siblings.find(s => this.readMeta(s).analysisTaskIndex === undefined && s.scope === scope && s.status !== 'closed')
+            : undefined);
         if (live) {
           await this.appendSpawnedId(fresh.id, live.id);
           result.adoptedIds.push(live.id);
           continue;
         }
-        const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId);
+        const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId, taskIndex);
         await this.appendSpawnedId(fresh.id, child.id);
         result.createdIds.push(child.id);
         siblings.push(child); // 同轮后续同 scope 去重

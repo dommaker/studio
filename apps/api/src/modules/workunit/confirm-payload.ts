@@ -14,7 +14,7 @@
  *                                                 → summary = 目标：/待决：行；
  *                                                   tasks → analysisTasks（覆写 metadata.analysisTasks，
  *                                                   人审剔除/行内编辑生效，analysis-handoff 消费不变）。
- *                                                   #471：plan（一脉会话规划单）与 analysis 同形同契约。
+ *                                                   #700：plan tasks 另收 {title,ac}，落 analysisTaskDetails。
  * 校验失败抛 ConfirmPayloadError（路由转 400）；空结果（无结论/空清单）→ 对应字段缺省，
  * 语义 = 人审有意不带该输入（spec 空清单 = 不物化，哨兵不落档可补确认，见 spec-materialization）。
  */
@@ -29,6 +29,7 @@ export class ConfirmPayloadError extends Error {}
 export interface ReviewConfirmResolution {
   summary?: string;
   analysisTasks?: string[];
+  analysisTaskDetails?: SpecTaskSpec[];
 }
 
 function asString(v: unknown, field: string): string | undefined {
@@ -88,21 +89,39 @@ export function resolveReviewConfirm(confirm: unknown): ReviewConfirmResolution 
     }
     case 'analysis':
     case 'plan': {
-      // #471：plan（一脉会话规划单）与 analysis 同形同契约——destination/fog 序列化为
-      // 目标：/待决：行（map-opening 台账消费），tasks 覆写 metadata.analysisTasks
-      // （analysis-handoff 派工消费）；kind 只作来源留痕，存储格式不变
       const destination = asString(body.destination, 'destination')?.trim();
       const fog = (asStringArray(body.fog, 'fog') ?? [])
         .map(s => s.trim()).filter(Boolean).slice(0, MAP_OPENING_FOG_MAX);
       const lines: string[] = [];
       if (destination) lines.push(`目标：${destination}`);
       for (const q of fog) lines.push(`待决：${q}`);
-      const tasks = asStringArray(body.tasks, 'tasks')
-        ?.map(s => s.trim()).filter(Boolean).slice(0, ANALYSIS_TASKS_MAX);
+      const summary = lines.length > 0 ? { summary: lines.join('\n') } : {};
+
+      if (body.kind === 'analysis') {
+        const tasks = asStringArray(body.tasks, 'tasks')
+          ?.map(s => s.trim()).filter(Boolean).slice(0, ANALYSIS_TASKS_MAX);
+        return {
+          ...summary,
+          // tasks 缺省 = 不覆写（兼容）；给出（含空数组 = 全剔除）= 覆写 metadata.analysisTasks
+          ...(tasks !== undefined ? { analysisTasks: tasks } : {}),
+        };
+      }
+
+      // #700：plan 新表单逐 TASK 回传 {title,ac}；旧字符串数组仍按原契约兼容。
+      if (body.tasks === undefined || body.tasks === null) return summary;
+      if (!Array.isArray(body.tasks)) throw new ConfirmPayloadError('confirm.tasks 必须是数组');
+      const hasDetails = body.tasks.some(task => typeof task !== 'string');
+      const tasks = body.tasks.map((task, index): SpecTaskSpec | null => {
+        if (typeof task === 'string') {
+          const title = task.trim();
+          return title ? { title, ac: [], blockedBy: [] } : null;
+        }
+        return parseSpecTaskInput(task, index);
+      }).filter((task): task is SpecTaskSpec => task !== null).slice(0, ANALYSIS_TASKS_MAX);
       return {
-        ...(lines.length > 0 ? { summary: lines.join('\n') } : {}),
-        // tasks 缺省 = 不覆写（兼容）；给出（含空数组 = 全剔除）= 覆写 metadata.analysisTasks
-        ...(tasks !== undefined ? { analysisTasks: tasks } : {}),
+        ...summary,
+        analysisTasks: tasks.map(task => task.title),
+        ...(hasDetails ? { analysisTaskDetails: tasks } : {}),
       };
     }
     default:

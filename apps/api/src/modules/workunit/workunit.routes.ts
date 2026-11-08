@@ -364,6 +364,7 @@ writeRoutes.post('/:id/review-passed', requireHuman(REVIEW_HUMAN_ONLY), defineRo
       ...(typeof defaultAssigneeId === 'string' && defaultAssigneeId.trim()
         ? { defaultTaskAssigneeId: defaultAssigneeId.trim() } : {}),
       ...(confirm.analysisTasks !== undefined ? { analysisTasks: confirm.analysisTasks } : {}),
+      ...(confirm.analysisTaskDetails !== undefined ? { analysisTaskDetails: confirm.analysisTaskDetails } : {}),
     };
     return toWorkUnitWire(await getService().reviewPassed(input.params.id, {
       by: callerName(req),

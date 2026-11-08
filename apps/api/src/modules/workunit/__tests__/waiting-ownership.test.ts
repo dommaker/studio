@@ -158,6 +158,7 @@ describe('B3a: 回复解析绑定工程（唯一命中）', () => {
     expect(after.assigneeId).toBe(MENTIONED_PROFILE_ID);
     const meta = metaOf(after);
     expect(meta.waitingForInput).toBe(false);
+    expect(meta.waitingReason).toBeUndefined();
     expect(meta.workspaceRoot).toBe(repoDir);
     expect(meta.ownershipSource).toBe('human-reply');
     expect(meta.pendingReplies).toEqual(['alpha']);

@@ -71,7 +71,7 @@ describe('zodToOpenAPISchema 复合结构', () => {
     expect(u.anyOf).toEqual([{ type: 'string' }, { type: 'number' }]);
     const d = zodToOpenAPISchema(reviewConfirmPayloadSchema);
     expect(d.discriminator).toEqual({ propertyName: 'kind' });
-    expect(d.oneOf).toHaveLength(3);
+    expect(d.oneOf).toHaveLength(4);
     expect(d.oneOf?.[0].properties?.kind).toEqual({ type: 'string', enum: ['decision'] });
   });
 

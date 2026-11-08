@@ -401,7 +401,8 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(await countWu(channelId)).toBe(0);
     });
 
-    it('intent=new-task → 显式建未指派 WU（creationMode=channel-new-task，走涌现认领）', async () => {
+    it('intent=new-task → 有归属时显式建未指派 WU（creationMode=channel-new-task，走涌现认领）', async () => {
+      await fileStore.updateChannel(channelId, { defaultPath: tmpDir });
       const result = await routeMessage(channelId, '没有点名的消息', undefined, { fs: fileStore, intent: 'new-task' });
 
       expect(result.workUnitId).toBeTruthy();
