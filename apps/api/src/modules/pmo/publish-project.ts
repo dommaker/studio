@@ -1,4 +1,5 @@
 /** PMO 发布用例：频道消息 + plan WorkUnit + 项目激活的唯一编排入口。 */
+import { PLAN_TASK_CONTRACT } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { getChannelMessageService, resolveOrNotice } from '../channels/index.js';
 import { WorkUnitService } from '../workunit/index.js';
@@ -25,12 +26,10 @@ export async function publishProject(input: { projectId: string; channelId: stri
   await getChannelMessageService().updateMessageMeta(message.id, { pmoId: project.id }, input.channelId);
 
   const workUnitService = new WorkUnitService();
-  // 显式多腿注入全部仓库路径；单腿 scope 保持原行为。
+  // LEG 是确认任务的唯一腿归属键；单腿也显式列出，禁止派生时回退首仓。
   const legs = resolveDeliveries(project);
-  const multiLegSection = legs.length > 1
-    ? `\n\n## 多交付腿（腿调研只读范围）\n本需求跨 ${legs.length} 个仓库交付，规划须覆盖以下全部仓库路径；逐腿调研一律只读（不做 worktree 隔离），需要深挖时按腿派 DELEGATE research 子单（子单 scope 带腿仓库路径）：\n`
-      + legs.map(leg => `- ${leg.gitRepo ?? '（未设置仓库路径）'}${leg.branch ? `（分支 ${leg.branch}）` : ''}`).join('\n')
-    : '';
+  const deliveryLegSection = `\n\n## 交付腿（腿调研只读范围）\n本需求在 ${legs.length} 条交付腿交付，规划须覆盖以下全部仓库及 delivery branch；逐腿调研一律只读（不做 worktree 隔离），需要深挖时按腿派 DELEGATE research 子单（子单 scope 带腿仓库路径）：\n`
+    + legs.map(leg => `- LEG: ${leg.gitRepo ?? '（未设置仓库路径）'} | DELIVERY BRANCH: ${leg.branch ?? '（未设置交付分支）'}`).join('\n');
   const planRouting = input.assigneeId
     ? null
     : await resolveOrNotice(getStore(), input.channelId, 'plan');
@@ -42,7 +41,7 @@ export async function publishProject(input: { projectId: string; channelId: stri
     scope: `规划需求 ${project.pmoNumber}: ${project.title} +requirement-clarify +to-tickets
 
 ${requirementText}
-${multiLegSection}
+${deliveryLegSection}
 ## 工作方式（一脉会话，对齐 requirement-clarify skill）
 本单是「需求 → 任务清单」的完整规划链，在同一个会话里一脉完成，不分阶段换角色：
 1. 澄清：向人追问澄清（频道 waiting-input 复活本会话，上下文不丢）；
@@ -55,9 +54,9 @@ ${multiLegSection}
 
 ## 输出约定（规划接力）
 
-规划完成后，除 ACTION 行外，逐行输出拆分后的实现任务（每条一行，3~8 条，每条可被独立认领、独立完成），每条 TASK 至少一条 AC：
-TASK: <任务描述> | AC: <验收标准>
-同一任务有多条验收标准时追加「| AC: <下一条>」。需求很小无需拆分时可不输出 TASK 行。结论由人工确认后，系统按 TASK 行自动建任务并派工。
+规划完成后，除 ACTION 行外，逐行输出拆分后的实现任务（每条一行，3~8 条，每条可被独立认领）：
+${PLAN_TASK_CONTRACT}
+需求很小无需拆分时可不输出 TASK 行。结论由人工确认后，系统按 TASK 行自动建任务并派工。
 
 如规划中发现必须人工拍板才能推进的待决问题（探路型需求），另逐行输出（每条一行，至多 12 条）：
 FOG: <待决问题>

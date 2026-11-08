@@ -202,7 +202,12 @@ describe('WuGateActions — #463 结构化确认弹窗（analysis/decision/spec�
     setup(makeWu({
       status: 'in_review',
       type: 'plan',
-      metadata: JSON.stringify({ analysisDestination: '目的地', analysisFog: ['问题1'], analysisTasks: ['干活'] }),
+      metadata: JSON.stringify({
+        analysisDestination: '目的地',
+        analysisFog: ['问题1'],
+        analysisTasks: ['干活'],
+        analysisTaskDetails: [{ title: '干活', ac: ['验收通过'], leg: '/repo/api', blockedBy: [] }],
+      }),
     }));
 
     fireEvent.click(screen.getByText('通过验收'));
@@ -212,7 +217,10 @@ describe('WuGateActions — #463 结构化确认弹窗（analysis/decision/spec�
 
     fireEvent.click(screen.getByText('确认开图'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined, {
-      kind: 'plan', destination: '目的地', fog: ['问题1'], tasks: [{ title: '干活', ac: [] }],
+      kind: 'plan',
+      destination: '目的地',
+      fog: ['问题1'],
+      tasks: [{ title: '干活', ac: ['验收通过'], leg: '/repo/api', blockedBy: [] }],
     }));
   });
 

@@ -1,7 +1,9 @@
 import type { FileStore } from '@dommaker/studio-shared';
 import { treeTokenReportSchema, type TreeTokenReport } from '@dommaker/studio-contract';
 import type { WorkUnitData } from './workunit-crud.js';
+import type { WorkUnitMetadata } from './workunit.types.js';
 import type { WorkUnitListOptions, WorkUnitQuery } from './workunit-query.js';
+import { ConfirmPayloadError } from './confirm-payload.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import {
@@ -37,6 +39,21 @@ export async function getRequiredWorkUnit(id: string, service: Pick<WorkUnitQuer
   const wu = await service.getById(id);
   if (!wu) throw new WorkUnitApplicationError('NOT_FOUND', `WorkUnit ${id} not found`);
   return wu;
+}
+
+/** plan 确认的 PMO 腿域校验；路由只负责调用与既有 400 映射。 */
+export async function validatePlanConfirmation(
+  workUnit: WorkUnitData,
+  tasks: NonNullable<WorkUnitMetadata['analysisTaskDetails']>,
+  deps: Pick<WorkUnitApplicationDeps, 'review'> = {},
+): Promise<void> {
+  const review = deps.review ?? await workUnitPort('review');
+  try {
+    await review.validatePlanConfirm(workUnit, tasks);
+  } catch (error) {
+    if (review.isPlanTaskLegError(error)) throw new ConfirmPayloadError((error as Error).message);
+    throw error;
+  }
 }
 
 export async function listClaimableWorkUnits(

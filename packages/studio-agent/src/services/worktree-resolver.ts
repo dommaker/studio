@@ -532,11 +532,20 @@ export async function ensureBranchExists(opts: {
   logger.info('[WorktreeResolver] Branch created', { branch, baseBranch, repoDir });
 }
 
+/** capability/fd 路径会变化，仓库身份统一取真实 git common dir。 */
+async function resolveGitCommonDir(repoDir: string): Promise<string> {
+  const { stdout } = await runGit(
+    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    { cwd: repoDir, timeoutMs: 5_000 },
+  );
+  const commonDir = stdout.trim();
+  if (!commonDir) throw new Error(`无法解析 git common dir：${repoDir}`);
+  return commonDir;
+}
+
 /**
- * PMO-b（决策 3）：确保 PMO 集成交合 worktree 存在（<worktreesDir>/pmo-<projectId>）。
- * per-WU 临时分支在这里合入 PMO 分支——冲突集中在单一合并点，
- * 主仓库 checkout 不被打扰（merge 不落在 baseRepo 当前分支上）。
- * 分支不存在先从 baseBranch 创建；worktree 复用按 .git 存在性判断。
+ * PMO-b（决策 3）：集成交合按 project + repo common-dir + leg branch 键控。
+ * 复用前同时核验真实仓库与 checkout 分支；身份不明或不符均 fail-closed，不自动删旧现场。
  */
 export async function ensurePmoIntegrationWorktree(opts: {
   repoDir: string;
@@ -547,12 +556,22 @@ export async function ensurePmoIntegrationWorktree(opts: {
 }): Promise<{ worktreePath: string }> {
   const { repoDir, worktreesDir, projectId, branch, baseBranch } = opts;
   await ensureBranchExists({ repoDir, branch, baseBranch });
-  const worktreePath = path.join(worktreesDir, `pmo-${projectId}`);
+  const commonDir = await resolveGitCommonDir(repoDir);
+  const repoKey = crypto.createHash('sha256').update(commonDir).digest('hex').slice(0, 12);
+  const branchKey = crypto.createHash('sha256').update(branch).digest('hex').slice(0, 12);
+  const worktreePath = path.join(worktreesDir, `pmo-${projectId}-${repoKey}-${branchKey}`);
   if (fsSync.existsSync(path.join(worktreePath, '.git'))) {
-    logger.info('[WorktreeResolver] Reusing PMO integration worktree', { worktreePath, projectId });
+    const [existingCommonDir, existingBranch] = await Promise.all([
+      resolveGitCommonDir(worktreePath),
+      runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: worktreePath, timeoutMs: 5_000 }),
+    ]);
+    if (existingCommonDir !== commonDir || existingBranch.stdout.trim() !== branch) {
+      throw new Error(`PMO 集成交合身份不匹配：${worktreePath}（要求 ${commonDir} / ${branch}）`);
+    }
+    logger.info('[WorktreeResolver] Reusing PMO integration worktree', { worktreePath, projectId, commonDir, branch });
     return { worktreePath };
   }
   await runGit(['worktree', 'add', '--', worktreePath, branch], { cwd: repoDir, timeoutMs: 30_000 });
-  logger.info('[WorktreeResolver] PMO integration worktree created', { worktreePath, branch, projectId });
+  logger.info('[WorktreeResolver] PMO integration worktree created', { worktreePath, branch, projectId, commonDir });
   return { worktreePath };
 }

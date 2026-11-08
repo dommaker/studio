@@ -1,6 +1,6 @@
 import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommaker/studio-agent';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
-import { resolvePmoBranchForWU } from '../../requirements/index.js';
+import { resolvePmoBranchForWU, resolvePmoProjectIdForWU } from '../../requirements/index.js';
 import { getErrorMessage } from '../../../utils/errors.js';
 import { CODE_WORKTREE_TYPES } from '../wu-verification.js';
 import { isGitRepoRoot, resolveWorktreesDir } from '../agent-loop-parsers.js';
@@ -51,24 +51,28 @@ export async function resolveStepWorktree(
     try {
       const configuredRepo = workspaceRoot;
       await withExecutionRepo(configuredRepo, async capabilityRepo => {
-        // PMO-b（决策 3）：WU 归属 PMO → base 从默认分支改为 PMO 分支（分支名 = PMO id），
-        // per-WU 临时分支从 PMO 分支拉、向 PMO 分支合（merge-on-review-pass 消费 pmoBranch 落档）。
-        // 解析/建支失败回落默认 base，绝不阻断执行。
+        // PMO-b（决策 3）：per-WU 临时分支从 PMO 腿分支拉、向同一腿合。
+        // #701：任何已归属 PMO 的 WU 腿解析失败，或 PMO 建支失败，都不得退回默认 base。
         let pmoBaseBranch: string | null = null;
         const pmoResolution = await resolvePmoBranchForWU(wu, deps.fileStore).catch(() => null);
-        if (pmoResolution) {
-          try {
-            await ensureBranchExists({
-              repoDir: capabilityRepo,
-              branch: pmoResolution.branch,
-              baseBranch: typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
-                ? metadata.worktreeBaseBranch
-                : getDefaultBranch(capabilityRepo),
-            });
-            pmoBaseBranch = pmoResolution.branch;
-          } catch (err) {
-            logger.warn(`[AgentLoop] PMO branch ensure failed, falling back to default base: ${getErrorMessage(err)}`, { traceId });
+        if (!pmoResolution) {
+          const declaredBranch = typeof metadata.pmoBranch === 'string' ? metadata.pmoBranch.trim() : '';
+          const pmoProjectId = declaredBranch
+            ? null
+            : await resolvePmoProjectIdForWU(wu, deps.fileStore).catch(() => null);
+          if (declaredBranch || pmoProjectId) {
+            throw new Error(`PMO 腿解析失败：${declaredBranch || pmoProjectId}`);
           }
+        }
+        if (pmoResolution) {
+          await ensureBranchExists({
+            repoDir: capabilityRepo,
+            branch: pmoResolution.branch,
+            baseBranch: typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
+              ? metadata.worktreeBaseBranch
+              : getDefaultBranch(capabilityRepo),
+          });
+          pmoBaseBranch = pmoResolution.branch;
         }
         const info = await ensureWuWorktree({
           wuId: wu.id,

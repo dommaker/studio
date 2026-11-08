@@ -111,6 +111,20 @@ describe('harvestCompletionMetadata', () => {
     });
   });
 
+  it('#701：plan 收割 LEG/none 依赖；重复 LEG 留下缺失归属供确认澄清', () => {
+    expect(harvestCompletionMetadata(
+      'TASK: 实现存储层 | LEG: /repo/api | AC: 单测覆盖 | BLOCKEDBY: none\n'
+      + 'TASK: 歧义任务 | LEG: /repo/api | LEG: /repo/web | AC: 不派生 | BLOCKEDBY: wu-1',
+      ctx({ wuType: 'plan' }),
+    )).toEqual({
+      analysisTasks: ['实现存储层', '歧义任务'],
+      analysisTaskDetails: [
+        { title: '实现存储层', ac: ['单测覆盖'], leg: '/repo/api', blockedBy: [] },
+        { title: '歧义任务', ac: ['不派生'], blockedBy: ['wu-1'] },
+      ],
+    });
+  });
+
   describe('decision', () => {
     it.each([
       {

@@ -236,6 +236,8 @@ export const reviewConfirmPayloadSchema = z.discriminatedUnion('kind', [
       z.object({
         title: z.string(),
         ac: z.array(z.string()).optional(),
+        blockedBy: z.array(z.string()).optional(),
+        leg: z.string().optional(),
       }),
     ])).optional(),
   }),

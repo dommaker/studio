@@ -61,6 +61,7 @@ let WT: string;
 const BRANCH = 'task/wu-1';
 const BASE = 'main';
 const HEAD = 'deadbeefcafe1234567890';
+let currentCheckout = BASE;
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -91,6 +92,8 @@ async function createWu(metadata: WorkUnitMetadata, status = 'in_review', type =
 /** 默认 git mock：全部成功；rev-parse 返回固定 HEAD。失败场景由各用例 mockImplementation 覆盖 */
 function mockGit(): void {
   mockExecSh.mockImplementation(async (cmd: string) => {
+    if (cmd.includes('--git-common-dir')) return { stdout: `${REPO}/.git\n`, stderr: '' };
+    if (cmd.includes('rev-parse --abbrev-ref HEAD')) return { stdout: `${BASE}\n`, stderr: '' };
     if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
     return { stdout: '', stderr: '' };
   });
@@ -101,6 +104,8 @@ function mockGit(): void {
     opts: { cwd: string; timeout: number },
     cb: (error: Error | null, stdout: string, stderr: string) => void,
   ) => {
+    if (args.includes('--abbrev-ref')) return cb(null, `${currentCheckout}\n`, '');
+    if (args[0] === 'worktree' && args[1] === 'add') fs.mkdirSync(args[3], { recursive: true });
     mockExecSh(`git ${args.join(' ')}`, { cwd: opts.cwd, timeoutMs: opts.timeout }).then(
       (result: { stdout: string; stderr: string }) => cb(null, result.stdout, result.stderr),
       (error: Error) => cb(error, '', ''),
@@ -119,6 +124,7 @@ async function studioMessages(wuId: string) {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  currentCheckout = BASE;
   mockHostExecFile.mockResolvedValue({ stdout: '', stderr: '' });
   // 归属解析 mock 默认实现：按创建期戳 metadata.pmoId 解析（坏 JSON / 无戳 → null）
   mockResolvePmoProjectId.mockImplementation(async (wu: { metadata?: string | null }) => {
@@ -307,6 +313,24 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect((await wuService.getById(wu.id))!.status).toBe('blocked');
     const msgs = await studioMessages(wu.id);
     expect(msgs.some(m => m.content.includes('归属项目解析失败') && m.content.includes('转人工'))).toBe(true);
+  });
+
+  it('#701 非 PMO 当前 checkout 不等于记录 baseBranch → 不合并且保留现场转人工', async () => {
+    currentCheckout = 'feature/wip';
+    const wu = await createWu(worktreeMeta());
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: true, merged: false, conflictFiles: [], reason: 'conflict' });
+    const cmds = calledCommands();
+    expect(cmds.some(c => c.includes('merge --no-ff'))).toBe(false);
+    expect(cmds.some(c => c.includes('rebase'))).toBe(false);
+    expect(cmds.some(c => c.includes('worktree remove'))).toBe(false);
+    expect(cmds.some(c => c.includes('branch -d'))).toBe(false);
+    const updated = await wuService.getById(wu.id);
+    expect(updated!.status).toBe('blocked');
+    expect((JSON.parse(updated!.metadata!) as WorkUnitMetadata).mergedAt).toBeUndefined();
+    expect((await studioMessages(wu.id)).some(m => m.content.includes('main') && m.content.includes('feature/wip'))).toBe(true);
   });
 
   it('合并成功：--no-ff merge → 记 mergedAt/mergeCommit → 清理 worktree+分支 → 频道通知', async () => {

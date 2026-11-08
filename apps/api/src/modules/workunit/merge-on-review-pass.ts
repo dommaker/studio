@@ -6,7 +6,7 @@
  *   把 task/<wuId> 分支合并回目标分支（git --no-ff）。
  *
  * PMO-b（决策 3，2026-07-28 分析文档 §4.5）：metadata.pmoBranch 落档的 WU，
- *   目标 = PMO 分支——在 <worktreesDir>/pmo-<projectId> 集成交合 worktree 上执行
+ *   目标 = PMO 腿分支——在按 project+repo+leg 键控的集成交合 worktree 上执行
  *   （不动 baseRepo 当前 checkout；冲突集中在单一合并点；分支名 = PMO id）。
  *   projectId 合并时经 resolvePmoProjectIdForWU 重解析（2026-08 归因统一：不再读
  *   metadata.pmoProjectId 缓存）；解析不出 → 转人工，不静默回落错误目标。
@@ -262,6 +262,24 @@ export async function mergeWorktreeBranchOnReviewPass(
       targetBranch: meta.pmoBranch,
     };
   } else {
+    // #701：普通合并直接落在主 checkout，必须先证明它仍是创建 WU worktree 时记录的 base。
+    let currentBranch: string | null = null;
+    try {
+      const stdout = await execFileAsync('git', ['-C', baseRepo, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+        cwd: baseRepo, timeout: GIT_OP_TIMEOUT_MS,
+      });
+      currentBranch = stdout.trim();
+    } catch { /* 探测失败同样 fail-closed */ }
+    if (currentBranch !== baseBranch) {
+      await wuService.markMergeConflict(wu.id, []);
+      await postSystemMessage(
+        fileStore,
+        wu,
+        `任务「${title}」的合并目标已变化：记录 baseBranch=${baseBranch}，当前 checkout=${currentBranch || '未知'}，未执行自动合并，已转人工处理`,
+      ).catch(e => logger.warn('[MergeOnReviewPass] post base-mismatch message failed', { wuId: wu.id, error: String(e) }));
+      logger.warn('[MergeOnReviewPass] base branch mismatch (merge skipped)', { wuId: wu.id, baseBranch, currentBranch });
+      return { attempted: true, merged: false, conflictFiles: [], reason: 'conflict' };
+    }
     mergeContext = {
       args: ['-C', baseRepo, 'merge', '--no-ff', '-m', `merge: ${wu.id} ${scopeSummary}`, '--', branch],
       cwd: baseRepo,

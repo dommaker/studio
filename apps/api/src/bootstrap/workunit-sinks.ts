@@ -8,9 +8,11 @@ import {
   applyPlanRuling,
   PlanDirectionError,
   PlanRulingError,
+  PlanTaskLegError,
   projectService,
   selectProjectSnapshots,
   validateDirectionPick,
+  validatePlanConfirm,
   validateRulingItems,
 } from '../modules/pmo/index.js';
 import { getReviewDispatcher } from '../modules/agent-loop/index.js';
@@ -89,6 +91,8 @@ export function registerWorkUnitSinks(): void {
     },
     review: {
       dispatchReviewNow: id => getReviewDispatcher().dispatchReviewNow(id),
+      validatePlanConfirm,
+      isPlanTaskLegError: error => error instanceof PlanTaskLegError,
       validateRulingItems,
       applyPlanRuling,
       isPlanRulingError: error => error instanceof PlanRulingError,

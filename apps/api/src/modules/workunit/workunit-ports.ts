@@ -78,6 +78,8 @@ export interface WorkUnitPlanRulingItem { question: string; action: 'accept' | '
 export interface WorkUnitPlanDirectionPick { choice: string; note?: string }
 export interface WorkUnitReviewPort {
   dispatchReviewNow(workUnitId: string): Promise<{ id: string }>;
+  validatePlanConfirm(workUnit: WorkUnitData, tasks: NonNullable<WorkUnitMetadata['analysisTaskDetails']>): Promise<unknown>;
+  isPlanTaskLegError(error: unknown): boolean;
   validateRulingItems(raw: unknown): WorkUnitPlanRulingItem[];
   applyPlanRuling(workUnitId: string, items: WorkUnitPlanRulingItem[], fileStore: FileStore): Promise<WorkUnitData>;
   isPlanRulingError(error: unknown): boolean;

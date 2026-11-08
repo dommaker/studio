@@ -45,9 +45,20 @@ vi.mock('../../workspaces/workspace-store', () => ({
   getWorkspaceRecord: mockGetWorkspaceRecord,
 }));
 
-const { mockExecuteLightweight, mockEnsureWuWorktree } = vi.hoisted(() => ({
+const {
+  mockExecuteLightweight,
+  mockEnsureWuWorktree,
+  mockEnsureBranchExists,
+  mockGetDefaultBranch,
+  mockResolvePmoBranchForWU,
+  mockResolvePmoProjectIdForWU,
+} = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
   mockEnsureWuWorktree: vi.fn(),
+  mockEnsureBranchExists: vi.fn(),
+  mockGetDefaultBranch: vi.fn(() => 'main'),
+  mockResolvePmoBranchForWU: vi.fn(),
+  mockResolvePmoProjectIdForWU: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({
@@ -55,6 +66,14 @@ vi.mock('@dommaker/studio-agent', () => ({
     executeLightweight: mockExecuteLightweight,
   },
   ensureWuWorktree: mockEnsureWuWorktree,
+  ensureBranchExists: mockEnsureBranchExists,
+  getDefaultBranch: mockGetDefaultBranch,
+}));
+
+vi.mock('../../requirements/index.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../../requirements/index.js')>(),
+  resolvePmoBranchForWU: mockResolvePmoBranchForWU,
+  resolvePmoProjectIdForWU: mockResolvePmoProjectIdForWU,
 }));
 
 vi.mock('../../knowledge/knowledge-service', () => ({
@@ -151,6 +170,9 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
       };
     });
     mockHostExecFile.mockResolvedValue({ stdout: 'ok', stderr: '' });
+    mockResolvePmoBranchForWU.mockResolvedValue(null);
+    mockResolvePmoProjectIdForWU.mockResolvedValue(null);
+    mockEnsureBranchExists.mockResolvedValue(undefined);
     mockResolveWorkspaceRoot.mockResolvedValue(null);
     mockGetWorkspaceRecord.mockResolvedValue(null);
   });
@@ -226,6 +248,63 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
       worktreeBaseBranch: 'main',
       worktreeBaseRepo: repoRoot,
     });
+  });
+
+  it('#701 PMO 代码 WU：任务分支从匹配腿 branch 创建并落档', async () => {
+    mockResolvePmoBranchForWU.mockResolvedValue({
+      projectId: 'proj-1', branch: 'PMO-leg-a', deliveryPolicy: 'auto-merge',
+    });
+    const wu = await createWu('task', {
+      workspaceRoot: repoRoot, pmoId: 'proj-1', pmoBranch: 'PMO-leg-a',
+    });
+
+    const step = await loop().agentStep({ workUnit: wu });
+
+    expect(mockEnsureBranchExists).toHaveBeenCalledWith(expect.objectContaining({
+      branch: 'PMO-leg-a', baseBranch: 'main',
+    }));
+    expect(mockEnsureWuWorktree).toHaveBeenCalledWith(expect.objectContaining({
+      wuId: wu.id, baseBranch: 'PMO-leg-a',
+    }));
+    expect(step.metadataUpdates).toMatchObject({
+      worktreeBaseBranch: 'PMO-leg-a', worktreeBaseRepo: repoRoot, pmoBranch: 'PMO-leg-a',
+    });
+  });
+
+  it('#701 多腿 PMO WU 未声明 pmoBranch 且腿解析失败：同样不默认 base', async () => {
+    mockResolvePmoProjectIdForWU.mockResolvedValue('proj-1');
+    const wu = await createWu('task', { workspaceRoot: repoRoot, pmoId: 'proj-1' });
+
+    const step = await loop().agentStep({ workUnit: wu });
+
+    expect(step.action).toBe('failed');
+    expect(step.metadataUpdates?.errorType).toBe('worktree_creation_failed');
+    expect(mockEnsureWuWorktree).not.toHaveBeenCalled();
+    expect(mockExecuteLightweight).not.toHaveBeenCalled();
+  });
+
+  it('#701 已声明 pmoBranch 但腿解析或建支失败：不默认 base、不执行 CLI', async () => {
+    const wu = await createWu('task', {
+      workspaceRoot: repoRoot, pmoId: 'proj-1', pmoBranch: 'PMO-missing-leg',
+    });
+
+    const unresolved = await loop().agentStep({ workUnit: wu });
+    expect(unresolved.action).toBe('failed');
+    expect(mockEnsureWuWorktree).not.toHaveBeenCalled();
+    expect(mockExecuteLightweight).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    mockResolvePmoBranchForWU.mockResolvedValue({
+      projectId: 'proj-1', branch: 'PMO-leg-a', deliveryPolicy: 'auto-merge',
+    });
+    mockEnsureBranchExists.mockRejectedValue(new Error('cannot create leg'));
+    mockEnsureWuWorktree.mockResolvedValue({ worktreePath: WT(), branch: 'task/x', baseBranch: 'main', baseRepo: repoRoot });
+    mockExecuteLightweight.mockResolvedValue({ success: true, outputText: 'ACTION: PROGRESS:x', outputFiles: [] });
+
+    const ensureFailed = await loop().agentStep({ workUnit: wu });
+    expect(ensureFailed.action).toBe('failed');
+    expect(mockEnsureWuWorktree).not.toHaveBeenCalled();
+    expect(mockExecuteLightweight).not.toHaveBeenCalled();
   });
 
   it('配置后到 worktree 使用前 repo 被替换时仍使用固定 capability，metadata 保留原路径', async () => {

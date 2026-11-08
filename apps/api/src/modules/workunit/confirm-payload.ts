@@ -14,7 +14,7 @@
  *                                                 → summary = 目标：/待决：行；
  *                                                   tasks → analysisTasks（覆写 metadata.analysisTasks，
  *                                                   人审剔除/行内编辑生效，analysis-handoff 消费不变）。
- *                                                   #700：plan tasks 另收 {title,ac}，落 analysisTaskDetails。
+ *                                                   #701：plan 非空 tasks 必带 {title,leg,ac,blockedBy}，落 analysisTaskDetails。
  * 校验失败抛 ConfirmPayloadError（路由转 400）；空结果（无结论/空清单）→ 对应字段缺省，
  * 语义 = 人审有意不带该输入（spec 空清单 = 不物化，哨兵不落档可补确认，见 spec-materialization）。
  */
@@ -107,21 +107,33 @@ export function resolveReviewConfirm(confirm: unknown): ReviewConfirmResolution 
         };
       }
 
-      // #700：plan 新表单逐 TASK 回传 {title,ac}；旧字符串数组仍按原契约兼容。
+      // #701：非空 plan 任务必须显式携带 LEG/AC/blockedBy；缺字段留在确认闸澄清，不猜首仓。
       if (body.tasks === undefined || body.tasks === null) return summary;
       if (!Array.isArray(body.tasks)) throw new ConfirmPayloadError('confirm.tasks 必须是数组');
-      const hasDetails = body.tasks.some(task => typeof task !== 'string');
       const tasks = body.tasks.map((task, index): SpecTaskSpec | null => {
         if (typeof task === 'string') {
-          const title = task.trim();
-          return title ? { title, ac: [], blockedBy: [] } : null;
+          if (!task.trim()) return null;
+          throw new ConfirmPayloadError(`confirm.tasks[${index}].leg 必填（LEG）；请补充腿归属、AC 和 blockedBy`);
+        }
+        if (!task || typeof task !== 'object') {
+          throw new ConfirmPayloadError(`confirm.tasks[${index}] 必须是对象`);
+        }
+        const item = task as Record<string, unknown>;
+        if (typeof item.leg !== 'string' || !item.leg.trim()) {
+          throw new ConfirmPayloadError(`confirm.tasks[${index}].leg 必填（LEG）`);
+        }
+        if (!Array.isArray(item.ac) || item.ac.every(ac => typeof ac !== 'string' || !ac.trim())) {
+          throw new ConfirmPayloadError(`confirm.tasks[${index}].ac 至少一条（AC）`);
+        }
+        if (!Array.isArray(item.blockedBy)) {
+          throw new ConfirmPayloadError(`confirm.tasks[${index}].blockedBy 必须显式给出（无依赖传 []）`);
         }
         return parseSpecTaskInput(task, index);
       }).filter((task): task is SpecTaskSpec => task !== null).slice(0, ANALYSIS_TASKS_MAX);
       return {
         ...summary,
         analysisTasks: tasks.map(task => task.title),
-        ...(hasDetails ? { analysisTaskDetails: tasks } : {}),
+        ...(tasks.length > 0 ? { analysisTaskDetails: tasks } : {}),
       };
     }
     default:

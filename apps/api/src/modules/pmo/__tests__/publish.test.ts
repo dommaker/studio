@@ -247,11 +247,11 @@ describe('AC-5: PMO Publish API', () => {
   });
 
   it('B3a 归属链：gitRepo 落 metadata.workspaceRoot；无 gitRepo 不带该字段', async () => {
-    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/root/projects/demo' }));
+    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/repo/demo' }));
     await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
     expect(mockWuCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({ workspaceRoot: '/root/projects/demo' }),
+        metadata: expect.objectContaining({ workspaceRoot: '/repo/demo' }),
       })
     );
 
@@ -268,8 +268,11 @@ describe('AC-5: PMO Publish API', () => {
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
     expect(scope).toContain('一脉会话');
     expect(scope).toContain('.studio/specs/');
-    expect(scope).toContain('TASK: <任务描述> | AC: <验收标准>');
-    expect(scope).toContain('每条 TASK 至少一条 AC');
+    expect(scope).toContain('TASK: <任务描述> | LEG: <gitRepo> | AC: <验收标准> | BLOCKEDBY: <wuId,...>');
+    expect(scope).toContain('每条 TASK 必须且只能归属一条 LEG、至少一条 AC');
+    expect(scope).toContain('无依赖时写 BLOCKEDBY: none');
+    expect(scope).toContain('ACTION: NEED_INPUT');
+    expect(scope).toContain('不得默认选择第一仓');
     expect(scope).toContain('FOG:');
     expect(scope).toContain('DESTINATION:');
     expect(scope).not.toContain('只读分析');
@@ -331,42 +334,45 @@ describe('AC-5: PMO Publish API', () => {
     expect(scope).not.toContain('新描述');
   });
 
-  it('#112 多腿：显式 deliveries 多腿 → plan 单 scope 含全部仓库路径（腿调研只读约束不变）', async () => {
+  it('#701 多腿：plan 输入逐腿包含仓库路径与 delivery branch', async () => {
     mockReadJson.mockResolvedValue(sampleProject({
-      gitRepo: '/root/projects/leg-a',
+      gitRepo: '/repo/leg-a',
       deliveries: [
-        { gitRepo: '/root/projects/leg-a', branch: 'PMO-1', status: 'pending' },
-        { gitRepo: '/root/projects/leg-b', branch: 'PMO-1', status: 'pending' },
-        { gitRepo: '/root/projects/leg-c', branch: null, status: 'pending' },
+        { gitRepo: '/repo/leg-a', branch: 'PMO-1-a', status: 'pending' },
+        { gitRepo: '/repo/leg-b', branch: 'PMO-1-b', status: 'pending' },
+        { gitRepo: '/repo/leg-c', branch: null, status: 'pending' },
       ],
     }));
     await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
-    expect(scope).toContain('/root/projects/leg-a');
-    expect(scope).toContain('/root/projects/leg-b');
-    expect(scope).toContain('/root/projects/leg-c');
+    expect(scope).toContain('- LEG: /repo/leg-a | DELIVERY BRANCH: PMO-1-a');
+    expect(scope).toContain('- LEG: /repo/leg-b | DELIVERY BRANCH: PMO-1-b');
+    expect(scope).toContain('- LEG: /repo/leg-c | DELIVERY BRANCH: （未设置交付分支）');
     expect(scope).toContain('只读');
   });
 
-  it('#112 单腿回归：无 deliveries 字段 → plan 单 scope 不注多腿段（一脉会话契约在场）', async () => {
-    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/root/projects/demo' }));
-    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
-
-    const scope = mockWuCreate.mock.calls[0][0].scope as string;
-    expect(scope).not.toContain('多交付腿');
-    expect(scope).toContain('一脉会话');
-    expect(scope).toContain('TASK:');
-  });
-
-  it('#112 单腿回归：显式单腿 deliveries → 同样不注入多腿段', async () => {
+  it('#701 单腿：无 deliveries 字段也注入合成腿的仓库与 delivery branch', async () => {
     mockReadJson.mockResolvedValue(sampleProject({
-      deliveries: [{ gitRepo: '/root/projects/only', branch: 'PMO-1', status: 'pending' }],
+      gitRepo: '/repo/demo',
+      gitBranch: 'PMO-custom',
     }));
     await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
-    expect(scope).not.toContain('多交付腿');
+    expect(scope).toContain('## 交付腿');
+    expect(scope).toContain('- LEG: /repo/demo | DELIVERY BRANCH: PMO-custom');
+    expect(scope).toContain('一脉会话');
+  });
+
+  it('#701 单腿：显式 deliveries 同样注入仓库与 delivery branch', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({
+      deliveries: [{ gitRepo: '/repo/only', branch: 'PMO-1', status: 'pending' }],
+    }));
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    const scope = mockWuCreate.mock.calls[0][0].scope as string;
+    expect(scope).toContain('- LEG: /repo/only | DELIVERY BRANCH: PMO-1');
   });
 
   // ── #466: 频道路由表 plan 档 ──

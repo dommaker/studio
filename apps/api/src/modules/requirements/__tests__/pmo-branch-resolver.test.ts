@@ -168,22 +168,39 @@ describe('resolvePmoBranchForWU 多腿（#113 T7：按腿解析 WU 归属分支�
     expect(byBaseRepo?.branch).toBe('PMO-11-b');
   });
 
-  it('多腿项目未命中任何腿 → 回落项目级 gitBranch || pmoNumber（现状口径）', async () => {
-    const r = await resolvePmoBranchForWU(
+  it('#701 多腿项目未命中或命中多腿 → null，不回退项目级分支', async () => {
+    const missing = await resolvePmoBranchForWU(
       { metadata: JSON.stringify({ pmoId: 'proj-1' }) },
       undefined,
       { getProject: async () => multiLegProject() },
     );
-    expect(r?.branch).toBe('PMO-11');
+    expect(missing).toBeNull();
+
+    const ambiguous = await resolvePmoBranchForWU(
+      { metadata: JSON.stringify({ pmoId: 'proj-1', workspaceRoot: '/repo/a', pmoBranch: 'PMO-11-b' }) },
+      undefined,
+      { getProject: async () => multiLegProject() },
+    );
+    expect(ambiguous).toBeNull();
   });
 
-  it('单腿项目（无 deliveries）不受腿归属影响（回归）', async () => {
-    const r = await resolvePmoBranchForWU(
+  it('#701 显式单腿命中时使用腿 delivery branch；合成单腿保持旧行为', async () => {
+    const explicit = await resolvePmoBranchForWU(
+      { metadata: JSON.stringify({ pmoId: 'proj-1', workspaceRoot: '/repo/custom' }) },
+      undefined,
+      { getProject: async () => project({
+        gitBranch: 'PMO-top-level',
+        deliveries: [{ gitRepo: '/repo/custom', branch: 'PMO-custom-leg', status: 'active' }],
+      }) },
+    );
+    expect(explicit?.branch).toBe('PMO-custom-leg');
+
+    const synthetic = await resolvePmoBranchForWU(
       { metadata: JSON.stringify({ pmoId: 'proj-1', workspaceRoot: '/elsewhere' }) },
       undefined,
       { getProject: async () => project({}) },
     );
-    expect(r?.branch).toBe('PMO-11');
+    expect(synthetic?.branch).toBe('PMO-11');
   });
 });
 

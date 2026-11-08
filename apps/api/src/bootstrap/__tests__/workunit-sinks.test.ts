@@ -35,8 +35,9 @@ vi.mock('../../modules/pmo/index.js', () => ({
   applyPlanDirection: vi.fn(), applyPlanRuling: vi.fn(),
   PlanDirectionError: class PlanDirectionError extends Error {},
   PlanRulingError: class PlanRulingError extends Error {},
+  PlanTaskLegError: class PlanTaskLegError extends Error {},
   projectService: {}, selectProjectSnapshots: vi.fn(),
-  validateDirectionPick: vi.fn(), validateRulingItems: vi.fn(),
+  validateDirectionPick: vi.fn(), validatePlanConfirm: vi.fn(), validateRulingItems: vi.fn(),
 }));
 vi.mock('../../modules/agent-loop/index.js', () => ({
   getReviewDispatcher: () => ({ dispatchReviewNow: mockDispatchReview }),

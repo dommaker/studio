@@ -118,8 +118,8 @@ describe('AnalysisApproveDialog — #463 结构化评审表单', () => {
   });
 });
 
-describe('#700 plan 逐任务 AC', () => {
-  it('预填并编辑每条验收标准，确认时随对应 TASK 回传', () => {
+describe('#701 plan 逐任务 LEG/AC/依赖', () => {
+  it('预填并编辑每条腿、验收标准和依赖，确认时随对应 TASK 回传', () => {
     const { onConfirm } = setup({
       confirmKind: 'plan',
       prefill: {
@@ -127,44 +127,51 @@ describe('#700 plan 逐任务 AC', () => {
         fog: [],
         tasks: ['实现存储层', '接通派工'],
         taskDetails: [
-          { title: '实现存储层', ac: ['单测覆盖'] },
-          { title: '接通派工', ac: ['子单可认领'] },
+          { title: '实现存储层', ac: ['单测覆盖'], leg: '/repo/api', blockedBy: [] },
+          { title: '接通派工', ac: ['子单可认领'], leg: '/repo/web', blockedBy: ['wu-old'] },
         ],
       },
     });
 
+    fireEvent.change(screen.getByLabelText('交付腿 1'), { target: { value: '/repo/api-v2' } });
     fireEvent.change(screen.getByLabelText('验收标准 1'), { target: { value: '单测覆盖；通过 typecheck' } });
+    fireEvent.change(screen.getByLabelText('依赖任务 1'), { target: { value: 'wu-1, wu-2' } });
     fireEvent.click(screen.getByText('不开图直接派工'));
 
     expect(onConfirm).toHaveBeenCalledWith({
       kind: 'plan',
       tasks: [
-        { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'] },
-        { title: '接通派工', ac: ['子单可认领'] },
+        {
+          title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'],
+          leg: '/repo/api-v2', blockedBy: ['wu-1', 'wu-2'],
+        },
+        { title: '接通派工', ac: ['子单可认领'], leg: '/repo/web', blockedBy: ['wu-old'] },
       ],
     }, undefined);
   });
 
-  it('同名 TASK 按位置预填各自 AC', () => {
+  it('同名 TASK 按位置预填各自 LEG/AC/依赖', () => {
     const { onConfirm } = setup({
       confirmKind: 'plan',
       prefill: {
         destination: '', fog: [],
         tasks: ['重复任务', '重复任务'],
         taskDetails: [
-          { title: '重复任务', ac: ['第一条验收'] },
-          { title: '重复任务', ac: ['第二条验收'] },
+          { title: '重复任务', ac: ['第一条验收'], leg: '/repo/api', blockedBy: ['wu-1'] },
+          { title: '重复任务', ac: ['第二条验收'], leg: '/repo/web', blockedBy: [] },
         ],
       },
     });
 
+    expect((screen.getByLabelText('交付腿 1') as HTMLInputElement).value).toBe('/repo/api');
+    expect((screen.getByLabelText('交付腿 2') as HTMLInputElement).value).toBe('/repo/web');
     expect((screen.getByLabelText('验收标准 1') as HTMLInputElement).value).toBe('第一条验收');
     expect((screen.getByLabelText('验收标准 2') as HTMLInputElement).value).toBe('第二条验收');
     fireEvent.click(screen.getByText('不开图直接派工'));
     expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
       tasks: [
-        { title: '重复任务', ac: ['第一条验收'] },
-        { title: '重复任务', ac: ['第二条验收'] },
+        { title: '重复任务', ac: ['第一条验收'], leg: '/repo/api', blockedBy: ['wu-1'] },
+        { title: '重复任务', ac: ['第二条验收'], leg: '/repo/web', blockedBy: [] },
       ],
     }), undefined);
   });

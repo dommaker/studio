@@ -262,7 +262,11 @@ describe('DeliveryPanel', () => {
 
   it('#471 plan 缺口：人工确认同样走共享弹窗，confirm kind=plan 回传', async () => {
     mockWuGet.mockResolvedValue({
-      data: { data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'], analysisTasks: ['实现存储层'] }) } },
+      data: { data: { metadata: JSON.stringify({
+        analysisFog: ['存储选型用哪个？'],
+        analysisTasks: ['实现存储层'],
+        analysisTaskDetails: [{ title: '实现存储层', ac: ['单测通过'], leg: '/repo/api', blockedBy: [] }],
+      }) } },
     });
     const onRefresh = vi.fn();
     renderPanel({
@@ -277,7 +281,9 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByText('确认开图'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-p1', undefined, undefined, {
-      kind: 'plan', fog: ['存储选型用哪个？'], tasks: [{ title: '实现存储层', ac: [] }],
+      kind: 'plan',
+      fog: ['存储选型用哪个？'],
+      tasks: [{ title: '实现存储层', ac: ['单测通过'], leg: '/repo/api', blockedBy: [] }],
     }));
     expect(onRefresh).toHaveBeenCalled();
   });

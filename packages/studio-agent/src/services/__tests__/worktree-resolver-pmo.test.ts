@@ -44,7 +44,11 @@ import { ensureBranchExists, ensurePmoIntegrationWorktree } from '../worktree-re
 beforeEach(() => {
   vi.clearAllMocks();
   mockExecSh.mockResolvedValue({ stdout: '', stderr: '' });
-  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => cb(null, '', ''));
+  mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
+    if (args.includes('--git-common-dir')) return cb(null, '/repo/.git\n', '');
+    if (args.includes('--abbrev-ref')) return cb(null, 'PMO-11\n', '');
+    return cb(null, '', '');
+  });
 });
 
 describe('ensureBranchExists（PMO-b 决策 3）', () => {
@@ -94,7 +98,7 @@ describe('ensureBranchExists（PMO-b 决策 3）', () => {
   );
 });
 
-describe('ensurePmoIntegrationWorktree（PMO-b 决策 3：单一合并点）', () => {
+describe('ensurePmoIntegrationWorktree（#701：仓库/腿隔离的合并点）', () => {
   const opts = {
     repoDir: '/repo',
     worktreesDir: '/worktrees',
@@ -106,26 +110,59 @@ describe('ensurePmoIntegrationWorktree（PMO-b 决策 3：单一合并点）', (
   test('分支不存在 + 交合不存在 → 建支 + worktree add（检出非 -b）', async () => {
     mockExistsSync.mockReturnValue(false);
     mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
-      cb(args[0] === 'rev-parse' ? new Error('unknown revision') : null, '', '');
+      if (args.includes('--git-common-dir')) return cb(null, '/repo/.git\n', '');
+      cb(args.includes('--verify') ? new Error('unknown revision') : null, '', '');
     });
 
     const r = await ensurePmoIntegrationWorktree(opts);
 
-    expect(r.worktreePath).toBe('/worktrees/pmo-proj-1');
+    expect(r.worktreePath).toMatch(/^\/worktrees\/pmo-proj-1-[a-f0-9]+-[a-f0-9]+$/);
     expect(mockExecFile).toHaveBeenCalledWith('git', ['branch', '--', 'PMO-11', 'master'], expect.any(Object), expect.any(Function));
-    expect(mockExecFile).toHaveBeenCalledWith('git', ['worktree', 'add', '--', '/worktrees/pmo-proj-1', 'PMO-11'], expect.any(Object), expect.any(Function));
+    expect(mockExecFile).toHaveBeenCalledWith('git', ['worktree', 'add', '--', r.worktreePath, 'PMO-11'], expect.any(Object), expect.any(Function));
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
-  test('交合已存在（.git）→ 复用，不 worktree add；分支已存在 → 不建支', async () => {
-    mockExistsSync.mockReturnValue(true); // .git 存在
-    // rev-parse 成功（默认 mockResolvedValue）→ 分支存在
+  test('交合已存在且 repo/branch 一致 → 复用，不 worktree add、不建支', async () => {
+    mockExistsSync.mockReturnValue(true);
 
     const r = await ensurePmoIntegrationWorktree(opts);
 
-    expect(r.worktreePath).toBe('/worktrees/pmo-proj-1');
+    expect(r.worktreePath).toMatch(/^\/worktrees\/pmo-proj-1-[a-f0-9]+-[a-f0-9]+$/);
     const args = mockExecFile.mock.calls.map(c => c[1] as string[]);
     expect(args.every(a => a[0] !== 'worktree' && a[0] !== 'branch')).toBe(true);
+    expect(args.some(a => a.includes('--git-common-dir') && a.includes('--abbrev-ref') === false)).toBe(true);
+    expect(args.some(a => a.includes('--abbrev-ref') && a.includes('HEAD'))).toBe(true);
     expect(mockExecSh).not.toHaveBeenCalled();
+  });
+
+  test('#701 同 project 不同 repo/branch → 不同交合路径', async () => {
+    mockExistsSync.mockReturnValue(false);
+    mockExecFile.mockImplementation((_cmd: string, args: string[], opts: { cwd: string }, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
+      if (args.includes('--git-common-dir')) return cb(null, `${opts.cwd}/.git\n`, '');
+      return cb(null, '', '');
+    });
+
+    const repoA = await ensurePmoIntegrationWorktree(opts);
+    const repoB = await ensurePmoIntegrationWorktree({ ...opts, repoDir: '/repo-b' });
+    const otherLeg = await ensurePmoIntegrationWorktree({ ...opts, branch: 'PMO-11-b' });
+
+    expect(repoA.worktreePath).not.toBe(repoB.worktreePath);
+    expect(repoA.worktreePath).not.toBe(otherLeg.worktreePath);
+    expect(repoB.worktreePath).not.toBe(otherLeg.worktreePath);
+  });
+
+  test('#701 已存在交合 repo 或 checkout branch 不符 → 拒绝复用', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockExecFile.mockImplementation((_cmd: string, args: string[], opts: { cwd: string }, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
+      if (args.includes('--git-common-dir')) {
+        return cb(null, opts.cwd === '/repo' ? '/repo/.git\n' : '/other/.git\n', '');
+      }
+      if (args.includes('--abbrev-ref')) return cb(null, 'PMO-other\n', '');
+      return cb(null, '', '');
+    });
+
+    await expect(ensurePmoIntegrationWorktree(opts)).rejects.toThrow('身份不匹配');
+    const args = mockExecFile.mock.calls.map(c => c[1] as string[]);
+    expect(args.some(a => a[0] === 'worktree' || a.includes('merge'))).toBe(false);
   });
 });

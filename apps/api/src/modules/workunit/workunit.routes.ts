@@ -85,6 +85,7 @@ import {
   getWorkUnitTreeTokens,
   listClaimableWorkUnits,
   submitPlanRuling,
+  validatePlanConfirmation,
   WorkUnitApplicationError,
   type WorkUnitApplicationErrorCode,
 } from './workunit-application.js';
@@ -354,6 +355,9 @@ writeRoutes.post('/:id/review-passed', requireHuman(REVIEW_HUMAN_ONLY), defineRo
     // l3.summary（存储契约不变，人不接触魔法行）；与裸 summary 并存时 confirm 优先；
     // analysis 的 tasks 经 options.analysisTasks 透传覆写 metadata.analysisTasks。
     const confirm = resolveReviewConfirm(input.body.confirm);
+    if (input.body.confirm?.kind === 'plan' && confirm.analysisTaskDetails?.length) {
+      await validatePlanConfirmation(await mustGetWu(input.params.id), confirm.analysisTaskDetails);
+    }
     const rawSummary = input.body.summary;
     const summary = confirm.summary
       ?? (typeof rawSummary === 'string' && rawSummary.trim() ? rawSummary : undefined);

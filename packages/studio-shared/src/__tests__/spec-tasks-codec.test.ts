@@ -14,6 +14,12 @@ describe('spec-tasks-codec', () => {
     expect(parseSpecTasks(lines)).toHaveLength(SPEC_TASKS_MAX);
     expect(parseSpecTasks('TASK:    ')).toEqual([]);
   });
+  it('#701：BLOCKEDBY none 归一空依赖；重复 LEG 不静默取首段', () => {
+    expect(parseSpecTasks('TASK: 无依赖 | AC: 验收 | BLOCKEDBY: none | LEG: repo-a'))
+      .toEqual([{ title: '无依赖', ac: ['验收'], blockedBy: [], leg: 'repo-a' }]);
+    expect(parseSpecTasks('TASK: 歧义腿 | AC: 验收 | LEG: repo-a | LEG: repo-b'))
+      .toEqual([{ title: '歧义腿', ac: ['验收'], blockedBy: [] }]);
+  });
   it('serialize 是 parse 的逆运算（同一契约正本）；空清单 → 空串', () => {
     const tasks: SpecTaskSpec[] = [{ title: 'a', ac: ['x'], blockedBy: ['b1'], leg: 'r' }];
     expect(parseSpecTasks(serializeSpecTasks(tasks))).toEqual(tasks);

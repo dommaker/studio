@@ -108,8 +108,8 @@ export interface AnalysisConfirmPrefill {
   destination: string;
   fog: string[];
   tasks: string[];
-  /** #700：plan 可选逐任务 AC；旧纯 TASK 数据不带此字段。 */
-  taskDetails?: Array<{ title: string; ac: string[] }>;
+  /** #701：plan 可选逐任务 LEG/AC/依赖；旧纯 TASK 数据不带此字段。 */
+  taskDetails?: Array<{ title: string; ac: string[]; blockedBy: string[]; leg?: string }>;
 }
 
 /** 吸收 #106 M7 buildMapOpeningPrefill：同一数据源，结构化输出替代魔法行文本 */
@@ -128,9 +128,14 @@ export function buildAnalysisConfirmPrefill(metadata?: string | null): AnalysisC
     const taskDetails = Array.isArray(v.analysisTaskDetails)
       ? v.analysisTaskDetails.flatMap(item => {
           if (!item || typeof item !== 'object') return [];
-          const detail = item as { title?: unknown; ac?: unknown };
+          const detail = item as { title?: unknown; ac?: unknown; blockedBy?: unknown; leg?: unknown };
           return typeof detail.title === 'string' && detail.title.trim()
-            ? [{ title: detail.title.trim(), ac: strings(detail.ac) }]
+            ? [{
+                title: detail.title.trim(),
+                ac: strings(detail.ac),
+                blockedBy: strings(detail.blockedBy),
+                ...(typeof detail.leg === 'string' && detail.leg.trim() ? { leg: detail.leg.trim() } : {}),
+              }]
             : [];
         })
       : [];

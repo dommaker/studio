@@ -130,16 +130,26 @@ describe('#463 buildAnalysisConfirmPrefill：analysis 确认弹窗结构化预�
     });
   });
 
-  it('#700：analysisTaskDetails → plan 逐任务 AC 预填', () => {
+  it('#701：analysisTaskDetails → plan 逐任务 LEG/AC/依赖预填', () => {
     const metadata = JSON.stringify({
       analysisTasks: ['实现存储层'],
-      analysisTaskDetails: [{ title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'], blockedBy: [] }],
+      analysisTaskDetails: [{
+        title: '实现存储层',
+        ac: ['单测覆盖', '通过 typecheck'],
+        blockedBy: ['wu-dependency'],
+        leg: '/repo/api',
+      }],
     });
     expect(buildAnalysisConfirmPrefill(metadata)).toEqual({
       destination: '',
       fog: [],
       tasks: ['实现存储层'],
-      taskDetails: [{ title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'] }],
+      taskDetails: [{
+        title: '实现存储层',
+        ac: ['单测覆盖', '通过 typecheck'],
+        blockedBy: ['wu-dependency'],
+        leg: '/repo/api',
+      }],
     });
   });
 

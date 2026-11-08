@@ -38,7 +38,9 @@ vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
 });
 
-vi.mock('@dommaker/studio-shared', () => ({ createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), stripTrailingSlashes: (s) => s,
+vi.mock('@dommaker/studio-shared', async importOriginal => ({
+  ...await importOriginal<typeof import('@dommaker/studio-shared')>(),
+  createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), stripTrailingSlashes: (s) => s,
   // wholesale mock 补出口：历史消费链（原 studio-notification 包单例）需要，#684 下沉后保留以防链上其余模块触碰
   getDefaultFileStore: () => ({}),
   // #682：notifications barrel 并入 discord-notifier（模块级单例构造走 logger），链上加载需要

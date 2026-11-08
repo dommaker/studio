@@ -13,9 +13,8 @@
  *  冗余缓存，生产存量为零；本次修复 analysis 派生链 task WU（仅 pmoId、reqId=null）
  *  永远解析不到 PMO 分支、代码合并未走 PMO 集成分支的 bug。）
  *
- * #113 T7：显式多腿项目（resolveDeliveries > 1）按 WU→腿归属解析腿分支
- * （matchWuToLeg：workspaceRoot/worktreeBaseRepo 命中腿 gitRepo，或 pmoBranch
- * 命中腿 branch）；未命中任何腿回落项目级分支，单腿项目行为不变。
+ * #701：多腿按 WU→腿归属收集全部命中，必须唯一；未命中/歧义返回 null。
+ * 显式单腿命中使用腿 branch，合成单腿保留项目级分支旧行为。
  */
 import { FileStore } from '@dommaker/studio-shared';
 import { isValidGitBranch } from '@dommaker/studio-contract';
@@ -80,18 +79,15 @@ export async function resolvePmoBranchForWU(
   const { resolveDeliveries, resolveDeliveryPolicy, matchWuToLeg } = await projectReadPort();
   const project = await resolveAttribution(wu, fileStore, deps);
   if (!project) return null;
-  // #113 T7：显式多腿项目按 WU→腿归属解析腿分支（matchWuToLeg：workspaceRoot/
-  // worktreeBaseRepo 命中腿 gitRepo，或 pmoBranch 命中腿 branch）；未命中任何腿
-  // 回落项目级 gitBranch || pmoNumber（与单腿同口径）。单腿项目不走腿归属，行为不变。
+  // #701：多腿必须唯一命中；显式单腿命中也使用腿 branch。缺失/歧义绝不回退项目首仓。
   const legs = resolveDeliveries(project);
-  if (legs.length > 1) {
-    const leg = legs.find(l => matchWuToLeg(wu.metadata, l));
-    if (leg?.branch) {
-      if (!isValidGitBranch(leg.branch)) return null;
-      return { projectId: project.id, branch: leg.branch, deliveryPolicy: resolveDeliveryPolicy(project) };
-    }
-  }
-  const branch = project.gitBranch || project.pmoNumber;
+  const matches = legs.filter(leg => matchWuToLeg(wu.metadata, leg));
+  if (legs.length > 1 && matches.length !== 1) return null;
+  const branch = matches.length === 1
+    ? matches[0].branch
+    : legs.length === 1
+      ? project.gitBranch || project.pmoNumber
+      : null;
   if (!branch || !isValidGitBranch(branch)) return null;
   return { projectId: project.id, branch, deliveryPolicy: resolveDeliveryPolicy(project) };
 }

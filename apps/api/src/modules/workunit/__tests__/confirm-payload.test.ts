@@ -76,33 +76,42 @@ describe('#463 resolveReviewConfirm（确认表单 → l3.summary 序列化）',
     expect(resolveReviewConfirm({ kind: 'analysis' })).toEqual({});
   });
 
-  it('#700 plan：逐 TASK 对象保留人审后的 AC，并派生字符串任务清单', () => {
+  it('#701 plan：逐 TASK 对象保留人审后的 LEG/AC/依赖，并派生字符串任务清单', () => {
     const r = resolveReviewConfirm({
       kind: 'plan',
       tasks: [
-        { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'] },
-        { title: '接通派工', ac: ['子单可认领'] },
+        { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'], leg: '/repo/api', blockedBy: ['wu-1'] },
+        { title: '接通派工', ac: ['子单可认领'], leg: '/repo/web', blockedBy: [] },
       ],
     });
     expect(r.analysisTasks).toEqual(['实现存储层', '接通派工']);
     expect(r.analysisTaskDetails).toEqual([
-      { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'], blockedBy: [] },
-      { title: '接通派工', ac: ['子单可认领'], blockedBy: [] },
+      { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'], leg: '/repo/api', blockedBy: ['wu-1'] },
+      { title: '接通派工', ac: ['子单可认领'], leg: '/repo/web', blockedBy: [] },
     ]);
   });
 
-  it('#471 plan：与 analysis 同形（destination+fog → 目标：/待决：行；tasks → analysisTasks 覆写）', () => {
+  it('#701 plan：destination/fog 保持台账契约；缺失 LEG/AC/依赖的非空任务拒绝澄清', () => {
     const r = resolveReviewConfirm({
       kind: 'plan',
       destination: '三仓联动上线',
       fog: ['存储选型？'],
-      tasks: ['实现存储层'],
+      tasks: [],
     });
     expect(r.summary).toBe('目标：三仓联动上线\n待决：存储选型？');
-    expect(r.analysisTasks).toEqual(['实现存储层']);
-    // roundtrip：开图解析器吃回序列化产物（台账化后仍消费同一契约）
+    expect(r.analysisTasks).toEqual([]);
     expect(parseMapOpening(r.summary!)).toEqual({ destination: '三仓联动上线', fog: ['存储选型？'] });
     expect(resolveReviewConfirm({ kind: 'plan' })).toEqual({});
+    expect(() => resolveReviewConfirm({ kind: 'plan', tasks: ['实现存储层'] }))
+      .toThrow('LEG');
+    expect(() => resolveReviewConfirm({
+      kind: 'plan',
+      tasks: [{ title: '实现存储层', ac: [], leg: '/repo/api', blockedBy: [] }],
+    })).toThrow('AC');
+    expect(() => resolveReviewConfirm({
+      kind: 'plan',
+      tasks: [{ title: '实现存储层', ac: ['验收'], leg: '/repo/api' }],
+    })).toThrow('blockedBy');
   });
 });
 

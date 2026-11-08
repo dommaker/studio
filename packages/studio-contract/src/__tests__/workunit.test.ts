@@ -127,6 +127,13 @@ describe('请求 schema', () => {
     expect(reviewConfirmPayloadSchema.parse({ kind: 'spec', tasks: [{ title: 't' }] }).kind).toBe('spec');
     expect(reviewConfirmPayloadSchema.parse({ kind: 'analysis', fog: ['q'] }).kind).toBe('analysis');
     expect(reviewConfirmPayloadSchema.parse({ kind: 'plan' }).kind).toBe('plan');
+    expect(reviewConfirmPayloadSchema.parse({
+      kind: 'plan',
+      tasks: [{ title: '多仓任务', ac: ['验收'], leg: '/repo/api', blockedBy: ['wu-1'] }],
+    })).toEqual({
+      kind: 'plan',
+      tasks: [{ title: '多仓任务', ac: ['验收'], leg: '/repo/api', blockedBy: ['wu-1'] }],
+    });
     expect(reviewConfirmPayloadSchema.safeParse({ kind: 'task' }).success).toBe(false);
     // 容忍形态：decision 无 conclusion / spec 无 tasks（语义归一在 confirm-payload.ts）
     expect(reviewConfirmPayloadSchema.safeParse({ kind: 'decision' }).success).toBe(true);

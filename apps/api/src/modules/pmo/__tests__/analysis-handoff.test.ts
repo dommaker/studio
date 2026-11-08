@@ -18,6 +18,8 @@ import { WorkUnitService } from '../../workunit/workunit-review.js';
 import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 import { AnalysisHandoff } from '../analysis-handoff.js';
+import { projectRepository } from '../project-repository.js';
+import type { DeliveryLeg } from '../model.js';
 
 // #186（#167 决议 2）：无频道确认提示改投 Web「需要处理」收件箱 —— 告警出口 mock
 const mockDispatch = vi.fn();
@@ -188,7 +190,7 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
   it('B3a 归属链继承：analysis 的 workspaceRoot 传给 task 子 WU（无则不 inherited）', async () => {
     const wu = await createAnalysisWu({
       analysisTasks: ['任务一'],
-      workspaceRoot: '/root/projects/demo',
+      workspaceRoot: '/repo/root/demo',
     });
     emitStatus(wu, 'done');
 
@@ -198,7 +200,7 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
     const snapshots = await fileStore.getIndex();
     const children = snapshots.filter(s => s.parentId === wu.id);
     expect(children.length).toBe(1);
-    expect(metaOf(children[0].metadata).workspaceRoot).toBe('/root/projects/demo');
+    expect(metaOf(children[0].metadata).workspaceRoot).toBe('/repo/root/demo');
 
     // 无 workspaceRoot 的 analysis：子 WU 不带该字段（不编造）
     const wu2 = await createAnalysisWu({ analysisTasks: ['任务二'] });
@@ -343,16 +345,25 @@ describe('#471 plan WU 接力（确认闸 + TASK 派工）', () => {
     expect(msgs[0].content).toContain('自动派工');
   });
 
-  it('plan → done：按 analysisTasks 建未指派 task 子 WU（PMO 溯源继承）+ 幂等哨兵', async () => {
+  it('#701 plan → done：逐 TASK 绑定对应腿的 repo/branch/AC/依赖，不回退第一仓', async () => {
+    const project = await projectRepository.create({
+      title: '多仓规划', gitRepo: '/repo/root', gitRepos: ['/repo/root', '/repo/studio'],
+    });
+    await projectRepository.update(project.id, {
+      deliveries: [
+        { gitRepo: '/repo/root', branch: 'PMO-leg-root', status: 'active' },
+        { gitRepo: '/repo/studio', branch: 'PMO-leg-studio', status: 'active' },
+      ],
+    });
     const wu = await createPlanWu({
       analysisTasks: ['实现存储层', '接热线'],
       analysisTaskDetails: [
-        { title: '实现存储层', ac: ['存储单测通过'], blockedBy: [] },
-        { title: '接热线', ac: ['频道可回复'], blockedBy: [] },
+        { title: '实现存储层', ac: ['存储单测通过'], leg: '/repo/studio', blockedBy: ['wu-dependency'] },
+        { title: '接热线', ac: ['频道可回复'], leg: '/repo/root', blockedBy: [] },
       ],
-      pmoId: 'proj-1',
-      pmoNumber: 'PMO-1',
-      workspaceRoot: '/root/projects/demo',
+      pmoId: project.id,
+      pmoNumber: project.pmoNumber,
+      workspaceRoot: '/repo/root',
     });
     emitStatus(wu, 'done');
 
@@ -363,10 +374,17 @@ describe('#471 plan WU 接力（确认闸 + TASK 派工）', () => {
     expect(children.every(c => c.type === 'task')).toBe(true);
     expect(children.every(c => c.status === 'unassigned')).toBe(true);
     expect(children.every(c => c.reqId === 'REQ-0042')).toBe(true);
-    expect(metaOf(children.find(c => c.scope === '实现存储层')!.metadata).ac).toEqual(['存储单测通过']);
-    expect(metaOf(children.find(c => c.scope === '接热线')!.metadata).ac).toEqual(['频道可回复']);
-    expect(metaOf(children[0].metadata).pmoNumber).toBe('PMO-1');
-    expect(metaOf(children[0].metadata).workspaceRoot).toBe('/root/projects/demo');
+    const storageMeta = metaOf(children.find(c => c.scope === '实现存储层')!.metadata);
+    const channelMeta = metaOf(children.find(c => c.scope === '接热线')!.metadata);
+    expect(storageMeta).toMatchObject({
+      ac: ['存储单测通过'], blockedBy: ['wu-dependency'],
+      workspaceRoot: '/repo/studio', pmoBranch: 'PMO-leg-studio',
+    });
+    expect(channelMeta).toMatchObject({
+      ac: ['频道可回复'], blockedBy: [],
+      workspaceRoot: '/repo/root', pmoBranch: 'PMO-leg-root',
+    });
+    expect(storageMeta.pmoNumber).toBe(project.pmoNumber);
 
     const after = await wuService.getById(wu.id);
     expect(metaOf(after!.metadata).analysisTasksSpawnedAt).toBeTruthy();
@@ -376,13 +394,18 @@ describe('#471 plan WU 接力（确认闸 + TASK 派工）', () => {
     expect(msgOk).toBe(true);
   });
 
-  it('#700：同名 TASK 按位置保留各自 AC，不复制第一条', async () => {
+  it('#701：同名 TASK 按位置保留各自 LEG/AC/依赖，对账补建不串腿', async () => {
+    const project = await projectRepository.create({ title: '同名单任务', gitRepo: '/repo/root' });
+    await projectRepository.update(project.id, {
+      deliveries: [{ gitRepo: '/repo/root', branch: 'PMO-same-name', status: 'active' }],
+    });
     const wu = await createPlanWu({
       analysisTasks: ['重复任务', '重复任务'],
       analysisTaskDetails: [
-        { title: '重复任务', ac: ['第一条验收'], blockedBy: [] },
-        { title: '重复任务', ac: ['第二条验收'], blockedBy: [] },
+        { title: '重复任务', ac: ['第一条验收'], leg: '/repo/root', blockedBy: ['wu-1'] },
+        { title: '重复任务', ac: ['第二条验收'], leg: '/repo/root', blockedBy: ['wu-2'] },
       ],
+      pmoId: project.id,
     });
     emitStatus(wu, 'done');
 
@@ -400,7 +423,43 @@ describe('#471 plan WU 接力（确认闸 + TASK 派工）', () => {
     const respawned = await handoff.respawnScopes(fresh, missing);
     expect(respawned.adoptedIds).toEqual([]);
     expect(respawned.createdIds).toHaveLength(1);
-    expect(metaOf((await wuService.getById(respawned.createdIds[0]))!.metadata).ac).toEqual(['第二条验收']);
+    expect(metaOf((await wuService.getById(respawned.createdIds[0]))!.metadata)).toMatchObject({
+      ac: ['第二条验收'], blockedBy: ['wu-2'],
+      workspaceRoot: '/repo/root', pmoBranch: 'PMO-same-name',
+    });
+  });
+
+  it('#701：缺失、未知、重复/歧义 LEG 整批停止并澄清，零子 WU、零派生哨兵', async () => {
+    const cases: Array<{ deliveries: DeliveryLeg[]; leg?: string }> = [
+      { deliveries: [{ gitRepo: '/repo/root', branch: 'PMO-missing', status: 'active' }] },
+      { deliveries: [{ gitRepo: '/repo/root', branch: 'PMO-unknown', status: 'active' }], leg: '/repo/unknown' },
+      {
+        deliveries: [
+          { gitRepo: '/repo/root', branch: 'PMO-duplicate-a', status: 'active' },
+          { gitRepo: '/repo/root', branch: 'PMO-duplicate-b', status: 'active' },
+        ],
+        leg: '/repo/root',
+      },
+    ];
+    for (const [index, testCase] of cases.entries()) {
+      const project = await projectRepository.create({ title: `非法腿 ${index}`, gitRepo: '/repo/root' });
+      await projectRepository.update(project.id, { deliveries: testCase.deliveries });
+      const wu = await createPlanWu({
+        analysisTasks: ['不得派生'],
+        analysisTaskDetails: [{
+          title: '不得派生', ac: ['零派生'], blockedBy: [], ...(testCase.leg ? { leg: testCase.leg } : {}),
+        }],
+        pmoId: project.id,
+      });
+      emitStatus(wu, 'done');
+
+      const clarified = await waitFor(async () =>
+        (await channelMessages()).some(m => m.workUnitId === wu.id && m.content.includes('规划任务未派生')));
+      expect(clarified).toBe(true);
+      expect((await fileStore.getIndex()).filter(s => s.parentId === wu.id)).toEqual([]);
+      const after = await wuService.getById(wu.id);
+      expect(metaOf(after!.metadata).analysisTasksSpawnedAt).toBeUndefined();
+    }
   });
 
   it('plan 无 TASK 拆分行：不派生，频道提示可手动转任务', async () => {

@@ -1,22 +1,26 @@
 // #463：review-passed 路由的结构化 confirm body——人点按钮，后端把表单数据序列化为
 // l3.summary（存储格式不变）；analysis 的 tasks 经 options.analysisTasks 透传 service 覆写。
 // WorkUnitService mock 掉（形态照 review-author-type.test.ts），只测路由层契约。
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 
-const { mockReviewPassed } = vi.hoisted(() => ({
+const { mockReviewPassed, mockGetById, mockValidatePlanConfirm } = vi.hoisted(() => ({
   mockReviewPassed: vi.fn(),
+  mockGetById: vi.fn(),
+  mockValidatePlanConfirm: vi.fn(),
 }));
 
 vi.mock('../workunit-review.js', () => ({
   WorkUnitService: class {
     reviewPassed = mockReviewPassed;
+    getById = mockGetById;
   },
   ANALYSIS_TASKS_MAX: 8,
 }));
 
 import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
+import { registerWorkUnitPorts, type WorkUnitPorts } from '../workunit-ports.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
 import { validWorkUnit } from './route-fixtures.js';
 
@@ -40,6 +44,19 @@ describe('#463 review-passed confirm body（结构化评审表单序列化）', 
 
   afterAll(async () => {
     await new Promise(resolve => server.close(resolve));
+  });
+
+  beforeEach(() => {
+    mockGetById.mockResolvedValue(validWorkUnit({
+      type: 'plan', status: 'in_review', metadata: JSON.stringify({ pmoId: 'proj-1' }),
+    }));
+    mockValidatePlanConfirm.mockResolvedValue([]);
+    registerWorkUnitPorts({
+      review: {
+        validatePlanConfirm: mockValidatePlanConfirm,
+        isPlanTaskLegError: () => true,
+      } as WorkUnitPorts['review'],
+    });
   });
 
   function post(body?: unknown) {
@@ -100,6 +117,25 @@ describe('#463 review-passed confirm body（结构化评审表单序列化）', 
     expect(bad1.status).toBe(400);
     const bad2 = await post({ confirm: { kind: 'spec', tasks: [{ ac: ['缺标题'] }] } });
     expect(bad2.status).toBe(400);
+    expect(mockReviewPassed).not.toHaveBeenCalled();
+  });
+
+  it('#701 plan 腿校验失败 → 400 INVALID_CONFIRM，plan 不转 done', async () => {
+    mockReviewPassed.mockClear();
+    mockValidatePlanConfirm.mockRejectedValue(new Error('TASK 1 LEG 未知：/repo/unknown'));
+    const res = await post({
+      confirm: {
+        kind: 'plan',
+        tasks: [{ title: '多仓任务', ac: ['验收'], leg: '/repo/unknown', blockedBy: [] }],
+      },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: { code: 'INVALID_CONFIRM' } });
+    expect(mockValidatePlanConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'wu-1', type: 'plan' }),
+      [{ title: '多仓任务', ac: ['验收'], leg: '/repo/unknown', blockedBy: [] }],
+    );
     expect(mockReviewPassed).not.toHaveBeenCalled();
   });
 });
