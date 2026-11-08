@@ -7,8 +7,8 @@
  *   - 证据齐（evidence-summary 共享口径 deliverable）→ completed；
  *   - 证据有缺口 → active/pending 项目置 in_review（活干完了，等证据验收），
  *     已是 in_review 则不动；completed/cancelled 项目入口即跳过（不回退）。
- *   幂等补写证据（l2/l3 后补）不产生状态迁移事件，靠 GET /pmo/project/:id
- *   读取时的 best-effort 重算（routes.ts:107）纠偏翻 completed。
+ *   补写证据（l2/l3 后补）也发 status_changed 并即时重算；显式调用 syncProjectProgress
+ *   用于对账纠偏；GET /pmo/project/:id 保持只读，不承担状态推进。
  * analysis 派生链（analysis-handoff）的 task WU 无 reqId，仅 metadata.pmoId
  * 溯源——Requirement 链路拿不到关联 WU 时回退按 pmoId 归属，口径不变。
  *
@@ -34,7 +34,7 @@
  *   ③ 已完结 spec WU 缺 specTasksSpawnedAt 且 l3.summary 含 TASK 物化行（交稿物化未处理；
  *      #463 起无 TASK 行不落哨兵 = 人审有意不物化，不算未落定）。
  * 命中即跳过本次 completed/in_review 翻转（progress 照写），待派生落定后的下一事件
- * 或 GET /project/:id 读取时重算再评估。
+ * 或后续显式调用 syncProjectProgress 再评估。
  *
  * #410（#323 残余收口）：消费侧改 per-project 聚合 memo + 去抖合并，消除每事件
  * 全量存储读（reqService.list() + getIndex() 全量克隆）。事件负载（snapshotToData
@@ -55,7 +55,7 @@
  *     updateMetadata 落档不发事件，memo 可能滞后为「未落定」。哨兵只增不减——memo
  *     判「已落定」必为真；判「未落定」时回源复核一次再判定，语义与现状（永远读
  *     新鲜存储）逐点一致；
- *   - 直调路径（syncProjectProgress 导出：routes 读取纠偏 / 测试）恒回源，语义 =
+ *   - 直调路径（syncProjectProgress 导出：显式对账 / 测试）恒回源，语义 =
  *     现状全量读。已知接受项：WU delete 无事件，memo 靠冷启动/复核/直调回源自愈。
  */
 import { eventBus, FileStore, createSettledTracker, deriveDisplayState } from '@dommaker/studio-shared';
@@ -179,7 +179,7 @@ async function resolveReqProjectCached(reqId: string, fileStore?: FileStore): Pr
 /**
  * 事件负载喂 memo（status_changed 与 created 共用）。返回归属项目与是否允许触发归约：
  * 归属口径 = resolveWuProjectId（reqId 绑定优先 → pmoId 戳兜底）；触发口径保持现状——
- * reqId 路径仅 REQ 已绑定项目才触发（REQ 未绑定但有戳只记账，由兄弟事件/读取纠偏带动），
+ * reqId 路径仅 REQ 已绑定项目才触发（REQ 未绑定但有戳只记账，由兄弟事件/显式同步带动），
  * 无 reqId 路径戳命中即触发。
  */
 async function attachEventWu(
@@ -287,7 +287,7 @@ const isTerminalWu = (s: EvidenceWuInput): boolean => TERMINAL_WORKUNIT_STATUSES
  * Requirement 链路拿不到关联 WU 时回退按 metadata.pmoId 归属统计（analysis 派生链），口径不变。
  * completed/cancelled 项目不再回写（不回退）；无关联 WU 时不动作。
  * 全部完结时按证据翻转：deliverable → completed；否则 active/pending → in_review（等证据验收）。
- * #410：直调路径（routes 读取纠偏 / 测试）——恒回源，语义 = 现状全量读；
+ * #410：直调路径（显式对账 / 测试）——恒回源，语义 = 现状全量读；
  * 事件路径走 scheduleEventRollup 去抖后进同一串行链（memo 增量，稳态零存储读）。
  */
 export function syncProjectProgress(projectId: string, fileStore?: FileStore): Promise<void> {
@@ -377,8 +377,8 @@ async function doSyncProjectProgress(projectId: string, fileStore: FileStore | u
       }, { fileStore });
     } else if (project.status === PROJECT_STATUS.ACTIVE || project.status === PROJECT_STATUS.PENDING) {
       // 活干完了但证据有缺口 → in_review（等证据验收），不冒充 completed；
-      // 已是 in_review 则不动。幂等补写证据不产生状态事件，
-      // 靠 GET /pmo/project/:id 读取时的 best-effort 重算纠偏翻 completed。
+      // 已是 in_review 则不动。补写证据经 status_changed 即时重算，
+      // 显式调用 syncProjectProgress负责对账纠偏。
       if (progress !== project.progress) await projectService.update(projectId, { progress });
       await projectService.updateStatus(projectId, PROJECT_STATUS.IN_REVIEW, true);
       logger.info('[PMO] Project in_review (work finished, evidence gaps)', {
@@ -470,7 +470,7 @@ async function doSyncMultiLegProgress(
       }, { fileStore });
     } else if (project.status === PROJECT_STATUS.ACTIVE || project.status === PROJECT_STATUS.PENDING) {
       // 全腿活干完但有腿证据缺口 → in_review（等证据验收），不冒充 completed；
-      // 纠偏路径同单腿（幂等补证据 → 读取时重算翻 completed）。
+      // 纠偏路径同单腿（幂等补证据 → 显式调用 syncProjectProgress重算翻 completed）。
       if (progress !== project.progress) await projectService.update(projectId, { progress });
       await projectService.updateStatus(projectId, PROJECT_STATUS.IN_REVIEW, true);
       logger.info('[PMO] Project in_review (all legs finished, evidence gaps)', {

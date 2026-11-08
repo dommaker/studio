@@ -18,6 +18,8 @@ import {
 
 const PROJECTS_DIR = studioPath('projects');
 const REQUIREMENTS_DIR = studioPath('data', 'requirements');
+// PMO/REQ 共用统一序号；项目写入也复用既有 REQ 锁，避免引入新的数据区布局。
+const PROJECTS_LOCK_DIR = path.join(REQUIREMENTS_DIR, 'lock');
 
 function projectPath(projectId: string): string {
   return path.join(PROJECTS_DIR, `${projectId}.json`);
@@ -64,46 +66,67 @@ export async function generatePmoNumber(): Promise<string> {
   return pmoNumber;
 }
 
+async function writeProjectUpdate(
+  store: ReturnType<typeof getStore>,
+  current: ProjectData,
+  input: UpdateProjectInput,
+): Promise<ProjectData> {
+  const updated: ProjectData = {
+    ...current,
+    ...input,
+    id: current.id,
+    pmoNumber: current.pmoNumber,
+    createdAt: current.createdAt,
+    updatedAt: new Date().toISOString(),
+  };
+  await store.writeJson(projectPath(current.id), updated);
+  logger.info({ projectId: current.id, updates: input }, 'Project updated');
+  return updated;
+}
+
 export const projectRepository = {
   async create(input: CreateProjectInput) {
-    const pmoNumber = await generatePmoNumber();
-    const id = generateId('proj');
-    const now = new Date().toISOString();
-    const seq = parsePmoSeq(pmoNumber);
-    const reqAlias = seq !== null ? `REQ-${String(seq).padStart(4, '0')}` : null;
-    const project: ProjectData = {
-      id,
-      pmoNumber,
-      title: input.title,
-      description: input.description || null,
-      requirement: input.requirement || null,
-      companyId: input.companyId || null,
-      okrId: input.okrId || null,
-      status: 'pending',
-      priority: input.priority || 'normal',
-      progress: 0,
-      gitBranch: input.gitBranch || pmoNumber,
-      gitRepo: input.gitRepo || null,
-      specFilePath: null,
-      requirementsDocId: input.requirementsDocId || null,
-      startedAt: null,
-      completedAt: null,
-      createdAt: now,
-      updatedAt: now,
-      reqAlias,
-      deliveryPolicy: input.deliveryPolicy ?? 'branch-only',
-      ...(input.isChore ? { isChore: true, channelId: input.channelId ?? null } : {}),
-    };
+    const store = getStore();
+    return store.withLock(PROJECTS_LOCK_DIR, async () => {
+      const pmoNumber = await generatePmoNumber();
+      const id = generateId('proj');
+      const now = new Date().toISOString();
+      const seq = parsePmoSeq(pmoNumber);
+      const reqAlias = seq !== null ? `REQ-${String(seq).padStart(4, '0')}` : null;
+      const project: ProjectData = {
+        id,
+        pmoNumber,
+        title: input.title,
+        description: input.description || null,
+        requirement: input.requirement || null,
+        companyId: input.companyId || null,
+        okrId: input.okrId || null,
+        status: 'pending',
+        priority: input.priority || 'normal',
+        progress: 0,
+        gitBranch: input.gitBranch || pmoNumber,
+        gitRepo: input.gitRepo || null,
+        specFilePath: null,
+        requirementsDocId: input.requirementsDocId || null,
+        startedAt: null,
+        completedAt: null,
+        createdAt: now,
+        updatedAt: now,
+        reqAlias,
+        deliveryPolicy: input.deliveryPolicy ?? 'branch-only',
+        ...(input.isChore ? { isChore: true, channelId: input.channelId ?? null } : {}),
+      };
 
-    const repos = (input.gitRepos ?? []).map(r => r.trim()).filter(Boolean);
-    if (repos.length > 0) {
-      project.gitRepo = repos[0];
-      project.deliveries = repos.map(repo => ({ gitRepo: repo, branch: project.gitBranch, status: 'pending' }));
-    }
+      const repos = (input.gitRepos ?? []).map(r => r.trim()).filter(Boolean);
+      if (repos.length > 0) {
+        project.gitRepo = repos[0];
+        project.deliveries = repos.map(repo => ({ gitRepo: repo, branch: project.gitBranch, status: 'pending' }));
+      }
 
-    await getStore().writeJson(projectPath(id), project);
-    logger.info({ projectId: id, pmoNumber, reqAlias }, 'Project created');
-    return project;
+      await store.writeJson(projectPath(id), project);
+      logger.info({ projectId: id, pmoNumber, reqAlias }, 'Project created');
+      return project;
+    });
   },
 
   async get(projectId: string): Promise<ProjectData | null> {
@@ -160,55 +183,53 @@ export const projectRepository = {
 
   async unlinkOkr(okrId: string): Promise<number> {
     const linked = (await readAllProjects()).filter(p => p.okrId === okrId);
-    for (const p of linked) {
-      // 写回原始行，避免把读取时合成的 deliveries 单腿落盘。
-      const raw = await getStore().readJson<ProjectData>(projectPath(p.id));
-      if (!raw) continue;
-      await getStore().writeJson(projectPath(p.id), { ...raw, okrId: null, updatedAt: new Date().toISOString() });
-    }
+    for (const p of linked) await this.update(p.id, { okrId: null });
     return linked.length;
   },
 
   async update(projectId: string, input: UpdateProjectInput): Promise<ProjectData> {
-    const current = await getStore().readJson<ProjectData>(projectPath(projectId));
-    if (!current) throw new Error('Project not found');
-    const updated: ProjectData = {
-      ...current,
-      ...input,
-      id: current.id,
-      pmoNumber: current.pmoNumber,
-      createdAt: current.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-    await getStore().writeJson(projectPath(projectId), updated);
-    logger.info({ projectId, updates: input }, 'Project updated');
-    return updated;
+    const store = getStore();
+    return store.withLock(PROJECTS_LOCK_DIR, async () => {
+      const current = await store.readJsonUncached<ProjectData>(projectPath(projectId));
+      if (!current) throw new Error('Project not found');
+      return writeProjectUpdate(store, current, input);
+    });
   },
 
   async updateStatus(projectId: string, status: string, skipValidation = false, extra: Record<string, unknown> = {}) {
-    const now = new Date();
-    const current = await getStore().readJson<ProjectData>(projectPath(projectId));
-    if (!current) throw new Error('Project not found');
-    if (!skipValidation && !validateTransition(current.status, status)) {
-      logger.warn({ projectId, currentStatus: current.status, newStatus: status }, 'Invalid status transition');
-      throw new Error(`Invalid status transition: ${current.status} → ${status}`);
-    }
-    const updateData: Record<string, unknown> = { status, ...extra };
-    if (status === PROJECT_STATUS.ACTIVE && !current.startedAt) updateData.startedAt = now.toISOString();
-    if (status === PROJECT_STATUS.COMPLETED) {
-      updateData.completedAt = now.toISOString();
-      updateData.progress = 100;
-    }
-    logger.info({ projectId, from: current.status, to: status }, 'Project status transition');
-    return this.update(projectId, updateData);
+    const store = getStore();
+    return store.withLock(PROJECTS_LOCK_DIR, async () => {
+      const now = new Date();
+      const current = await store.readJsonUncached<ProjectData>(projectPath(projectId));
+      if (!current) throw new Error('Project not found');
+      if (!skipValidation && !validateTransition(current.status, status)) {
+        logger.warn({ projectId, currentStatus: current.status, newStatus: status }, 'Invalid status transition');
+        throw new Error(`Invalid status transition: ${current.status} → ${status}`);
+      }
+      const updateData: UpdateProjectInput = { status, ...extra };
+      if (status === PROJECT_STATUS.ACTIVE && !current.startedAt) updateData.startedAt = now.toISOString();
+      if (status === PROJECT_STATUS.COMPLETED) {
+        updateData.completedAt = now.toISOString();
+        updateData.progress = 100;
+      }
+      logger.info({ projectId, from: current.status, to: status }, 'Project status transition');
+      return writeProjectUpdate(store, current, updateData);
+    });
   },
 
   async tryActivate(projectId: string): Promise<boolean> {
-    const current = await getStore().readJson<ProjectData>(projectPath(projectId));
-    if (!current || current.status !== PROJECT_STATUS.PENDING) return false;
-    await this.updateStatus(projectId, PROJECT_STATUS.ACTIVE, true);
-    logger.info({ projectId, pmoNumber: current.pmoNumber }, 'Project activated (pending → active)');
-    return true;
+    const store = getStore();
+    return store.withLock(PROJECTS_LOCK_DIR, async () => {
+      const current = await store.readJsonUncached<ProjectData>(projectPath(projectId));
+      if (!current || current.status !== PROJECT_STATUS.PENDING) return false;
+      logger.info({ projectId, from: current.status, to: PROJECT_STATUS.ACTIVE }, 'Project status transition');
+      await writeProjectUpdate(store, current, {
+        status: PROJECT_STATUS.ACTIVE,
+        startedAt: current.startedAt ?? new Date().toISOString(),
+      });
+      logger.info({ projectId, pmoNumber: current.pmoNumber }, 'Project activated (pending → active)');
+      return true;
+    });
   },
 
   async delete(projectId: string) {

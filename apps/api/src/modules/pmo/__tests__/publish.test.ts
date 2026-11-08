@@ -58,8 +58,10 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
     ...actual,
     FileStore: vi.fn().mockImplementation(function () { return {
       readJson: mockReadJson,
+      readJsonUncached: mockReadJson,
       writeJson: mockWriteJson,
       readJsonl: vi.fn().mockResolvedValue([]),
+      withLock: async (_lockDir: string, fn: () => Promise<unknown>) => fn(),
       getChannel: mockGetChannel,
       getProfile: mockGetProfile,
     }; }),

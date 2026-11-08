@@ -111,7 +111,7 @@ describe('syncProjectProgress（B3a 进度回写）', () => {
     expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.IN_REVIEW);
   });
 
-  it('已 in_review 且证据仍缺 → 不动；证据补齐后重算 → 翻 completed（读取纠偏路径）', async () => {
+  it('已 in_review 且证据仍缺 → 不动；证据补齐后显式重算 → 翻 completed', async () => {
     const project = await createRealProject();
     await projectService.update(project.id, { status: PROJECT_STATUS.ACTIVE });
     await projectService.updateStatus(project.id, PROJECT_STATUS.IN_REVIEW);
@@ -121,7 +121,7 @@ describe('syncProjectProgress（B3a 进度回写）', () => {
     await syncProjectProgress(project.id, fileStore);
     expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.IN_REVIEW);
 
-    // 幂等补写证据（不产生状态事件），读取时重算纠偏
+    // 测试经显式同步验证证据补齐后的对账纠偏
     await wuService.update(wu.id, { metadata: fullEvidence });
     await syncProjectProgress(project.id, fileStore);
 

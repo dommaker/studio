@@ -47,8 +47,10 @@ vi.mock('@dommaker/studio-shared', async importOriginal => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   FileStore: vi.fn().mockImplementation(function () { return {
     readJson: mockReadJson,
+    readJsonUncached: mockReadJson,
     writeJson: mockWriteJson,
     readJsonl: mockReadJsonl,
+    withLock: async (_lockDir: string, fn: () => Promise<unknown>) => fn(),
     // P2-e：project.service 目录清单收口 listJsonInDir——mock 以 mockReadDir/mockReadJson
     // 复刻 seam 语义（.json 过滤 + 逐文件读 + ENOENT/损坏跳过），既有 per-test 控制面不变
     listJsonInDir: async (dir: string) => {

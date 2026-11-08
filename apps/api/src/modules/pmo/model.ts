@@ -21,7 +21,7 @@ export interface UpdateProjectInput {
   title?: string;
   description?: string;
   requirement?: string;
-  okrId?: string;
+  okrId?: string | null;
   status?: string;
   priority?: string;
   progress?: number;

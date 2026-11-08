@@ -41,8 +41,6 @@ import {
 import { getOkrService, type UpdateOKRInput } from './okr.service.js';
 import { projectService, parsePmoNumberFromCommand, type UpdateProjectInput } from './project.service.js';
 import { getDeliveryStatus, deliverProject, markProjectDelivered } from './delivery.js';
-import { syncProjectProgress } from './progress-rollup.js';
-import { logger } from '../../utils/logger.js';
 import { type AuthRequest } from '../../middleware/auth.js';
 import { apiCache, CACHE_CONFIG, clearCache } from '../../middleware/api-cache.js';
 import { defineRoute, HttpError, requireHuman } from '../../core/http.js';
@@ -157,10 +155,7 @@ openRoutes.get('/project/by-pmo/:pmoNumber', defineRoute({ params: pmoNumberPara
  * GET /api/v1/pmo/project/:id
  * 获取项目详情
  */
-openRoutes.get('/project/:id', defineRoute({ params: projectIdParamsSchema, response: projectResponseSchema }, async (req, _res, { params }) => {
-  // 读取时重算进度（best-effort）：analysis 派生链无 Requirement 归属，事件入口此前接不上，存量项目进度滞留
-  await syncProjectProgress(params.id).catch(err =>
-    logger.warn({ projectId: params.id, error: String(err) }, '[PMO] Progress resync on read failed (non-blocking)'));
+openRoutes.get('/project/:id', defineRoute({ params: projectIdParamsSchema, response: projectResponseSchema }, async (_req, _res, { params }) => {
   const project = await projectService.get(params.id);
   if (!project) throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Project not found');
   return project;
