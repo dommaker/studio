@@ -79,7 +79,7 @@ const baseDelivery: DeliveryStatus = {
   deliverCommit: null,
 };
 
-const gapDelivery = (missing: Array<'l1' | 'l2' | 'l3'>): DeliveryStatus => ({
+const gapDelivery = (missing: Array<'l1' | 'l2' | 'l3' | 'merge'>): DeliveryStatus => ({
   ...baseDelivery,
   wu: { total: 1, finished: 1, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
   gaps: [{ id: 'wu-1', title: '修复登录缺陷', type: 'bug', missing }],
@@ -111,6 +111,11 @@ describe('DeliveryPanel', () => {
     expect(screen.getByText('实现交付台账')).toBeTruthy();
     expect(screen.getByText('缺 Agent 评审')).toBeTruthy();
     expect(screen.getByRole('button', { name: '派发评审' })).toBeTruthy();
+  });
+
+  it('merge receipt/目标验证缺口使用人话文案', () => {
+    renderPanel(gapDelivery(['merge']));
+    expect(screen.getByText('缺合并回执或目标验证')).toBeTruthy();
   });
 
   it('「查看任务 ›」跳转 /workunits/:id', () => {

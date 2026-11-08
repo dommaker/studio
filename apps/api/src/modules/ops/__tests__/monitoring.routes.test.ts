@@ -44,7 +44,8 @@ const { mockGetAgentSummary, mockGetStats, mockGetOverviewMetrics, mockGetEffici
       failure24h: { description: 'failures', n: 0, rate: null, trend: null },
       evidence: {
         description: 'evidence', engaged: 0, l1Approved: 0, l2Approved: 0, l3Approved: 0,
-        selfReviewCount: 0, needsHuman: 0, derivedMismatch: 0, derivedByColumn: {},
+        selfReviewCount: 0, needsHuman: 0,
+        mergeDivergence: 0, doneWithoutReceipt: 0, derivedMismatch: 0, derivedByColumn: {},
       },
     }),
     mockGetEfficiencyMetrics: vi.fn().mockResolvedValue({

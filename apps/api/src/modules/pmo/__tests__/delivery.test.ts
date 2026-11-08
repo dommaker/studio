@@ -60,6 +60,15 @@ function wu(overrides: Partial<WorkUnitSnapshot> & { metadataObj?: Record<string
 const att = (kind: string, extra: Record<string, unknown> = {}) => ({
   verdict: 'approved', by: 'x', at: '2026-07-29T00:30:00Z', kind, ...extra,
 });
+const mergeReceipt = {
+  id: 'merge-1', merged: true, mergedAt: '2026-07-29T00:45:00Z',
+  mergeCommit: 'c0ffee1234567890', targetBranch: 'PMO-11',
+  verification: { status: 'passed', ran: ['pnpm test'] },
+};
+const fullEvidence = {
+  mergeReceipt,
+  attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') },
+};
 
 function makeDeps(input: {
   project?: ProjectData | null;
@@ -101,7 +110,7 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
   });
 
   it('证据齐 → deliverable；缺口分桶到 l1/l2/l3 并出人话清单', async () => {
-    const ready = wu({ metadataObj: { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } } });
+    const ready = wu({ metadataObj: fullEvidence });
     const deps = makeDeps({ snapshots: [ready] });
     const s = await getDeliveryStatus('proj-1', undefined, deps);
     expect(s!.deliverable).toBe(true);
@@ -119,11 +128,27 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
     expect(s2!.evidence.l3Missing).toEqual([gaps.id]);
     expect(s2!.evidence.l2Missing).toEqual([]);
     expect(s2!.evidence.selfReviewCount).toBe(1);
-    // gaps 明细：只含已完成且有缺口的 WU，missing 顺序 l1→l2→l3，标题回退 scope
-    expect(s2!.gaps).toEqual([{ id: gaps.id, title: 's', type: 'task', missing: ['l1', 'l3'] }]);
+    // gaps 明细：只含已完成且有缺口的 WU，missing 顺序 l1→l2→l3→merge，标题回退 scope
+    expect(s2!.evidence.mergeMissing).toEqual([gaps.id]);
+    expect(s2!.gaps).toEqual([{ id: gaps.id, title: 's', type: 'task', missing: ['l1', 'l3', 'merge'] }]);
     expect(s2!.missing.join(' ')).toContain('1 个任务未完成');
     expect(s2!.missing.join(' ')).toContain('缺自动验证');
     expect(s2!.missing.join(' ')).toContain('缺人工确认');
+    expect(s2!.missing.join(' ')).toContain('缺有效合并回执');
+  });
+
+  it('无目标验证命令且缺 L3 → verificationUnavailable + merge 缺口与人工确认文案', async () => {
+    const item = wu({ metadataObj: {
+      mergeReceipt: { ...mergeReceipt, verification: { status: 'unavailable', ran: [] } },
+      attestations: { l1: att('verify'), l2: att('agent-review') },
+    } });
+    const s = await getDeliveryStatus('proj-1', undefined, makeDeps({ snapshots: [item] }));
+    expect(s!.deliverable).toBe(false);
+    expect(s!.evidence.mergeMissing).toEqual([]);
+    expect(s!.evidence.verificationUnavailable).toEqual([item.id]);
+    expect(s!.gaps).toEqual([{ id: item.id, title: 's', type: 'task', missing: ['l3', 'merge'] }]);
+    expect(s!.missing.join(' ')).toContain('无目标验证命令');
+    expect(s!.missing.join(' ')).toContain('需人工确认');
   });
 
   it('analysis/review 类 WU 豁免 L2（dispatcher 不派评审，验收闸是人工 L3）；缺 L3 仍不可交付', async () => {
@@ -154,13 +179,13 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
     expect(s!.tokens).toBe(12345);
     expect(sumTokens).toHaveBeenCalledWith(new Set([titled.id, broken.id]));
     expect(s!.gaps).toEqual([
-      { id: titled.id, title: '实现登录页', type: 'task', missing: ['l2', 'l3'] },
-      { id: broken.id, title: 'broken-scope', type: 'task', missing: ['l1', 'l2', 'l3'] },
+      { id: titled.id, title: '实现登录页', type: 'task', missing: ['l2', 'l3', 'merge'] },
+      { id: broken.id, title: 'broken-scope', type: 'task', missing: ['l1', 'l2', 'l3', 'merge'] },
     ]);
   });
 
   it('token 聚合失败 → tokens=0（best-effort，不拖垮台账主流程）', async () => {
-    const ready = wu({ metadataObj: { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } } });
+    const ready = wu({ metadataObj: fullEvidence });
     const s = await getDeliveryStatus('proj-1', undefined, makeDeps({
       snapshots: [ready],
       sumTokens: async () => { throw new Error('io error'); },
@@ -207,7 +232,7 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
     expect(s3!.archived).toBe(false);
 
     // completed 但仍有 WU 在册：实时口径有效 → 不置标志
-    const ready = wu({ metadataObj: { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } } });
+    const ready = wu({ metadataObj: fullEvidence });
     const s4 = await getDeliveryStatus('proj-1', undefined, makeDeps({
       project: project({ status: 'completed', progress: 100, completedAt: '2026-07-30T00:00:00Z' }),
       snapshots: [ready],
@@ -225,7 +250,7 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
   });
 
   it('analysis 派生链：无关联 Requirement 时按 metadata.pmoId 回退归属', async () => {
-    const ready = wu({ reqId: null, metadataObj: { pmoId: 'proj-1', attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } } });
+    const ready = wu({ reqId: null, metadataObj: { pmoId: 'proj-1', ...fullEvidence } });
     const other = wu({ reqId: null, metadataObj: { pmoId: 'proj-2', attestations: {} } });
     const s = await getDeliveryStatus('proj-1', undefined, makeDeps({ reqs: [], snapshots: [ready, other] }));
     expect(s!.wu).toEqual({ total: 1, finished: 1, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } }); // proj-2 的 WU 不计入
@@ -246,7 +271,7 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
 });
 
 describe('deliverProject（PMO-b 交付守卫）', () => {
-  const readyWu = () => wu({ metadataObj: { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } } });
+  const readyWu = () => wu({ metadataObj: fullEvidence });
 
   it('branch-only → 拒绝并附分支名（不碰合并链路）', async () => {
     const deps = makeDeps({ project: project({ deliveryPolicy: 'branch-only' }), snapshots: [readyWu()] });
@@ -279,8 +304,7 @@ describe('deliverProject（PMO-b 交付守卫）', () => {
           ],
         }),
         snapshots: [wu({ metadataObj: {
-          workspaceRoot: '/repo/a',
-          attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') },
+          workspaceRoot: '/repo/a', ...fullEvidence,
         } })],
       }));
       expect(nested, branch).toMatchObject({ delivered: false, reason: 'conflict' });

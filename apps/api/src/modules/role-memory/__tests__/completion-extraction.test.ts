@@ -310,6 +310,17 @@ describe('WuCompletionExtractor（#99 AC）', () => {
     expect(JSON.parse(fresh!.metadata ?? '{}').memoryExtractedAt).toBeUndefined();
   });
 
+  it('done 上补证据（previousStatus=done）不重复触发学习提取', async () => {
+    const roleId = `role-${Date.now()}-evidence`;
+    await createProfile(roleId);
+    const wu = await createDoneWu(roleId);
+
+    eventBus.publish('workunit.status_changed', { workunit: { ...wu, status: 'done' }, previousStatus: 'done' });
+    await new Promise(r => setTimeout(r, 100));
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(await readExtractionEvents()).toHaveLength(0);
+  });
+
   it('非 done 状态 → 忽略，不触发', async () => {
     const roleId = `role-${Date.now()}-f`;
     await createProfile(roleId);

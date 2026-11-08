@@ -9,10 +9,10 @@ import { WorkUnitLifecycleService } from '../workunit-lifecycle.js';
 import { WorkUnitReviewService } from '../workunit-review.js';
 
 const PUBLIC_METHODS = [
-  'aggregateParentStatus', 'blockForAllUnfit', 'blockForManualRelease', 'claim', 'close',
+  'aggregateParentStatus', 'blockForAllUnfit', 'blockForManualRelease', 'blockForMergeFailure', 'claim', 'close',
   'create', 'createFromMessage', 'createGuarded', 'delete', 'getById', 'lastDoneByAssignee',
-  'list', 'markMergeConflict', 'rebindSourceChannel', 'recordL1Verification', 'reviewPassed',
-  'reviewRejected', 'transitionStatus', 'unclaim', 'update', 'updateMetadata', 'verifyManually',
+  'list', 'rebindSourceChannel', 'recordL1Verification', 'recordMergeProgress',
+  'reviewPassed', 'reviewRejected', 'settleMerge', 'transitionStatus', 'unclaim', 'update', 'updateMetadata', 'verifyManually',
 ];
 
 const ownMethods = (cls: { prototype: object }): string[] =>
@@ -53,8 +53,8 @@ describe('WorkUnitService 用例组合（ARCH-05）', () => {
       'close', 'persistSnapshot', 'rebindSourceChannel', 'transitionStatus', 'writeWorkUnitClosedEvent',
     ]);
     expect(ownMethods(WorkUnitReviewService)).toEqual([
-      'blockForAllUnfit', 'blockForManualRelease', 'buildAttestationEntry', 'markMergeConflict',
-      'recordL1Verification', 'reviewPassed', 'reviewRejected', 'verifyManually',
+      'blockForAllUnfit', 'blockForManualRelease', 'blockForMergeFailure', 'buildAttestationEntry',
+      'recordL1Verification', 'recordMergeProgress', 'reviewPassed', 'reviewRejected', 'settleMerge', 'verifyManually',
       'writeAgentReviewAttestation', 'writeHumanConfirmation',
     ]);
     expect(Object.keys(serviceModule).sort()).toEqual([

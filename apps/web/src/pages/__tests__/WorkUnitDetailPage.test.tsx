@@ -333,6 +333,32 @@ describe('WorkUnitDetailPage', () => {
     expect(await screen.findByText('存量任务，证据模型未介入（按存储状态展示）')).toBeDefined();
   });
 
+  it('交付子状态与 merge receipt 进入主状态旁徽标和证据台账', async () => {
+    const metadata = JSON.parse(baseWu.metadata) as Record<string, unknown>;
+    mockWuGet.mockResolvedValue({
+      ...baseWu,
+      status: 'blocked',
+      completedAt: null,
+      metadata: JSON.stringify({
+        ...metadata,
+        mergeReceipt: {
+          id: 'merge-1', merged: true, mergeCommit: 'abc123def', targetBranch: 'main',
+          verification: { status: 'failed', ran: ['pnpm test'] },
+        },
+      }),
+    });
+    render(<WorkUnitDetailPage />);
+
+    expect(await screen.findByText('已合并，目标验证失败')).toBeDefined();
+    expect(screen.getAllByText('阻塞').length).toBeGreaterThan(0);
+    expect(screen.getByText('Merge commit')).toBeDefined();
+    expect(screen.getByText('abc123def')).toBeDefined();
+    expect(screen.getByText('目标分支')).toBeDefined();
+    expect(screen.getByText('main')).toBeDefined();
+    expect(screen.getByText('目标验证')).toBeDefined();
+    expect(screen.getByText('failed')).toBeDefined();
+  });
+
   it('#174: 执行过程 section 之后挂 TranscriptViewer（传 WU id）', async () => {
     render(<WorkUnitDetailPage />);
     await screen.findByText('登录功能开发');

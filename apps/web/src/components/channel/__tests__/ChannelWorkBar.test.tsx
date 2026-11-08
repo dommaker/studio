@@ -269,4 +269,22 @@ describe('ChannelWorkBar — 频道工作条', () => {
     );
     expect(container.querySelector('.mc-workbar-gate')).toBeNull();
   });
+
+  it('merge queued 在 WU 旁展示交付徽标，阶段主状态仍为待验收', () => {
+    mockUseChannelLiveExecutions.mockReturnValue([]);
+    const { container } = render(
+      <ChannelWorkBar
+        channelId="ch-1"
+        currentWu={wu({
+          status: 'in_review',
+          metadata: JSON.stringify({ mergeIntent: { id: 'merge-1', state: 'queued' } }),
+        })}
+        onOpenWorkUnit={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('等待合并')).toBeTruthy();
+    const steps = stationEls(container);
+    expect(steps[2].className).toContain('wu-st-current');
+  });
 });

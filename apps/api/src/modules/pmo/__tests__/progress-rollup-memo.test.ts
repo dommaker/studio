@@ -25,7 +25,14 @@ import { RequirementService } from '../../requirements/requirement.service.js';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 const att = (kind: string) => ({ verdict: 'approved', by: 'x', at: '2026-07-29T00:30:00Z', kind });
-const fullEvidence = { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } };
+const fullEvidence = {
+  mergeReceipt: {
+    id: 'merge-1', merged: true, mergedAt: '2026-07-29T00:45:00Z',
+    mergeCommit: 'c0ffee1234567890', targetBranch: 'PMO-1',
+    verification: { status: 'passed', ran: ['pnpm test'] },
+  },
+  attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') },
+};
 const evidenceMeta = JSON.stringify(fullEvidence);
 
 let tmpDir: string;

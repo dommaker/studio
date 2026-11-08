@@ -162,7 +162,8 @@ describe('overviewMetricsSchema（D16 九组 + #456 + F6）', () => {
     failure24h: { description: 'd', n: 3, rate: 0.1, trend: 'up' },
     evidence: {
       description: 'd', engaged: 6, l1Approved: 5, l2Approved: 4, l3Approved: 3,
-      selfReviewCount: 1, needsHuman: 2, derivedMismatch: 0,
+      selfReviewCount: 1, needsHuman: 2,
+      mergeDivergence: 1, doneWithoutReceipt: 2, derivedMismatch: 0,
       derivedByColumn: { todo: 1, doing: 2 },
     },
     source: 'events',
@@ -170,6 +171,8 @@ describe('overviewMetricsSchema（D16 九组 + #456 + F6）', () => {
 
   it('响应壳 = { data }；前端消费组必填字段缺失/非法值即拒', () => {
     expect(overviewMetricsResponseSchema.parse({ data: overview }).data.stuck.blocked).toBe(1);
+    expect(overviewMetricsResponseSchema.parse({ data: overview }).data.evidence.mergeDivergence).toBe(1);
+    expect(overviewMetricsResponseSchema.parse({ data: overview }).data.evidence.doneWithoutReceipt).toBe(2);
     expect(() => humanInterventionMetricsSchema.parse({
       ...overview.humanIntervention, avgPerCompletedWu: undefined,
     })).toThrow();

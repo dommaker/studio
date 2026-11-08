@@ -509,3 +509,54 @@ describe('aggregateOverview — F6 证据台账（决策 1）', () => {
     expect(m.evidence.derivedByColumn).toEqual({ done: 2, active: 1, blocked: 1, unassigned: 1 });
   });
 });
+
+describe('aggregateOverview — #703 merge receipt 监控', () => {
+  it('doneWithoutReceipt 只计 legacy done 代码 WU，不重复计 mergeDivergence', () => {
+    const input = makeInput();
+    input.snapshots = [
+      makeWu({ id: 'legacy', status: 'done', type: 'task', metadataObj: {} }),
+      makeWu({ id: 'closed', status: 'closed', type: 'task', metadataObj: {} }),
+      makeWu({ id: 'analysis', status: 'done', type: 'analysis', metadataObj: {} }),
+      makeWu({ id: 'accepted', status: 'done', type: 'task', metadataObj: {
+        mergeReceipt: {
+          id: 'm1', merged: true, mergeCommit: 'c0ffee', targetBranch: 'PMO-1',
+          verification: { status: 'passed', ran: ['pnpm test'] },
+        },
+      } }),
+    ];
+    const m = aggregateOverview(input);
+    expect(m.evidence.doneWithoutReceipt).toBe(1);
+    expect(m.evidence.mergeDivergence).toBe(0);
+  });
+
+  it('mergeDivergence 只计 metadata/receipt 自相矛盾；unavailable+L3 是接受态', () => {
+    const receipt = {
+      id: 'm1', merged: true, mergedAt: '2026-07-27T00:00:00Z',
+      mergeCommit: 'c0ffee', targetBranch: 'PMO-1',
+      verification: { status: 'passed', ran: ['pnpm test'] },
+    };
+    const input = makeInput();
+    input.snapshots = [
+      makeWu({ id: 'unaccepted', status: 'done', metadataObj: { mergeReceipt: { ...receipt, merged: false } } }),
+      makeWu({ id: 'failed', status: 'done', metadataObj: { mergeReceipt: { ...receipt, verification: { status: 'failed', ran: [] } } } }),
+      makeWu({ id: 'not-run', status: 'done', metadataObj: { mergeReceipt: { ...receipt, verification: { status: 'not-run', ran: [] } } } }),
+      makeWu({ id: 'no-target', status: 'done', metadataObj: { mergeReceipt: { ...receipt, targetBranch: '' } } }),
+      makeWu({ id: 'no-commit', status: 'active', metadataObj: { mergeReceipt: { ...receipt, mergeCommit: undefined } } }),
+      makeWu({ id: 'commit-conflict', status: 'active', metadataObj: { mergeCommit: 'old', mergeReceipt: receipt } }),
+      makeWu({ id: 'time-conflict', status: 'active', metadataObj: { mergedAt: '2026-07-26T00:00:00Z', mergeReceipt: receipt } }),
+      makeWu({ id: 'done-conflict', status: 'done', metadataObj: { mergeConflict: true, mergeReceipt: receipt } }),
+    ];
+    expect(aggregateOverview(input).evidence.mergeDivergence).toBe(input.snapshots.length);
+    expect(aggregateOverview(input).evidence.doneWithoutReceipt).toBe(0);
+
+    input.snapshots = [
+      makeWu({ id: 'not-done-rejected', status: 'active', metadataObj: { mergeReceipt: { ...receipt, merged: false } } }),
+      makeWu({ id: 'accepted-unavailable', status: 'done', metadataObj: {
+        mergeReceipt: { ...receipt, verification: { status: 'unavailable', ran: [] } },
+        attestations: { l3: { verdict: 'approved', by: 'Alice', at: iso(T), kind: 'human-confirm' } },
+      } }),
+      makeWu({ id: 'accepted-no-mirror', status: 'active', metadataObj: { mergeReceipt: receipt } }),
+    ];
+    expect(aggregateOverview(input).evidence.mergeDivergence).toBe(0);
+  });
+});

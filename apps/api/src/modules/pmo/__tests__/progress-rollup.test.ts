@@ -24,7 +24,14 @@ import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 /** 三层证据齐全的 metadata（l1 自动验证 / l2 agent 评审 / l3 人工确认） */
 const att = (kind: string) => ({ verdict: 'approved', by: 'x', at: '2026-07-29T00:30:00Z', kind });
-const fullEvidence = { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } };
+const fullEvidence = {
+  mergeReceipt: {
+    id: 'merge-1', merged: true, mergedAt: '2026-07-29T00:45:00Z',
+    mergeCommit: 'c0ffee1234567890', targetBranch: 'PMO-1',
+    verification: { status: 'passed', ran: ['pnpm test'] },
+  },
+  attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') },
+};
 
 let tmpDir: string;
 let fileStore: FileStore;

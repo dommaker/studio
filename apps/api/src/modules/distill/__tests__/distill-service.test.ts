@@ -210,7 +210,11 @@ describe('端到端：矿石 → 门槛 → 发卡 → approve → 产物入库 
     await new Promise(r => setTimeout(r, 100));
     expect(await listProposals()).toHaveLength(0);
 
-    eventBus.publish('workunit.status_changed', { workunit: { id: 'wu-y', status: 'done' } });
+    eventBus.publish('workunit.status_changed', { workunit: { id: 'wu-evidence', status: 'done' }, previousStatus: 'done' });
+    await new Promise(r => setTimeout(r, 100));
+    expect(await listProposals()).toHaveLength(0);
+
+    eventBus.publish('workunit.status_changed', { workunit: { id: 'wu-y', status: 'done' }, previousStatus: 'in_review' });
     const fired = await waitFor(async () => (await listProposals()).length === 1);
     expect(fired).toBe(true);
     expect(mockCreateCardMessage).toHaveBeenCalledTimes(1);

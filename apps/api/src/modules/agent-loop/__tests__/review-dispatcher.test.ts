@@ -385,6 +385,42 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(reviewChild).toBeUndefined();
   });
 
+  it('merge queued/running 的 in_review 进度事件不重复派评审', async () => {
+    for (const state of ['queued', 'running'] as const) {
+      const wu = await wuService.create({
+        scope: `merge ${state}`, type: 'task', channelId: 'ch-test', status: 'active',
+        metadata: {
+          mergeIntent: {
+            id: `merge:${state}`, state, requestedAt: new Date().toISOString(),
+            sourceBranch: 'task/wu-1', targetBranch: 'main',
+          },
+        },
+      });
+      await wuService.transitionStatus(wu.id, 'in_review');
+      await dispatcher.waitForSettled();
+      const snapshots = await fileStore.getIndex();
+      expect(snapshots.find(s => s.parentId === wu.id && s.type === 'review')).toBeUndefined();
+      expect(await dispatcher.redispatchReview((await wuService.getById(wu.id))!)).toBeNull();
+      await expect(dispatcher.dispatchReviewNow(wu.id)).rejects.toThrow('merge');
+    }
+  });
+
+  it('merged+verification unavailable 等人工 L3 时不重派评审', async () => {
+    const wu = await wuService.create({
+      scope: 'merge unavailable', type: 'task', channelId: 'ch-test', status: 'active',
+      metadata: {
+        mergeReceipt: {
+          id: 'merge:1', merged: true, mergeCommit: 'abc123', targetBranch: 'main',
+          verification: { status: 'unavailable', ran: [] },
+        },
+      },
+    });
+    await wuService.transitionStatus(wu.id, 'in_review');
+    await dispatcher.waitForSettled();
+    const snapshots = await fileStore.getIndex();
+    expect(snapshots.find(s => s.parentId === wu.id && s.type === 'review')).toBeUndefined();
+  });
+
   it('#108/#471: decision/spec/plan WU in_review -> 不派 review 子 WU（人工验收类工单，验收闸 = 人工 in_review）', async () => {
     for (const type of ['decision', 'spec', 'plan']) {
       const wu = await wuService.create({

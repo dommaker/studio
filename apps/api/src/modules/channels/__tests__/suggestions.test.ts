@@ -196,6 +196,36 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     }]);
   });
 
+  it('merge queued/running 不出补派评审或等待评审建议', async () => {
+    const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
+    const parent = await createParent({ ageMin: graceMin + 5 });
+    await fileStore.updateMetadata(parent.id, latest => ({
+      ...latest,
+      mergeIntent: {
+        id: 'merge:1', state: 'running', requestedAt: new Date().toISOString(),
+        sourceBranch: 'task/wu-1', targetBranch: 'main',
+      },
+    }));
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions).toEqual([]);
+  });
+
+  it('verification unavailable 等人工确认时不建议补派评审', async () => {
+    const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
+    const parent = await createParent({ ageMin: graceMin + 5 });
+    await fileStore.updateMetadata(parent.id, latest => ({
+      ...latest,
+      mergeReceipt: {
+        id: 'merge:1', merged: true, mergeCommit: 'abc123', targetBranch: 'main',
+        verification: { status: 'unavailable', ran: [] },
+      },
+    }));
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions).toEqual([]);
+  });
+
   it('双向覆盖反向：活跃 review 子单在途 → 不出补派动作片', async () => {
     const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
     const parent = await createParent({ ageMin: graceMin + 5 });

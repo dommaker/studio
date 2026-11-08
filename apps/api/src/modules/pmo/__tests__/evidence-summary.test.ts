@@ -23,7 +23,15 @@ function wu(overrides: Partial<WorkUnitSnapshot> & { metadataObj?: Record<string
 const att = (kind: string, extra: Record<string, unknown> = {}) => ({
   verdict: 'approved', by: 'x', at: '2026-07-29T00:30:00Z', kind, ...extra,
 });
-const fullEvidence = { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } };
+const mergeReceipt = {
+  id: 'merge-1', merged: true, mergedAt: '2026-07-29T00:45:00Z',
+  mergeCommit: 'c0ffee1234567890', targetBranch: 'PMO-1',
+  verification: { status: 'passed', ran: ['pnpm test'] },
+};
+const fullEvidence = {
+  mergeReceipt,
+  attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') },
+};
 
 describe('parseWuMetaPmoId', () => {
   it('正常解析 / 无字段 / 坏 JSON / null / 空字符串', () => {
@@ -93,6 +101,59 @@ describe('summarizeEvidence', () => {
     });
   });
 
+  it('legacy done 即使三层证据齐，无 merge receipt 也不可交付', () => {
+    const legacy = wu({ metadataObj: { attestations: fullEvidence.attestations } });
+    const s = summarizeEvidence([legacy]);
+    expect(s.mergeMissing).toEqual([legacy.id]);
+    expect(s.verificationUnavailable).toEqual([]);
+    expect(s.deliverable).toBe(false);
+  });
+
+  it('代码 receipt 必须 merged 且带 mergeCommit/targetBranch，failed/not-run 均不可交付', () => {
+    const rejectedReceipts = [
+      { ...mergeReceipt, merged: false },
+      { ...mergeReceipt, mergeCommit: undefined },
+      { ...mergeReceipt, targetBranch: '' },
+      { ...mergeReceipt, verification: { status: 'failed', ran: ['pnpm test'] } },
+      { ...mergeReceipt, verification: { status: 'not-run', ran: [] } },
+    ];
+    for (const receipt of rejectedReceipts) {
+      const item = wu({ metadataObj: { ...fullEvidence, mergeReceipt: receipt } });
+      const s = summarizeEvidence([item]);
+      expect(s.mergeMissing).toEqual([item.id]);
+      expect(s.verificationUnavailable).toEqual([]);
+      expect(s.deliverable).toBe(false);
+    }
+  });
+
+  it('verification=unavailable 仅 L3 approved 可交付；否则单列人工确认缺口', () => {
+    const unavailable = { ...mergeReceipt, verification: { status: 'unavailable', ran: [] } };
+    const approved = wu({ metadataObj: { ...fullEvidence, mergeReceipt: unavailable } });
+    const approvedSummary = summarizeEvidence([approved]);
+    expect(approvedSummary.verificationUnavailable).toEqual([]);
+    expect(approvedSummary.deliverable).toBe(true);
+
+    const withoutL3 = wu({ metadataObj: {
+      mergeReceipt: unavailable,
+      attestations: { l1: att('verify'), l2: att('agent-review') },
+    } });
+    const s = summarizeEvidence([withoutL3]);
+    expect(s.mergeMissing).toEqual([]);
+    expect(s.verificationUnavailable).toEqual([withoutL3.id]);
+    expect(s.deliverable).toBe(false);
+  });
+
+  it('unavailable+L3 没有既有 L1 也可交付，不伪装自动验证通过', () => {
+    const unavailable = { ...mergeReceipt, verification: { status: 'unavailable', ran: [] } };
+    const accepted = wu({ metadataObj: {
+      mergeReceipt: unavailable,
+      attestations: { l2: att('agent-review'), l3: att('human-confirm') },
+    } });
+    const s = summarizeEvidence([accepted]);
+    expect(s.l1Missing).toEqual([]);
+    expect(s.deliverable).toBe(true);
+  });
+
   it('代码类 WU 缺证据 → 三层缺口各自分桶', () => {
     const bare = wu({ metadataObj: {} });
     const s = summarizeEvidence([bare]);
@@ -148,7 +209,7 @@ describe('summarizeEvidence', () => {
   });
 
   it('l2 自评计数（不阻断交付）', () => {
-    const self = wu({ metadataObj: { attestations: { l1: att('verify'), l2: att('agent-review', { selfReview: true }), l3: att('human-confirm') } } });
+    const self = wu({ metadataObj: { mergeReceipt, attestations: { l1: att('verify'), l2: att('agent-review', { selfReview: true }), l3: att('human-confirm') } } });
     const s = summarizeEvidence([self]);
     expect(s.selfReviewCount).toBe(1);
     expect(s.deliverable).toBe(true);

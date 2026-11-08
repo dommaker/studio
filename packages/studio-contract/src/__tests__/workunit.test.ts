@@ -104,6 +104,10 @@ describe('请求 schema', () => {
     for (const metadata of [
       { worktreePath: '/tmp/forged' },
       { verifyCommands: ['touch /tmp/forbidden'] },
+      { mergeIntent: { state: 'queued' } },
+      { mergeReceipt: { merged: true } },
+      { mergedAt: '2026-01-01T00:00:00Z' },
+      { mergeCommit: 'forged' },
     ]) {
       expect(createWorkUnitBodySchema.safeParse({ scope: 'x', metadata }).success).toBe(false);
       expect(updateWorkUnitBodySchema.safeParse({ metadata }).success).toBe(false);

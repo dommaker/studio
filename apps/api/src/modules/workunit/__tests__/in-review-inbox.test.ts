@@ -87,6 +87,20 @@ describe('#464 无频道 in_review 收件箱', () => {
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 
+  it('merge queued/running 的 in_review 进度不告警', async () => {
+    await transitToInReview({
+      scope: '自动合并中', type: 'task',
+      metadata: {
+        mergeIntent: {
+          id: 'merge:1', state: 'running', requestedAt: new Date().toISOString(),
+          sourceBranch: 'task/wu-1', targetBranch: 'main',
+        },
+      },
+    });
+    await settleInbox();
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
   it('迁入非 in_review 状态 → 不出声', async () => {
     const wu = await service.create({ scope: '普通单', type: 'task', status: 'unassigned' });
     await service.transitionStatus(wu.id, 'active');

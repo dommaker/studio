@@ -70,7 +70,14 @@ function wu(overrides: Partial<WorkUnitSnapshot> & { metadataObj?: Record<string
 const att = (kind: string, extra: Record<string, unknown> = {}) => ({
   verdict: 'approved', by: 'x', at: '2026-07-29T00:30:00Z', kind, ...extra,
 });
-const fullEvidence = { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } };
+const fullEvidence = {
+  mergeReceipt: {
+    id: 'merge-1', merged: true, mergedAt: '2026-07-29T00:45:00Z',
+    mergeCommit: 'c0ffee1234567890', targetBranch: 'PMO-11',
+    verification: { status: 'passed', ran: ['pnpm test'] },
+  },
+  attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') },
+};
 
 function makeDeps(input: {
   project?: ProjectData | null;
@@ -124,7 +131,8 @@ describe('getDeliveryStatus 多腿台账（#113 T7）', () => {
     expect(legB.evidence.l1Missing).toEqual([bGaps.id]);
     expect(legB.evidence.l3Missing).toEqual([bGaps.id]);
     expect(legB.evidence.l2Missing).toEqual([]);
-    expect(legB.gaps).toEqual([{ id: bGaps.id, title: 's', type: 'task', missing: ['l1', 'l3'] }]);
+    expect(legB.evidence.mergeMissing).toEqual([bGaps.id]);
+    expect(legB.gaps).toEqual([{ id: bGaps.id, title: 's', type: 'task', missing: ['l1', 'l3', 'merge'] }]);
 
     // 整体 = 全腿 deliverable 才翻转
     expect(s!.deliverable).toBe(false);

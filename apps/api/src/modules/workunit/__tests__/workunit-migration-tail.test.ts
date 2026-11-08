@@ -79,10 +79,10 @@ describe('迁移类写路径统一尾部（#550）：不变式一处断言，全
     await expectBlockedInvariants(wu.id);
   });
 
-  it('markMergeConflict → blocked：blockedAt 落锚 + 冲突 metadata 保留', async () => {
+  it('blockForMergeFailure → blocked：blockedAt 落锚 + 冲突 metadata 保留', async () => {
     const wu = await wuService.create({ scope: '合并冲突', type: 'task', status: 'active' });
     statusEvents.length = 0;
-    await wuService.markMergeConflict(wu.id, ['a.ts', 'b.ts']);
+    await wuService.blockForMergeFailure(wu.id, ['a.ts', 'b.ts']);
     await expectBlockedInvariants(wu.id);
     const meta = parseWuMetadata((await snapshotOf(wu.id)).metadata);
     expect(meta.mergeConflict).toBe(true);

@@ -12,7 +12,7 @@ const { mockWriteStudioEvent, mockReadTranscript, mockSubscribe, state } = vi.ho
   mockWriteStudioEvent: vi.fn().mockResolvedValue(true),
   mockReadTranscript: vi.fn(),
   mockSubscribe: vi.fn(),
-  state: { statusChangedHandler: null as null | ((payload: { workunit: unknown }) => void) },
+  state: { statusChangedHandler: null as null | ((payload: { workunit: unknown; previousStatus?: string }) => void) },
 }));
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
@@ -26,7 +26,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
     ...actual,
     writeStudioEvent: mockWriteStudioEvent,
     eventBus: {
-      subscribe: (event: string, handler: (payload: { workunit: unknown }) => void) => {
+      subscribe: (event: string, handler: (payload: { workunit: unknown; previousStatus?: string }) => void) => {
         mockSubscribe(event, handler);
         if (event === 'workunit.status_changed') state.statusChangedHandler = handler;
       },
@@ -105,7 +105,10 @@ describe('SkillUsageScanner', () => {
     state.statusChangedHandler!({ workunit: { id: 'wu-skip', status: 'active' } });
     expect(mockReadTranscript).not.toHaveBeenCalled();
 
-    state.statusChangedHandler!({ workunit: { id: 'wu-3', status: 'done' } });
+    state.statusChangedHandler!({ workunit: { id: 'wu-evidence', status: 'done' }, previousStatus: 'done' });
+    expect(mockReadTranscript).not.toHaveBeenCalled();
+
+    state.statusChangedHandler!({ workunit: { id: 'wu-3', status: 'done' }, previousStatus: 'in_review' });
     await vi.waitFor(() => {
       expect(mockWriteStudioEvent).toHaveBeenCalledWith('knowledge:skill_used',
         expect.objectContaining({ skillName: 'tdd-implement', workUnitId: 'wu-3' }),

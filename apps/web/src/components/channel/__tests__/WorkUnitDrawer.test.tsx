@@ -486,6 +486,30 @@ describe('WorkUnitDrawer', () => {
     expect(screen.queryByText(/人工验收确认/)).toBeNull();
   });
 
+  it('交付子状态与 merge receipt 进入抽屉主状态旁徽标和证据台账', async () => {
+    mockWuGet.mockResolvedValue({
+      ...WU,
+      status: 'in_review',
+      metadata: JSON.stringify({
+        stepCount: 7,
+        mergeReceipt: {
+          id: 'merge-1', merged: true, mergeCommit: 'abc123def', targetBranch: 'main',
+          verification: { status: 'unavailable', ran: [] },
+        },
+      }),
+    });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+
+    expect(await screen.findByText('无目标验证命令，待人工确认')).toBeTruthy();
+    expect(screen.getAllByText('待验收').length).toBeGreaterThan(0);
+    expect(screen.getByText('Merge commit')).toBeTruthy();
+    expect(screen.getByText('abc123def')).toBeTruthy();
+    expect(screen.getByText('目标分支')).toBeTruthy();
+    expect(screen.getByText('main')).toBeTruthy();
+    expect(screen.getByText('目标验证')).toBeTruthy();
+    expect(screen.getByText('unavailable')).toBeTruthy();
+  });
+
   it('证据台账：done 缺 l3 → 三层留痕 + 人工确认按钮（点击调 reviewPassed）', async () => {
     mockWuGet.mockResolvedValue({
       ...WU,

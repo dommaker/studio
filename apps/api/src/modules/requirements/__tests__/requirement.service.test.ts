@@ -393,12 +393,13 @@ describe('RequirementService (vision §5.3)', () => {
       expect(await service.maybeRollUpToDone(req.id)).toBe(false);
       expect((await service.get(req.id))!.status).toBe('in-progress');
 
-      // wu1: unassigned → active → in_review（in_review 视为终态）
+      // wu1 到 in_review 仍未完成，不能汇总
       await workUnitService.transitionStatus(wu1.id, 'active');
       await workUnitService.transitionStatus(wu1.id, 'in_review');
       expect(await service.maybeRollUpToDone(req.id)).toBe(false);
+      await workUnitService.reviewPassed(wu1.id);
 
-      // wu2: unassigned → active → done（全部终态 → 汇总）
+      // wu2 也完成后，全部真实终态才汇总
       await workUnitService.transitionStatus(wu2.id, 'active');
       await workUnitService.transitionStatus(wu2.id, 'in_review');
       await workUnitService.reviewPassed(wu2.id);
@@ -432,10 +433,26 @@ describe('RequirementService (vision §5.3)', () => {
       expect(await service.maybeRollUpToDone('REQ-9999')).toBe(false);
     });
 
-    it('terminal status set covers expected values', () => {
+    it('merge queued/running 的 in_review 不把 REQ 提前汇总为 done', async () => {
+      const req = await service.create({ title: '等待合并需求', status: 'in-progress' });
+      await workUnitService.create({
+        scope: '等待合并', reqId: req.id, status: 'in_review',
+        metadata: {
+          mergeIntent: {
+            id: 'merge:1', state: 'running', requestedAt: new Date().toISOString(),
+            sourceBranch: 'task/wu-1', targetBranch: 'main',
+          },
+        },
+      });
+      expect(await service.maybeRollUpToDone(req.id)).toBe(false);
+      expect((await service.get(req.id))!.status).toBe('in-progress');
+    });
+
+    it('terminal status set 只含真实终态，不含 in_review', () => {
       expect(TERMINAL_WORKUNIT_STATUSES).toEqual(
-        expect.arrayContaining(['in_review', 'done', 'completed', 'failed', 'closed']),
+        expect.arrayContaining(['done', 'completed', 'failed', 'closed']),
       );
+      expect(TERMINAL_WORKUNIT_STATUSES).not.toContain('in_review');
     });
 
     it('#457：knownSnapshots 直供时不再读全量索引，汇总口径不变', async () => {
