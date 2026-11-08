@@ -91,6 +91,7 @@ function makeDeps(input: {
     updateProject: vi.fn(async (id: string, patch: Record<string, unknown>) => project({ id, ...patch } as ProjectData)),
     sumTokens: async () => 0,
     withRepo: async <T>(repo: string, callback: (capabilityPath: string) => Promise<T>): Promise<T> => callback(repo),
+    withLegLock: async <T>(_repo: string, _branch: string, callback: () => Promise<T>): Promise<T> => callback(),
   };
 }
 

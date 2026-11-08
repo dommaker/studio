@@ -83,6 +83,11 @@ describe('POST /pmo/project/:id/mark-delivered（#469）', () => {
     res = await invoke({ commit: 'c0ffee' });
     expect(res.status).toHaveBeenCalledWith(409);
     expect(res.json.mock.calls[0][0].error.code).toBe('ALREADY_DELIVERED');
+
+    mockMark.mockResolvedValueOnce({ marked: false, reason: 'merge-pending', detail: '同腿合并未结束' });
+    res = await invoke({ commit: 'c0ffee' });
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json.mock.calls[0][0].error.code).toBe('MERGE_PENDING');
   });
 
   it('Operator 的 authorType 只是业务元数据，不参与交付授权', async () => {

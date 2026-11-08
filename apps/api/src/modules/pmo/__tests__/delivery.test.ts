@@ -83,6 +83,7 @@ function makeDeps(input: {
     updateProject: vi.fn(async (id: string, patch: Record<string, unknown>) => project({ id, ...patch } as ProjectData)),
     sumTokens: input.sumTokens ?? (async () => 0),
     withRepo: async <T>(repo: string, callback: (capabilityPath: string) => Promise<T>): Promise<T> => callback(repo),
+    withLegLock: async <T>(_repo: string, _branch: string, callback: () => Promise<T>): Promise<T> => callback(),
   };
 }
 
@@ -288,6 +289,52 @@ describe('deliverProject（PMO-b 交付守卫）', () => {
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
+  it.each(['queued', 'running'])('同腿 WU merge %s → merge-pending，零 Git 写', async state => {
+    const pending = wu({
+      status: 'in_review', completedAt: null,
+      metadataObj: { mergeIntent: { id: 'merge-1', state, requestedAt: '2026-07-29T00:40:00Z' } },
+    });
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge' }), snapshots: [pending] });
+    const r = await deliverProject('proj-1', 'Alice', undefined, deps);
+    expect(r).toMatchObject({ delivered: false, reason: 'merge-pending' });
+    expect(deps.updateProject).not.toHaveBeenCalled();
+    expect(mockExecSh).not.toHaveBeenCalled();
+  });
+
+  it('已合并但目标验证未结束 → merge-pending，不能读取半成品状态交付', async () => {
+    const pending = wu({
+      status: 'in_review', completedAt: null,
+      metadataObj: {
+        mergeIntent: { id: 'merge-1', state: 'running', requestedAt: '2026-07-29T00:40:00Z' },
+        mergeReceipt: { ...mergeReceipt, verification: { status: 'not-run', ran: [] } },
+      },
+    });
+    const r = await deliverProject('proj-1', 'Alice', undefined, makeDeps({
+      project: project({ deliveryPolicy: 'auto-merge' }), snapshots: [pending],
+    }));
+    expect(r).toMatchObject({ delivered: false, reason: 'merge-pending' });
+  });
+
+  it('交付锁内 fresh 重读发现 queued intent → 拒绝，不能用初次 ready 快照合并', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('abbrev-ref')) return { stdout: 'master\n', stderr: '' };
+      if (cmd.includes('rev-parse HEAD')) return { stdout: 'feedbeef\n', stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const pending = wu({
+      status: 'in_review', completedAt: null,
+      metadataObj: { mergeIntent: { id: 'merge-1', state: 'queued', requestedAt: '2026-07-29T00:40:00Z' } },
+    });
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge' }) });
+    deps.getIndex = vi.fn()
+      .mockResolvedValueOnce([readyWu()])
+      .mockResolvedValueOnce([pending]);
+    const r = await deliverProject('proj-1', 'Alice', undefined, deps);
+    expect(r).toMatchObject({ delivered: false, reason: 'merge-pending' });
+    expect(deps.getIndex).toHaveBeenCalledTimes(2);
+    expect(mockExecSh).not.toHaveBeenCalled();
+  });
+
   it('顶层与嵌套腿危险分支均在 rev-parse/diff 前零子进程拒绝', async () => {
     for (const branch of ['feature";id', 'feature$(id)', 'feature`id`', 'feature;id', 'feature\nid', '--upload-pack=id']) {
       const topLevel = await deliverProject('proj-1', 'Alice', undefined, makeDeps({
@@ -408,6 +455,27 @@ describe('markProjectDelivered（#469 branch-only 人工落档）', () => {
     const r = await markProjectDelivered('proj-1', 'Alice', COMMIT, undefined, deps);
     expect(r).toMatchObject({ marked: false, reason: 'already-delivered' });
     expect(deps.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('branch-only 同腿仍有 queued merge → merge-pending，不落人工交付回执', async () => {
+    const pending = wu({
+      status: 'in_review', completedAt: null,
+      metadataObj: { mergeIntent: { id: 'merge-1', state: 'queued', requestedAt: '2026-07-29T00:40:00Z' } },
+    });
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'branch-only' }), snapshots: [pending] });
+    const r = await markProjectDelivered('proj-1', 'Alice', COMMIT, undefined, deps);
+    expect(r).toMatchObject({ marked: false, reason: 'merge-pending' });
+    expect(deps.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('done WU 的历史 running intent 不阻断人工交付落档', async () => {
+    const completed = wu({ metadataObj: {
+      ...fullEvidence,
+      mergeIntent: { id: 'merge-1', state: 'running', requestedAt: '2026-07-29T00:40:00Z' },
+    } });
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'branch-only' }), snapshots: [completed] });
+    const r = await markProjectDelivered('proj-1', 'Alice', COMMIT, undefined, deps);
+    expect(r).toMatchObject({ marked: true });
   });
 
   it('branch-only 未交付 → 写 deliveredAt/deliveredBy/deliverCommit + 频道播报', async () => {

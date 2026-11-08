@@ -107,6 +107,7 @@ function mockGit(): void {
     opts: { cwd: string; timeout: number },
     cb: (error: Error | null, stdout: string, stderr: string) => void,
   ) => {
+    if (args.includes('--git-common-dir')) return cb(null, `${REPO}/.git\n`, '');
     if (args.includes('--abbrev-ref')) return cb(null, `${currentCheckout}\n`, '');
     if (args[0] === 'worktree' && args[1] === 'add') fs.mkdirSync(args[3], { recursive: true });
     mockExecSh(`git ${args.join(' ')}`, { cwd: opts.cwd, timeoutMs: opts.timeout }).then(
@@ -733,6 +734,23 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(mockHostExecFile).toHaveBeenCalledWith('pnpm', ['exec', 'tsc', '--noEmit'], expect.objectContaining({ cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/) }));
     const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
     expect(meta.mergedAt).toBeDefined();
+  });
+
+  it('worktree 清理失败不写真完成哨兵，保留后续恢复机会', async () => {
+    fs.writeFileSync(path.join(REPO, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }));
+    fs.writeFileSync(path.join(REPO, 'pnpm-lock.yaml'), '');
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('worktree remove')) throw new Error('permission denied');
+      if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta());
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: true, merged: true, mergeCommit: HEAD });
+    const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
+    expect(meta.mergeCleanedAt).toBeUndefined();
   });
 
   it('baseRepo 在合并前被替换时，后续 Git/verify 仍使用固定 capability', async () => {

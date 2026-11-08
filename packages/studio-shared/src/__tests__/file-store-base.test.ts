@@ -318,6 +318,16 @@ describe('FileStoreBase（直接单元测试）', () => {
       }
     });
 
+    it('启用心跳的活跃持锁方持续刷新 acquiredAt，超过 30s 阈值也不会超龄', async () => {
+      await store.withLock(lockDir(), async () => {
+        const owner = JSON.parse(fs.readFileSync(ownerPath(), 'utf-8')) as { acquiredAt: number };
+        await new Promise(resolve => setTimeout(resolve, 80));
+        const refreshed = JSON.parse(fs.readFileSync(ownerPath(), 'utf-8')) as { acquiredAt: number };
+        expect(refreshed.acquiredAt).toBeGreaterThan(owner.acquiredAt);
+        expect(Date.now() - refreshed.acquiredAt).toBeLessThan(1000);
+      }, 3000, { heartbeatIntervalMs: 10 });
+    });
+
     it('无 owner.json 的裸锁按目录 mtime 走超龄判据：超龄回收，未超龄不回收', async () => {
       // 超龄裸锁 → 回收
       fs.mkdirSync(lockDir(), { recursive: true });
@@ -425,6 +435,16 @@ describe('FileStoreBase（直接单元测试）', () => {
       } finally {
         store.writeJson = orig;
       }
+    });
+
+    it('mutexTimeoutMs：同进程持锁忙时也按时拒绝，不无界等待', async () => {
+      const first = store.withLock(lockDir(), async () => {
+        await new Promise(resolve => setTimeout(resolve, 150));
+      });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      const second = store.withLock(lockDir(), async () => 'second', 50, { mutexTimeoutMs: 50 });
+      await expect(second).rejects.toBeInstanceOf(LockTimeoutError);
+      await expect(first).resolves.toBeUndefined();
     });
 
     it('进程内 mutex：同进程并发在 mutex 层排队，mkdir 竞争超时参数不误伤排队者', async () => {

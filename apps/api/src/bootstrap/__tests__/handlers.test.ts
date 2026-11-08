@@ -10,6 +10,7 @@ const registry = vi.hoisted(() => new Map<string, () => Promise<void>>());
 const spies = vi.hoisted(() => ({
   scanStaleAgentInstances: vi.fn(async () => ({ terminated: 2 })),
   getEvolutionService: vi.fn(() => ({})),
+  recoverWorktreeMerges: vi.fn(async () => ({ attempted: 0, failed: 0 })),
   failOnRegister: { value: false },
 }));
 
@@ -25,6 +26,13 @@ vi.mock('../../modules/ops/index.js', () => ({
 vi.mock('../../modules/evolution/evolution.service.js', () => ({
   getEvolutionService: spies.getEvolutionService,
 }));
+vi.mock('../../modules/workunit/index.js', () => ({
+  WorkUnitService: class {},
+  recoverWorktreeMerges: spies.recoverWorktreeMerges,
+}));
+vi.mock('../../modules/agent-loop/index.js', () => ({
+  reconcileDispatchBreaks: vi.fn(),
+}));
 
 import { registerScanHandlers } from '../handlers.js';
 
@@ -32,6 +40,7 @@ beforeEach(() => {
   registry.clear();
   spies.scanStaleAgentInstances.mockClear();
   spies.getEvolutionService.mockClear();
+  spies.recoverWorktreeMerges.mockClear();
   spies.failOnRegister.value = false;
 });
 
@@ -52,6 +61,12 @@ describe('registerScanHandlers', () => {
     await registerScanHandlers();
     await registry.get('agent-timeout-scan')!();
     expect(spies.scanStaleAgentInstances).toHaveBeenCalledOnce();
+  });
+
+  it('dispatch-reconciliation-scan 同时恢复持久 merge intent', async () => {
+    await registerScanHandlers();
+    await registry.get('dispatch-reconciliation-scan')!();
+    expect(spies.recoverWorktreeMerges).toHaveBeenCalledOnce();
   });
 
   it('evolution review-proposal adapter 随注册构造单例', async () => {
