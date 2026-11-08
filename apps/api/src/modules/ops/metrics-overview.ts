@@ -1,7 +1,8 @@
 import { deriveDisplayState, POOL_STAGNATION_WARN_MS, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { parseStudioEventPayload, getStudioEventTime, percentile } from '@dommaker/studio-shared';
-import { parseWuMetadata } from '../workunit/index.js';
+import { isAcceptedMergeReceipt, parseWuMetadata } from '../workunit/index.js';
 import type { AssigneeProfileResolver } from '../workunit/index.js';
+import { CODE_TYPES } from '../pmo/index.js';
 import type {
   TaskFlowMetrics,
   IntakeMetrics,
@@ -531,11 +532,32 @@ function aggregateEvidence(ctx: OverviewContext): EvidenceMetrics {
   let selfReviewCount = 0;
   let needsHuman = 0;
   let derivedMismatch = 0;
+  let mergeDivergence = 0;
+  let doneWithoutReceipt = 0;
   const derivedByColumn: Record<string, number> = {};
   for (const s of input.snapshots) {
     const d = deriveDisplayState({ status: s.status, metadata: s.metadata });
     derivedByColumn[d.column] = (derivedByColumn[d.column] ?? 0) + 1;
     if (d.column !== s.status) derivedMismatch++;
+    if (CODE_TYPES.has(s.type)) {
+      const meta = ctx.metas.get(s.id)!;
+      const rawReceipt = meta.mergeReceipt;
+      const receipt = rawReceipt && typeof rawReceipt === 'object' && !Array.isArray(rawReceipt)
+        ? rawReceipt as Record<string, any>
+        : null;
+      if (s.status === 'done' && !receipt) doneWithoutReceipt++;
+
+      let divergence = s.status === 'done' && meta.mergeConflict === true;
+      if (receipt) {
+        divergence = divergence
+          || (s.status === 'done' && !isAcceptedMergeReceipt(meta))
+          || (receipt.merged === true && !receipt.mergeCommit)
+          || Boolean(meta.mergedAt && receipt.mergedAt && meta.mergedAt !== receipt.mergedAt)
+          || Boolean(meta.mergeCommit && receipt.mergeCommit && meta.mergeCommit !== receipt.mergeCommit)
+          || Boolean((meta.mergedAt || meta.mergeCommit) && receipt.merged === false);
+      }
+      if (divergence) mergeDivergence++;
+    }
     if (!d.hasAttestations) {
       if (s.status === 'in_review') needsHuman++; // 手写 in_review 本来就在人工队列
       continue;
@@ -548,13 +570,15 @@ function aggregateEvidence(ctx: OverviewContext): EvidenceMetrics {
     if (d.needsHuman) needsHuman++;
   }
   return {
-    description: 'F6 证据台账：l1 自动验证 / l2 agent 评审 / l3 人工确认的分层达成数（快照口径）。selfReviewCount 高 = 评审独立性不足；needsHuman = 等人工确认的队列长度；derivedMismatch 是双轨比对——派生列与存储状态不一致的 WU 数，持续为 0 才可停止手写 in_review',
+    description: 'F6 证据台账：l1 自动验证 / l2 agent 评审 / l3 人工确认的分层达成数（快照口径）。selfReviewCount 高 = 评审独立性不足；needsHuman = 等人工确认的队列长度；mergeDivergence = metadata/receipt 自相矛盾的代码 WU 数（不含真实 Git drift）；doneWithoutReceipt = legacy done 且无 receipt 的代码 WU 数；derivedMismatch 是双轨比对——派生列与存储状态不一致的 WU 数，持续为 0 才可停止手写 in_review',
     engaged,
     l1Approved,
     l2Approved,
     l3Approved,
     selfReviewCount,
     needsHuman,
+    mergeDivergence,
+    doneWithoutReceipt,
     derivedMismatch,
     derivedByColumn,
   };

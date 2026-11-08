@@ -204,9 +204,9 @@ export class DistillService {
     if (this.subscribed) return;
     this.subscribed = true;
 
-    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
+    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData; previousStatus?: string }) => {
       const wu = payload.workunit;
-      if (!wu || wu.status !== 'done') return;
+      if (!wu || wu.status !== 'done' || payload.previousStatus === 'done') return;
       // fire-and-forget：门槛检测 + 发卡绝不能阻塞 WU 收尾订阅链
       void this.maybePropose({ workUnitId: wu.id }).catch(err =>
         logger.warn('[Distill] maybePropose failed (non-blocking)', { wuId: wu.id, error: String(err) }),

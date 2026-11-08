@@ -12,7 +12,7 @@
  * analysis 派生链（analysis-handoff）的 task WU 无 reqId，仅 metadata.pmoId
  * 溯源——Requirement 链路拿不到关联 WU 时回退按 pmoId 归属，口径不变。
  *
- * 完结口径与 REQ 状态汇总一致（TERMINAL_WORKUNIT_STATUSES：in_review 视同工作完成）——
+ * REQ 终态不含 in_review；PMO 项目验收另以 PROJECT_REVIEW_WORKUNIT_STATUSES 纳入 in_review——
  * 仅用于状态翻转判定；progress 分子与 WU 完成管道同源（#282：
  * deriveDisplayState.workFinished = 存储态 done/closed，in_review/failed 不计进度），
  * 消除「管道 0/1 WU 完成却 progress=100」的口径矛盾。
@@ -280,7 +280,9 @@ function isWorkFinished(s: EvidenceWuInput): boolean {
   return deriveDisplayState({ status: s.status, metadata: s.metadata }).workFinished;
 }
 
-const isTerminalWu = (s: EvidenceWuInput): boolean => TERMINAL_WORKUNIT_STATUSES.includes(s.status);
+// PMO 的「验收中」与 REQ 的「完成」不同：in_review 进入项目验收，但不能汇总 REQ done。
+const PROJECT_REVIEW_WORKUNIT_STATUSES = ['in_review', ...TERMINAL_WORKUNIT_STATUSES];
+const isTerminalWu = (s: EvidenceWuInput): boolean => PROJECT_REVIEW_WORKUNIT_STATUSES.includes(s.status);
 
 /**
  * 重算单个 PMO 项目进度：该项目下全部 Requirement 关联 WU 的完结比例。

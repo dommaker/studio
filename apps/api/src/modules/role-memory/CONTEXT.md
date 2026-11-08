@@ -2,7 +2,7 @@
 
 ### 职责
 
-角色记忆存储服务：per-role 目录落数据区（经 `studioPath()`），三件套--`MEMORY.md` 索引 + `topics/*.md` topic 正文 + `draft.jsonl` append-only 草稿区。`role-memory.ts` 只做存储层：读索引、读/写草稿、promote 合并、demote 拒绝、容量检查。WU 收尾提取钩子在 `completion-extraction.ts`；人审提案生命周期（#353）经 review-proposal 正本，adapter 在 `review-adapter.ts`（kind='memory'，专有 /role-memory 端点已删）。
+角色记忆存储服务：per-role 目录落数据区（经 `studioPath()`），三件套--`MEMORY.md` 索引 + `topics/*.md` topic 正文 + `draft.jsonl` append-only 草稿区。`role-memory.ts` 只做存储层：读索引、读/写草稿、promote 合并、demote 拒绝、容量检查。WU 收尾提取钩子在 `completion-extraction.ts`（#703 起仅真实进入 done 触发，previousStatus=done 的补证据事件不重复提取）；人审提案生命周期（#353）经 review-proposal 正本，adapter 在 `review-adapter.ts`（kind='memory'，专有 /role-memory 端点已删）。
 
 数据布局：`<studioDir()>/memory/<roleId>/` 下 `MEMORY.md`（索引）、`topics/<slug>.md`（topic 正文，frontmatter + `## 标题` 段）、`draft.jsonl`（pending 条目 + promote/reject 墓碑行 + 正本 `kind:'status'` 状态行混存）。角色身份 = `AgentProfile.id`。测试经 `isTestEnv` 改写 tmpdir per-进程子目录（防并行互踩）。
 

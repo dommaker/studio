@@ -5,7 +5,72 @@
  * 零服务依赖，供 service 与跨模块类型级消费方直接引用。
  */
 
-import type { WuAttestations } from '@dommaker/studio-shared';
+import { parseAttestations, type WuAttestations } from '@dommaker/studio-shared';
+
+export interface WorkUnitMergeIntent {
+  id: string;
+  state: 'queued' | 'running';
+  requestedAt: string;
+  startedAt?: string;
+  sourceBranch: string;
+  targetBranch: string;
+}
+
+export interface WorkUnitMergeReceipt {
+  id: string;
+  merged: boolean;
+  mergedAt?: string;
+  mergeCommit?: string;
+  targetBranch: string;
+  verification: {
+    status: 'not-run' | 'passed' | 'failed' | 'unavailable';
+    ran: string[];
+    failure?: { command: string; tail: string };
+  };
+  failure?: {
+    kind: 'conflict' | 'uncommitted-changes' | 'merge-error' | 'verification';
+    detail?: string;
+    conflictFiles?: string[];
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function mergeReceiptParts(metadata: unknown): {
+  meta: Record<string, unknown>;
+  receipt: Record<string, unknown>;
+  verification: Record<string, unknown> | null;
+} | null {
+  let raw = metadata;
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch { return null; }
+  }
+  const meta = asRecord(raw);
+  const receipt = asRecord(meta?.mergeReceipt);
+  if (!meta || !receipt) return null;
+  return { meta, receipt, verification: asRecord(receipt.verification) };
+}
+
+/** 回执结构完整且目标验证有结论（passed/unavailable）；是否接受另由 isAcceptedMergeReceipt 判定。 */
+export function hasCompleteMergeReceipt(metadata: unknown): boolean {
+  const parts = mergeReceiptParts(metadata);
+  return parts?.receipt.merged === true
+    && typeof parts.receipt.mergeCommit === 'string' && parts.receipt.mergeCommit.length > 0
+    && typeof parts.receipt.targetBranch === 'string' && parts.receipt.targetBranch.length > 0
+    && (parts.verification?.status === 'passed' || parts.verification?.status === 'unavailable');
+}
+
+/** 代码 WU 完成唯一接受口径：完整回执 + passed，或 unavailable + 人工 L3。 */
+export function isAcceptedMergeReceipt(metadata: unknown): boolean {
+  const parts = mergeReceiptParts(metadata);
+  if (!parts || !hasCompleteMergeReceipt(metadata)) return false;
+  return parts.verification?.status === 'passed'
+    || parseAttestations(parts.meta)?.l3?.verdict === 'approved';
+}
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
 export interface WorkUnitMetadata {
@@ -149,6 +214,8 @@ export interface WorkUnitMetadata {
   verifyFailCount?: number;   // 自动验证连续失败计数（≥3 → blocked）
   verifyFailHint?: string;    // 验证失败提示（失败命令+输出尾部，注入下一轮 prompt 后清除）
   // B3b-ii 评审通过后自动合并（决策 D1/D3 后半，merge-on-review-pass.ts）
+  mergeIntent?: WorkUnitMergeIntent;   // 评审接受后的持久合并意图；queued/running 时 WU 保持 in_review
+  mergeReceipt?: WorkUnitMergeReceipt; // 真实 Git 合并与目标验证回执；代码 WU 的完成/交付证据
   mergedAt?: string;          // task 分支合并回 base 分支完成时间 ISO 8601（防重哨兵：存在即跳过合并）
   mergeCommit?: string;       // 合并后 baseRepo HEAD（merge commit 全哈希）
   mergeConflict?: boolean;    // 自动合并（含 rebase 重试）仍冲突，已转人工（WU 置 blocked）

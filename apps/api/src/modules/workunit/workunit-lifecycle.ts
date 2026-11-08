@@ -9,7 +9,7 @@
 
 import { type FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { parseWuMetadata } from './wu-metadata.js';
-import { resolveValidTransitions, WORKUNIT_CLOSED_EVENT_TYPE, type WorkUnitMetadata, type CloseWorkUnitOptions } from './workunit.types.js';
+import { isAcceptedMergeReceipt, resolveValidTransitions, WORKUNIT_CLOSED_EVENT_TYPE, type WorkUnitMetadata, type CloseWorkUnitOptions } from './workunit.types.js';
 import { snapshotToData, type WorkUnitData, type WorkUnitLifecycleRepository } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
@@ -37,6 +37,8 @@ export interface WorkUnitSnapshotTransition {
   patch?: Partial<WorkUnitSnapshot>;
   aggregateParent?: boolean;
   auditActor?: WorkUnitAuditActor;
+  /** 锁内 compare-and-swap：防止两个接受者对同一快照重复完成或迟到覆盖。 */
+  expectedUpdatedAt?: string;
 }
 
 export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLifecyclePersistence {
@@ -63,6 +65,14 @@ export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLife
       throw new Error(
         `Invalid status transition: ${current.status} → ${newStatus}`
       );
+    }
+
+    if (newStatus === 'done' && ['task', 'bug', 'feature', 'refactor'].includes(current.type)) {
+      const metadata = parseWuMetadata(current.metadata);
+      if (metadata.worktreeBranch && metadata.worktreeBaseRepo && metadata.worktreeBaseBranch
+        && !isAcceptedMergeReceipt(metadata)) {
+        throw new Error('Cannot complete code WorkUnit without an accepted merge receipt');
+      }
     }
 
     const eventType: WorkUnitEvent['type'] =
@@ -164,7 +174,7 @@ export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLife
 
   /**
    * 迁移类写路径的唯一落库尾部（#550 扩面：原仅评审/验证路径，现覆盖 transitionStatus /
-   * close / markMergeConflict / blockForManualRelease / blockForAllUnfit 全部迁移类写）：
+   * close / blockForMergeFailure / blockForManualRelease / blockForAllUnfit 全部迁移类写）：
    * 构建 updated 快照（updatedAt=now；可选 status 覆盖 / markCompleted 置 completedAt=同一此刻 /
    * closedAt 落锚规则 / patch 额外字段覆盖）→ commitSnapshot（#170：appendEvent +
    * upsertSnapshot 同锁成对）→ publishStatusChanged → 父状态聚合（status ∈
@@ -205,8 +215,12 @@ export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLife
       timestamp: isoNow,
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.commitSnapshot(event, updated);
-    await this.repository.publishStatusChanged(updated);
+    if (opts.expectedUpdatedAt === undefined) {
+      await this.fileStore.commitSnapshot(event, updated);
+    } else {
+      await this.fileStore.commitSnapshot(event, updated, { expectedUpdatedAt: opts.expectedUpdatedAt });
+    }
+    await this.repository.publishStatusChanged(updated, current.status);
 
     // #591：状态机流转埋点（决策词表 transition，落 audit-logs 轨）——仅真实状态迁移落账
     // （台账补写等无 status 变化的路径不落）；actor 缺省按 assigneeId 命中 agent 状态库派生；

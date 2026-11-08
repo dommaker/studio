@@ -9,7 +9,8 @@
  * 台账口径：WU 证据（l1 自动验证 / l2 agent 评审 / l3 人工确认）一律过
  * evidence-summary 共享口径（底层仍走 deriveDisplayState 派生，铁律：禁止各自解释 attestations）。
  * l1 只对代码类 WU（task/bug/feature/refactor）要求；l2 豁免 review/analysis/decision/spec
- * （dispatcher 不派评审，验收闸是人工 L3）；l3 对所有已完成 WU 要求。
+ * （dispatcher 不派评审，验收闸是人工 L3）；l3 对所有已完成 WU 要求；代码类 finished WU
+ * 另需 merge receipt 与目标验证可接受（unavailable 仅 L3 approved 可交付）。
  *
  * #113 T7（#106 子票）：显式多腿项目（resolveDeliveries > 1）按腿循环——台账/证据齐缺/
  * deliverable 判定/auto-merge 逐腿独立；WU→腿归属走 evidence-summary 的 matchWuToLeg
@@ -53,6 +54,10 @@ export interface DeliveryStatus {
     l1Missing: string[];
     l2Missing: string[];
     l3Missing: string[];
+    /** 代码 WU 缺可接受的 merge receipt（合并事实完整且目标验证通过） */
+    mergeMissing: string[];
+    /** 代码 WU 无目标验证命令且缺 L3 人工确认 */
+    verificationUnavailable: string[];
     /** l2 中自评数（决策 5：评审独立性参考，不阻断交付） */
     selfReviewCount: number;
   };
@@ -69,8 +74,8 @@ export interface DeliveryStatus {
    * 谓词只看 COMPLETED（deliveredAt 不翻 status，不作终态代理，见实现处注释）。
    */
   archived: boolean;
-  /** 已完成但证据有缺口的 WU 明细（供前端渲染行动清单；missing 顺序固定 l1→l2→l3） */
-  gaps: Array<{ id: string; title: string; type: string; missing: Array<'l1' | 'l2' | 'l3'> }>;
+  /** 已完成但证据有缺口的 WU 明细（供前端渲染行动清单；missing 顺序固定 l1→l2→l3→merge） */
+  gaps: Array<{ id: string; title: string; type: string; missing: Array<'l1' | 'l2' | 'l3' | 'merge'> }>;
   deliveredAt: string | null;
   deliveredBy: string | null;
   deliverCommit: string | null;
@@ -127,12 +132,12 @@ async function buildLedger(
   sumTokens: (workUnitIds: Set<string>) => Promise<number>,
 ): Promise<EvidenceLedger> {
   const summary = summarizeEvidence(snapshots);
-  const { l1Missing, l2Missing, l3Missing } = summary;
+  const { l1Missing, l2Missing, l3Missing, mergeMissing, verificationUnavailable } = summary;
   const inFlight = summary.inFlight;
 
-  // gaps：已完成但有证据缺口的 WU 明细（missing 顺序固定 l1→l2→l3，供前端渲染行动清单）
-  const missingByWu = new Map<string, Array<'l1' | 'l2' | 'l3'>>();
-  const pushGap = (id: string, level: 'l1' | 'l2' | 'l3') => {
+  // gaps：已完成但有证据缺口的 WU 明细（missing 顺序固定 l1→l2→l3→merge，供前端渲染行动清单）
+  const missingByWu = new Map<string, Array<'l1' | 'l2' | 'l3' | 'merge'>>();
+  const pushGap = (id: string, level: 'l1' | 'l2' | 'l3' | 'merge') => {
     const arr = missingByWu.get(id) ?? [];
     arr.push(level);
     missingByWu.set(id, arr);
@@ -140,6 +145,8 @@ async function buildLedger(
   for (const id of l1Missing) pushGap(id, 'l1');
   for (const id of l2Missing) pushGap(id, 'l2');
   for (const id of l3Missing) pushGap(id, 'l3');
+  for (const id of mergeMissing) pushGap(id, 'merge');
+  for (const id of verificationUnavailable) pushGap(id, 'merge');
   const gaps = snapshots
     .filter(s => missingByWu.has(s.id))
     .map(s => ({ id: s.id, title: wuTitle(s), type: s.type, missing: missingByWu.get(s.id)! }));
@@ -154,6 +161,8 @@ async function buildLedger(
   if (l1Missing.length > 0) missing.push(`${l1Missing.length} 个代码类任务缺自动验证（${l1Missing.slice(0, 3).join(', ')}${l1Missing.length > 3 ? '…' : ''}）`);
   if (l2Missing.length > 0) missing.push(`${l2Missing.length} 个任务缺 Agent 评审（${l2Missing.slice(0, 3).join(', ')}${l2Missing.length > 3 ? '…' : ''}）`);
   if (l3Missing.length > 0) missing.push(`${l3Missing.length} 个任务缺人工确认（${l3Missing.slice(0, 3).join(', ')}${l3Missing.length > 3 ? '…' : ''}）`);
+  if (mergeMissing.length > 0) missing.push(`${mergeMissing.length} 个代码类任务缺有效合并回执或目标验证未通过（${mergeMissing.slice(0, 3).join(', ')}${mergeMissing.length > 3 ? '…' : ''}）`);
+  if (verificationUnavailable.length > 0) missing.push(`${verificationUnavailable.length} 个代码类任务无目标验证命令，需人工确认（${verificationUnavailable.slice(0, 3).join(', ')}${verificationUnavailable.length > 3 ? '…' : ''}）`);
 
   return { summary, missing, gaps, tokens };
 }
@@ -207,6 +216,8 @@ export async function getDeliveryStatus(
           l1Missing: legLedger.summary.l1Missing,
           l2Missing: legLedger.summary.l2Missing,
           l3Missing: legLedger.summary.l3Missing,
+          mergeMissing: legLedger.summary.mergeMissing,
+          verificationUnavailable: legLedger.summary.verificationUnavailable,
           selfReviewCount: legLedger.summary.selfReviewCount,
         },
         deliverable: legLedger.summary.deliverable,
@@ -236,6 +247,8 @@ export async function getDeliveryStatus(
       l1Missing: summary.l1Missing,
       l2Missing: summary.l2Missing,
       l3Missing: summary.l3Missing,
+      mergeMissing: summary.mergeMissing,
+      verificationUnavailable: summary.verificationUnavailable,
       selfReviewCount: summary.selfReviewCount,
     },
     deliverable,

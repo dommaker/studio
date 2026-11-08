@@ -1,10 +1,12 @@
 // EvidenceLedger — F6 证据台账三级共享组件（WorkUnitDrawer 抽屉变体 / WorkUnitDetailPage 卡片变体）
 // 共享口径：层标签（正本 utils/evidence.EVIDENCE_LAYER_LABELS，白话不上 L1/L2/L3 编号，#385 词表）、
 // 证据行格式 `{kind} · {by 前 8 位} · {时间}`、存量空态文案、l2.summary 评审结论行；
+// 可选 metadata.mergeReceipt 追加 merge commit/目标分支/目标验证事实（#703）；
 // variant 只承载真实差异：外层标记（mc-kv vs card）与 verdict 呈现（图标前缀 vs 通过/拒绝徽章）
 import type { AttestationEntry, WuAttestations } from '@dommaker/studio-shared/web';
 import { formatShortTime } from '../../utils/datetime';
 import { EVIDENCE_LAYER_LABELS } from '../../utils/evidence';
+import { parseWuMeta } from '../../utils/wuMeta';
 import { IconCheck, IconX } from '../ui/icons';
 
 const LEVELS = ['l1', 'l2', 'l3'] as const;
@@ -15,6 +17,8 @@ const LEGACY_EMPTY_COPY = '存量任务，证据模型未介入（按存储状�
 interface Props {
   /** parseAttestations(wu.metadata) 的结果；undefined = 存量 legacy WU */
   attestations: WuAttestations | undefined;
+  /** 可选 WU metadata；存在 mergeReceipt 时追加真实合并与目标验证事实 */
+  metadata?: string | null;
   variant: 'drawer' | 'card';
 }
 
@@ -23,7 +27,33 @@ function formatEntryLine(entry: AttestationEntry): string {
   return `${entry.kind} · ${entry.by.slice(0, 8)} · ${formatShortTime(entry.at)}`;
 }
 
-export function EvidenceLedger({ attestations, variant }: Props) {
+function MergeReceiptFacts({ metadata, variant }: Pick<Props, 'metadata' | 'variant'>) {
+  const receipt = parseWuMeta<{
+    mergeReceipt?: {
+      mergeCommit?: unknown;
+      targetBranch?: unknown;
+      verification?: { status?: unknown };
+    };
+  }>(metadata).mergeReceipt;
+  const status = receipt?.verification?.status;
+  const facts = [
+    typeof receipt?.mergeCommit === 'string' ? { key: 'commit', label: 'Merge commit', value: receipt.mergeCommit } : null,
+    typeof receipt?.targetBranch === 'string' ? { key: 'branch', label: '目标分支', value: receipt.targetBranch } : null,
+    status === 'passed' || status === 'failed' || status === 'unavailable'
+      ? { key: 'verification', label: '目标验证', value: status }
+      : null,
+  ].filter((fact): fact is { key: string; label: string; value: string } => fact !== null);
+  if (facts.length === 0) return null;
+
+  return facts.map(fact => (
+    <div className={variant === 'drawer' ? 'mc-kv' : 'flex items-center gap-2 text-xs'} key={fact.key}>
+      <span className={variant === 'drawer' ? 'mc-kv-k' : 'u-text-2 w-24 flex-shrink-0'}>{fact.label}</span>
+      <span className={variant === 'drawer' ? 'mc-kv-v' : 'u-text-3'}>{fact.value}</span>
+    </div>
+  ));
+}
+
+export function EvidenceLedger({ attestations, metadata, variant }: Props) {
   if (variant === 'drawer') {
     return (
       <>
@@ -47,6 +77,7 @@ export function EvidenceLedger({ attestations, variant }: Props) {
             </div>
           );
         })}
+        <MergeReceiptFacts metadata={metadata} variant={variant} />
         {attestations?.l2?.summary && (
           <div className="mc-drawer-note">评审结论：{attestations.l2.summary}</div>
         )}
@@ -84,6 +115,7 @@ export function EvidenceLedger({ attestations, variant }: Props) {
           )}
         </div>
       )}
+      <MergeReceiptFacts metadata={metadata} variant={variant} />
     </div>
   );
 }

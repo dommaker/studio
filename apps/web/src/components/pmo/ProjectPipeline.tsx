@@ -12,6 +12,7 @@ import {
   type PipelineWorkUnit,
 } from './pipelineUtils';
 import { SkeletonText, SkeletonCard } from '../ui';
+import { DeliveryBadge } from '../workunit/DeliveryBadge';
 import { IconCheck } from '../ui/icons';
 
 // #399 §8.3 词表正词：待领取/进行中/待验收/完成；#472 起文案/配色收口 wu-display 唯一出口（私有拷贝已删）。
@@ -51,6 +52,7 @@ function WuCard({ wu, agent }: { wu: PipelineWorkUnit; agent?: AgentInfo }) {
         <span className={`text-xs px-1.5 py-0.5 rounded ${WU_STATUS_COLORS[derived.column] ?? 'u-surface-2 u-text-2'}`}>
           {WU_STATUS_LABELS[derived.column] ?? derived.column}
         </span>
+        <DeliveryBadge delivery={derived.delivery} />
         {/* 证据徽章（§8.3 白话词表 EVIDENCE_LAYER_LABELS）：approved 亮绿，缺失灰底 */}
         {(['l1', 'l2', 'l3'] as const).map(key => (
           <span

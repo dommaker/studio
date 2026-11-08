@@ -111,9 +111,9 @@ export class WuCompletionExtractor {
     if (this.subscribed) return;
     this.subscribed = true;
 
-    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
+    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData; previousStatus?: string }) => {
       const wu = payload.workunit;
-      if (!wu || wu.status !== 'done') return;
+      if (!wu || wu.status !== 'done' || payload.previousStatus === 'done') return;
       // fire-and-forget：LLM 提取（30s 级）绝不能在事件循环里 await 阻断收尾订阅链
       void this.maybeExtract(wu).catch(err =>
         logger.warn('[WuCompletionExtractor] maybeExtract failed (non-blocking)', { wuId: wu.id, error: String(err) }),

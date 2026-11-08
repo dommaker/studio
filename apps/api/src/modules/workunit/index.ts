@@ -24,7 +24,7 @@ export { resumeWaitingWorkUnit, scanWaitingForInputReminders } from './waiting-i
 export { snapshotToData, toWorkUnitWire } from './workunit-crud.js';
 export type { WorkUnitData } from './workunit-crud.js';
 export { WorkUnitService } from './workunit-review.js';
-export { ANALYSIS_TASKS_MAX, DECISION_SPEC_TYPES, INSPECTION_OPPORTUNITIES_MAX, MANUAL_GATE_TYPES, PLAN_STEP_LIMIT, WU_LEASE_TTL_MS } from './workunit.types.js';
+export { ANALYSIS_TASKS_MAX, DECISION_SPEC_TYPES, hasCompleteMergeReceipt, INSPECTION_OPPORTUNITIES_MAX, isAcceptedMergeReceipt, MANUAL_GATE_TYPES, PLAN_STEP_LIMIT, WU_LEASE_TTL_MS } from './workunit.types.js';
 export type { UnfitRoleEntry, WorkUnitMetadata } from './workunit.types.js';
 export { buildStatusById, hasUnfinishedDeps } from './wu-dependencies.js';
 export { postWuSystemMessage } from './wu-messenger.js';

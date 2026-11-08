@@ -57,6 +57,8 @@ export type ChannelMessageUpdatedPayload = z.infer<typeof channelMessageUpdatedP
 /** workunit.created / workunit.status_changed：{ workunit } 全量快照（snapshotToData wire 形态 + #318 claimable） */
 export const workunitEventPayloadSchema = z.object({
   workunit: workUnitSchema,
+  /** #703：真实状态迁移前态；done 上补证据时学习钩子据此防重。 */
+  previousStatus: z.string().optional(),
 });
 export type WorkunitEventPayload = z.infer<typeof workunitEventPayloadSchema>;
 

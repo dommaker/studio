@@ -141,7 +141,7 @@ export type ListMessagesQuery = z.infer<typeof listMessagesQuerySchema>;
 
 /** 宿主执行记录只能由服务端执行链落档，不能经普通 REST metadata 伪造。 */
 const restWorkUnitMetadataSchema = z.record(z.string(), z.unknown()).superRefine((metadata, ctx) => {
-  for (const key of ['worktreePath', 'verifyCommands'] as const) {
+  for (const key of ['worktreePath', 'verifyCommands', 'mergeIntent', 'mergeReceipt', 'mergedAt', 'mergeCommit'] as const) {
     if (key in metadata) {
       ctx.addIssue({
         code: 'custom',

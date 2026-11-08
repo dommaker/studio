@@ -45,7 +45,7 @@ const BASELINE_PUBLIC_METHODS = [
 ];
 
 const BASELINE_EXPORTS = [
-  'FileStore', 'LockTimeoutError', 'WorkUnitMetadataRepository', 'formatEvolutionId', 'formatRequirementId',
+  'FileStore', 'LockTimeoutError', 'WorkUnitMetadataRepository', 'WorkUnitSnapshotConflictError', 'formatEvolutionId', 'formatRequirementId',
   'parseChannels', 'parseFrontmatter', 'parseWorkUnitIndexContent',
   'serializeFrontmatter', 'stringifyChannels',
 ];

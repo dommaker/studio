@@ -1,7 +1,7 @@
 /**
  * B3b-ii 评审通过后自动合并（决策 D1/D3 后半）
  *
- * reviewPassed 收口触发（best-effort，不阻断 done 状态迁移）：
+ * reviewPassed 收口触发（代码 WU 先保持 in_review，merge 与目标验证接受后才 done）：
  *   WU metadata 有 worktreeBranch + worktreeBaseRepo + worktreeBaseBranch 时，
  *   把 task/<wuId> 分支合并回目标分支（git --no-ff）。
  *
@@ -21,12 +21,12 @@
  *   3. 仍失败 → **保留冲突现场**（不再先 abort），spawn 一次性 LLM 会话解冲突
  *      （复用 system-executor，skill = resolving-merge-conflicts；prompt 带 mergeContext
  *      + verify 命令来源说明）；LLM 失败/超时/解完仍有残留冲突 → 回退现有 abort +
- *      markMergeConflict 转人工（兜底不变）。审计落 metadata.mergeResolution
- *   4. 合并成功（含 LLM 解完）→ **落 mergedAt 前在合并目标目录重跑 verify**
- *      （runWuVerification；无 verify 命令可解析时放行，与执行环节同策略）；
- *      红 → 转人工（markMergeConflict 同款 blocked 路径，blockReason 前缀 merge-verify-failed）
- *   5. 全绿 → 移除 worktree、删除已合并 task 分支、metadata 记 mergedAt/mergeCommit，
- *      频道发一条简短系统消息
+ *      blockForMergeFailure 转人工（兜底不变）。审计落 metadata.mergeResolution
+ *   4. 合并成功（含 LLM 解完）→ 先落真实 mergeReceipt/HEAD，再在合并目标目录重跑 verify；
+ *      红 → blocked 且保留 merged/commit 事实（不标 mergeConflict、不删 worktree/分支）；
+ *      无命令 → verification=unavailable，仅人工 L3 可接受，不伪装自动通过
+ *   5. passed 或 unavailable+L3 → done/completedAt 后移除 worktree、删除已合并 task 分支，
+ *      频道发一条简短系统消息；其余情况保留现场
  *
  * 防重：metadata.mergedAt 存在即跳过（人工重复触发 / 事件重放均不再合并）。
  * 无 worktree 落档的 WU 直接旁路，行为与改造前完全一致。
@@ -45,7 +45,7 @@ import { execFileAsync } from '../../core/exec-async.js';
 import { ensurePmoIntegrationWorktree } from '@dommaker/studio-agent';
 import type { WorkUnitReview } from './workunit-review.js';
 import type { WorkUnitQuery } from './workunit-query.js';
-import type { WorkUnitMetadata } from './workunit.types.js';
+import type { WorkUnitMetadata, WorkUnitMergeIntent, WorkUnitMergeReceipt } from './workunit.types.js';
 import type { WorkUnitData, WorkUnitRepository } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
@@ -53,7 +53,7 @@ import { workUnitPort } from './workunit-ports.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
 
-export type WorkUnitReviewMergePort = Pick<WorkUnitReview, 'markMergeConflict'>
+export type WorkUnitReviewMergePort = Pick<WorkUnitReview, 'blockForMergeFailure' | 'recordMergeProgress' | 'settleMerge'>
   & Pick<WorkUnitQuery, 'getById'>
   & Pick<WorkUnitRepository, 'update'>;
 
@@ -135,8 +135,8 @@ async function postSystemMessage(
 }
 
 /**
- * 评审通过后的自动合并入口。best-effort：内部错误均转 outcome/日志，不向调用方抛错
- * （reviewPassed 的 done 迁移已完成，合并失败只影响后续流转，不回滚评审结论）。
+ * 评审通过后的自动合并入口。best-effort：内部错误均转 outcome/日志，不向调用方抛错；
+ * 评审证据不回滚，代码 WU 在 receipt 接受前始终保持 in_review。
  */
 export async function mergeWorktreeBranchOnReviewPass(
   wuService: WorkUnitReviewMergePort,
@@ -169,10 +169,21 @@ export async function mergeWorktreeBranchOnReviewPass(
     return { attempted: false, reason: 'already-merged' };
   }
 
+  const now = new Date().toISOString();
+  const intent: WorkUnitMergeIntent = {
+    id: meta.mergeIntent?.id ?? `merge:${wu.id}`,
+    state: 'running',
+    requestedAt: meta.mergeIntent?.requestedAt ?? now,
+    startedAt: now,
+    sourceBranch: branch,
+    targetBranch: meta.pmoBranch ?? baseBranch,
+  };
+  await wuService.recordMergeProgress(wu.id, intent);
+
   // 存量 metadata 纵深防线：在任何 status/rev-parse/merge 子进程之前拒绝危险 ref。
   if (!isValidGitBranch(branch) || !isValidGitBranch(baseBranch)
     || (meta.pmoBranch !== undefined && !isValidGitBranch(meta.pmoBranch))) {
-    await wuService.markMergeConflict(wu.id, []);
+    await wuService.blockForMergeFailure(wu.id, []);
     logger.warn('[MergeOnReviewPass] invalid git branch rejected before spawn', {
       wuId: wu.id, branch, baseBranch, pmoBranch: meta.pmoBranch,
     });
@@ -190,7 +201,7 @@ export async function mergeWorktreeBranchOnReviewPass(
   if (worktreePath) {
     const dirtyFiles = await listDirtyFiles(worktreePath, baseRepo);
     if (dirtyFiles === null || dirtyFiles.length > 0) {
-      await wuService.markMergeConflict(wu.id, dirtyFiles ?? []);
+      await wuService.blockForMergeFailure(wu.id, dirtyFiles ?? []);
       const fileList = dirtyFiles?.length
         ? `\n未提交文件：\n${dirtyFiles.map(f => `- ${f}`).join('\n')}`
         : '（git status 调用失败，按有改动处理）';
@@ -225,7 +236,7 @@ export async function mergeWorktreeBranchOnReviewPass(
   let mergeContext: { args: string[]; cwd: string; targetBranch: string };
   if (meta.pmoBranch && !pmoProjectId) {
     // pmoBranch 落档但归属项目解析不出（项目被删等）→ 转人工，不静默回落错误目标
-    await wuService.markMergeConflict(wu.id, []);
+    await wuService.blockForMergeFailure(wu.id, []);
     await postSystemMessage(
       fileStore,
       wu,
@@ -247,7 +258,7 @@ export async function mergeWorktreeBranchOnReviewPass(
     } catch (err) {
       // 集成交合建不起来（如 PMO 分支被意外检出）→ 转人工，不静默回落错目标
       const message = getErrorMessage(err);
-      await wuService.markMergeConflict(wu.id, []);
+      await wuService.blockForMergeFailure(wu.id, []);
       await postSystemMessage(
         fileStore,
         wu,
@@ -271,7 +282,7 @@ export async function mergeWorktreeBranchOnReviewPass(
       currentBranch = stdout.trim();
     } catch { /* 探测失败同样 fail-closed */ }
     if (currentBranch !== baseBranch) {
-      await wuService.markMergeConflict(wu.id, []);
+      await wuService.blockForMergeFailure(wu.id, []);
       await postSystemMessage(
         fileStore,
         wu,
@@ -291,7 +302,7 @@ export async function mergeWorktreeBranchOnReviewPass(
   // 注：本包 tsconfig 未开 strict，真值判断不收窄可辨识联合，须用 === false 字面量比较
   if (merged.ok === false) {
     // 冲突现场已保留（tryMergeWithRebaseRetry 不再先 abort）→ spawn 一次性 LLM 会话解冲突；
-    // LLM 失败/超时/解完仍有残留冲突 → 回退现有 abort + markMergeConflict 转人工（兜底不变）
+    // LLM 失败/超时/解完仍有残留冲突 → 回退现有 abort + blockForMergeFailure 转人工（兜底不变）
     const { audit, resolved } = await resolveConflictSceneWithLlm({
       wu,
       meta,
@@ -307,7 +318,7 @@ export async function mergeWorktreeBranchOnReviewPass(
     if (!resolved) {
       await abortMergeAndRebase(mergeContext.cwd, merged.scene.state === 'rebase' ? worktreePath : undefined);
       // 转人工：WU 置 blocked + 频道系统消息（冲突文件清单）
-      await wuService.markMergeConflict(wu.id, merged.conflictFiles);
+      await wuService.blockForMergeFailure(wu.id, merged.conflictFiles);
       const fileList = merged.conflictFiles.length > 0
         ? `\n冲突文件：\n${merged.conflictFiles.map(f => `- ${f}`).join('\n')}`
         : '（未能获取冲突文件清单）';
@@ -327,7 +338,7 @@ export async function mergeWorktreeBranchOnReviewPass(
     });
   }
 
-  // 合并成功：记录 mergeCommit（PMO-b：读集成交合 HEAD）→ 清理 worktree/分支 → 落档 metadata → 频道通知
+  // Git merge 已成功后先记录真实 HEAD/receipt，再跑目标验证；验证结果不得抹掉已合并事实。
   let mergeCommit = '';
   try {
     const stdout = await execFileAsync('git', ['-C', mergeContext.cwd, 'rev-parse', 'HEAD'], {
@@ -335,16 +346,38 @@ export async function mergeWorktreeBranchOnReviewPass(
     });
     mergeCommit = stdout.trim();
   } catch (err) {
-    logger.warn('[MergeOnReviewPass] rev-parse HEAD failed (mergeCommit 落空字符串)', { wuId: wu.id, error: String(err) });
+    logger.warn('[MergeOnReviewPass] rev-parse HEAD failed', { wuId: wu.id, error: String(err) });
   }
+  const mergedAt = new Date().toISOString();
+  const baseReceipt: WorkUnitMergeReceipt = {
+    id: intent.id,
+    merged: true,
+    mergedAt,
+    ...(mergeCommit ? { mergeCommit } : {}),
+    targetBranch: mergeContext.targetBranch,
+    verification: { status: 'not-run', ran: [] },
+  };
+  if (!mergeCommit) {
+    await wuService.settleMerge(wu.id, {
+      receipt: { ...baseReceipt, failure: { kind: 'merge-error', detail: 'rev-parse HEAD failed' } },
+      outcome: 'blocked',
+      blockReason: 'merge-receipt-failed: 合并后无法读取目标 HEAD',
+    });
+    return { attempted: true, merged: false, conflictFiles: [], reason: 'conflict' };
+  }
+  await wuService.settleMerge(wu.id, { receipt: baseReceipt, outcome: 'in_review' });
 
-  // 合并后 verify（落 mergedAt 前）：在合并目标目录重跑——原 worktree 下方即被 remove，
-  // 绝不能跑那边。无 verify 命令可解析时放行（与执行环节同策略，ran 为空即无命令）。
-  // 红 → 转人工（markMergeConflict 同款 blocked 路径，blockReason 前缀 merge-verify-failed），
-  // 不删 worktree/分支、不落 mergedAt（合并 commit 已入目标分支，留人工处置）。
   const verify = await runMergeVerification(wu, meta, mergeContext.cwd);
+  const verification: WorkUnitMergeReceipt['verification'] = verify.failure
+    ? { status: 'failed', ran: verify.ran, failure: verify.failure }
+    : verify.ran.length === 0
+      ? { status: 'unavailable', ran: [] }
+      : { status: 'passed', ran: verify.ran };
+  const receipt: WorkUnitMergeReceipt = { ...baseReceipt, verification };
   if (verify.failure) {
-    await wuService.markMergeConflict(wu.id, [], {
+    await wuService.settleMerge(wu.id, {
+      receipt: { ...receipt, failure: { kind: 'verification', detail: verify.failure.command } },
+      outcome: 'blocked',
       blockReason: `merge-verify-failed: 合并后验证失败（${verify.failure.command}）`.slice(0, 300),
     });
     await postSystemMessage(
@@ -359,39 +392,32 @@ export async function mergeWorktreeBranchOnReviewPass(
     return { attempted: true, merged: false, conflictFiles: [], reason: 'merge-verify-failed' };
   }
 
-  if (worktreePath) {
+  const settled = await wuService.settleMerge(wu.id, { receipt, outcome: 'done' });
+  if (settled.status === 'done') {
+    if (worktreePath) {
+      try {
+        await execFileAsync('git', ['-C', baseRepo, 'worktree', 'remove', '--force', '--', worktreePath], {
+          cwd: baseRepo, timeout: GIT_OP_TIMEOUT_MS,
+        });
+      } catch (err) {
+        logger.warn('[MergeOnReviewPass] worktree remove failed (non-blocking)', { wuId: wu.id, worktreePath, error: String(err) });
+      }
+    }
     try {
-      await execFileAsync('git', ['-C', baseRepo, 'worktree', 'remove', '--force', '--', worktreePath], {
+      await execFileAsync('git', ['-C', baseRepo, 'branch', '-d', '--', branch], {
         cwd: baseRepo, timeout: GIT_OP_TIMEOUT_MS,
       });
     } catch (err) {
-      logger.warn('[MergeOnReviewPass] worktree remove failed (non-blocking)', { wuId: wu.id, worktreePath, error: String(err) });
+      logger.warn('[MergeOnReviewPass] branch delete failed (non-blocking)', { wuId: wu.id, branch, error: String(err) });
     }
-  }
-  // 分支已合并（--no-ff 后是 HEAD 祖先），用安全删除 -d；失败仅留分支不阻断
-  try {
-    await execFileAsync('git', ['-C', baseRepo, 'branch', '-d', '--', branch], {
-      cwd: baseRepo, timeout: GIT_OP_TIMEOUT_MS,
-    });
-  } catch (err) {
-    logger.warn('[MergeOnReviewPass] branch delete failed (non-blocking)', { wuId: wu.id, branch, error: String(err) });
-  }
 
-  // 落档 metadata（重读最新快照避免覆盖并发写；mergedAt 同时充当防重哨兵）
-  const fresh = await wuService.getById(wu.id);
-  const freshMeta = parseWuMetadata(fresh?.metadata);
-  delete freshMeta.mergeConflict;
-  delete freshMeta.conflictFiles;
-  await wuService.update(wu.id, {
-    metadata: { ...freshMeta, mergedAt: new Date().toISOString(), mergeCommit },
-  });
-
-  await postSystemMessage(
-    fileStore,
-    wu,
-    `任务「${title}」已合并到 ${mergeContext.targetBranch}（merge commit ${mergeCommit.slice(0, 7) || '未知'}）`,
-  ).catch(err => logger.warn('[MergeOnReviewPass] post merged message failed', { wuId: wu.id, error: String(err) }));
-  logger.info('[MergeOnReviewPass] branch merged', { wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, mergeCommit });
+    await postSystemMessage(
+      fileStore,
+      wu,
+      `任务「${title}」已合并到 ${mergeContext.targetBranch}（merge commit ${mergeCommit.slice(0, 7)}）`,
+    ).catch(err => logger.warn('[MergeOnReviewPass] post merged message failed', { wuId: wu.id, error: String(err) }));
+  }
+  logger.info('[MergeOnReviewPass] branch merged', { wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, mergeCommit, verification: verification.status });
   return { attempted: true, merged: true, mergeCommit };
   });
 }
@@ -447,7 +473,8 @@ async function tryMergeWithRebaseRetry(
  * 冲突现场交 LLM 解（对齐 resolving-merge-conflicts skill：保留双方意图、永不 --abort、
  * 解完跑项目验证命令全绿才算完成）。spawn 复用蒸馏管线同款 system-executor 一次性会话
  * （skill 全文作 systemPrompt，mergeContext + verify 命令来源作 prompt，cwd = 冲突现场）。
- * 确定性校验收尾（不信 LLM 自报）：冲突标记清零才算解完；rebase 现场解完后重放 merge。
+ * 确定性校验收尾（不信 LLM 自报）：冲突标记清零 + 源分支确为目标 HEAD 祖先才算解完；
+ * rebase 现场解完后重放 merge。
  */
 async function resolveConflictSceneWithLlm(args: {
   wu: WorkUnitData;
@@ -508,6 +535,15 @@ async function resolveConflictSceneWithLlm(args: {
     } catch (err) {
       return fail(`rebase 解完后重放 merge 仍失败: ${getErrorMessage(err).slice(0, 200)}`);
     }
+  }
+
+  // 无冲突文件 ≠ 已合并：源分支必须真实进入目标 HEAD，否则不能把当前 HEAD 写成 merge receipt。
+  try {
+    await execFileAsync('git', ['-C', mergeCwd, 'merge-base', '--is-ancestor', sourceBranch, 'HEAD'], {
+      cwd: mergeCwd, timeout: GIT_OP_TIMEOUT_MS,
+    });
+  } catch (err) {
+    return fail(`LLM 解完后源分支仍未进入目标 HEAD: ${getErrorMessage(err).slice(0, 200)}`);
   }
 
   return {

@@ -22,7 +22,8 @@ export function EvidenceSection({ evidence }: { evidence: EvidenceStats }) {
       </div>
       <p className="text-xs u-text-3 mt-2">
         主数字 = 已验收任务占比（人工确认 ÷ 已介入 {evidence.engaged} 个任务）；
-        状态不一致 = 界面显示状态与实际记录不符的任务数（验证期指标，持续为 0 才可信）
+        状态不一致 = 界面显示状态与实际记录不符的任务数（验证期指标，持续为 0 才可信）；
+        合并记录分歧 {evidence.mergeDivergence}，完成缺合并回执 {evidence.doneWithoutReceipt}
       </p>
     </MonitorSection>
   );

@@ -16,12 +16,13 @@ import { SkeletonText } from '../ui';
 import { BlockedActions } from '../workunit/BlockedActions';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
+import { DeliveryBadge } from '../workunit/DeliveryBadge';
 import { IconCheck, IconX } from '../ui/icons';
 import { EvidenceLedger } from '../workunit/EvidenceLedger';
 import { ReviewHint } from '../workunit/ReviewHint';
 import { WuGateActions } from '../workunit/WuGateActions';
 import { TranscriptViewer } from '../workunit/TranscriptViewer';
-import { WU_STATUS_LABELS, formatChannelName, parseAttestations } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, WU_STATUS_LABELS, formatChannelName, parseAttestations } from '@dommaker/studio-shared/web';
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
 import { formatShortTime } from '../../utils/datetime';
 import { parseWuMeta } from '../../utils/wuMeta';
@@ -122,6 +123,7 @@ export function WuDetail({ id, autoApprove = false, autoRuling = false, autoDire
 
   const meta = parseWuMeta<WuMeta>(wu.metadata);
   const title = meta.title || wu.scope;
+  const derived = deriveDisplayState({ status: wu.status, metadata: wu.metadata });
   const attestations = parseAttestations(wu.metadata);
   const injectedSum = (tokens ?? []).reduce((s, t) => s + t.injectedTokens, 0);
   const execKnown = (tokens ?? []).filter(t => t.executionTokens !== null);
@@ -143,6 +145,7 @@ export function WuDetail({ id, autoApprove = false, autoRuling = false, autoDire
           {deriveWuColumn(wu) === 'active' ? <span className="mc-dot" /> : null}
           {WU_STATUS_LABELS[deriveWuColumn(wu)] ?? deriveWuColumn(wu)}
         </span>
+        <DeliveryBadge delivery={derived.delivery} />
         <SelfReviewBadge wu={wu} />
         <span className="mc-drawer-subject-title">{title}</span>
         {/* D-2 项2：行动中心就地化后详情页深链入口保留在抽屉内（深链分享/深度调查场景，
@@ -193,9 +196,9 @@ export function WuDetail({ id, autoApprove = false, autoRuling = false, autoDire
       {wu.claimedAt && <div className="mc-kv"><span className="mc-kv-k">认领</span><span className="mc-kv-v">{formatShortTime(wu.claimedAt)}</span></div>}
       {wu.completedAt && <div className="mc-kv"><span className="mc-kv-k">完成</span><span className="mc-kv-v">{formatShortTime(wu.completedAt)}</span></div>}
 
-      {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收 三层留痕（共享 EvidenceLedger，卡片变体见 WorkUnitDetailPage）。
+      {/* F6 证据台账：L1/L2/L3 三层留痕 + 可选 merge receipt（共享 EvidenceLedger，卡片变体见详情页）。
           语义：L2 是流程硬门（过了即推进）；L3 是人工背书台账，不阻断流程（done 缺 l3 时展示回审查列）。 */}
-      <EvidenceLedger attestations={attestations} variant="drawer" />
+      <EvidenceLedger attestations={attestations} metadata={wu.metadata} variant="drawer" />
       {/* E2-1：ReviewHint（in_review 且频道无 reviewer 提醒）自列表展开区挪入闸门动作区上方；
           onSetupClick 按 E8-3 改链 /agents；成员未拉到（null）不渲染防误报 */}
       {channelMembers !== null && (

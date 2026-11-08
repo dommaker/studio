@@ -2,7 +2,7 @@
 
 ### 职责
 
-蒸馏主链路：WU done 钩子跑门槛检测（纯确定性计数，零 LLM）-> 命中发 `distill_proposal` 卡到 #系统 -> approve 后 system-executor 执行蒸馏 -> 产物入库 + 原料 `maturity=archived` -> 运行记录 + 事件写 `studio-events.jsonl`。
+蒸馏主链路：真实进入 WU done 的钩子跑门槛检测（纯确定性计数，零 LLM；#703 previousStatus=done 的补证据事件不重复触发）-> 命中发 `distill_proposal` 卡到 #系统 -> approve 后 system-executor 执行蒸馏 -> 产物入库 + 原料 `maturity=archived` -> 运行记录 + 事件写 `studio-events.jsonl`。
 
 GC 候选清单：蒸馏运行后按周期计龄--reference/context 层连续 3 周期 `lastReferenced` 未更新 -> `gc_proposal` 卡；approve -> archived（可恢复）；reject -> 不再提案。manual 过审享 3 周期豁免；主区 >200 强制。不读墙钟。
 

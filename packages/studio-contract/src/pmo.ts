@@ -204,8 +204,8 @@ export const deliveryGapSchema = z.object({
   id: z.string(),
   title: z.string(),
   type: z.string(),
-  /** 缺口层（顺序固定 l1→l2→l3） */
-  missing: z.array(z.enum(['l1', 'l2', 'l3'])),
+  /** 缺口层（顺序固定 l1→l2→l3→merge；merge 含 receipt 与目标验证缺口） */
+  missing: z.array(z.enum(['l1', 'l2', 'l3', 'merge'])),
 });
 export type DeliveryGap = z.infer<typeof deliveryGapSchema>;
 
@@ -225,6 +225,10 @@ export const deliveryEvidenceSchema = z.object({
   l1Missing: z.array(z.string()),
   l2Missing: z.array(z.string()),
   l3Missing: z.array(z.string()),
+  /** 代码 WU 缺可接受的 merge receipt（含目标验证 failed/not-run） */
+  mergeMissing: z.array(z.string()),
+  /** 代码 WU verification=unavailable 且缺 L3 人工确认 */
+  verificationUnavailable: z.array(z.string()),
   selfReviewCount: z.number(),
 });
 

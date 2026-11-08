@@ -151,6 +151,10 @@ export interface EvidenceMetrics {
   selfReviewCount: number;
   /** 人类待办 = 手写 in_review + done ∧ ¬l3（证据已介入） */
   needsHuman: number;
+  /** metadata/receipt 自相矛盾的代码 WU 数；仅台账一致性，不探测真实 Git drift */
+  mergeDivergence: number;
+  /** legacy done 且无 merge receipt 的代码 WU 数 */
+  doneWithoutReceipt: number;
   /** 双轨比对：派生列 ≠ 存储状态的 WU 数。验证期观察——持续降到 0 附近才可停止手写 in_review */
   derivedMismatch: number;
   /** 派生列分布（展示口径；看板/列表应与之一致，不一致说明有 UI 绕派生函数） */

@@ -26,6 +26,13 @@ import {
   type WorkUnitLogPosition,
 } from './workunit-current-projection';
 
+export class WorkUnitSnapshotConflictError extends Error {
+  override readonly name = 'WorkUnitSnapshotConflictError';
+  constructor(wuId: string) {
+    super(`WorkUnit snapshot conflict: ${wuId}`);
+  }
+}
+
 /** #314（D2）：租约推前的合并落盘窗口（默认 60s，≪ 5min 租约 TTL，活跃持有方不被误判到期） */
 export const LEASE_FLUSH_INTERVAL_MS = 60_000;
 
@@ -749,9 +756,19 @@ export class WorkUnitStore {
    * 消除「事件已落、索引未更」的崩溃分叉窗口。所有任务写路径（create/update/状态迁移等）
    * 统一走本原语，不再锁外分两步。
    */
-  async commitSnapshot(event: WorkUnitEvent, snapshot: WorkUnitSnapshot): Promise<void> {
+  async commitSnapshot(
+    event: WorkUnitEvent,
+    snapshot: WorkUnitSnapshot,
+    opts?: { expectedUpdatedAt?: string },
+  ): Promise<void> {
     return this.ctx.base.withLock(this.lockDir, async () => {
-      await this.ensureCurrentLocked();
+      const manifest = await this.ensureCurrentLocked();
+      if (opts?.expectedUpdatedAt !== undefined) {
+        const current = await this.readCurrentSnapshotLocked(snapshot.id, manifest);
+        if (current?.updatedAt !== opts.expectedUpdatedAt) {
+          throw new WorkUnitSnapshotConflictError(snapshot.id);
+        }
+      }
       await this.ctx.io.appendJsonl(this.eventsPath, event);
       const indexWrite = this.upsertSnapshotLocked(snapshot);
       await this.settleCurrentWritesLocked([

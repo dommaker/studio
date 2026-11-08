@@ -91,9 +91,10 @@ export function toRequirementAliasView(p: ProjectReadData): RequirementWithProje
 
 /**
  * WorkUnit 终态集合 — 全部到达时 Requirement 汇总为 done。
- * in_review 视同工作完成（待人类确认）；completed/failed 兼容外部写入的状态值。
+ * #703：in_review 不再视同完成（merge queued/running 与人工确认均未收口）；
+ * completed/failed 兼容外部写入的状态值。
  */
-export const TERMINAL_WORKUNIT_STATUSES = ['in_review', 'done', 'completed', 'failed', 'closed'];
+export const TERMINAL_WORKUNIT_STATUSES = ['done', 'completed', 'failed', 'closed'];
 
 /** #457：maybeRollUpToDone 的 memo 直供快照最小字段集（rollup.ts 事件负载喂入，按 reqId 预 scope） */
 export type ReqRollupSnapshot = Pick<WorkUnitSnapshot, 'id' | 'status' | 'reqId'>;

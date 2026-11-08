@@ -238,7 +238,7 @@ async function deriveChannelSuggestionsInner(
       };
     }
 
-    const { column, evidence } = deriveDisplayState({ status: current.status, metadata: current.metadata });
+    const { column, delivery, evidence } = deriveDisplayState({ status: current.status, metadata: current.metadata });
 
     // #446（spec #441 prompt 形态第一种）：blocked → 「诊断阻塞」prompt 片，
     // 点击预填进输入框、人可编辑后发送，走既有 @mention 消息路由（不建确定性接口）。
@@ -261,7 +261,7 @@ async function deriveChannelSuggestionsInner(
     }
 
     // 自动评审在途（status）/ 断链补派（action）/ 前置门禁转写清单（prompt）都只挂在 in_review 列；其余列不出片
-    if (column !== 'in_review' || !isAutoReviewable(current)) {
+    if (column !== 'in_review' || delivery !== null || !isAutoReviewable(current)) {
       return { currentWuId: current.id, suggestions: [] };
     }
 

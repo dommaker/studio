@@ -76,7 +76,9 @@ export class ReviewDispatcher {
     //   跳过 MANUAL_GATE_TYPES（analysis 分析结论 / #108 decision/spec / #471 plan 一脉会话
     //   规划单）：人工验收类工单，验收闸 = 人工确认（F6 l3），diff-only 契约
     //   对非代码产物恒 needs-info 转人工纯噪声；接力提示与派工见 pmo/analysis-handoff.ts）
-    if (wu.status === 'in_review' && wu.type !== 'review' && !MANUAL_GATE_TYPES.has(wu.type)) {
+    const merge = parseWuMetadata(wu.metadata);
+    const hasMergeDelivery = merge.mergeIntent !== undefined || merge.mergeReceipt !== undefined;
+    if (wu.status === 'in_review' && !hasMergeDelivery && wu.type !== 'review' && !MANUAL_GATE_TYPES.has(wu.type)) {
       await this.handleParentInReview(wu).catch(err => {
         logger.warn('[ReviewDispatcher] handleParentInReview failed', { wuId: wu.id, error: String(err) });
         this.scheduleDispatchRetry(wu.id);
@@ -169,6 +171,8 @@ export class ReviewDispatcher {
    */
   async redispatchReview(parent: WorkUnitData): Promise<WorkUnitData | null> {
     if (!parent.channelId) return null;
+    const merge = parseWuMetadata(parent.metadata);
+    if (merge.mergeIntent !== undefined || merge.mergeReceipt !== undefined) return null;
     if (!autoReviewEnabled()) return null; // P7：自动评审关停（对账重派同口径）
     return this.createReviewChildFor(parent, { silent: true });
   }
@@ -289,6 +293,10 @@ export class ReviewDispatcher {
     }
     if (parent.status !== 'in_review' && parent.status !== 'done') {
       throw new Error(`Cannot dispatch review: current status is ${parent.status}, expected in_review/done`);
+    }
+    const merge = parseWuMetadata(parent.metadata);
+    if (parent.status === 'in_review' && (merge.mergeIntent !== undefined || merge.mergeReceipt !== undefined)) {
+      throw new Error('Cannot dispatch review while merge delivery is in review');
     }
     if (deriveDisplayState({ status: parent.status, metadata: parent.metadata }).evidence.l2) {
       throw new Error('L2 review evidence already present — 无需补派');

@@ -48,6 +48,7 @@
 
 - **多实例单活**：`STUDIO_AGENT_LOOP_ENABLED=false` 实例 standby；`AgentLoop.start()` 内置同角色单活守卫
 - **#635 stop 语义收窄**：`AgentLoop.stop()` 只置退出意图（alive=false），不停租约心跳、不清租约轨道——在飞 step 全程租约保护；停心跳收尾统一在 runLoop 主循环退出点
+- **#703 merge 交付防重**：ReviewDispatcher 对已有 mergeIntent/mergeReceipt 的 in_review 进度不派评审；对账 redispatch 与人工 dispatchReviewNow 同样拒绝 merge 交付中的 WU，避免 queued/running 或 unavailable 补 L3 时重复建评审子单。
 - **#700/#701 plan 收割、分腿与 review 血缘**：plan COMPLETE 使用 spec TASK codec 收割逐任务 LEG/AC/BLOCKEDBY 到 `analysisTaskDetails`；prompt 输出约定要求非空 TASK 显式携带三项，归属不明先 NEED_INPUT。ReviewDispatcher 的子 WU reqId 优先继承父 WU 一等列，metadata.reqId 仅作 legacy 回退。代码 WU 已声明 `pmoBranch` 时腿解析失败、或任何 PMO 建支失败，均返回 `worktree_creation_failed`，不退默认 base。
 - **step-guards 需求/AC 前置守卫（#585）**：仅实现类系统派生 WU 受检；豁免 = from-message/manual、metadata.triggerSource、requirementOverride=true；判定 = reqId + metadata.ac[] 缺一即 need_input 挂起；总开关 `STUDIO_REQUIREMENT_GUARD=false`（测试环境默认关）
 - **认领门槛**：纯显式三门槛（assigneeId 排他+excludeAssignee+blockedBy）+ 决策 14 适任判断；#579 总开关 `STUDIO_CLAIM_FITNESS=false`

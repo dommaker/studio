@@ -20,10 +20,11 @@ import { DELIVERY_POLICY_LABELS } from './projectDisplay';
 
 // 🆕 F6-c: 缺口层 → 人话文案（#399 §8.3 词表：自动验证 / Agent 评审 / 人工确认，L1/L2/L3 不上界面）
 // 「缺」与 Latin 开头的 Agent 评审间留空格，CJK 词直连
-const GAP_LAYER_LABELS: Record<'l1' | 'l2' | 'l3', string> = {
+const GAP_LAYER_LABELS: Record<'l1' | 'l2' | 'l3' | 'merge', string> = {
   l1: `缺${EVIDENCE_LAYER_LABELS.l1}`,
   l2: `缺 ${EVIDENCE_LAYER_LABELS.l2}`,
   l3: `缺${EVIDENCE_LAYER_LABELS.l3}`,
+  merge: '缺合并回执或目标验证',
 };
 
 export interface DeliveryPanelProps {

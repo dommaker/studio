@@ -6,7 +6,7 @@
  */
 export { AnalysisHandoff, initAnalysisHandoff, PlanTaskLegError, validatePlanConfirm } from './analysis-handoff.js';
 export { initDecisionResolution } from './decision-resolution.js';
-export { matchWuToLeg, selectProjectSnapshots } from './evidence-summary.js';
+export { CODE_TYPES, matchWuToLeg, selectProjectSnapshots } from './evidence-summary.js';
 export { initMapOpening, MAP_OPENING_FOG_MAX, parseMapOpening } from './map-opening.js';
 export { getOkrService } from './okr.service.js';
 export { applyPlanDirection, PlanDirectionError, validateDirectionPick } from './plan-direction.js';

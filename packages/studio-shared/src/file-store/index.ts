@@ -74,7 +74,7 @@ export type {
 export { formatRequirementId, formatEvolutionId } from './file-store-types';
 export { LockTimeoutError } from './file-store-base';
 export type { WorkUnitReconcileResult } from './file-store-workunit';
-export { parseWorkUnitIndexContent } from './file-store-workunit';
+export { parseWorkUnitIndexContent, WorkUnitSnapshotConflictError } from './file-store-workunit';
 export { WorkUnitMetadataRepository } from './workunit-metadata-repository';
 export type { WorkUnitMetadataWritePort } from './workunit-metadata-repository';
 export { parseChannels, stringifyChannels } from '../channels-codec';
@@ -186,8 +186,12 @@ export class FileStore {
     return this.workunitStore.removeSnapshot(id);
   }
 
-  commitSnapshot(event: WorkUnitEvent, snapshot: WorkUnitSnapshot): Promise<void> {
-    return this.workunitStore.commitSnapshot(event, snapshot);
+  commitSnapshot(
+    event: WorkUnitEvent,
+    snapshot: WorkUnitSnapshot,
+    opts?: { expectedUpdatedAt?: string },
+  ): Promise<void> {
+    return this.workunitStore.commitSnapshot(event, snapshot, opts);
   }
 
   commitRemoval(event: WorkUnitEvent, id: string): Promise<void> {

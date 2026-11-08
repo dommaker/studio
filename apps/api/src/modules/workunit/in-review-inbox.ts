@@ -13,7 +13,7 @@
  * source 用独立的 in_review_orphan——与 #181 review_stagnation 滞留探针同名不同义
  * （单次入口出声 vs 聚合滞留提醒），下游按 source 分组/去重不混淆。
  */
-import { eventBus } from '@dommaker/studio-shared';
+import { deriveDisplayState, eventBus } from '@dommaker/studio-shared';
 import type { WorkUnitData } from './workunit-crud.js';
 import { workUnitPort } from './workunit-ports.js';
 
@@ -30,6 +30,8 @@ export function initInReviewInbox(): void {
   eventBus.subscribe('workunit.status_changed', async (payload: { workunit: WorkUnitData }) => {
     const wu = payload?.workunit;
     if (!wu || wu.status !== 'in_review') return;
+    const delivery = deriveDisplayState({ status: wu.status, metadata: wu.metadata }).delivery;
+    if (delivery === 'merge-queued' || delivery === 'merge-running') return;
     if (wu.channelId || HANDLED_ELSEWHERE.has(wu.type)) return;
 
     (await workUnitPort('alert')).dispatch([{

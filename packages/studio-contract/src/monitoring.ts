@@ -303,6 +303,10 @@ export const evidenceMetricsSchema = z.object({
   l3Approved: z.number(),
   selfReviewCount: z.number(),
   needsHuman: z.number(),
+  /** metadata/receipt 自相矛盾的代码 WU 数（不探测真实 Git drift） */
+  mergeDivergence: z.number(),
+  /** legacy done 且无 merge receipt 的代码 WU 数 */
+  doneWithoutReceipt: z.number(),
   /** 双轨比对：派生列 ≠ 存储状态的 WU 数 */
   derivedMismatch: z.number(),
   derivedByColumn: z.record(z.string(), z.number()),

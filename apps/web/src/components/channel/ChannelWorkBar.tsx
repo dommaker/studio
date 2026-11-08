@@ -23,6 +23,7 @@ import { buildLifecycle, type WuStation } from '../../utils/wuLifecycle';
 import { parseWuMeta } from '../../utils/wuMeta';
 import type { LiveExecution } from '../workunit/execution-rows';
 import { StationStepper } from '../workunit/StationStepper';
+import { DeliveryBadge } from '../workunit/DeliveryBadge';
 import { WuGateActions } from '../workunit/WuGateActions';
 // stepper 样式类（wu-stepper-bar/wu-bstep/wu-st-*）定义在 wu-detail.css，顶层作用域可直接复用
 import '../../styles/wu-detail.css';
@@ -72,10 +73,10 @@ export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit, wuIdle = 
   const others = currentWu ? liveExecs.filter(e => e.workUnitId !== currentWu.id) : liveExecs;
 
   let stations: WuStation[] | null = null;
+  const derived = currentWu ? deriveDisplayState({ status: currentWu.status, metadata: currentWu.metadata }) : null;
   // D-2 项6：闸门态判定与 WuGateActions 内部渲染分支同口径（非闸门态挂空壳防 flex 占位）
   let gateState = false;
-  if (currentWu) {
-    const derived = deriveDisplayState({ status: currentWu.status, metadata: currentWu.metadata });
+  if (currentWu && derived) {
     gateState = currentWu.status === 'pending' || currentWu.status === 'in_review'
       || (currentWu.status === 'done' && derived.needsHuman);
     stations = buildLifecycle(currentWu, derived, parseWuMeta(currentWu.metadata), parseAttestations(currentWu.metadata)).stations;
@@ -94,6 +95,7 @@ export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit, wuIdle = 
           >
             {shortWuId(currentWu.id)}
           </button>
+          <DeliveryBadge delivery={derived?.delivery ?? null} />
           <div className="mc-workbar-stepper" aria-label="工单阶段">
             {/* E1：workbar 内站点可点（点击开对应 WU 抽屉，与 live 徽标统一入口）；
                 StationStepper 与 WU 详情页共享——可点化仅经 onStationClick 作用域限定在此，详情页不传保持纯展示 */}

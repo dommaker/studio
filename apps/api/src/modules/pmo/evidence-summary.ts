@@ -16,11 +16,12 @@
  *     review 子 WU 自身不再派评审，人工验收类的验收闸是人工确认（L3），diff-only
  *     契约对非代码产物恒 needs-info 转人工纯噪声。若不豁免，这些类型永远不可能
  *     deliverable（规则自相矛盾）。
- *   - l3 对所有已完成 WU 要求（验收权只在人）。
+ *   - l3 对所有已完成 WU 要求（验收权只在人）；
+ *   - 代码类 finished WU 另需完整 merge receipt 与目标验证 passed；无验证命令时仅 L3 可替代。
  */
 import { deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { parseWuPmoId } from '../requirements/index.js';
-import { MANUAL_GATE_TYPES } from '../workunit/index.js';
+import { hasCompleteMergeReceipt, MANUAL_GATE_TYPES, parseWuMetadata } from '../workunit/index.js';
 import type { DeliveryLeg } from './model.js';
 import { matchWuToLeg } from './project-read.js';
 
@@ -46,7 +47,7 @@ function l2ExemptTypes(): Set<string> {
   return (_l2ExemptTypes ??= new Set(['review', ...MANUAL_GATE_TYPES]));
 }
 
-/** 项目证据汇总（deliverable = 有 WU 且全部完成且三层证据齐） */
+/** 项目证据汇总（deliverable = 有 WU 且全部完成、三层证据齐、代码 receipt/目标验证可接受） */
 export interface EvidenceSummary {
   total: number;
   finished: number;
@@ -59,6 +60,10 @@ export interface EvidenceSummary {
   l2Missing: string[];
   /** 已完成但缺 L3 人工确认的 WU id */
   l3Missing: string[];
+  /** 代码 WU receipt 缺 merged/mergeCommit/targetBranch，或目标验证 failed/not-run/缺失 */
+  mergeMissing: string[];
+  /** merge receipt 无目标验证命令且缺 L3 人工确认的代码 WU id */
+  verificationUnavailable: string[];
   /** l2 中自评数（决策 5：评审独立性参考，不阻断交付） */
   selfReviewCount: number;
   deliverable: boolean;
@@ -114,6 +119,8 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
   const l1Missing: string[] = [];
   const l2Missing: string[] = [];
   const l3Missing: string[] = [];
+  const mergeMissing: string[] = [];
+  const verificationUnavailable: string[] = [];
   let selfReviewCount = 0;
 
   for (const s of snapshots) {
@@ -125,7 +132,16 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
     const d = deriveDisplayState({ status: s.status, metadata: s.metadata });
     if (!d.workFinished) continue;
     finished++;
-    if (CODE_TYPES.has(s.type) && !d.evidence.l1) l1Missing.push(s.id);
+    if (CODE_TYPES.has(s.type)) {
+      const receipt = parseWuMetadata(s.metadata).mergeReceipt;
+      const verification = receipt?.verification?.status;
+      if (!d.evidence.l1 && verification !== 'unavailable') l1Missing.push(s.id);
+      if (!hasCompleteMergeReceipt(s.metadata)) {
+        mergeMissing.push(s.id);
+      } else if (verification === 'unavailable' && !d.evidence.l3) {
+        verificationUnavailable.push(s.id);
+      }
+    }
     // review/analysis 豁免 L2：dispatcher 不派自动评审，验收闸是人工 L3
     if (!l2ExemptTypes().has(s.type) && !d.evidence.l2) l2Missing.push(s.id);
     if (!d.evidence.l3) l3Missing.push(s.id);
@@ -134,7 +150,8 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
 
   const inFlight = snapshots.length - finished;
   const deliverable = snapshots.length > 0 && inFlight === 0
-    && l1Missing.length === 0 && l2Missing.length === 0 && l3Missing.length === 0;
+    && l1Missing.length === 0 && l2Missing.length === 0 && l3Missing.length === 0
+    && mergeMissing.length === 0 && verificationUnavailable.length === 0;
 
   return {
     total: snapshots.length,
@@ -144,6 +161,8 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
     l1Missing,
     l2Missing,
     l3Missing,
+    mergeMissing,
+    verificationUnavailable,
     selfReviewCount,
     deliverable,
   };

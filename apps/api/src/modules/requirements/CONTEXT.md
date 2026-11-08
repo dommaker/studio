@@ -30,7 +30,7 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 - **契约驱动（2026-09 批次 1/7）**：全部端点走 `core/http.ts defineRoute`（schema 在 `@dommaker/studio-contract` requirements.ts），响应统一 `{ data }` 壳（原 `{success,data}` 退役）；status 词表校验收进 zod enum（非法值 400 BAD_REQUEST）；错误映射表顺序敏感——'Project not found' → 400 必须先于 'not found' → 404
 - 首次 @mention 派发时自动分配 REQ 编号（#636：频道最近挂接 REQ 属于非杂务 PMO 时新 REQ 直接挂接该项目——A′ 裁决，自增强粘性为接受行为，切项目走显式 token；否则频道已登记杂务 PMO 时归集到杂务别名，不再每条消息新建 REQ）
 - **#636 无 token 派单默认挂频道当前 PMO（#632 Q7 域缝隙，A′ 裁决）**：`createFromDispatch` 自动新建路径内先跑当前 PMO 第一级派生（`deriveChannelReqPmo`，最近挂接 REQ 所属 PMO），命中且非杂务 → 新 REQ 挂接其 projectId；派生为杂务 PMO/无结果 → 维持杂务归集或孤儿新建，行为不变；派生查询抛错 → 记日志降级，绝不阻断派单。显式 reqId / #REQ-n / #PMO-n token 优先级不动（不触发派生）。`RequirementServiceDeps.deriveChannelProject` 可注入中性桩（默认实现绑本 service 的 fileStore + ProjectReadPort.get，只查不建、零副作用）——单测务必注入（同 findChoreProject 等桩模式）
-- 状态汇总走事件驱动（`workunit.status_changed`），不做轮询
+- 状态汇总走事件驱动（`workunit.status_changed`），不做轮询；#703 起终态集不再含 in_review，merge queued/running 或待人工确认的 WU 不会把 REQ 提前汇总为 done，真实终态 = done/completed/failed/closed
 - **requirement.created/updated 已接 SSE（2026-08-24 SSE 负载加深）**：publish 负载 = `{ requirement }`（RequirementData 含 id/title/status/channelId，无需补齐），经 events 模块 workunit-events-bridge 转发到 'events' 频道，topic = requirements（sse.routes 前缀映射）
 - **鉴权（2026-07-24 收紧；P2-e 声明式统一）**：createRequirementRoutes 工厂改返回 `{ openRoutes, writeRoutes }`——GET 走 openRoutes（开放），POST/PATCH 走 writeRoutes（route-registry 挂 authNotGuest），路由内不再挂鉴权。
 - **批量徽章统计(#387)**：GET /chain-stats?reqIds= 每需求 {finished,total}，finished = deriveDisplayState().workFinished（F6 唯一口径服务端同源）；getChainStats 一次索引扫描 + 别名一次 listAliasProjects 全量扫描解析，查无此需求不出 key（同原 404 口径）。PMO 卡片「任务 x/y」专用，消逐项目 getChain 的 N+1；单次 id 上限 MAX_BATCH_IDS=100。GET 只读，大门层鉴权不变。

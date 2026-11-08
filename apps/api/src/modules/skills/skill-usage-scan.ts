@@ -10,8 +10,8 @@
  * 形态：eventBus 钩子（仿 completion-extraction / distill-runtime），
  * 纯确定性、零 LLM、无预算熔断；fire-and-forget 不阻断收尾订阅链。
  *
- * 幂等：WU done 重发只产重复事件，聚合侧（skill-demotion.ts）按
- * (skill, workUnitId) 去重吸收，不加哨兵。
+ * 幂等：只在真实迁入 done 时扫描；done 上补证据（previousStatus=done）不触发。
+ * 旧事件缺 previousStatus 时保持原触发兼容，聚合侧仍按 (skill, workUnitId) 去重。
  *
  * 宽口径说明：agent 在文本中提及路径而未真读也算命中（罕见，接受）；数据积累后
  * 如需收紧另议。
@@ -44,9 +44,9 @@ export class SkillUsageScanner {
     if (this.subscribed) return;
     this.subscribed = true;
 
-    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
+    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData; previousStatus?: string }) => {
       const wu = payload.workunit;
-      if (!wu || wu.status !== 'done') return;
+      if (!wu || wu.status !== 'done' || payload.previousStatus === 'done') return;
       // fire-and-forget：扫描/写事件绝不 await 阻断收尾订阅链
       void this.scan(wu).catch(err =>
         logger.warn('[SkillUsageScan] scan failed (non-blocking)', { wuId: wu.id, error: String(err) }),

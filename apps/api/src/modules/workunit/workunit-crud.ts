@@ -213,7 +213,7 @@ export interface WorkUnitRepository {
 export interface WorkUnitLifecycleRepository {
   aggregateParentStatus(childId: string): Promise<void>;
   expandRoutingHead(parent: WorkUnitData): Promise<void>;
-  publishStatusChanged(snapshot: WorkUnitSnapshot): Promise<void>;
+  publishStatusChanged(snapshot: WorkUnitSnapshot, previousStatus?: string): Promise<void>;
 }
 
 export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycleRepository {
@@ -654,10 +654,13 @@ export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycl
    * REQ 需求状态汇总（vision §5.3）等订阅方消费。
    * #318：负载附 claimable（additive，见 resolveEventClaimable）。
    */
-  async publishStatusChanged(snapshot: WorkUnitSnapshot): Promise<void> {
+  async publishStatusChanged(snapshot: WorkUnitSnapshot, previousStatus?: string): Promise<void> {
     try {
       const claimable = await this.resolveEventClaimable(snapshot);
-      eventBus.publish('workunit.status_changed', { workunit: { ...snapshotToData(snapshot), claimable } });
+      eventBus.publish('workunit.status_changed', {
+        workunit: { ...snapshotToData(snapshot), claimable },
+        ...(previousStatus !== undefined ? { previousStatus } : {}),
+      });
     } catch (err) {
       logger.warn('[WorkUnit] Failed to publish workunit.status_changed (non-blocking)', {
         workUnitId: snapshot.id,

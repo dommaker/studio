@@ -19,7 +19,7 @@
 - `metrics.service.ts` — D16 指标聚合服务：`getOverviewMetrics({windowDays})`，60s 内存缓存 + 同 key miss single-flight，`invalidateCache()` 测试用
 - `overview-projection.ts` — PERF-05 按日窗口投影：WU events 以完整行 `dev/ino/offset` 增量恢复；human 每频道 head 同含文件代际，压实换 inode 后即使再增长过旧 offset 也重建，更新/墓碑仅重建对应频道；90 天数据仅在 UTC 日变化时 prune，落 `logs/projections/`
 - `metrics-aggregate.ts` — D16 聚合公共面（`aggregateOverview` 经 `metrics-overview.ts` re-export；`aggregateCacheHitRate` / `aggregateSectionTrim` 留本文件，均经 `metrics.service.ts` re-export）；`metrics-overview.ts` — Overview 采样上下文 + 11 个指标组纯函数与 `aggregateOverview` 编排（2026-10-17 纯平移，既有 metrics.service 测试锁定口径）
-- `metrics.types.ts` — D16 类型契约（`OverviewMetrics` 等 9 组指标接口，经 `metrics.service.ts` re-export）
+- `metrics.types.ts` — D16 类型契约（`OverviewMetrics` 等 9 组指标接口，经 `metrics.service.ts` re-export）；#703 起 `EvidenceMetrics` 增加代码 WU `mergeDivergence/doneWithoutReceipt` 快照计数
 - `current-wu-context.ts` — #318 共享出口：当前 WU 聚合上下文（快照 + pmo 归属链 + channelId）
 - `monitor.service.ts` — Monitor 门面（5min 轮询健康监控 + 渐进告警）
 - `monitor-probes.ts` — WU 级探测（失败趋势/停滞/超时/池停滞/评审停滞/僵尸认领守卫——#464 起 stale_claim_guard 命中除告警外同步向 WU 所在频道发「已沉睡」milestone 提醒；#610 起 expireTriggerPendingWorkUnits——trigger 建单 pending 超期未确认自动关闭，阈值 TRIGGER_PENDING_EXPIRY_DAYS 默认 7 天，人工建的 pending 单不受影响，decision/spec/plan 豁免）
@@ -66,3 +66,4 @@
 - **系统探测 /proc 单出口（#344）**：新探测先落 `core/proc-probes.ts`（零子进程）。磁盘 = statfs (blocks−bavail)/blocks；内存 = MemTotal−MemAvailable；僵尸 = /proc/<pid>/stat state=Z。#418 起命令行类探测同出口
 - **worktree GC 唯一入口 = `monitor-system-probes.gcStaleWorktrees`（#409）**：Ops 版 cleanupWorktrees 及其 hourly 挂载已删；#571 起 frontend dist 检查委托 utils/frontend-dist.ts（npm 形态缺 dist = 包损坏 critical abort，auto-build 仅 monorepo dev 形态保留）
 - preflight 其余同步 exec（vite build/cloudflared nohup spawn）为启动一次性路径，#374 方案未列，保留
+- **merge receipt 一致性监控（#703，2026-11-08）**：`aggregateEvidence` 对 `CODE_TYPES` 快照增加 `mergeDivergence`（done 但 receipt 非接受、merged 缺 commit、legacy `mergedAt/mergeCommit` 与 receipt 值或 merged=false 冲突、done 且 `mergeConflict`）与 `doneWithoutReceipt`（legacy done 无 receipt）；只判 metadata/receipt 自相矛盾，不调用 Git、不探测真实 drift。两个计数字段与 monitoring contract 同步为必填。

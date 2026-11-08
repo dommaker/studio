@@ -3,16 +3,16 @@
  *
  * 本层：评审验收收口——reviewPassed/reviewRejected、attestation 幂等补写
  * （writeHumanConfirmation/writeAgentReviewAttestation/recordL1Verification）、
- * verifyManually（#551 人工重跑 L1 业务下沉）、markMergeConflict/blockForManualRelease/
+ * verifyManually（#551 人工重跑 L1 业务下沉）、blockForMergeFailure/blockForManualRelease/
  * blockForAllUnfit（转人工类迁移）。全部迁移类写经生命周期层 persistSnapshot 统一尾部。
  * 状态机由 workunit-lifecycle.ts 经窄接口注入，模块级共享件：reviewPassTracker /
  * waitForReviewPassSettled（#228 测试可观测性）与 ManualVerifyResult。
  */
 
-import { withAttestation, deriveDisplayState, createSettledTracker, type AttestationEntry, type FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { withAttestation, deriveDisplayState, createSettledTracker, WorkUnitSnapshotConflictError, type AttestationEntry, type FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from './merge-on-review-pass.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
+import { isAcceptedMergeReceipt, type WorkUnitMetadata, type ReviewAttestationSource, type WorkUnitMergeIntent, type WorkUnitMergeReceipt } from './workunit.types.js';
 import { snapshotToData, WorkUnitCrudService, type WorkUnitData, type WorkUnitLifecycleRepository, type WorkUnitRepository } from './workunit-crud.js';
 import { WorkUnitLifecycleService, type WorkUnitLifecycle, type WorkUnitLifecyclePersistence } from './workunit-lifecycle.js';
 import { WorkUnitQueryService, type WorkUnitQuery } from './workunit-query.js';
@@ -28,6 +28,8 @@ import { getStore } from '../../core/store.js';
  * 会吃满 3s 预算（merge-on-review-pass 偶发红）。
  */
 const reviewPassTracker = createSettledTracker();
+/** 同一 WU 的 merge effect 单飞；防止并发 reviewPassed 重跑 Git/LLM/清理。 */
+const reviewPassMergeEffects = new Map<string, Promise<void>>();
 
 /** #551：verifyManually 的判别联合结果——kind 承载守卫/执行结论，HTTP 语义由路由层映射 */
 export type ManualVerifyResult =
@@ -57,9 +59,19 @@ export async function waitForReviewPassSettled(): Promise<void> {
   await reviewPassTracker.waitForSettled();
 }
 
+export interface WorkUnitMergeSettlement {
+  receipt: WorkUnitMergeReceipt;
+  outcome: 'in_review' | 'blocked' | 'done';
+  blockReason?: string;
+  conflictFiles?: string[];
+  mergeConflict?: boolean;
+}
+
 export interface WorkUnitReview {
   reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string; analysisTasks?: string[]; analysisTaskDetails?: WorkUnitMetadata['analysisTaskDetails'] }): Promise<WorkUnitData>;
   reviewRejected(id: string, reason?: string, attestation?: ReviewAttestationSource): Promise<WorkUnitData>;
+  recordMergeProgress(id: string, intent: WorkUnitMergeIntent): Promise<WorkUnitData>;
+  settleMerge(id: string, settlement: WorkUnitMergeSettlement): Promise<WorkUnitData>;
   recordL1Verification(id: string, input: {
     by: string;
     ran: string[];
@@ -67,7 +79,7 @@ export interface WorkUnitReview {
     failure?: { command: string; tail: string };
   }): Promise<WorkUnitData>;
   verifyManually(id: string, opts: { by: string }): Promise<ManualVerifyResult>;
-  markMergeConflict(id: string, conflictFiles: string[], opts?: { blockReason?: string }): Promise<WorkUnitData>;
+  blockForMergeFailure(id: string, conflictFiles: string[], opts?: { blockReason?: string; mergeConflict?: boolean }): Promise<WorkUnitData>;
   blockForManualRelease(id: string, reason: string): Promise<WorkUnitData>;
   blockForAllUnfit(id: string, reason: string): Promise<WorkUnitData | null>;
 }
@@ -86,9 +98,9 @@ export class WorkUnitReviewService implements WorkUnitReview {
   private readonly getById: WorkUnitQuery['getById'] = id => this.query.getById(id);
 
   /**
-   * Review passed: in_review → done. Emits workunit.review.passed.
+   * Review passed：非代码 WU in_review → done；有 worktree 的代码 WU 先落 mergeIntent，
+   * 保持 in_review，merge receipt 与目标验证接受后才 done。
    * Resets consecutive rejection counter.
-   * B3b-ii：收口处触发 worktree 分支自动合并（best-effort，不阻断 done 迁移）。
    * F6（决策 1）：attestation 入参带来源时写台账——agent-review → l2，human-confirm → l3。
    * F6-b：human-confirm 且当前已是 done → 幂等补写 l3（agent 评审通过的 WU 等人工确认，
    * 人类待办 = done ∧ ¬l3 必须有确认出口），不改状态、不重复触发合并。
@@ -99,12 +111,9 @@ export class WorkUnitReviewService implements WorkUnitReview {
     const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
-      // F6-b 豁免：done + human-confirm → 只补台账 l3
       if (current.status === 'done' && attestation?.kind === 'human-confirm') {
         return this.writeHumanConfirmation(current, attestation);
       }
-      // F6-c 豁免：done + agent-review + l2 缺失（approved 口径，同 deriveDisplayState）→ 只补台账 l2；
-      // l2 已达成时重复回传仍是非法迁移（不放宽状态机）
       if (current.status === 'done' && attestation?.kind === 'agent-review'
         && !deriveDisplayState({ status: current.status, metadata: current.metadata }).evidence.l2) {
         return this.writeAgentReviewAttestation(current, attestation);
@@ -112,20 +121,18 @@ export class WorkUnitReviewService implements WorkUnitReview {
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);
     }
 
-    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
+    const existing = parseWuMetadata(current.metadata);
+    const mergeInFlight = existing.mergeIntent?.state === 'queued' || existing.mergeIntent?.state === 'running';
+    const awaitingUnavailableConfirmation = existing.mergeReceipt?.merged === true
+      && existing.mergeReceipt.verification.status === 'unavailable'
+      && attestation?.kind === 'human-confirm';
+    if (mergeInFlight && !awaitingUnavailableConfirmation) return snapshotToData(current);
+
+    const metadata: WorkUnitMetadata = existing;
     delete metadata._consecutiveReviewRejections;
-    // #177：analysis 确认处可选「默认执行角色」落档（analysis-handoff 派生 task 子 WU 时消费）
-    if (options?.defaultTaskAssigneeId) {
-      metadata.defaultTaskAssigneeId = options.defaultTaskAssigneeId;
-    }
-    // #463：analysis 确认表单的人审后 TASK 清单（剔除/行内编辑）覆写 metadata.analysisTasks——
-    // analysis-handoff 消费人审定稿而非 agent 原始拆分；缺省不动（兼容旧路径）
-    if (options?.analysisTasks !== undefined) {
-      metadata.analysisTasks = options.analysisTasks;
-    }
-    if (options?.analysisTaskDetails !== undefined) {
-      metadata.analysisTaskDetails = options.analysisTaskDetails;
-    }
+    if (options?.defaultTaskAssigneeId) metadata.defaultTaskAssigneeId = options.defaultTaskAssigneeId;
+    if (options?.analysisTasks !== undefined) metadata.analysisTasks = options.analysisTasks;
+    if (options?.analysisTaskDetails !== undefined) metadata.analysisTaskDetails = options.analysisTaskDetails;
     if (attestation) {
       const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';
       metadata.attestations = withAttestation(metadata.attestations, level, this.buildAttestationEntry({
@@ -138,35 +145,131 @@ export class WorkUnitReviewService implements WorkUnitReview {
       }));
     }
 
-    const updated = await this.persistSnapshot(current, metadata, {
-      eventType: 'completed',
-      status: 'done',
-      markCompleted: true,
-      auditActor: attestationActor(attestation),
-    });
+    const requiresMerge = ['task', 'bug', 'feature', 'refactor'].includes(current.type)
+      && Boolean(metadata.worktreeBranch && metadata.worktreeBaseRepo && metadata.worktreeBaseBranch);
+    if (requiresMerge && !metadata.mergeReceipt) {
+      const now = new Date().toISOString();
+      metadata.mergeIntent = {
+        id: metadata.mergeIntent?.id ?? `merge:${id}`,
+        state: 'queued',
+        requestedAt: metadata.mergeIntent?.requestedAt ?? now,
+        sourceBranch: metadata.worktreeBranch!,
+        targetBranch: metadata.pmoBranch ?? metadata.worktreeBaseBranch!,
+      };
+    }
 
-    // B3b-ii（决策 D1/D3 后半）：评审通过 → task 分支自动合并回 base 分支。
-    // best-effort：无 worktree 落档的 WU 在 merge 模块内旁路；冲突由模块自行置 blocked 转人工；
-    // 任何失败只记日志，不阻断本方法的 done 迁移。
-    // #157（T6）：analysis 原型单不合并——收尾只删 worktree 目录、保留 prototype/ 分支
-    // （merge 模块对 analysis 按类型硬旁路，双保险）。
+    const updated = await this.persistSnapshot(current, metadata, requiresMerge
+      ? { eventType: 'updated', auditActor: attestationActor(attestation) }
+      : { eventType: 'completed', status: 'done', markCompleted: true, auditActor: attestationActor(attestation) });
+
     const updatedData = snapshotToData(updated);
     if (updatedData.type === 'analysis') {
       trackReviewPassEffect(cleanupPrototypeWorktreeOnReviewPass(updatedData).catch(err =>
         logger.warn('[WorkUnit] prototype worktree cleanup failed (non-blocking)', { workUnitId: id, error: String(err) })
       ));
-    } else {
+    } else if (!metadata.mergeReceipt) {
       const mergePort = {
         getById: (wuId: string) => this.query.getById(wuId),
         update: (wuId: string, input: Parameters<WorkUnitRepository['update']>[1]) => this.repository.update(wuId, input),
-        markMergeConflict: (wuId: string, files: string[], opts?: { blockReason?: string }) => this.markMergeConflict(wuId, files, opts),
+        blockForMergeFailure: (wuId: string, files: string[], opts?: { blockReason?: string }) => this.blockForMergeFailure(wuId, files, opts),
+        recordMergeProgress: (wuId: string, intent: WorkUnitMergeIntent) => this.recordMergeProgress(wuId, intent),
+        settleMerge: (wuId: string, settlement: WorkUnitMergeSettlement) => this.settleMerge(wuId, settlement),
       };
-      trackReviewPassEffect(mergeWorktreeBranchOnReviewPass(mergePort, updatedData, this.fileStore).catch(err =>
-        logger.warn('[WorkUnit] merge-on-review-pass failed (non-blocking)', { workUnitId: id, error: String(err) })
-      ));
+      const existingEffect = reviewPassMergeEffects.get(id);
+      const effect = existingEffect ?? mergeWorktreeBranchOnReviewPass(mergePort, updatedData, this.fileStore)
+        .catch(async err => {
+          logger.warn('[WorkUnit] merge-on-review-pass failed; blocking WorkUnit', { workUnitId: id, error: String(err) });
+          await this.blockForMergeFailure(id, [], {
+            blockReason: `merge-effect-failed: ${String(err).slice(0, 240)}`,
+            mergeConflict: false,
+          }).catch(fallback => logger.warn('[WorkUnit] merge failure fallback blocked write failed', { workUnitId: id, error: String(fallback) }));
+        })
+        .then(() => undefined)
+        .finally(() => {
+          if (reviewPassMergeEffects.get(id) === effect) reviewPassMergeEffects.delete(id);
+        });
+      if (!existingEffect) reviewPassMergeEffects.set(id, effect);
+      trackReviewPassEffect(effect);
     }
 
+    if (awaitingUnavailableConfirmation) {
+      return this.settleMerge(id, { receipt: metadata.mergeReceipt!, outcome: 'done' });
+    }
     return snapshotToData(updated);
+  }
+
+  async recordMergeProgress(id: string, intent: WorkUnitMergeIntent): Promise<WorkUnitData> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = (await this.fileStore.getIndex({ id }))[0];
+      if (!current) throw new Error('WorkUnit not found');
+      if (current.status === 'done' || current.status === 'closed') return snapshotToData(current);
+      const metadata = parseWuMetadata(current.metadata);
+      metadata.mergeIntent = intent;
+      try {
+        const updated = await this.persistSnapshot(current, metadata, { eventType: 'updated', expectedUpdatedAt: current.updatedAt });
+        return snapshotToData(updated);
+      } catch (err) {
+        const conflict = err instanceof WorkUnitSnapshotConflictError;
+        if (!conflict || attempt === 2) throw err;
+      }
+    }
+    throw new Error('Unreachable merge progress');
+  }
+
+  async settleMerge(id: string, settlement: WorkUnitMergeSettlement): Promise<WorkUnitData> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = (await this.fileStore.getIndex({ id }))[0];
+      if (!current) throw new Error('WorkUnit not found');
+      if (current.status === 'done' || current.status === 'closed') return snapshotToData(current);
+
+      const metadata = parseWuMetadata(current.metadata);
+      const { receipt } = settlement;
+      metadata.mergeReceipt = receipt;
+      if (receipt.merged) {
+        metadata.mergedAt = receipt.mergedAt ?? new Date().toISOString();
+        if (receipt.mergeCommit) metadata.mergeCommit = receipt.mergeCommit;
+      }
+      delete metadata.mergeConflict;
+      delete metadata.conflictFiles;
+
+      let outcome = settlement.outcome;
+      if (outcome === 'done' && !isAcceptedMergeReceipt(metadata)) outcome = 'in_review';
+
+      if (outcome === 'done' && receipt.verification.status === 'passed') {
+        const now = new Date().toISOString();
+        metadata.attestations = withAttestation(metadata.attestations, 'l1', {
+          verdict: 'approved',
+          by: 'merge-target',
+          at: now,
+          kind: 'verify',
+          summary: receipt.verification.ran.join('；').slice(0, 300),
+          ...(receipt.mergeCommit ? { ref: receipt.mergeCommit } : {}),
+        });
+        metadata.verifyReport = { commands: receipt.verification.ran, source: 'convention', passedAt: now };
+      }
+      if (settlement.mergeConflict) {
+        metadata.mergeConflict = true;
+        metadata.conflictFiles = settlement.conflictFiles ?? [];
+      }
+      if (outcome === 'blocked') {
+        metadata.blockReason = settlement.blockReason ?? 'merge-failed: 自动合并失败';
+        metadata.blockedAt = new Date().toISOString();
+      }
+
+      try {
+        const updated = await this.persistSnapshot(current, metadata, {
+          eventType: outcome === 'done' ? 'completed' : outcome === 'blocked' ? 'blocked' : 'updated',
+          status: outcome,
+          markCompleted: outcome === 'done',
+          expectedUpdatedAt: current.updatedAt,
+        });
+        return snapshotToData(updated);
+      } catch (err) {
+        const conflict = err instanceof WorkUnitSnapshotConflictError;
+        if (!conflict || attempt === 2) throw err;
+      }
+    }
+    throw new Error('Unreachable merge settlement');
   }
 
   /**
@@ -299,13 +402,33 @@ export class WorkUnitReviewService implements WorkUnitReview {
     return { kind: 'verified', report };
   }
 
-  async markMergeConflict(id: string, conflictFiles: string[], opts?: { blockReason?: string }): Promise<WorkUnitData> {
+  async blockForMergeFailure(id: string, conflictFiles: string[], opts?: { blockReason?: string; mergeConflict?: boolean }): Promise<WorkUnitData> {
     const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
+    if (current.status === 'done' || current.status === 'closed') return snapshotToData(current);
 
     const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
-    metadata.mergeConflict = true;
-    metadata.conflictFiles = conflictFiles;
+    if (opts?.mergeConflict === false) {
+      delete metadata.mergeConflict;
+      delete metadata.conflictFiles;
+    } else {
+      metadata.mergeConflict = true;
+      metadata.conflictFiles = conflictFiles;
+    }
+    if (metadata.mergeReceipt) {
+      metadata.mergeReceipt = {
+        ...metadata.mergeReceipt,
+        failure: { kind: 'merge-error', detail: opts?.blockReason, conflictFiles },
+      };
+    } else if (metadata.mergeIntent) {
+      metadata.mergeReceipt = {
+        id: metadata.mergeIntent.id,
+        merged: false,
+        targetBranch: metadata.mergeIntent.targetBranch,
+        verification: { status: 'not-run', ran: [] },
+        failure: { kind: 'conflict', conflictFiles },
+      };
+    }
     // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）；
     // opts.blockReason 覆盖默认文案（如合并后 verify 失败走同路径但前缀区分 merge-verify-failed）
     metadata.blockReason = opts?.blockReason ?? `merge-conflict: 自动合并冲突（${conflictFiles.length} 个文件）`;
@@ -319,7 +442,7 @@ export class WorkUnitReviewService implements WorkUnitReview {
    * 2026-07 PMO-flow UX（§4 terminate 语义修正）：强制释放转人工——
    * AgentInstanceService.terminate 在 unclaim 之后调用，WU 直接置 blocked
    * （unassigned → blocked 不在 VALID_TRANSITIONS，活 loop 不认领 blocked WU，
-   * 避免 terminate 后 ≤15s 被同一 loop 重新认领回弹；事件溯源形态同 markMergeConflict）。
+   * 避免 terminate 后 ≤15s 被同一 loop 重新认领回弹；事件溯源形态同 blockForMergeFailure）。
    * assigneeId/claimedAt 清空 + metadata.manualRelease 留痕（语义同 mergeConflict 审计字段）。
    * 终态（done/closed）WU 不动——工作已收口，无可释放（terminate 与完成的竞态防护）。
    */
@@ -349,7 +472,7 @@ export class WorkUnitReviewService implements WorkUnitReview {
   /**
    * 决策 14 认领前适任判断：全员不适任转人工——频道全部 active 成员都被判不适任，
    * unassigned WU 直接置 blocked（unassigned → blocked 不在 VALID_TRANSITIONS，
-   * 语义方法直写，形态同 blockForManualRelease/markMergeConflict 先例）。
+   * 语义方法直写，形态同 blockForManualRelease/blockForMergeFailure 先例）。
    * 仅 unassigned 可转（active/blocked 各有既有出口）；metadata 只补 blockReason/blockedAt，
    * unfitRoles 已由调用方（agent-loop recordClaimUnfit）先行落档。
    */
@@ -380,6 +503,9 @@ export class WorkUnitReviewService implements WorkUnitReview {
     }
 
     const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
+    if (metadata.mergeIntent?.state === 'queued' || metadata.mergeIntent?.state === 'running') {
+      throw new Error('Cannot reject while merge is queued or running');
+    }
     const rejections = (metadata._consecutiveReviewRejections ?? 0) + 1;
     metadata._consecutiveReviewRejections = rejections;
     if (reason) metadata._lastRejectionReason = reason;
@@ -476,9 +602,11 @@ export class WorkUnitService implements WorkUnitRepository, WorkUnitQuery, WorkU
 
   reviewPassed(...args: Parameters<WorkUnitReview['reviewPassed']>) { return this.review.reviewPassed(...args); }
   reviewRejected(...args: Parameters<WorkUnitReview['reviewRejected']>) { return this.review.reviewRejected(...args); }
+  recordMergeProgress(...args: Parameters<WorkUnitReview['recordMergeProgress']>) { return this.review.recordMergeProgress(...args); }
+  settleMerge(...args: Parameters<WorkUnitReview['settleMerge']>) { return this.review.settleMerge(...args); }
   recordL1Verification(...args: Parameters<WorkUnitReview['recordL1Verification']>) { return this.review.recordL1Verification(...args); }
   verifyManually(...args: Parameters<WorkUnitReview['verifyManually']>) { return this.review.verifyManually(...args); }
-  markMergeConflict(...args: Parameters<WorkUnitReview['markMergeConflict']>) { return this.review.markMergeConflict(...args); }
+  blockForMergeFailure(...args: Parameters<WorkUnitReview['blockForMergeFailure']>) { return this.review.blockForMergeFailure(...args); }
   blockForManualRelease(...args: Parameters<WorkUnitReview['blockForManualRelease']>) { return this.review.blockForManualRelease(...args); }
   blockForAllUnfit(...args: Parameters<WorkUnitReview['blockForAllUnfit']>) { return this.review.blockForAllUnfit(...args); }
 }
