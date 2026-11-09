@@ -86,6 +86,8 @@ export interface StepRetryDeps {
   emitFailedStep: (action: 'failed' | 'need_input', detail: string, res?: ExecutionResult) => void;
   /** 新会话号签发（默认 randomUUID；单测注入定值） */
   newSessionId?: () => string;
+  /** #705：实际换会话前持久化 Assignment 换代与新 executionId。 */
+  replaceSession?: (sessionId: string) => Promise<void>;
   /** 会话配额上限（默认 MAX_SESSIONS_PER_WU；单测可注入小值） */
   maxSessionsPerWu?: number;
 }
@@ -150,6 +152,7 @@ export async function runStepRetry(ctx: StepRetryCtx, deps: StepRetryDeps): Prom
   }
 
   const fallbackSessionId = (deps.newSessionId ?? randomUUID)();
+  await deps.replaceSession?.(fallbackSessionId);
   logger.warn(
     kind === 'session-resume-lost'
       ? `[AgentLoop] Resume target session lost for ${wu.id} — falling back to a new session`
@@ -179,7 +182,7 @@ export async function runStepRetry(ctx: StepRetryCtx, deps: StepRetryDeps): Prom
   if (retryResult.success === false) {
     const retryDetail = (retryResult.error ?? '未知错误').slice(0, 500);
     logger.error(`[AgentLoop] agentStep ${kind === 'session-resume-lost' ? 'fallback' : 'overflow'} retry failed for ${wu.id}: ${retryDetail}`, { traceId: ctx.traceId });
-    deps.recordTokenEvent(retryResult);
+    await deps.recordTokenEvent(retryResult);
     // 新会话未建立：sessionId/lastSessionResumed 回滚；sessionCount 保留计入（#95）；
     // 溢出的 sessionSummary 保留落盘供人工参考
     resetUnestablishedSessionBookkeeping(metadataUpdates);

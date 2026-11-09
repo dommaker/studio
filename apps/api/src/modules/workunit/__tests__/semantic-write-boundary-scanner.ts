@@ -1,7 +1,7 @@
 import * as ts from 'typescript';
 
 export interface SemanticWriteViolation {
-  kind: 'updateMetadata' | 'repository.mutate';
+  kind: 'updateMetadata' | 'repository.mutate' | 'mutateSnapshot' | 'repository.mutateSnapshot';
   line: number;
 }
 
@@ -64,8 +64,9 @@ export function findSemanticWriteViolations(source: string, fileName: string): S
   const serviceAliases = new Set<string>();
 
   const bindMethod = (localName: string, importedName: string, initializer: ts.Expression): void => {
-    if (importedName !== 'updateMetadata' && importedName !== 'mutate') return;
-    const kind: WriteKind = importedName === 'mutate' ? 'repository.mutate' : 'updateMetadata';
+    if (!['updateMetadata', 'mutate', 'mutateSnapshot'].includes(importedName)) return;
+    const kind: WriteKind = importedName === 'mutate' ? 'repository.mutate'
+      : importedName === 'mutateSnapshot' ? 'mutateSnapshot' : 'updateMetadata';
     if (importedName === 'updateMetadata' && isSemanticServiceExpression(initializer, sourceFile, serviceAliases)) {
       physicalBindings.delete(localName);
       serviceUpdateBindings.add(localName);
@@ -111,8 +112,9 @@ export function findSemanticWriteViolations(source: string, fileName: string): S
       const boundKind = name ? physicalBindings.get(name) : undefined;
       const kind = name === 'mutate'
         ? 'repository.mutate'
-        : name === 'updateMetadata' ? 'updateMetadata' : boundKind;
-      if (kind === 'repository.mutate' && !commandFile) {
+        : name === 'mutateSnapshot' ? 'repository.mutateSnapshot'
+          : name === 'updateMetadata' ? 'updateMetadata' : boundKind;
+      if ((kind === 'repository.mutate' || kind === 'repository.mutateSnapshot' || kind === 'mutateSnapshot') && !commandFile) {
         violations.push({
           kind,
           line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,

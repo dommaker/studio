@@ -59,9 +59,11 @@ export interface StepDeps {
   readonly role: AgentProfileData;
   readonly fileStore: FileStore;
   readonly workUnits: LoopWorkUnitPort;
+  readonly executionJournal: ExecutionJournal;
   readonly executor: Executor;
   readonly acceptedTypes: string[];
   readonly discussion: DiscussionPort;
+  onAssignment(assignmentId: string, wu: WorkUnitData): void;
 }
 
 export interface ResultRecorderDeps {

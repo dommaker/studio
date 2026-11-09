@@ -25,6 +25,8 @@ describe('ARCH-03 写口检测夹具', () => {
     ['直接 repository.mutate', 'repository.mutate(id, latest => latest)', 'repository.mutate'],
     ['解构 mutate', 'const { mutate } = repository; mutate(id, latest => latest)', 'repository.mutate'],
     ['解构重命名 mutate', 'const { mutate: write } = repository; write(id, latest => latest)', 'repository.mutate'],
+    ['直接 mutateSnapshot', 'store.mutateSnapshot(id, latest => latest)', 'repository.mutateSnapshot'],
+    ['解构 mutateSnapshot', 'const { mutateSnapshot: write } = store; write(id, latest => latest)', 'mutateSnapshot'],
   ] as const)('%s 必须被检测', (_name, source, kind) => {
     expect(findSemanticWriteViolations(source, 'modules/channels/fake.ts')).toEqual([{ kind, line: 1 }]);
   });
@@ -45,9 +47,10 @@ describe('ARCH-03 写口检测夹具', () => {
     'derivation-ledger.ts',
     'trace-link.ts',
     'waiting-gate.ts',
-  ])('仅语义命令允许 repository.mutate：%s', file => {
+  ])('仅语义命令允许 repository 通用 mutator：%s', file => {
     const fileName = `modules/workunit/${file}`;
     expect(findSemanticWriteViolations('this.repository.mutate(id, latest => latest)', fileName)).toEqual([]);
+    expect(findSemanticWriteViolations('this.repository.mutateSnapshot(id, latest => latest)', fileName)).toEqual([]);
   });
 });
 

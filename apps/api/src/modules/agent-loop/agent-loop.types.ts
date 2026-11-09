@@ -31,6 +31,11 @@ export interface StepResult {
   /** §4.2 发言层新鲜度检查：step 开始时捕获的频道版本（agentStep 写入，recordResult 比对）。
    *  #319：行号口径退役（压实会压缩行数），以最后一行消息 id 为锚 */
   channelVersion?: { lastMessageId: string | null };
+  /** #705：本结果所属的 Assignment；迟到结果按此 fencing。 */
+  assignmentId?: string;
+  /** 本步真实 billed tokens 与 transcript 落档事实，供 Assignment/WU 聚合。 */
+  tokenCount?: number;
+  transcriptRecorded?: boolean;
   /** Metadata fields to merge into WorkUnit.metadata (set by agentStep, written atomically by recordResult) */
   metadataUpdates?: Partial<WorkUnitMetadata>;
 }

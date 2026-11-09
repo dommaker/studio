@@ -6,6 +6,11 @@ export interface WorkUnitMetadataWritePort {
     mutator: (current: Record<string, unknown>) => Record<string, unknown>,
     opts?: { touchUpdatedAt?: boolean },
   ): Promise<WorkUnitSnapshot | null>;
+  mutateSnapshot(
+    wuId: string,
+    mutator: (current: WorkUnitSnapshot) => WorkUnitSnapshot | null,
+    opts?: { touchUpdatedAt?: boolean },
+  ): Promise<WorkUnitSnapshot | null>;
 }
 
 /**
@@ -25,6 +30,13 @@ export class WorkUnitMetadataRepository {
 
   patch(wuId: string, patch: Record<string, unknown>): Promise<WorkUnitSnapshot | null> {
     return this.mutate(wuId, latest => ({ ...latest, ...patch }));
+  }
+
+  mutateSnapshot(
+    wuId: string,
+    mutator: (current: WorkUnitSnapshot) => WorkUnitSnapshot | null,
+  ): Promise<WorkUnitSnapshot | null> {
+    return this.store.mutateSnapshot(wuId, mutator);
   }
 
   markStaleClaim(wuId: string, expectedUpdatedAt: string): Promise<WorkUnitSnapshot | null> {

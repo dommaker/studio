@@ -65,6 +65,7 @@ const TEXT_MAX_CHARS = 500;
 
 export interface BuildExecutionStepEventArgs {
   workUnitId: string;
+  assignmentId?: string;
   executionId: string;
   /** 来源频道（wu.channelId 透传；null/缺省 → payload 无该键） */
   channelId?: string | null;
@@ -187,6 +188,7 @@ export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): Exec
 
   return {
     workUnitId: args.workUnitId,
+    ...(args.assignmentId ? { assignmentId: args.assignmentId } : {}),
     executionId: args.executionId,
     ...(args.channelId ? { channelId: args.channelId } : {}),
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),

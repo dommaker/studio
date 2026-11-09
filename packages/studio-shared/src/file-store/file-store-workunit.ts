@@ -10,6 +10,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { isErrnoError } from './file-store-base';
 import type { FileStoreCore } from './file-store-core';
@@ -125,6 +126,7 @@ export interface FileStoreWorkUnitOptions {
 interface PendingLeaseRefresh {
   assigneeId: string;
   claimedAt: string;
+  assignmentId?: string;
   timeoutAt: string;
   updatedAt: string;
 }
@@ -665,14 +667,37 @@ export class WorkUnitStore {
       const assigneeRoleId = opts?.assigneeRoleId ?? null;
       const timeoutAt = opts?.timeoutAt !== undefined ? opts.timeoutAt : wu.timeoutAt;
       const timestamp = new Date().toISOString();
+      const previous = (wu.assignments ?? []).find(a => a.id === wu.currentAssignmentId)
+        ?? wu.assignments?.[wu.assignments.length - 1];
+      const assignments = (wu.assignments ?? []).map(assignment =>
+        ['queued', 'running', 'waiting'].includes(assignment.status)
+          ? { ...assignment, status: 'cancelled' as const, updatedAt: timestamp, endedAt: timestamp }
+          : assignment
+      );
+      const assignment = {
+        id: randomUUID(),
+        workUnitId: wuId,
+        attempt: Math.max(0, ...assignments.map(a => a.attempt)) + 1,
+        previousAssignmentId: previous?.id ?? null,
+        status: 'queued' as const,
+        reason: previous?.status === 'running' ? 'recovery' as const : previous ? 'retry' as const : 'claim' as const,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        tokenCount: 0,
+        transcriptCount: 0,
+        progress: [],
+        evidence: [],
+      };
+      const updated: WorkUnitSnapshot = {
+        ...wu, assigneeId, assigneeRoleId, status: 'active', claimedAt: timestamp, updatedAt: timestamp, timeoutAt,
+        currentAssignmentId: assignment.id,
+        assignments: [...assignments, assignment],
+      };
       const claimEvent: WorkUnitEvent = {
         type: 'claimed',
         wuId,
         timestamp,
-        data: { assigneeId, assigneeRoleId, status: 'active', claimedAt: timestamp, updatedAt: timestamp, timeoutAt },
-      };
-      const updated: WorkUnitSnapshot = {
-        ...wu, assigneeId, assigneeRoleId, status: 'active', claimedAt: timestamp, updatedAt: timestamp, timeoutAt,
+        data: updated as unknown as Record<string, unknown>,
       };
       await this.ctx.io.appendJsonl(this.eventsPath, claimEvent);
       await this.appendIndexRowsLocked([updated]);
@@ -759,13 +784,14 @@ export class WorkUnitStore {
   async commitSnapshot(
     event: WorkUnitEvent,
     snapshot: WorkUnitSnapshot,
-    opts?: { expectedUpdatedAt?: string },
+    opts?: { expectedUpdatedAt?: string; expectedAssignmentId?: string },
   ): Promise<void> {
     return this.ctx.base.withLock(this.lockDir, async () => {
       const manifest = await this.ensureCurrentLocked();
-      if (opts?.expectedUpdatedAt !== undefined) {
+      if (opts?.expectedUpdatedAt !== undefined || opts?.expectedAssignmentId !== undefined) {
         const current = await this.readCurrentSnapshotLocked(snapshot.id, manifest);
-        if (current?.updatedAt !== opts.expectedUpdatedAt) {
+        if ((opts.expectedUpdatedAt !== undefined && current?.updatedAt !== opts.expectedUpdatedAt)
+          || (opts.expectedAssignmentId !== undefined && current?.currentAssignmentId !== opts.expectedAssignmentId)) {
           throw new WorkUnitSnapshotConflictError(snapshot.id);
         }
       }
@@ -810,10 +836,12 @@ export class WorkUnitStore {
     expectedAssigneeId: string,
     expectedClaimedAt: string,
     timeoutAt: Date,
+    expectedAssignmentId?: string,
   ): Promise<'ok' | 'lost' | 'missing'> {
     const current = (await this.getIndex({ id: wuId }))[0];
     if (!current) return 'missing';
-    if (current.assigneeId !== expectedAssigneeId || current.claimedAt !== expectedClaimedAt) {
+    if (current.assigneeId !== expectedAssigneeId || current.claimedAt !== expectedClaimedAt
+      || (expectedAssignmentId !== undefined && current.currentAssignmentId !== expectedAssignmentId)) {
       this.pendingLeaseRefreshes.delete(wuId); // 令牌已失效，清掉残留 dirty 项
       return 'lost';
     }
@@ -821,6 +849,7 @@ export class WorkUnitStore {
     this.pendingLeaseRefreshes.set(wuId, {
       assigneeId: expectedAssigneeId,
       claimedAt: expectedClaimedAt,
+      assignmentId: expectedAssignmentId,
       timeoutAt: timeoutAt.toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -852,7 +881,8 @@ export class WorkUnitStore {
       for (const [wuId, pending] of this.pendingLeaseRefreshes) {
         const current = await this.readCurrentSnapshotLocked(wuId, manifest);
         if (!current || current.status !== 'active'
-          || current.assigneeId !== pending.assigneeId || current.claimedAt !== pending.claimedAt) {
+          || current.assigneeId !== pending.assigneeId || current.claimedAt !== pending.claimedAt
+          || (pending.assignmentId !== undefined && current.currentAssignmentId !== pending.assignmentId)) {
           this.pendingLeaseRefreshes.delete(wuId);
           dropped++;
           continue;
@@ -893,16 +923,28 @@ export class WorkUnitStore {
     mutator: (current: Record<string, unknown>) => Record<string, unknown>,
     opts?: { touchUpdatedAt?: boolean },
   ): Promise<WorkUnitSnapshot | null> {
+    return this.mutateSnapshot(wuId, current => ({
+      ...current,
+      metadata: JSON.stringify(mutator(parseMetadataTolerant(current.metadata))),
+    }), opts);
+  }
+
+  /** #705：WorkUnit 语义命令的同锁快照写口；Assignment 与 metadata 可在一次事件中提交。 */
+  async mutateSnapshot(
+    wuId: string,
+    mutator: (current: WorkUnitSnapshot) => WorkUnitSnapshot | null,
+    opts?: { touchUpdatedAt?: boolean },
+  ): Promise<WorkUnitSnapshot | null> {
     return this.ctx.base.withLock(this.lockDir, async () => {
       const manifest = await this.ensureCurrentLocked();
       const current = await this.readCurrentSnapshotLocked(wuId, manifest);
       if (!current) return null;
 
-      const nextMeta = mutator(parseMetadataTolerant(current.metadata));
+      const mutated = mutator(current);
+      if (!mutated) return null;
       const isoNow = new Date().toISOString();
       const updated: WorkUnitSnapshot = {
-        ...current,
-        metadata: JSON.stringify(nextMeta),
+        ...mutated,
         updatedAt: opts?.touchUpdatedAt === false ? current.updatedAt : isoNow,
       };
       const event: WorkUnitEvent = {

@@ -77,9 +77,11 @@ export class AgentLoop {
       role: this.role,
       fileStore: this.fileStore,
       workUnits: this.workUnitService,
+      executionJournal: this.executionJournal,
       executor: this.executor,
       acceptedTypes: this.acceptedTypes,
       discussion: { postToDiscussionSpace: (...args) => this.postToDiscussionSpace(...args) },
+      onAssignment: (assignmentId, wu) => this.wuLease.ensure(wu, assignmentId),
     });
     this.wuLease = new WuLeaseTracker({
       fileStore: this.fileStore,
@@ -87,10 +89,10 @@ export class AgentLoop {
       getCurrentExecutionId: () => this.stepRunner.getCurrentExecutionId() ?? undefined,
       heartbeatIntervalMs: options.leaseHeartbeatIntervalMs,
       stopProcessGroup: async (executionId) => { await this.executor.stopProcessGroup?.(executionId); },
-      transitionStatus: (wuId, status) => this.workUnitService.transitionStatus(wuId, status, {
+      transitionStatus: (wuId, status, assignmentId) => this.workUnitService.transitionStatus(wuId, status, {
         id: this.currentInstance?.id ?? this.role.id,
         type: 'agent',
-      }),
+      }, { expectedAssignmentId: assignmentId }),
     });
     this.recorder = new ResultRecorder({
       role: this.role,

@@ -36,6 +36,7 @@ const STEP_SILENCE_KILL_MS = 600_000;
 export interface StepExecutionInput {
   target: Target;
   wu: WorkUnitData;
+  assignmentId: string;
   metadata: WorkUnitMetadata;
   metadataUpdates: Partial<WorkUnitMetadata>;
   traceId?: string;
@@ -73,6 +74,7 @@ export async function executeAgentStep(
   } = input;
   const { step } = deps;
   const { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds } = composed;
+  let assignmentId = input.assignmentId;
 
   // 本步最终实际会话形态（续用降级重试后会被改写：换新号 + resumed=false）
   let effectiveSessionId: string | null = resumeSessionId ?? newSessionId;
@@ -131,14 +133,26 @@ export async function executeAgentStep(
     },
   };
 
+  const assignmentIsCurrent = async (): Promise<boolean> => {
+    const current = (await step.fileStore.getIndex({ id: wu.id }))[0];
+    const assignment = current?.assignments?.find(a => a.id === assignmentId);
+    return current?.currentAssignmentId === assignmentId
+      && Boolean(assignment && ['queued', 'running'].includes(assignment.status));
+  };
+  const staleResult = (): StepResult => ({
+    action: 'failed', assignmentId, summary: 'Assignment 已换代，丢弃迟到执行产物',
+  });
+
   // M2 成本红线度量 + B6 真实 token 记账（2026-08-03 token-burn issue P1-2）：
   // 成功与失败执行都记 workunit:tokens（失败照样烧 token）。fire-and-forget，绝不影响任务流程。
-  const recordTokenEvent = (res: ExecutionResult): RealUsage | null => {
+  const recordTokenEvent = async (res: ExecutionResult): Promise<RealUsage | null> => {
+    if (!(await assignmentIsCurrent())) return null;
     // #134: usage 解析按 provider 分流（opencode/codex 事件形态与 claude 不同）
     const real = resolveRealUsage(res, taskProvider);
     void writeWorkunitTokenEvent(resolveStudioEventsFile(), {
       workUnitId: wu.id,
       channelId: wu.channelId,
+      assignmentId,
       executionId: task.executionId,
       injectedTokens: estimateTokens(knowledgeContext),
       executionTokens: real ? real.inputTokens + real.outputTokens : null,
@@ -157,6 +171,7 @@ export async function executeAgentStep(
       // #134: provider 落盘（#120 按 provider 分桶的数据源）
       provider: taskProvider,
     }).catch(() => {});
+    if (real) await step.executionJournal.recordTokenUsage(wu.id, assignmentId, real.billedTokens);
     return real;
   };
 
@@ -164,7 +179,8 @@ export async function executeAgentStep(
   // 此前失败分支提前 return 到不了成功路径的发射点，失败步在事件流中完全不可查。
   // 读取调用时的 effectiveSessionId/sessionResumed 当前值（重试降级后可能被改写）。
   // fire-and-forget，与成功路径发射同形态，绝不影响失败处理流程。
-  const emitFailedStep = (action: string, detail: string, res?: ExecutionResult) => {
+  const emitFailedStep = async (action: string, detail: string, res?: ExecutionResult) => {
+    if (!(await assignmentIsCurrent())) return;
     // #453: 失败路径保持按原文解析（票内决议）——失败步仅此一个消费点，解析一次；
     // 成功路径的解析产物复用不延伸到这里（失败步与成功步互斥，无重复解析可省）。
     const failedRaw = res?.rawOutput;
@@ -172,6 +188,7 @@ export async function executeAgentStep(
     void emitExecutionStepEvent({
       workUnitId: wu.id,
       channelId: wu.channelId,
+      assignmentId,
       executionId: task.executionId,
       sessionId: effectiveSessionId ?? undefined,
       // #639: 失败步同样落 CLI 真实会话号（流内有才带，不编造）
@@ -194,6 +211,7 @@ export async function executeAgentStep(
     deps.setCurrentExecutionId(executionId);
     // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
     let result: ExecutionResult = await step.executor.execute(task);
+    if (!(await assignmentIsCurrent())) return staleResult();
 
     // W-3 接线：runner 失败时返回 { success:false } 而不抛错、且无 outputText ——
     // 直接落入 parseAgentOutput 会得到默认 progress（空 summary），导致 consecutiveStuck
@@ -204,6 +222,7 @@ export async function executeAgentStep(
     if (result.success === false) {
       const failResult = (detail: string) => ({
         action: 'failed' as const,
+        assignmentId,
         summary: `CLI 执行失败: ${detail}`,
         metadataUpdates: {
           ...metadataUpdates,
@@ -215,7 +234,7 @@ export async function executeAgentStep(
       const detail = (result.error ?? '未知错误').slice(0, 500);
       logger.error(`[AgentLoop] agentStep execution failed for ${wu.id}: ${detail}`, { traceId });
       // B6: 失败执行同样记账（CLI 已跑的轮次照样烧了 token，runner error 路径透出 usage）
-      recordTokenEvent(result);
+      await recordTokenEvent(result);
       // #543: #94 续用丢失降级与 #96 上下文溢出两段孪生重试骨架（配额判定 → 改参 →
       // 重算 prompt → 再执行 → 成败分叉 → 簿记回写）收编到 ./step-retry-policy.js ——
       // 本处只保留编排：注入 executor/prompt 重算/记账/失败事件 deps，按 outcome 分流。
@@ -231,9 +250,18 @@ export async function executeAgentStep(
           recordTokenEvent,
           recordFailureOutcome: (d) => deps.recordOutcomeEvent(wu, false, d, 'execution_failed', injectedKnowledgeIds),
           emitFailedStep,
+          replaceSession: async (sessionId) => {
+            const replaced = await step.executionJournal.replaceForSession(wu.id, assignmentId, sessionId);
+            const nextAssignmentId = replaced?.currentAssignmentId;
+            if (!nextAssignmentId) throw new Error('Assignment changed before session replacement');
+            assignmentId = nextAssignmentId;
+            task.executionId = `${executionId}-${nextAssignmentId}`;
+            deps.setCurrentExecutionId(task.executionId);
+            step.onAssignment(assignmentId, wu);
+          },
         },
       );
-      if (retryOutcome.kind === 'terminal') return retryOutcome.result;
+      if (retryOutcome.kind === 'terminal') return { ...retryOutcome.result, assignmentId };
       if (retryOutcome.kind === 'retried') {
         // 重试成功：走正常成功路径；换新号（簿记已由策略写入 metadataUpdates）
         result = retryOutcome.result;
@@ -248,6 +276,7 @@ export async function executeAgentStep(
         return failResult(detail);
       }
     }
+    if (!(await assignmentIsCurrent())) return staleResult();
 
     // #94: sessionResumes 只计「实际续用成功」的步（续用尝试但降级/失败的步不计，防计数失真）
     if (sessionResumed) {
@@ -263,7 +292,7 @@ export async function executeAgentStep(
 
     // M2 成本红线度量 + B6 真实记账: 每次 CLI 执行完成记一条 workunit:tokens 事件
     // （注入估算 estimateTokens 口径 vs 注入红线 INJECT_TOKEN_BUDGET；执行 tokens 取 CLI 真实 usage，未回报记 null 不编造）。
-    const realUsage = recordTokenEvent(result);
+    const realUsage = await recordTokenEvent(result);
 
     // wireup④ token 预算数据源: 本次真实消耗（billed 口径，含 cache）累加进
     // metadata._cumulativeTokens，随 metadataUpdates 由 recordResult 单次原子写入。
@@ -298,6 +327,7 @@ export async function executeAgentStep(
     if (toolTraceSource) {
       void appendTranscriptStep({
         workUnitId: wu.id,
+        assignmentId,
         sessionId: effectiveSessionId ?? undefined,
         step: stepNo,
         action: stepResult.action,
@@ -310,6 +340,7 @@ export async function executeAgentStep(
     void emitExecutionStepEvent({
       workUnitId: wu.id,
       channelId: wu.channelId,
+      assignmentId,
       executionId: task.executionId,
       sessionId: effectiveSessionId ?? undefined,
       // #639: 本步 CLI 真实会话号（与该步 transcript rawOutput 中的编号一致，可对照）
@@ -356,7 +387,13 @@ export async function executeAgentStep(
       }));
     }
 
-    return { ...stepResult, metadataUpdates, channelVersion };
+    return {
+      ...stepResult,
+      assignmentId,
+      transcriptRecorded: Boolean(toolTraceSource),
+      metadataUpdates,
+      channelVersion,
+    };
   } catch (err) {
     // W-3 fix: executeLightweight 失败返回 { success:false } 不抛错 —— 已在上方
     // success===false 显式分支接线（consecutiveStuck → blocked）；本 catch 只覆盖
@@ -371,6 +408,7 @@ export async function executeAgentStep(
     // AC-8.7 远程节点不可达分支已随 RemoteExecutor 一并删除（远程方向放弃，bdaf0dd3）。
     return {
       action: 'need_input' as const, // increments consecutiveStuck
+      assignmentId,
       summary: `Agent execution failed: ${message}`,
       metadataUpdates,
     };

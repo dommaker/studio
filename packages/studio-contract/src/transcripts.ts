@@ -19,6 +19,7 @@ import { dataBodySchema } from './envelope.js';
 
 export const transcriptEntrySchema = z.object({
   workUnitId: z.string(),
+  assignmentId: z.string().optional(),
   /** 本步会话号（WU 内可能因重建/续用切换，逐行记录） */
   sessionId: z.string().optional(),
   /** 1 基步号（与 agent-loop recordResult 的 stepCount 同口径） */

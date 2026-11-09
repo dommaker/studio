@@ -15,6 +15,37 @@ import { dataBodySchema, paginatedBodySchema } from './envelope.js';
 
 // ── 实体 ──
 
+export const assignmentSummarySchema = z.object({
+  id: z.string(),
+  workUnitId: z.string(),
+  attempt: z.number().int().positive(),
+  previousAssignmentId: z.string().nullable(),
+  status: z.enum(['queued', 'running', 'waiting', 'succeeded', 'failed', 'superseded', 'cancelled']),
+  reason: z.enum(['claim', 'retry', 'recovery', 'need-input-reply', 'session-replacement']),
+  provider: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  startedAt: z.string().optional(),
+  waitingAt: z.string().optional(),
+  endedAt: z.string().optional(),
+  lastError: z.string().optional(),
+  tokenCount: z.number(),
+  transcriptCount: z.number(),
+  progressCount: z.number().int().nonnegative(),
+  evidenceCount: z.number().int().nonnegative(),
+});
+
+export const workUnitExecutionSchema = z.object({
+  current: assignmentSummarySchema.nullable(),
+  assignments: z.array(assignmentSummarySchema),
+  totals: z.object({
+    tokenCount: z.number(),
+    transcriptCount: z.number().int().nonnegative(),
+    progressCount: z.number().int().nonnegative(),
+    evidenceCount: z.number().int().nonnegative(),
+  }),
+});
+
 /**
  * WorkUnit wire 形状（JSON 序列化后的 WorkUnitData：Date → ISO string）。
  * 字段正本 = apps/api workunit-crud.ts snapshotToData；dependsOn 不存在于后端（前端手抄版的漂移字段）。
@@ -39,6 +70,8 @@ export const workUnitSchema = z.object({
   updatedAt: z.string(),
   claimedAt: z.string().nullable(),
   completedAt: z.string().nullable(),
+  /** #705：additive 执行轮次只读摘要；旧 WU 可缺省。 */
+  execution: workUnitExecutionSchema.optional(),
   /** #109：仅列表项与事件负载附带的「可认领」标记 */
   claimable: z.boolean().optional(),
 });

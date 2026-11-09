@@ -60,6 +60,7 @@ export function transcriptPath(workUnitId: string, env: NodeJS.ProcessEnv = proc
 /** 单步归档条目（JSONL 一行） */
 export interface TranscriptEntry {
   workUnitId: string;
+  assignmentId?: string;
   /** 本步会话号（WU 内可能因重建/续用切换，逐行记录） */
   sessionId?: string;
   /** 1 基步号（与 agent-loop recordResult 的 stepCount 同口径） */
@@ -74,6 +75,7 @@ export interface TranscriptEntry {
 
 export interface AppendTranscriptStepArgs {
   workUnitId: string;
+  assignmentId?: string;
   sessionId?: string;
   step: number;
   action?: string;
@@ -87,6 +89,7 @@ export interface AppendTranscriptStepArgs {
 export async function appendTranscriptStep(args: AppendTranscriptStepArgs): Promise<void> {
   const entry: TranscriptEntry = {
     workUnitId: args.workUnitId,
+    ...(args.assignmentId ? { assignmentId: args.assignmentId } : {}),
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
     step: args.step,
     ...(args.action ? { action: args.action } : {}),

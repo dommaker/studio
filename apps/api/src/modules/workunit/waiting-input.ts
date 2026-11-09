@@ -39,6 +39,7 @@
 import { FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
 import { WorkUnitService } from './workunit-review.js';
 import { WaitingGate } from './waiting-gate.js';
+import { ExecutionJournal } from './execution-journal.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { PLAN_STEP_LIMIT } from './workunit.types.js';
@@ -162,6 +163,7 @@ export async function resumeWaitingWorkUnit(
   // #170（决策 #65-1）：锁内合并写——pendingReplies 基于锁内最新值追加
   // timeoutReleaseCount/sessionCount 不由复活清除；具体字段归 WaitingGate。
   await waitingGate.apply(workUnitId, { kind: 'resume', replyText, traceId: opts?.traceId });
+  await new ExecutionJournal(new WorkUnitMetadataRepository(fileStore)).resumeWaiting(workUnitId);
   await wuService.transitionStatus(workUnitId, 'active');
 
   logger.info('[WaitingInput] WorkUnit resumed by human reply', { workUnitId });
@@ -244,6 +246,7 @@ async function resolveBudgetChoiceFromReply(
       return false;
     }
     await wuService.update(wu.id, { metadata: { ...clearedMetadata, tokenBudget: newBudget } });
+    await new ExecutionJournal(new WorkUnitMetadataRepository(fileStore)).resumeWaiting(wu.id);
     await transit('active');
     await notify(`好的，任务「${title}」的 token 上限已调整为 ${newBudget.toLocaleString()}，继续执行`);
     logger.info('[WaitingInput] Budget-tripped WorkUnit resumed with raised budget', {

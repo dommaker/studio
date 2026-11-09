@@ -10,14 +10,14 @@
 import { type FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { parseWuMetadata } from './wu-metadata.js';
 import { isAcceptedMergeReceipt, resolveValidTransitions, WORKUNIT_CLOSED_EVENT_TYPE, type WorkUnitMetadata, type CloseWorkUnitOptions } from './workunit.types.js';
-import { snapshotToData, type WorkUnitData, type WorkUnitLifecycleRepository } from './workunit-crud.js';
+import { cancelUnresolvedAssignments, snapshotToData, syncCurrentAssignmentEvidence, type WorkUnitData, type WorkUnitLifecycleRepository } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
 import { workUnitPort, type WorkUnitAuditActor } from './workunit-ports.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 export interface WorkUnitLifecycle {
-  transitionStatus(id: string, newStatus: string, actor?: WorkUnitAuditActor): Promise<WorkUnitData>;
+  transitionStatus(id: string, newStatus: string, actor?: WorkUnitAuditActor, opts?: { expectedAssignmentId?: string }): Promise<WorkUnitData>;
   close(id: string, opts: CloseWorkUnitOptions): Promise<WorkUnitData>;
   rebindSourceChannel(fromChannelId: string, toChannelId: string): Promise<number>;
 }
@@ -39,6 +39,8 @@ export interface WorkUnitSnapshotTransition {
   auditActor?: WorkUnitAuditActor;
   /** 锁内 compare-and-swap：防止两个接受者对同一快照重复完成或迟到覆盖。 */
   expectedUpdatedAt?: string;
+  /** #705：Assignment 换代后，旧执行不得再迁移 WU。 */
+  expectedAssignmentId?: string;
 }
 
 export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLifecyclePersistence {
@@ -53,7 +55,7 @@ export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLife
    * 尾部按 assigneeId 命中 agent 状态库派生）。
    * @throws Error if transition is not allowed
    */
-  async transitionStatus(id: string, newStatus: string, actor?: WorkUnitAuditActor): Promise<WorkUnitData> {
+  async transitionStatus(id: string, newStatus: string, actor?: WorkUnitAuditActor, opts?: { expectedAssignmentId?: string }): Promise<WorkUnitData> {
     const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) {
       throw new Error('WorkUnit not found');
@@ -92,6 +94,7 @@ export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLife
       status: newStatus,
       markCompleted: newStatus === 'done' || newStatus === 'closed',
       auditActor: actor,
+      expectedAssignmentId: opts?.expectedAssignmentId,
     });
 
     // #126（T4）：人工确认（pending → unassigned）解除人闸——feature 单此时补展开
@@ -200,6 +203,8 @@ export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLife
         : JSON.stringify(metadata);
     const updated: WorkUnitSnapshot = {
       ...current,
+      ...(nextStatus === 'closed' ? cancelUnresolvedAssignments(current, isoNow) : {}),
+      ...(metadata && typeof metadata !== 'string' ? syncCurrentAssignmentEvidence(current, metadata, isoNow) : {}),
       ...(opts.status !== undefined ? { status: opts.status } : {}),
       ...opts.patch,
       metadata: metadataRaw,
@@ -215,10 +220,13 @@ export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLife
       timestamp: isoNow,
       data: updated as unknown as Record<string, unknown>,
     };
-    if (opts.expectedUpdatedAt === undefined) {
+    if (opts.expectedUpdatedAt === undefined && opts.expectedAssignmentId === undefined) {
       await this.fileStore.commitSnapshot(event, updated);
     } else {
-      await this.fileStore.commitSnapshot(event, updated, { expectedUpdatedAt: opts.expectedUpdatedAt });
+      await this.fileStore.commitSnapshot(event, updated, {
+        expectedUpdatedAt: opts.expectedUpdatedAt,
+        expectedAssignmentId: opts.expectedAssignmentId,
+      });
     }
     await this.repository.publishStatusChanged(updated, current.status);
 

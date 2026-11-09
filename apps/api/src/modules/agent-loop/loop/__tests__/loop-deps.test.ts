@@ -36,7 +36,7 @@ describe('loop-deps 窄接口结构契约', () => {
     ]);
     expect(memberNames('ObserverDeps')).toEqual(['fileStore', 'getInstance', 'isAlive', 'role']);
     expect(memberNames('ClaimDeps')).toEqual(['discussion', 'fileStore', 'getInstance', 'role', 'workUnits']);
-    expect(memberNames('StepDeps')).toEqual(['acceptedTypes', 'discussion', 'executor', 'fileStore', 'role', 'workUnits']);
+    expect(memberNames('StepDeps')).toEqual(['acceptedTypes', 'discussion', 'executionJournal', 'executor', 'fileStore', 'onAssignment', 'role', 'workUnits']);
     expect(memberNames('ResultRecorderDeps')).toEqual(['executionJournal', 'fileStore', 'lease', 'role', 'workUnits']);
 
     for (const name of ['LifecycleDeps', 'ObserverDeps', 'ClaimDeps', 'StepDeps', 'ResultRecorderDeps']) {

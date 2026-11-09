@@ -62,6 +62,10 @@ export type {
   MessageArchiveOptions,
   WorkUnitEventType,
   WorkUnitEvent,
+  AssignmentStatus,
+  AssignmentProgress,
+  AssignmentEvidence,
+  AssignmentRecord,
   WorkUnitSnapshot,
   WorkUnitFilter,
   RequirementStatus,
@@ -195,7 +199,7 @@ export class FileStore {
   commitSnapshot(
     event: WorkUnitEvent,
     snapshot: WorkUnitSnapshot,
-    opts?: { expectedUpdatedAt?: string },
+    opts?: { expectedUpdatedAt?: string; expectedAssignmentId?: string },
   ): Promise<void> {
     return this.workunitStore.commitSnapshot(event, snapshot, opts);
   }
@@ -209,8 +213,9 @@ export class FileStore {
     expectedAssigneeId: string,
     expectedClaimedAt: string,
     timeoutAt: Date,
+    expectedAssignmentId?: string,
   ): Promise<'ok' | 'lost' | 'missing'> {
-    return this.workunitStore.refreshWorkUnitLease(wuId, expectedAssigneeId, expectedClaimedAt, timeoutAt);
+    return this.workunitStore.refreshWorkUnitLease(wuId, expectedAssigneeId, expectedClaimedAt, timeoutAt, expectedAssignmentId);
   }
 
   flushWorkUnitLeases(): Promise<{ flushed: number; dropped: number }> {
@@ -223,6 +228,14 @@ export class FileStore {
     opts?: { touchUpdatedAt?: boolean },
   ): Promise<WorkUnitSnapshot | null> {
     return this.workunitStore.updateMetadata(wuId, mutator, opts);
+  }
+
+  mutateSnapshot(
+    wuId: string,
+    mutator: (current: WorkUnitSnapshot) => WorkUnitSnapshot | null,
+    opts?: { touchUpdatedAt?: boolean },
+  ): Promise<WorkUnitSnapshot | null> {
+    return this.workunitStore.mutateSnapshot(wuId, mutator, opts);
   }
 
   createSnapshotGuarded(

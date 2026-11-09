@@ -125,6 +125,46 @@ export interface MessageArchiveOptions {
 
 export type WorkUnitEventType = 'created' | 'claimed' | 'updated' | 'completed' | 'closed' | 'blocked';
 
+export type AssignmentStatus = 'queued' | 'running' | 'waiting' | 'succeeded' | 'failed' | 'superseded' | 'cancelled';
+
+export interface AssignmentProgress {
+  step: number;
+  action: string;
+  summary: string;
+  at: string;
+}
+
+export interface AssignmentEvidence {
+  level: string;
+  verdict: string;
+  at: string;
+}
+
+/** WU 的一次执行轮次；历史保存在 WU 事件流中，不放进开放 metadata。 */
+export interface AssignmentRecord {
+  id: string;
+  workUnitId: string;
+  attempt: number;
+  previousAssignmentId: string | null;
+  status: AssignmentStatus;
+  reason: 'claim' | 'retry' | 'recovery' | 'need-input-reply' | 'session-replacement';
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  waitingAt?: string;
+  endedAt?: string;
+  provider?: string;
+  sessionId?: string;
+  cliSessionId?: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  lastError?: string;
+  tokenCount: number;
+  transcriptCount: number;
+  progress: AssignmentProgress[];
+  evidence: AssignmentEvidence[];
+}
+
 export interface WorkUnitEvent {
   type: WorkUnitEventType;
   wuId: string;
@@ -152,6 +192,9 @@ export interface WorkUnitSnapshot {
   updatedAt: string;
   claimedAt: string | null;
   completedAt: string | null;
+  /** #705：执行轮次是 WU 的 typed 内部历史；旧事件缺省为无 Assignment。 */
+  currentAssignmentId?: string | null;
+  assignments?: AssignmentRecord[];
   /** #327: 关闭时刻（ISO 8601，可选——旧快照无此字段仍可加载）。频道消息归档的计龄锚点：
       仅 status=closed 时有值，reopen（closed→unassigned）清除为 null */
   closedAt?: string | null;

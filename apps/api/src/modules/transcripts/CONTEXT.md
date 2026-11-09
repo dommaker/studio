@@ -18,7 +18,7 @@ session:start/end 事件链路（#174）：agent-loop 把 `transcriptPath(wu.id)
 | `isTestEnv` | `transcript-archive.ts` | 测试环境判定（`VITEST`/`NODE_ENV=test`），同 shared log-path |
 | `appendTranscriptStep` | `transcript-archive.ts` | 追加一步原文（JSONL 一行）；调用方 fire-and-forget 兜底 |
 | `readTranscript` | `transcript-archive.ts` | 按 workUnitId 读取全文 transcript；文件不存在返回 `[]` |
-| `TranscriptEntry` | `transcript-archive.ts` | 单步条目类型（workUnitId/sessionId/step/action/rawOutput/createdAt） |
+| `TranscriptEntry` | `transcript-archive.ts` | 单步条目类型（workUnitId/assignmentId/sessionId/step/action/rawOutput/createdAt）；#705 起按 Assignment 保留血缘，per-WU 全文读取不变 |
 | `AppendTranscriptStepArgs` | `transcript-archive.ts` | 追加入参类型 |
 | `TRANSCRIPTS_DIR` | `transcript-archive.ts` | 归档根目录名 `'transcripts'` |
 | default（router） | `transcript.routes.ts` | #174: `GET /:workUnitId` 只读分页查看（认证） |

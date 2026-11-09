@@ -63,6 +63,7 @@ export function parseWorkunitTokenEvents(
       if (typeof p.injectedTokens !== 'number') continue;
       out.push({
         workUnitId: p.workUnitId,
+        assignmentId: p.assignmentId,
         executionId: p.executionId,
         injectedTokens: p.injectedTokens,
         executionTokens: typeof p.executionTokens === 'number' ? p.executionTokens : null,
@@ -92,6 +93,7 @@ export function parseExecutionStepEvents(
       if (workUnitId && p.workUnitId !== workUnitId) continue;
       out.push({
         workUnitId: p.workUnitId,
+        assignmentId: p.assignmentId,
         executionId: p.executionId ?? '',
         sessionId: p.sessionId,
         step: p.step,

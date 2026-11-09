@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { eventBus, FileStore, parseWuPmoId, WorkUnitMetadataRepository, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { eventBus, FileStore, parseAttestations, parseWuPmoId, WorkUnitMetadataRepository, type AssignmentRecord, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { workUnitPort } from './workunit-ports.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
@@ -58,6 +58,32 @@ export interface UpdateWorkUnitInput {
  * WorkUnitData — 与 Prisma WorkUnit 类型兼容的平面字段（无 relations）。
  * 日期字段使用 Date 对象（与 Prisma 行为一致），来源是 FileStore 的字符串日期。
  */
+export interface AssignmentSummary {
+  id: string;
+  workUnitId: string;
+  attempt: number;
+  previousAssignmentId: string | null;
+  status: AssignmentRecord['status'];
+  reason: AssignmentRecord['reason'];
+  provider?: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  waitingAt?: string;
+  endedAt?: string;
+  lastError?: string;
+  tokenCount: number;
+  transcriptCount: number;
+  progressCount: number;
+  evidenceCount: number;
+}
+
+export interface WorkUnitExecutionSummary {
+  current: AssignmentSummary | null;
+  assignments: AssignmentSummary[];
+  totals: { tokenCount: number; transcriptCount: number; progressCount: number; evidenceCount: number };
+}
+
 export interface WorkUnitData {
   id: string;
   parentId: string | null;
@@ -83,6 +109,8 @@ export interface WorkUnitData {
   /** #318（additive，ADR D2）：可认领标记——仅事件负载（workunit.created/status_changed）与 GET / 列表项附带；
       unassigned 且无未了结依赖才 true，其余状态恒 false；snapshotToData 本体不产此字段 */
   claimable?: boolean;
+  /** #705：跨 Assignment 的只读执行摘要，不暴露内部写口。 */
+  execution?: WorkUnitExecutionSummary;
 }
 
 /**
@@ -94,7 +122,82 @@ export interface WorkUnitData {
 
 // ── 转换函数 ──
 
+/** 保留全部 Assignment 历史，只终结仍未决的轮次。 */
+export function cancelUnresolvedAssignments(
+  snapshot: WorkUnitSnapshot,
+  at: string,
+): Pick<WorkUnitSnapshot, 'assignments'> {
+  const assignments = (snapshot.assignments ?? []).map(assignment =>
+    ['queued', 'running', 'waiting'].includes(assignment.status)
+      ? { ...assignment, status: 'cancelled' as const, updatedAt: at, endedAt: at }
+      : assignment
+  );
+  return { assignments };
+}
+
+/** 评审/人工确认在 Assignment 结束后仍归入当前轮次；WU 证据台账保持原真源。 */
+export function syncCurrentAssignmentEvidence(
+  snapshot: WorkUnitSnapshot,
+  metadata: WorkUnitMetadata,
+  at: string,
+): Partial<Pick<WorkUnitSnapshot, 'assignments'>> {
+  const currentId = snapshot.currentAssignmentId;
+  const assignment = (snapshot.assignments ?? []).find(a => a.id === currentId);
+  if (!assignment) return {};
+  const entries = Object.entries(parseAttestations(metadata) ?? {}).flatMap(([level, entry]) => entry ? [{
+    level, verdict: entry.verdict, at: entry.at,
+  }] : []);
+  const previous = assignment.evidence ?? [];
+  const added = entries.filter(entry => !previous.some(old => old.level === entry.level && old.at === entry.at));
+  if (added.length === 0) return {};
+  return {
+    assignments: (snapshot.assignments ?? []).map(old => old.id === assignment.id
+      ? { ...old, evidence: [...previous, ...added], updatedAt: at }
+      : old),
+  };
+}
+
+function toAssignmentSummary(assignment: AssignmentRecord): AssignmentSummary {
+  return {
+    id: assignment.id,
+    workUnitId: assignment.workUnitId,
+    attempt: assignment.attempt,
+    previousAssignmentId: assignment.previousAssignmentId,
+    status: assignment.status,
+    reason: assignment.reason,
+    provider: assignment.provider,
+    createdAt: assignment.createdAt,
+    updatedAt: assignment.updatedAt,
+    startedAt: assignment.startedAt,
+    waitingAt: assignment.waitingAt,
+    endedAt: assignment.endedAt,
+    lastError: assignment.lastError,
+    tokenCount: assignment.tokenCount ?? 0,
+    transcriptCount: assignment.transcriptCount ?? 0,
+    progressCount: assignment.progress?.length ?? 0,
+    evidenceCount: assignment.evidence?.length ?? 0,
+  };
+}
+
+function toExecutionSummary(snapshot: WorkUnitSnapshot): WorkUnitExecutionSummary | undefined {
+  const assignments = snapshot.assignments ?? [];
+  if (assignments.length === 0) return undefined;
+  const summaries = assignments.map(toAssignmentSummary);
+  const current = assignments.find(a => a.id === snapshot.currentAssignmentId) ?? assignments[assignments.length - 1];
+  return {
+    current: current ? toAssignmentSummary(current) : null,
+    assignments: summaries,
+    totals: summaries.reduce((totals, assignment) => ({
+      tokenCount: totals.tokenCount + assignment.tokenCount,
+      transcriptCount: totals.transcriptCount + assignment.transcriptCount,
+      progressCount: totals.progressCount + assignment.progressCount,
+      evidenceCount: totals.evidenceCount + assignment.evidenceCount,
+    }), { tokenCount: 0, transcriptCount: 0, progressCount: 0, evidenceCount: 0 }),
+  };
+}
+
 export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
+  const execution = toExecutionSummary(s);
   return {
     id: s.id,
     parentId: s.parentId,
@@ -116,6 +219,7 @@ export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
     claimedAt: s.claimedAt ? new Date(s.claimedAt) : null,
     completedAt: s.completedAt ? new Date(s.completedAt) : null,
     closedAt: s.closedAt ? new Date(s.closedAt) : null,
+    ...(execution ? { execution } : {}),
   };
 }
 
@@ -628,6 +732,7 @@ export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycl
     const now = new Date();
     const updated: WorkUnitSnapshot = {
       ...existing,
+      ...cancelUnresolvedAssignments(existing, now.toISOString()),
       assigneeId: null,
       assigneeRoleId: null,  // 释放连带清认领快照（事件 data 是全量快照，rebuild 自动一致）
       status: 'unassigned',

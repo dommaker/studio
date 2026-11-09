@@ -87,6 +87,7 @@ export type ExecutionStepToolCall = z.infer<typeof executionStepToolCallSchema>;
 /** workunit.execution.step（Layer A 步级事件；同 payload 落盘 workunit:execution_step 供 REST 回放） */
 export const executionStepEventSchema = z.object({
   workUnitId: z.string(),
+  assignmentId: z.string().optional(),
   executionId: z.string(),
   /** 来源频道（前端按频道过滤；无频道 WU 缺省） */
   channelId: z.string().nullable().optional(),
@@ -143,6 +144,7 @@ export type ExecutionStreamChunk = z.infer<typeof executionStreamChunkSchema>;
  */
 export const workunitTokenEventSchema = z.object({
   workUnitId: z.string(),
+  assignmentId: z.string().optional(),
   executionId: z.string().optional(),
   /** 注入上下文估算 tokens（estimateTokens 口径） */
   injectedTokens: z.number(),

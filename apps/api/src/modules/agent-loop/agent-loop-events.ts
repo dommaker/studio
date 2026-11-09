@@ -25,6 +25,7 @@ export interface WorkunitTokenEventArgs {
   workUnitId: string;
   /** 来源频道（wu.channelId 透传到 SSE 信封；null/缺省 → 信封无该键，不落 jsonl） */
   channelId?: string | null;
+  assignmentId?: string;
   executionId?: string;
   /** 注入上下文估算 tokens（调用方按 estimateTokens 口径估算） */
   injectedTokens: number;
@@ -124,6 +125,7 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
     : null;
   const payload: WorkunitTokenEvent = {
     workUnitId: args.workUnitId,
+    assignmentId: args.assignmentId,
     executionId: args.executionId,
     injectedTokens: args.injectedTokens,
     injectedSource: 'estimate:token-estimator',

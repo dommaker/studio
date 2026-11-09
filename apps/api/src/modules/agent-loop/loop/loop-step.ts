@@ -71,9 +71,21 @@ export class StepRunner {
     const session = issueStepSession({ wu, metadata, resumeSessionId, metadataUpdates });
     if (session.failure) return session.failure;
 
+    const assignmentSnapshot = await deps.executionJournal.beginStep({
+      wu,
+      provider: taskProvider,
+      sessionId: resumeSessionId ?? session.newSessionId ?? undefined,
+      worktreePath: metadataUpdates.worktreePath ?? metadata.worktreePath,
+      worktreeBranch: metadataUpdates.worktreeBranch ?? metadata.worktreeBranch,
+    });
+    const assignmentId = assignmentSnapshot?.currentAssignmentId;
+    if (!assignmentId) return { action: 'failed', summary: '执行轮次已失效，放弃本步写回' };
+    deps.onAssignment(assignmentId, wu);
+
     return executeAgentStep({
       target,
       wu,
+      assignmentId,
       metadata,
       metadataUpdates,
       traceId,
