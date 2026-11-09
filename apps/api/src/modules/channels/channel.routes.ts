@@ -223,6 +223,7 @@ writeRoutes.post('/:id/messages', defineRoute(
         // REQ 需求编号（vision §5.3）：调用方可显式指定（缺省走 #REQ-XXXX token / 自动新建）
         reqId: body.reqId || undefined,
         traceId,
+        requestedBy: req.user?.actorType === 'Operator' ? { id: req.user.id, type: 'Operator' } : undefined,
         // #281: @文件引用（路由层做存在性校验 + 剔除播报）
         // z.infer 退化可选同上——边界显式收回（schema 运行时仍 min(1) 必填）
         files: body.files?.map(f => ({ repo: f.repo as string, path: f.path as string })),
@@ -338,8 +339,11 @@ writeRoutes.post('/:id/messages/:messageId/convert-to-task', defineRoute(
       { match: 'not a channel member', status: 400, code: ERROR_CODES.BAD_REQUEST },
     ],
   },
-  async (_req, _res, { params, body }) => {
-    return toWorkUnitWire(await getConvertToTaskService().convert(params.id, params.messageId, body));
+  async (req, _res, { params, body }) => {
+    return toWorkUnitWire(await getConvertToTaskService().convert(params.id, params.messageId, {
+      ...body,
+      requestedBy: req.user?.actorType === 'Operator' ? { id: req.user.id, type: 'Operator' } : undefined,
+    }));
   },
 ));
 

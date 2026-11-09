@@ -9,10 +9,10 @@ import { WorkUnitLifecycleService } from '../workunit-lifecycle.js';
 import { WorkUnitReviewService } from '../workunit-review.js';
 
 const PUBLIC_METHODS = [
-  'aggregateParentStatus', 'blockForAllUnfit', 'blockForManualRelease', 'blockForMergeFailure', 'claim', 'close',
+  'aggregateParentStatus', 'authorizeMandate', 'blockForAllUnfit', 'blockForManualRelease', 'blockForMergeFailure', 'claim', 'close',
   'create', 'createFromMessage', 'createGuarded', 'delete', 'getById', 'lastDoneByAssignee',
   'list', 'rebindSourceChannel', 'recordL1Verification', 'recordMergeProgress',
-  'reviewPassed', 'reviewRejected', 'settleMerge', 'transitionStatus', 'unclaim', 'update', 'updateMetadata', 'verifyManually',
+  'reviewPassed', 'reviewRejected', 'revokeMandate', 'settleMerge', 'transitionStatus', 'unclaim', 'update', 'updateMetadata', 'verifyManually',
 ];
 
 const ownMethods = (cls: { prototype: object }): string[] =>

@@ -66,6 +66,11 @@ export type {
   AssignmentProgress,
   AssignmentEvidence,
   AssignmentRecord,
+  MandatePrincipalType,
+  MandatePrincipal,
+  MandateSource,
+  MandateHistoryEntry,
+  MandateRecord,
   WorkUnitSnapshot,
   WorkUnitFilter,
   RequirementStatus,
@@ -179,7 +184,7 @@ export class FileStore {
     return this.workunitStore.rebuildIndex(filter);
   }
 
-  claimWorkUnit(wuId: string, assigneeId: string, opts?: { assigneeRoleId?: string | null; timeoutAt?: string | null }): Promise<boolean> {
+  claimWorkUnit(wuId: string, assigneeId: string, opts?: { assigneeRoleId?: string | null; timeoutAt?: string | null; guard?: (snapshot: WorkUnitSnapshot) => void }): Promise<boolean> {
     return this.workunitStore.claimWorkUnit(wuId, assigneeId, opts);
   }
 

@@ -48,6 +48,15 @@ async function createAnalysisWu(metadata: WorkUnitMetadata): Promise<WorkUnitDat
     channelId: 'ch-test',
     status: 'active',
     metadata,
+    authorization: {
+      requestedBy: { id: 'system', type: 'System' },
+      source: { kind: 'system' },
+      repositories: [
+        { repo: '/repo/root', leg: null },
+        { repo: '/repo/root/demo', leg: null },
+        { repo: '/repo/studio', leg: null },
+      ],
+    },
   });
 }
 
@@ -329,6 +338,11 @@ describe('#471 plan WU 接力（确认闸 + TASK 派工）', () => {
       status: 'active',
       reqId: 'REQ-0042',
       metadata,
+      authorization: {
+        requestedBy: { id: 'system', type: 'System' },
+        source: { kind: 'system' },
+        repositories: [{ repo: '/repo/root', leg: null }, { repo: '/repo/studio', leg: null }],
+      },
     });
   }
 

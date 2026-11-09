@@ -279,7 +279,7 @@ export const legDeliverResultSchema = z.object({
   gitRepo: z.string().nullable(),
   branch: z.string().nullable(),
   delivered: z.boolean(),
-  reason: z.enum(['already-delivered', 'skipped-no-wu', 'no-repo', 'checkout-mismatch', 'conflict', 'not-ready', 'merge-pending']).optional(),
+  reason: z.enum(['already-delivered', 'skipped-no-wu', 'no-repo', 'checkout-mismatch', 'conflict', 'not-ready', 'merge-pending', 'mandate-rejected']).optional(),
   deliverCommit: z.string().optional(),
   conflictFiles: z.array(z.string()).optional(),
   detail: z.string().optional(),
@@ -414,7 +414,12 @@ export const updateProjectBodySchema = z.object({
   deliverCommit: z.string().nullable().optional(),
   map: pmoMapSchema.nullable().optional(),
   deliveries: z.array(deliveryLegSchema).optional(),
-}).passthrough();
+}).passthrough().superRefine((body, ctx) => {
+  // #706：交付回执只能由 deliver/mark-delivered 的服务端命令写入。
+  for (const key of ['deliveredAt', 'deliveredBy', 'deliverCommit'] as const) {
+    if (key in body) ctx.addIssue({ code: 'custom', path: [key], message: `${key} 只能由交付命令写入` });
+  }
+});
 export type UpdateProjectBody = z.infer<typeof updateProjectBodySchema>;
 
 /** PUT /project/:id/status（原 MISSING_STATUS 手写校验收进 zod；状态机校验在 service → 500 保持旧行为） */

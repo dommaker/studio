@@ -51,6 +51,7 @@ describe('merge delivery-leg process coordination', () => {
       type: 'task',
       status: 'in_review',
       metadata: {
+        workspaceRoot: repo,
         worktreePath,
         worktreeBranch: branch,
         worktreeBaseBranch: 'main',

@@ -418,8 +418,11 @@ describe('#162（T8-E1）: WU 级 tokenBudget 熔断（与日预算无关，字�
 
     // 人三选「追加预算」的机制效果（waiting-input 同款）：tokenBudget 提高后挂起解除回 active
     const meta = metaOf((await wuService.getById(wu.id))!);
+    await wuService.authorizeMandate(wu.id, { id: 'operator-1', type: 'Operator' }, {
+      budget: { tokens: 3000 },
+    });
     await wuService.update(wu.id, {
-      metadata: { ...meta, tokenBudget: 3000, waitingForInput: false, waitingReason: undefined },
+      metadata: { ...meta, waitingForInput: false, waitingReason: undefined },
     });
     const resumed = (await wuService.getById(wu.id))!;
     const next = await stepOf(agentLoop)({ workUnit: resumed });

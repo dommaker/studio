@@ -56,11 +56,20 @@ function project(overrides: Partial<ProjectData>): ProjectData {
 let seq = 0;
 function wu(overrides: Partial<WorkUnitSnapshot> & { metadataObj?: Record<string, unknown> }): WorkUnitSnapshot {
   const { metadataObj, ...rest } = overrides;
+  const id = `wu-${++seq}`;
+  const actor = { id: 'operator-1', type: 'Operator' } as const;
   return {
-    id: `wu-${++seq}`, parentId: null, type: 'task', scope: 's', assigneeId: null,
+    id, parentId: null, type: 'task', scope: 's', assigneeId: null,
     status: 'done', failureType: null, retryCount: 0, timeoutAt: null,
     channelId: null, projectPath: null, reqId: 'REQ-0011',
     metadata: metadataObj ? JSON.stringify(metadataObj) : null,
+    mandate: {
+      workUnitId: id, revision: 1, policyVersion: '1', requestedBy: actor, grantedBy: actor,
+      grantedAt: '2026-07-29T00:00:00Z', source: { kind: 'api' }, reqId: 'REQ-0011', pmoId: 'proj-1',
+      repositories: TWO_LEGS.map(leg => ({ repo: leg.gitRepo, leg: leg.branch })),
+      deliveryActions: ['merge', 'deliver', 'mark-delivered'], budget: { tokens: null, planSteps: null },
+      expansionPrincipals: [], history: [{ revision: 1, action: 'issued', actor, at: '2026-07-29T00:00:00Z' }],
+    },
     createdAt: '2026-07-29T00:00:00Z', updatedAt: '2026-07-29T00:00:00Z',
     claimedAt: null, completedAt: '2026-07-29T01:00:00Z',
     ...rest,
@@ -310,15 +319,16 @@ describe('deliverProject 多腿 auto-merge（#113 T7）', () => {
     const oldRoots = process.env.PMO_GIT_REPO_ROOTS;
     process.env.PMO_GIT_REPO_ROOTS = root;
     try {
+      const snapshotA = wu({ metadataObj: { workspaceRoot: repoA, ...fullEvidence } });
+      const snapshotB = wu({ metadataObj: { workspaceRoot: repoB, ...fullEvidence } });
+      snapshotA.mandate = { ...snapshotA.mandate!, repositories: [{ repo: repoA, leg: 'PMO-11-a' }] };
+      snapshotB.mandate = { ...snapshotB.mandate!, repositories: [{ repo: repoB, leg: 'PMO-11-b' }] };
       const deps = makeDeps({
         project: project({ deliveryPolicy: 'auto-merge', deliveries: [
           { gitRepo: repoA, branch: 'PMO-11-a', status: 'pending' },
           { gitRepo: repoB, branch: 'PMO-11-b', status: 'pending' },
         ] }),
-        snapshots: [
-          wu({ metadataObj: { workspaceRoot: repoA, ...fullEvidence } }),
-          wu({ metadataObj: { workspaceRoot: repoB, ...fullEvidence } }),
-        ],
+        snapshots: [snapshotA, snapshotB],
       });
       Object.assign(deps, { withRepo: withExecutionRepo });
       let calls = 0;

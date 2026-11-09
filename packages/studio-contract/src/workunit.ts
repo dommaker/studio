@@ -46,6 +46,43 @@ export const workUnitExecutionSchema = z.object({
   }),
 });
 
+const mandatePrincipalSchema = z.object({
+  id: z.string(),
+  type: z.enum(['Operator', 'System']),
+});
+
+/** #706：additive 长期授权只读事实；不接受客户端直接写入。 */
+export const mandateSchema = z.object({
+  workUnitId: z.string(),
+  revision: z.number().int().positive(),
+  policyVersion: z.literal('1'),
+  requestedBy: mandatePrincipalSchema,
+  grantedBy: mandatePrincipalSchema,
+  grantedAt: z.string(),
+  source: z.object({
+    kind: z.enum(['channel', 'api', 'derived', 'system']),
+    channelId: z.string().optional(),
+    messageId: z.string().optional(),
+    parentWorkUnitId: z.string().optional(),
+  }),
+  reqId: z.string().nullable(),
+  pmoId: z.string().nullable(),
+  repositories: z.array(z.object({ repo: z.string(), leg: z.string().nullable() })),
+  deliveryActions: z.array(z.enum(['merge', 'deliver', 'mark-delivered'])),
+  budget: z.object({ tokens: z.number().nullable(), planSteps: z.number().nullable() }),
+  expansionPrincipals: z.array(mandatePrincipalSchema),
+  history: z.array(z.object({
+    revision: z.number().int().positive(),
+    action: z.enum(['issued', 'expanded', 'reauthorized', 'revoked']),
+    actor: mandatePrincipalSchema,
+    at: z.string(),
+    reason: z.string().optional(),
+  })),
+  revokedAt: z.string().optional(),
+  revokedBy: mandatePrincipalSchema.optional(),
+  revokeReason: z.string().optional(),
+});
+
 /**
  * WorkUnit wire 形状（JSON 序列化后的 WorkUnitData：Date → ISO string）。
  * 字段正本 = apps/api workunit-crud.ts snapshotToData；dependsOn 不存在于后端（前端手抄版的漂移字段）。
@@ -70,6 +107,8 @@ export const workUnitSchema = z.object({
   updatedAt: z.string(),
   claimedAt: z.string().nullable(),
   completedAt: z.string().nullable(),
+  /** #706：additive 长期授权只读事实；旧 WU 可缺省。 */
+  mandate: mandateSchema.optional(),
   /** #705：additive 执行轮次只读摘要；旧 WU 可缺省。 */
   execution: workUnitExecutionSchema.optional(),
   /** #109：仅列表项与事件负载附带的「可认领」标记 */
@@ -185,6 +224,15 @@ const restWorkUnitMetadataSchema = z.record(z.string(), z.unknown()).superRefine
   }
 });
 
+/** 已建 WU 的仓库、腿与预算只能经 Mandate 授权命令变更。 */
+const updateWorkUnitMetadataSchema = restWorkUnitMetadataSchema.superRefine((metadata, ctx) => {
+  for (const key of ['workspaceRoot', 'pmoBranch', 'tokenBudget', 'planStepAllowance'] as const) {
+    if (key in metadata) {
+      ctx.addIssue({ code: 'custom', path: [key], message: `metadata.${key} 只能经 Mandate 授权命令变更` });
+    }
+  }
+});
+
 /** POST / 建单（路由只透传这些字段；workspaceId/reqId 等列由机制路径写入，REST 不收） */
 export const createWorkUnitBodySchema = z.object({
   scope: z.string().min(1),
@@ -215,7 +263,7 @@ export const updateWorkUnitBodySchema = z.object({
   retryCount: z.number().optional(),
   timeoutAt: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
-  metadata: restWorkUnitMetadataSchema.optional(),
+  metadata: updateWorkUnitMetadataSchema.optional(),
 });
 export type UpdateWorkUnitBody = z.infer<typeof updateWorkUnitBodySchema>;
 
@@ -234,6 +282,21 @@ export const claimBodySchema = z.object({
   agentId: z.string().min(1).optional(),
 });
 export type ClaimBody = z.infer<typeof claimBodySchema>;
+
+/** #706：扩权/重新授权只收范围，不收请求人或操作人；主体由服务端会话决定。 */
+export const authorizeMandateBodySchema = z.object({
+  repositories: z.array(z.object({ repo: z.string().min(1), leg: z.string().nullable() })).optional(),
+  deliveryActions: z.array(z.enum(['merge', 'deliver', 'mark-delivered'])).optional(),
+  budget: z.object({
+    tokens: z.number().positive().nullable().optional(),
+    planSteps: z.number().positive().nullable().optional(),
+  }).optional(),
+  reason: z.string().optional(),
+});
+export type AuthorizeMandateBody = z.infer<typeof authorizeMandateBodySchema>;
+
+export const revokeMandateBodySchema = z.object({ reason: z.string().optional() });
+export type RevokeMandateBody = z.infer<typeof revokeMandateBodySchema>;
 
 /** POST /:id/status（human-only；authorType 为 A2A §4.4 自声明身份，requireHuman 消费） */
 export const transitionStatusBodySchema = z.object({

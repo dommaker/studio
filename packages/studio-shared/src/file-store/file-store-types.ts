@@ -165,6 +165,49 @@ export interface AssignmentRecord {
   evidence: AssignmentEvidence[];
 }
 
+export type MandatePrincipalType = 'Operator' | 'System';
+
+export interface MandatePrincipal {
+  id: string;
+  type: MandatePrincipalType;
+}
+
+export interface MandateSource {
+  kind: 'channel' | 'api' | 'derived' | 'system';
+  channelId?: string;
+  messageId?: string;
+  parentWorkUnitId?: string;
+}
+
+export interface MandateHistoryEntry {
+  revision: number;
+  action: 'issued' | 'expanded' | 'reauthorized' | 'revoked';
+  actor: MandatePrincipal;
+  at: string;
+  reason?: string;
+}
+
+/** WU 的长期授权事实；随 WU 事件流持久化，不放进开放 metadata。 */
+export interface MandateRecord {
+  workUnitId: string;
+  revision: number;
+  policyVersion: '1';
+  requestedBy: MandatePrincipal;
+  grantedBy: MandatePrincipal;
+  grantedAt: string;
+  source: MandateSource;
+  reqId: string | null;
+  pmoId: string | null;
+  repositories: Array<{ repo: string; leg: string | null }>;
+  deliveryActions: Array<'merge' | 'deliver' | 'mark-delivered'>;
+  budget: { tokens: number | null; planSteps: number | null };
+  expansionPrincipals: MandatePrincipal[];
+  history: MandateHistoryEntry[];
+  revokedAt?: string;
+  revokedBy?: MandatePrincipal;
+  revokeReason?: string;
+}
+
 export interface WorkUnitEvent {
   type: WorkUnitEventType;
   wuId: string;
@@ -192,6 +235,8 @@ export interface WorkUnitSnapshot {
   updatedAt: string;
   claimedAt: string | null;
   completedAt: string | null;
+  /** #706：长期授权是 WU 的 typed 内部事实；旧事件缺省为无 Mandate。 */
+  mandate?: MandateRecord;
   /** #705：执行轮次是 WU 的 typed 内部历史；旧事件缺省为无 Assignment。 */
   currentAssignmentId?: string | null;
   assignments?: AssignmentRecord[];

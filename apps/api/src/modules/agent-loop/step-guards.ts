@@ -190,8 +190,9 @@ export async function runStepGuards(
   // need_input 挂起路径（recordResult 落 waitingForInput + blockReason），不新造状态；
   // waitingReason='wu-token-budget' 供 waiting-input 人三选分流（追加预算/收尾/放弃）。
   // 人读面说人话：提示文案不出现 WU/metadata/闸/熔断等机制黑话。
-  if (typeof metadata.tokenBudget === 'number' && Number.isFinite(metadata.tokenBudget) && metadata.tokenBudget > 0) {
-    const wuBudget = Math.floor(metadata.tokenBudget);
+  const mandatedTokenBudget = wu.mandate?.budget.tokens ?? metadata.tokenBudget;
+  if (typeof mandatedTokenBudget === 'number' && Number.isFinite(mandatedTokenBudget) && mandatedTokenBudget > 0) {
+    const wuBudget = Math.floor(mandatedTokenBudget);
     const wuUsed = metadata._cumulativeTokens ?? 0;
     if (wuUsed >= wuBudget) {
       logger.warn('[AgentLoop] WU token budget reached — suspending for human decision', {
@@ -212,8 +213,9 @@ export async function runStepGuards(
   // need_input 挂 blocked 转人，不静默截断；人回复即续期（waiting-input 给
   // planStepAllowance 加一份 PLAN_STEP_LIMIT，复活回 active 续跑）。
   if (wu.type === 'plan') {
-    const allowance = typeof metadata.planStepAllowance === 'number' && Number.isFinite(metadata.planStepAllowance) && metadata.planStepAllowance > 0
-      ? Math.floor(metadata.planStepAllowance)
+    const mandatedAllowance = wu.mandate?.budget.planSteps ?? metadata.planStepAllowance;
+    const allowance = typeof mandatedAllowance === 'number' && Number.isFinite(mandatedAllowance) && mandatedAllowance > 0
+      ? Math.floor(mandatedAllowance)
       : PLAN_STEP_LIMIT;
     const planSteps = metadata.stepCount ?? 0;
     if (planSteps >= allowance) {

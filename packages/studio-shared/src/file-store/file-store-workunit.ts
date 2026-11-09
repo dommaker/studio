@@ -651,11 +651,12 @@ export class WorkUnitStore {
    * 与第二条 updated 事件（2026-09 channel 链路性能治理分项 3）。不传 = 不动原值。
    * opts.assigneeRoleId 双职：写入 WU 的角色冗余快照 + B6 指名守卫的认领方 roleId 判据。
    */
-  async claimWorkUnit(wuId: string, assigneeId: string, opts?: { assigneeRoleId?: string | null; timeoutAt?: string | null }): Promise<boolean> {
+  async claimWorkUnit(wuId: string, assigneeId: string, opts?: { assigneeRoleId?: string | null; timeoutAt?: string | null; guard?: (snapshot: WorkUnitSnapshot) => void }): Promise<boolean> {
     return this.ctx.base.withLock(this.lockDir, async () => {
       const manifest = await this.ensureCurrentLocked();
       const wu = await this.readCurrentSnapshotLocked(wuId, manifest);
       if (!wu || wu.status !== 'unassigned') return false;
+      opts?.guard?.(wu);
 
       // B6 指名守卫（锁内）：assigneeId 非空 = 已被指名（mention 落 profile id / 显式指派），
       // 只许同 id 认领方、或其 roleId 命中的运行实例（opts.assigneeRoleId）认领——

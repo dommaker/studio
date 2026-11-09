@@ -51,6 +51,8 @@ import {
   messageParamsSchema,
   listMessagesQuerySchema,
   claimBodySchema,
+  authorizeMandateBodySchema,
+  revokeMandateBodySchema,
   transitionStatusBodySchema,
   reviewPassedBodySchema,
   reviewRejectedBodySchema,
@@ -151,6 +153,15 @@ function callerName(req: Request): string {
   return user?.name ?? user?.email ?? user?.id ?? 'human';
 }
 
+/** Mandate 身份只取认证会话，不读 body、authorType、agentName 或消息 meta。 */
+function callerPrincipal(req: Request): { id: string; type: 'Operator' } {
+  const user = (req as AuthRequest).user;
+  if (!user || user.actorType !== 'Operator') {
+    throw new HttpError(403, 'MANDATE_FORBIDDEN', 'Mandate actions require Operator authentication');
+  }
+  return { id: user.id, type: 'Operator' };
+}
+
 /** GET / — list WorkUnits */
 openRoutes.get('/', defineRoute(
   { query: listWorkUnitsQuerySchema, response: workUnitListResponseSchema },
@@ -184,9 +195,12 @@ openRoutes.get('/', defineRoute(
 writeRoutes.post('/', defineRoute(
   { body: createWorkUnitBodySchema, response: workUnitResponseSchema },
   { status: 201 },
-  async (_req, _res, input) =>
+  async (req, _res, input) =>
     // schema 已剥壳收字段（8 键，同原手工解构）；metadata 形状 = WorkUnitMetadata 的超集 Record
-    toWorkUnitWire(await getService().create(input.body as CreateWorkUnitInput)),
+    toWorkUnitWire(await getService().create({
+      ...input.body as CreateWorkUnitInput,
+      authorization: { requestedBy: callerPrincipal(req), source: { kind: 'api' } },
+    })),
 ));
 
 /** POST /from-message — convert ChannelMessage to WorkUnit (emergence path) */
@@ -199,13 +213,17 @@ writeRoutes.post('/from-message', defineRoute(
       { match: 'already linked', status: 409, code: 'ALREADY_CONVERTED' },
     ],
   },
-  async (_req, _res, input) => {
+  async (req, _res, input) => {
     const { messageId, type, metadata, channelId } = input.body;
     // #524 P1-1：body.channelId 可选透传 → 按频道直查，免全频道扫描反查（空串 = 缺省）
     return toWorkUnitWire(await getService().createFromMessage(messageId, {
       type,
       metadata: metadata as WorkUnitMetadata | undefined,
       channelId: channelId ? channelId : undefined,
+      authorization: {
+        requestedBy: callerPrincipal(req),
+        source: { kind: 'channel', messageId, ...(channelId ? { channelId } : {}) },
+      },
     }));
   },
 ));
@@ -311,10 +329,38 @@ writeRoutes.delete('/:id', defineRoute(
   },
 ));
 
+const MANDATE_ERRORS = [
+  { match: 'not found', status: 404, code: 'NOT_FOUND' },
+  { match: 'Mandate expansion forbidden', status: 403, code: 'MANDATE_FORBIDDEN' },
+  { match: 'Mandate authorization required', status: 409, code: 'MANDATE_REQUIRED' },
+] as const;
+
+/** POST /:id/mandate/authorize — 扩仓、扩交付动作、追加预算或重新授权。 */
+writeRoutes.post('/:id/mandate/authorize', requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
+  { params: wuIdParamsSchema, body: authorizeMandateBodySchema, response: workUnitResponseSchema },
+  { errors: MANDATE_ERRORS },
+  async (req, _res, input) => toWorkUnitWire(await getService().authorizeMandate(
+    input.params.id, callerPrincipal(req), input.body,
+  )),
+));
+
+/** POST /:id/mandate/revoke — 撤销后续执行与 Effect 的授权。 */
+writeRoutes.post('/:id/mandate/revoke', requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
+  { params: wuIdParamsSchema, body: revokeMandateBodySchema, response: workUnitResponseSchema },
+  { errors: MANDATE_ERRORS },
+  async (req, _res, input) => toWorkUnitWire(await getService().revokeMandate(
+    input.params.id, callerPrincipal(req), input.body.reason,
+  )),
+));
+
 /** POST /:id/claim — claim WorkUnit（flock 悲观互斥锁）；#445：认领即发声原语接入（与 loop 自动认领同路径） */
 writeRoutes.post('/:id/claim', defineRoute(
   { params: wuIdParamsSchema, body: claimBodySchema, response: workUnitResponseSchema },
-  { errors: [{ match: 'Claim failed', status: 409, code: 'CLAIM_FAILED' }] },
+  { errors: [
+    { match: 'Claim failed', status: 409, code: 'CLAIM_FAILED' },
+    { match: 'Mandate revoked', status: 409, code: 'MANDATE_REVOKED' },
+    { match: 'Mandate authorization required', status: 409, code: 'MANDATE_REQUIRED' },
+  ] },
   async (req, _res, input) => {
     // #445：agentId 可省略——缺省 = 当前登录用户（人工引导片认领，身份诚实归因会话用户）；
     // 显式传入保持旧契约（认领给指定 id）。requireAuth 保证 req.user 存在（none 模式注入 local）。
@@ -462,12 +508,12 @@ writeRoutes.post('/:id/dispatch-review', requireHuman(REVIEW_HUMAN_ONLY), define
  */
 writeRoutes.post('/:id/resume', defineRoute(
   { params: wuIdParamsSchema, response: workUnitResponseSchema },
-  async (_req, _res, input) => {
+  async (req, _res, input) => {
     const wu = await mustGetWu(input.params.id);
     if (wu.status !== 'blocked') {
       throw new HttpError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked 可继续执行`);
     }
-    const resumed = await resumeBlockedWorkUnitFromWeb(input.params.id, getStore());
+    const resumed = await resumeBlockedWorkUnitFromWeb(input.params.id, getStore(), callerPrincipal(req));
     if (!resumed) {
       throw new HttpError(409, 'RESUME_REJECTED', '复活未完成（等待工程归属的任务请在频道回复工程名或路径）');
     }

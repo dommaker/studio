@@ -36,10 +36,11 @@
  *   计时基准取 metadata.blockedAt（回退 waitingSince/updatedAt），复用同一 30 分钟
  *   阈值 + 一次性 waitingReminded 标记，消息带统一 CTA（blocked-cta 模板）。
  */
-import { FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
+import { FileStore, WorkUnitMetadataRepository, type MandatePrincipal } from '@dommaker/studio-shared';
 import { WorkUnitService } from './workunit-review.js';
 import { WaitingGate } from './waiting-gate.js';
 import { ExecutionJournal } from './execution-journal.js';
+import { assertExecutionMandate, SYSTEM_PRINCIPAL } from './mandate.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import type { WorkUnitData } from './workunit-crud.js';
 import { PLAN_STEP_LIMIT } from './workunit.types.js';
@@ -73,6 +74,8 @@ export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): nu
 export interface ResumeWaitingOptions {
   /** 折进锁内 metadata 写的 traceId（仅消费分支生效；不传 = 不折叠，行为同前） */
   traceId?: string | null;
+  /** 服务端认证操作人；内部无会话测试/系统路径显式使用 System 策略主体。 */
+  actor?: MandatePrincipal;
 }
 
 export async function resumeWaitingWorkUnit(
@@ -108,6 +111,11 @@ export async function resumeWaitingWorkUnit(
     // not-found-or-not-blocked = 指令未被消费（竞态下状态已变，交还后续流程）
     return outcome !== 'not-found-or-not-blocked';
   }
+
+  // 撤销或缺少可靠授权的旧单只能关闭或重新授权，普通回复不能复活执行。
+  const current = (await fileStore.getIndex({ id: workUnitId }))[0];
+  if (!current) return false;
+  assertExecutionMandate(current);
 
   // B3a 归属链：等待工程归属的挂起 — 回复先解析为工程，唯一命中才复活
   if (metadata.waitingReason === 'ownership') {
@@ -151,7 +159,12 @@ export async function resumeWaitingWorkUnit(
   // 会话预算（sessionCount）不动——复活后凭档案会话号续用旧会话（#94；#639 起非 claude
   // 凭 metadata.cliSessionId 点名续用）。
   if (metadata.waitingReason === 'plan-step-limit') {
-    await waitingGate.renew(workUnitId);
+    const planSteps = (metadata.planStepAllowance && metadata.planStepAllowance > 0
+      ? Math.floor(metadata.planStepAllowance) : PLAN_STEP_LIMIT) + PLAN_STEP_LIMIT;
+    await wuService.authorizeMandate(workUnitId, opts?.actor ?? SYSTEM_PRINCIPAL, {
+      budget: { planSteps }, reason: 'plan-step-limit reply renewal',
+    });
+    await wuService.updateMetadata(workUnitId, { waitingReason: undefined });
     if (wu.channelId) {
       const title = (metadata.title ?? wu.scope).slice(0, 50);
       await postWuSystemMessage(wu, `好的，任务「${title}」已续期 ${PLAN_STEP_LIMIT} 步额度，继续规划`, { fileStore })
@@ -245,6 +258,9 @@ async function resolveBudgetChoiceFromReply(
       await notify(`任务「${title}」已消耗 ${used.toLocaleString()} token，新上限需要大于这个数才能继续。请重新回复：「追加预算 <数值>」，或「收尾」/「放弃」`);
       return false;
     }
+    await wuService.authorizeMandate(wu.id, opts?.actor ?? SYSTEM_PRINCIPAL, {
+      budget: { tokens: newBudget }, reason: 'token-budget reply renewal',
+    });
     await wuService.update(wu.id, { metadata: { ...clearedMetadata, tokenBudget: newBudget } });
     await new ExecutionJournal(new WorkUnitMetadataRepository(fileStore)).resumeWaiting(wu.id);
     await transit('active');
@@ -328,6 +344,7 @@ export const WEB_RESUME_PLACEHOLDER = '（人类在 Web 端授权继续执行）
 export async function resumeBlockedWorkUnitFromWeb(
   workUnitId: string,
   fs?: FileStore,
+  actor?: MandatePrincipal,
 ): Promise<boolean> {
   const fileStore = fs ?? getStore();
   // #499：复活原语对 active WU 改为缓冲回复（入 pendingReplies，不再返回 false）——
@@ -335,7 +352,7 @@ export async function resumeBlockedWorkUnitFromWeb(
   // active/其他状态直返 false，不注占位文案、不发里程碑
   const before = await new WorkUnitService(fileStore).getById(workUnitId);
   if (!before || before.status !== 'blocked') return false;
-  const resumed = await resumeWaitingWorkUnit(workUnitId, WEB_RESUME_PLACEHOLDER, fileStore);
+  const resumed = await resumeWaitingWorkUnit(workUnitId, WEB_RESUME_PLACEHOLDER, fileStore, { actor });
   if (!resumed) return false;
 
   const wu = await new WorkUnitService(fileStore).getById(workUnitId);
@@ -417,6 +434,10 @@ async function resolveOwnershipFromReply(
   }
 
   if (hit) {
+    await wuService.authorizeMandate(wu.id, opts?.actor ?? SYSTEM_PRINCIPAL, {
+      repositories: [{ repo: hit.path, leg: metadata.pmoBranch ?? null }],
+      reason: 'ownership reply binding',
+    });
     // #170（决策 #65-1）：锁内合并写——pendingReplies 基于锁内最新值追加
     await new WaitingGate(new WorkUnitMetadataRepository(fileStore)).apply(wu.id, {
       kind: 'bind-ownership', replyText, workspaceRoot: hit.path, traceId: opts?.traceId,

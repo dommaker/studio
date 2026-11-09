@@ -11,7 +11,8 @@
  */
 
 import { randomUUID } from 'crypto';
-import { eventBus, FileStore, parseAttestations, parseWuPmoId, WorkUnitMetadataRepository, type AssignmentRecord, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { eventBus, FileStore, parseAttestations, parseWuPmoId, WorkUnitMetadataRepository, type AssignmentRecord, type MandateRecord, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { assertExecutionMandate, issueMandate, type MandateAuthorization } from './mandate.js';
 import { workUnitPort } from './workunit-ports.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
@@ -36,6 +37,10 @@ export interface CreateWorkUnitInput {
   timeoutAt?: Date | null;
   completedAt?: Date | null;
   metadata?: WorkUnitMetadata;
+  /** 服务端认证主体与来源；请求体没有该字段，路由只能由 req.user 构造。 */
+  authorization?: MandateAuthorization;
+  /** 由 create/createGuarded 锁前读取父单填充，调用方不能直接指定。 */
+  parentMandate?: MandateRecord;
 }
 
 export interface UpdateWorkUnitInput {
@@ -109,6 +114,8 @@ export interface WorkUnitData {
   /** #318（additive，ADR D2）：可认领标记——仅事件负载（workunit.created/status_changed）与 GET / 列表项附带；
       unassigned 且无未了结依赖才 true，其余状态恒 false；snapshotToData 本体不产此字段 */
   claimable?: boolean;
+  /** #706：长期授权只读事实；扩权与撤销只能走 Mandate 语义命令。 */
+  mandate?: MandateRecord;
   /** #705：跨 Assignment 的只读执行摘要，不暴露内部写口。 */
   execution?: WorkUnitExecutionSummary;
 }
@@ -219,6 +226,7 @@ export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
     claimedAt: s.claimedAt ? new Date(s.claimedAt) : null,
     completedAt: s.completedAt ? new Date(s.completedAt) : null,
     closedAt: s.closedAt ? new Date(s.closedAt) : null,
+    ...(s.mandate ? { mandate: s.mandate } : {}),
     ...(execution ? { execution } : {}),
   };
 }
@@ -262,6 +270,14 @@ function inputToSnapshot(
     reqId: input.reqId ?? null,
     assigneeRoleId: null,  // 认领快照仅在 claim 时写入（create 无认领方 roleId 来源）
     metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+    mandate: issueMandate({
+      workUnitId: id,
+      reqId: input.reqId,
+      metadata: input.metadata ?? {},
+      authorization: input.authorization,
+      parentMandate: input.parentMandate,
+      now,
+    }),
     createdAt: isoNow,
     updatedAt: isoNow,
     claimedAt: null,
@@ -304,7 +320,7 @@ interface WorkUnitMessageLinker {
 export interface WorkUnitRepository {
   create(input: CreateWorkUnitInput): Promise<WorkUnitData>;
   createGuarded(input: CreateWorkUnitInput, guard: (snapshots: WorkUnitSnapshot[]) => boolean): Promise<WorkUnitData | null>;
-  createFromMessage(messageId: string, options?: { type?: string; metadata?: WorkUnitMetadata; channelId?: string }): Promise<WorkUnitData>;
+  createFromMessage(messageId: string, options?: { type?: string; metadata?: WorkUnitMetadata; channelId?: string; authorization?: MandateAuthorization }): Promise<WorkUnitData>;
   update(id: string, input: UpdateWorkUnitInput): Promise<WorkUnitData>;
   updateMetadata(id: string, patch: WorkUnitMetadata): Promise<WorkUnitData | null>;
   delete(id: string, opts?: { reason?: string }): Promise<void>;
@@ -349,11 +365,15 @@ export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycl
    */
   private async inheritParentPmoId(input: CreateWorkUnitInput): Promise<CreateWorkUnitInput> {
     if (!input.parentId) return input;
-    if (parseWuPmoId(input.metadata ? JSON.stringify(input.metadata) : null)) return input;
     const parent = (await this.fileStore.getIndex({ id: input.parentId }))[0];
-    const stamp = parent ? parseWuPmoId(parent.metadata) : null;
-    if (!stamp) return input;
-    return { ...input, metadata: { ...input.metadata, pmoId: stamp } };
+    if (parent && !parent.mandate) throw new Error('Mandate authorization required for legacy parent');
+    const stamp = parseWuPmoId(input.metadata ? JSON.stringify(input.metadata) : null)
+      ?? (parent ? parseWuPmoId(parent.metadata) : null);
+    return {
+      ...input,
+      parentMandate: parent?.mandate,
+      ...(stamp ? { metadata: { ...input.metadata, pmoId: stamp } } : {}),
+    };
   }
 
   /**
@@ -534,7 +554,7 @@ export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycl
    */
   async createFromMessage(
     messageId: string,
-    options?: { type?: string; metadata?: WorkUnitMetadata; channelId?: string },
+    options?: { type?: string; metadata?: WorkUnitMetadata; channelId?: string; authorization?: MandateAuthorization },
   ): Promise<WorkUnitData> {
     const found = await this.fileStore.getMessageById(messageId, options?.channelId);
     if (!found) throw new Error(`Message ${messageId} not found`);
@@ -544,6 +564,7 @@ export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycl
       scope: found.message.content.slice(0, 500),
       type: options?.type ?? 'task',
       channelId: found.message.channelId,
+      authorization: options?.authorization,
       metadata: {
         ...options?.metadata,
         sourceMessageId: messageId,
@@ -680,6 +701,7 @@ export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycl
     // Read current state
     const wuToClaim = (await this.fileStore.getIndex({ id }))[0];
     if (!wuToClaim) throw new Error('WorkUnit not found');
+    assertExecutionMandate(wuToClaim);
 
     // File conflict check before claiming
     const conflicts = await this.checkFileConflicts(id, wuToClaim.metadata);
@@ -708,6 +730,7 @@ export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycl
     const claimed = await this.fileStore.claimWorkUnit(id, agentId, {
       assigneeRoleId,
       timeoutAt: timeoutAt.toISOString(),
+      guard: assertExecutionMandate,
     });
     if (!claimed) {
       throw new Error('Claim failed');

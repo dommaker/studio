@@ -52,6 +52,7 @@ import { hasUnsettledMergeEffect, type WorkUnitMetadata, type WorkUnitMergeInten
 import { snapshotToData, type WorkUnitData, type WorkUnitRepository } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
+import { assertMandateAllows } from './mandate.js';
 import { workUnitPort } from './workunit-ports.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
@@ -71,7 +72,7 @@ const REBASE_TIMEOUT_MS = 120_000;
 const GIT_OP_TIMEOUT_MS = 15_000;
 
 export type MergeOnReviewPassOutcome =
-  | { attempted: false; reason: 'no-worktree' | 'already-merged' | 'analysis-bypass' | 'lock-busy' }
+  | { attempted: false; reason: 'no-worktree' | 'already-merged' | 'analysis-bypass' | 'lock-busy' | 'mandate-rejected' }
   | { attempted: true; merged: true; mergeCommit: string }
   | { attempted: true; merged: false; conflictFiles: string[]; reason?: 'conflict' | 'uncommitted-changes' | 'merge-verify-failed' };
 
@@ -193,6 +194,18 @@ async function findMergeCommitFromHistory(mergeCwd: string, wuId: string, source
   return matches.length === 1 ? matches[0].trim().split(/\s+/, 1)[0] : null;
 }
 
+async function rejectMergeForMandate(
+  wuService: WorkUnitReviewMergePort,
+  wu: WorkUnitData,
+  error: unknown,
+): Promise<MergeOnReviewPassOutcome> {
+  if (wu.status !== 'done' && wu.status !== 'closed') {
+    await wuService.blockForMergeFailure(wu.id, [], { blockReason: `mandate: ${getErrorMessage(error)}` });
+  }
+  logger.warn('[MergeOnReviewPass] Mandate rejected before Git effect', { wuId: wu.id, error: String(error) });
+  return { attempted: false, reason: 'mandate-rejected' };
+}
+
 /**
  * 评审通过后的自动合并入口。best-effort：内部错误均转 outcome/日志，不向调用方抛错；
  * 评审证据不回滚，代码 WU 在 receipt 接受前始终保持 in_review。
@@ -223,6 +236,11 @@ export async function mergeWorktreeBranchOnReviewPass(
       `任务「${String(meta.title ?? wu.scope ?? '').slice(0, 50)}」评审通过，任务完成`,
     ).catch(err => logger.warn('[MergeOnReviewPass] post review-passed message failed', { wuId: wu.id, error: String(err) }));
     return { attempted: false, reason: 'no-worktree' };
+  }
+  try {
+    assertMandateAllows(wu, 'merge', { repo: configuredBaseRepo, leg: meta.pmoBranch ?? baseBranch });
+  } catch (error) {
+    return rejectMergeForMandate(wuService, wu, error);
   }
   // mergedAt 只证明 Git 曾落点，不证明 verify/settle 已完成；恢复按 receipt 阶段续跑。
   const verification = meta.mergeReceipt?.verification.status;
@@ -263,12 +281,25 @@ export async function mergeWorktreeBranchOnReviewPass(
   // 等待腿锁期间另一个进程可能已完成同一 WU；必须以锁内最新快照为准。
   const fresh = await wuService.getById(wu.id);
   if (!fresh) return { attempted: false, reason: 'already-merged' };
+  const freshMeta = parseWuMetadata(fresh.metadata);
+  const freshTarget = {
+    repo: freshMeta.worktreeBaseRepo ?? '',
+    leg: freshMeta.pmoBranch ?? freshMeta.worktreeBaseBranch ?? null,
+  };
+  try {
+    // 锁身份、授权范围和实际目标必须来自同一 fresh 快照；变化需回到新腿重新授权/排队。
+    if (freshTarget.repo !== configuredBaseRepo || freshTarget.leg !== (meta.pmoBranch ?? baseBranch)) {
+      throw new Error('Mandate target changed while acquiring delivery-leg lock');
+    }
+    assertMandateAllows(fresh, 'merge', freshTarget);
+  } catch (error) {
+    return rejectMergeForMandate(wuService, fresh, error);
+  }
   if (fresh.status === 'done') {
     if (recoverCleanup) await cleanupMergedWorktree(wuService, wu.id, baseRepo, worktreePath, branch);
     return { attempted: false, reason: 'already-merged' };
   }
   if (fresh.status !== 'in_review') return { attempted: false, reason: 'already-merged' };
-  const freshMeta = parseWuMetadata(fresh.metadata);
   const freshVerification = freshMeta.mergeReceipt?.verification.status;
   if (freshMeta.mergeReceipt?.merged === true && (freshVerification === 'unavailable' || freshVerification === 'failed')) {
     return { attempted: false, reason: 'already-merged' };

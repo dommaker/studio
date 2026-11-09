@@ -210,7 +210,10 @@ describe('请求 schema', () => {
     expect(updateProjectBodySchema.parse({})).toEqual({});
     expect(updateProjectBodySchema.parse({ status: 'active', 任意键: 1 })).toEqual({ status: 'active', 任意键: 1 });
     expect(updateProjectBodySchema.safeParse({ progress: '60' }).success).toBe(false);
-    expect(updateProjectBodySchema.parse({ deliveredAt: null, map: null })).toEqual({ deliveredAt: null, map: null });
+    expect(updateProjectBodySchema.parse({ map: null })).toEqual({ map: null });
+    for (const key of ['deliveredAt', 'deliveredBy', 'deliverCommit']) {
+      expect(updateProjectBodySchema.safeParse({ [key]: 'forged' }).success).toBe(false);
+    }
   });
 
   it('gitBranch：严格拒绝危险 ref 与 option injection，接受正常分支', () => {

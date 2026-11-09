@@ -74,6 +74,7 @@ let previousWorktreesDir: string | undefined;
 
 function worktreeMeta(extra?: Partial<WorkUnitMetadata>): WorkUnitMetadata {
   return {
+    workspaceRoot: REPO,
     worktreePath: WT,
     worktreeBranch: BRANCH,
     worktreeBaseBranch: BASE,
@@ -176,6 +177,40 @@ afterEach(() => {
 });
 
 describe('B3b-ii: 评审通过后自动合并', () => {
+  it('Mandate 撤销后恢复 merge 在首个 Git 子进程前交回授权', async () => {
+    const wu = await createWu(worktreeMeta({ workspaceRoot: REPO }));
+    await wuService.revokeMandate(wu.id, { id: 'operator-1', type: 'Operator' }, '停止交付');
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore, { recovery: true });
+
+    expect(outcome).toEqual({ attempted: false, reason: 'mandate-rejected' });
+    expect(calledCommands()).toEqual([]);
+    expect((await wuService.getById(wu.id))?.status).toBe('blocked');
+  });
+
+  it('仓库不在 Mandate 范围时 merge 零 Git 子进程并交回授权', async () => {
+    const wu = await createWu(worktreeMeta({ workspaceRoot: '/repo/not-authorized' }));
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: false, reason: 'mandate-rejected' });
+    expect(calledCommands()).toEqual([]);
+    expect((await wuService.getById(wu.id))?.status).toBe('blocked');
+  });
+
+  it('锁内 fresh 腿与已加锁腿不一致时拒绝，不用旧授权覆盖新目标', async () => {
+    const wu = await createWu(worktreeMeta());
+    await wuService.authorizeMandate(wu.id, { id: 'operator-1', type: 'Operator' }, {
+      repositories: [{ repo: REPO, leg: BASE }, { repo: REPO, leg: 'pmo/other' }],
+    });
+    await wuService.update(wu.id, { metadata: worktreeMeta({ pmoBranch: 'pmo/other' }) });
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: false, reason: 'mandate-rejected' });
+    expect(calledCommands()).toEqual([]);
+  });
+
   it('数据防丢闸：worktree 有未提交改动 → 不合并不强删，WU blocked + 频道列清单转人工', async () => {
     mockExecSh.mockImplementation(async (cmd: string) => {
       if (cmd.includes('status --porcelain')) return { stdout: ' M README.md\n?? .studio/AGENTS.generated.md\n', stderr: '' };

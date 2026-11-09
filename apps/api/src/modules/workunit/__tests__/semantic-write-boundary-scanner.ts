@@ -12,6 +12,7 @@ const SEMANTIC_COMMAND_FILES = [
   'modules/workunit/derivation-ledger.ts',
   'modules/workunit/trace-link.ts',
   'modules/workunit/waiting-gate.ts',
+  'modules/workunit/mandate.ts',
 ];
 
 const SEMANTIC_SERVICE_RECEIVERS = new Set([

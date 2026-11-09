@@ -154,6 +154,20 @@ describe('AC-5: PMO Publish API', () => {
     );
   });
 
+  it('publish 把认证请求人与来源消息写入 plan Mandate 授权输入', async () => {
+    await publishProject({
+      projectId: 'proj-1', channelId: 'ch-1', requestedBy: { id: 'operator-1', type: 'Operator' },
+    });
+
+    expect(mockWuCreate).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: {
+        requestedBy: { id: 'operator-1', type: 'Operator' },
+        source: { kind: 'channel', channelId: 'ch-1', messageId: expect.any(String) },
+        repositories: [],
+      },
+    }));
+  });
+
   it('#177：可选 assigneeId 落 plan WU（留空 = 不带该字段，回池涌现）', async () => {
     await publishProject({ projectId: 'proj-1', channelId: 'ch-1', assigneeId: 'profile-7' });
     expect(mockWuCreate).toHaveBeenCalledWith(

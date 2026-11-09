@@ -11,7 +11,7 @@
  * 决策 11: 路由层不认识 skill——`+skill名` token 保留在 scope 原文，
  * 由 agent-loop step 时经 parseSkillHintsFromScope 解析（skill-selector.ts）。
  */
-import { FileStore, WorkUnitMetadataRepository, type ChannelData } from '@dommaker/studio-shared';
+import { FileStore, WorkUnitMetadataRepository, type ChannelData, type MandatePrincipal } from '@dommaker/studio-shared';
 import { getChannelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService, TraceLink, WaitingGate } from '../workunit/index.js';
 import { resumeWaitingWorkUnit } from '../workunit/index.js';
@@ -36,6 +36,8 @@ export interface DispatchContext {
   fs?: FileStore;
   reqId?: string | null;
   traceId?: string | null;
+  /** 服务端认证主体；消息文本/meta 不参与 Mandate 身份判定。 */
+  requestedBy?: MandatePrincipal;
   /** #281: @文件引用（composer 弹框选中的结构化引用） */
   files?: FileRef[];
   /** #281: 词表/候选集依赖注入（测试用；缺省走真实数据源） */
@@ -192,6 +194,7 @@ export async function routeMessage(
     if (inheritedWorkUnitId) {
       const consumed = await resumeWaitingWorkUnit(inheritedWorkUnitId, content, resolvedFs, {
         traceId: ctx?.traceId,
+        actor: ctx?.requestedBy,
       }).catch(err => {
         logger.warn('[MessageRouting] Resume waiting WorkUnit failed (non-blocking)', {
           workUnitId: inheritedWorkUnitId,
@@ -227,7 +230,7 @@ export async function routeMessage(
       reqId: ctx?.reqId,
       traceId: ctx?.traceId,
       channel: ctx?.channel,
-    }, { fs: resolvedFs, wuService, filesMeta, reportDroppedRefs });
+    }, { fs: resolvedFs, wuService, filesMeta, requestedBy: ctx?.requestedBy, reportDroppedRefs });
   }
 
   // Priority 3（#632，决策12 默认角色退役后）：无 @ 无 replyTo 消息归宿。
@@ -241,7 +244,7 @@ export async function routeMessage(
       traceId: ctx.traceId,
       channel: ctx.channel,
     }, {
-      fs: resolvedFs, wuService, filesMeta, reportDroppedRefs,
+      fs: resolvedFs, wuService, filesMeta, requestedBy: ctx?.requestedBy, reportDroppedRefs,
     });
   }
 
@@ -264,6 +267,7 @@ export async function routeMessage(
       // 未消费分支的 pendingReplies 追加 + traceId 刷新并成同一次 updateMetadata
       const consumed = await resumeWaitingWorkUnit(mergeTarget.id, content, resolvedFs, {
         traceId: ctx?.traceId,
+        actor: ctx?.requestedBy,
       }).catch(err => {
         logger.warn('[MessageRouting] Resume merge-target WorkUnit failed (non-blocking)', {
           workUnitId: mergeTarget.id, error: String(err),

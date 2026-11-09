@@ -15,6 +15,7 @@ export { ExecutionJournal } from './execution-journal.js';
 export type { ExecutionAction, ExecutionStepResult, RecordStepResultInput, StepBookkeeping } from './execution-journal.js';
 export { scanGateEscalationReminders } from './gate-escalation.js';
 export { initInReviewInbox } from './in-review-inbox.js';
+export { assertMandateActive, assertMandateAllows } from './mandate.js';
 export { MAX_TIMEOUT_RELEASES, pidStartMatchesInstance, scanTimedOutWorkUnits } from './timeout-release.js';
 export { noteTokenLedgerWritten, resolveTokenLedgerFile } from './token-ledger.js';
 export { TraceLink } from './trace-link.js';

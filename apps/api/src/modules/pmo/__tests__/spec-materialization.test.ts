@@ -62,6 +62,11 @@ async function createSpecWu(project: ProjectData, summary?: string): Promise<Wor
     scope: `成文 ${project.pmoNumber}`,
     status: 'in_review',
     channelId: 'chan-test',
+    authorization: {
+      requestedBy: { id: 'system', type: 'System' },
+      source: { kind: 'system' },
+      repositories: [{ repo: REPO_A, leg: null }, { repo: REPO_B, leg: null }],
+    },
     metadata: {
       pmoId: project.id,
       pmoNumber: project.pmoNumber,

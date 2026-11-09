@@ -11,7 +11,7 @@
  * 事件先于派发消息落库的 findAnchorMessage 竞态）；建单后 linkWorkUnit 回填
  * 消息 ↔ WU 关联（best-effort，同 createFromMessage 既有路径）。
  */
-import { type ChannelData, type FileStore } from '@dommaker/studio-shared';
+import { type ChannelData, type FileStore, type MandatePrincipal } from '@dommaker/studio-shared';
 import { getChannelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService, postWuSystemMessage, type WorkUnitData } from '../workunit/index.js';
 import { matchMentionAgent, stripMentionScope } from './mention-match.js';
@@ -27,6 +27,7 @@ export interface WuDispatchDeps {
   fs: FileStore;
   wuService: WorkUnitService;
   filesMeta?: MessageMeta;
+  requestedBy?: MandatePrincipal;
   reportDroppedRefs: (message: MessageRecord) => Promise<void>;
 }
 
@@ -101,6 +102,10 @@ async function createDispatchedWorkUnit(
     ...input,
     channelId,
     type: 'task',
+    authorization: deps.requestedBy ? {
+      requestedBy: deps.requestedBy,
+      source: { kind: 'channel', channelId, messageId: dispatchMessage.id },
+    } : undefined,
     metadata: {
       ...input.metadata,
       // #494: 认领播报的显式线程锚点（见文件头时序说明）

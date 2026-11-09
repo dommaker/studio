@@ -180,7 +180,7 @@ writeRoutes.post('/project/:id/deliver', requireHuman(DELIVERY_HUMAN_ONLY_MESSAG
   { params: projectIdParamsSchema, response: deliverResultResponseSchema },
   async (req, res, { params }) => {
     const user = (req as AuthRequest).user;
-    const outcome = await deliverProject(params.id, user?.name ?? user?.email ?? user?.id ?? 'human');
+    const outcome = await deliverProject(params.id, user?.id ?? 'unknown');
     // 注：本包 tsconfig 未开 strict，可辨识联合须用 === 字面量比较收窄（merge-on-review-pass 同款）
     if (outcome.delivered === true) {
       return { delivered: true as const, deliverCommit: outcome.deliverCommit, ...(outcome.legs ? { legs: outcome.legs } : {}) };
@@ -211,7 +211,7 @@ writeRoutes.post('/project/:id/mark-delivered', requireHuman(DELIVERY_HUMAN_ONLY
   { params: projectIdParamsSchema, body: markDeliveredBodySchema, response: markDeliveredResultResponseSchema },
   async (req, res, { params, body }) => {
     const user = (req as AuthRequest).user;
-    const outcome = await markProjectDelivered(params.id, user?.name ?? user?.email ?? user?.id ?? 'human', body.commit);
+    const outcome = await markProjectDelivered(params.id, user?.id ?? 'unknown', body.commit);
     // 注：本包 tsconfig 未开 strict，可辨识联合须用 === 字面量比较收窄（deliver 路由同款）
     if (outcome.marked === true) {
       return { delivered: true as const, deliverCommit: outcome.deliverCommit, deliveredAt: outcome.deliveredAt };
@@ -285,10 +285,12 @@ writeRoutes.post('/project/:id/publish', defineRoute(
       { match: 'pending', status: 400, code: ERROR_CODES.BAD_REQUEST },
     ],
   },
-  async (_req, _res, { params, body }) => {
+  async (req, _res, { params, body }) => {
+    const user = (req as AuthRequest).user;
     const result = await projectService.publish({
       projectId: params.id,
       channelId: body.channelId,
+      requestedBy: user?.actorType === 'Operator' ? { id: user.id, type: 'Operator' } : undefined,
       // #177：可选 assigneeId（profile id）落 analysis WU；留空 = 回池涌现
       ...(body.assigneeId?.trim() ? { assigneeId: body.assigneeId.trim() } : {}),
     });

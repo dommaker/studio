@@ -11,6 +11,8 @@
 
 import { withAttestation, deriveDisplayState, createSettledTracker, WorkUnitSnapshotConflictError, type AttestationEntry, type FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from './merge-on-review-pass.js';
+import { MandateService, type MandateExpansion } from './mandate.js';
+import type { MandatePrincipal } from '@dommaker/studio-shared';
 import { parseWuMetadata } from './wu-metadata.js';
 import { isAcceptedMergeReceipt, type WorkUnitMetadata, type ReviewAttestationSource, type WorkUnitMergeIntent, type WorkUnitMergeReceipt } from './workunit.types.js';
 import { snapshotToData, WorkUnitCrudService, type WorkUnitData, type WorkUnitLifecycleRepository, type WorkUnitRepository } from './workunit-crud.js';
@@ -573,6 +575,7 @@ export class WorkUnitService implements WorkUnitRepository, WorkUnitQuery, WorkU
   private readonly query: WorkUnitQuery;
   private readonly lifecycle: WorkUnitLifecycle & WorkUnitLifecyclePersistence;
   private readonly review: WorkUnitReview;
+  private readonly mandates: MandateService;
 
   constructor(fileStore?: FileStore, messageService?: ConstructorParameters<typeof WorkUnitCrudService>[1]) {
     const store = fileStore ?? getStore();
@@ -580,6 +583,7 @@ export class WorkUnitService implements WorkUnitRepository, WorkUnitQuery, WorkU
     this.query = new WorkUnitQueryService(store);
     this.lifecycle = new WorkUnitLifecycleService(store, this.repository);
     this.review = new WorkUnitReviewService(this.lifecycle, this.query, this.repository, store);
+    this.mandates = new MandateService(store);
   }
 
   create(...args: Parameters<WorkUnitRepository['create']>) { return this.repository.create(...args); }
@@ -609,4 +613,11 @@ export class WorkUnitService implements WorkUnitRepository, WorkUnitQuery, WorkU
   blockForMergeFailure(...args: Parameters<WorkUnitReview['blockForMergeFailure']>) { return this.review.blockForMergeFailure(...args); }
   blockForManualRelease(...args: Parameters<WorkUnitReview['blockForManualRelease']>) { return this.review.blockForManualRelease(...args); }
   blockForAllUnfit(...args: Parameters<WorkUnitReview['blockForAllUnfit']>) { return this.review.blockForAllUnfit(...args); }
+
+  async authorizeMandate(id: string, actor: MandatePrincipal, patch: MandateExpansion): Promise<WorkUnitData> {
+    return snapshotToData(await this.mandates.authorize(id, actor, patch));
+  }
+  async revokeMandate(id: string, actor: MandatePrincipal, reason?: string): Promise<WorkUnitData> {
+    return snapshotToData(await this.mandates.revoke(id, actor, reason));
+  }
 }

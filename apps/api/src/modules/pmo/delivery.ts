@@ -25,10 +25,10 @@ import { execFileAsync } from '../../core/exec-async.js';
 import { withDeliveryLegLock } from '../../core/delivery-leg-lock.js';
 import { projectService, resolveDeliveries, resolveDeliveryPolicy, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type DeliveryLegStatus, type DeliveryPolicy, type ProjectData } from './project.service.js';
 import { RequirementService } from '../requirements/index.js';
-import { selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg, type EvidenceSummary } from './evidence-summary.js';
+import { selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg, CODE_TYPES, type EvidenceSummary } from './evidence-summary.js';
 import { postProjectMilestone } from './delivery-notify.js';
 // P2-c 拆环：sumTokensForWorkUnits 转调用点动态 import（pmo→agents 静态边清零）
-import { hasUnsettledMergeEffect, parseWuMetadata } from '../workunit/index.js';
+import { assertMandateAllows, hasUnsettledMergeEffect, parseWuMetadata } from '../workunit/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
 import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
@@ -122,7 +122,7 @@ function mergePendingIds(snapshots: WorkUnitSnapshot[]): string[] {
     && hasUnsettledMergeEffect(snapshot.metadata)).map(snapshot => snapshot.id);
 }
 
-function legSnapshots(project: ProjectData, snapshots: WorkUnitSnapshot[], leg: LegDeliveryStatus): WorkUnitSnapshot[] {
+function legSnapshots(project: ProjectData, snapshots: WorkUnitSnapshot[], leg: Pick<DeliveryLeg, 'gitRepo' | 'branch'>): WorkUnitSnapshot[] {
   const legs = resolveDeliveries(project);
   if (legs.length <= 1) return snapshots;
   const index = legs.findIndex(candidate => candidate.gitRepo === leg.gitRepo && candidate.branch === leg.branch);
@@ -313,12 +313,44 @@ export async function getDeliveryStatus(
   return (await loadDeliveryStatus(projectId, fileStore, deps))?.status ?? null;
 }
 
+/** 最终交付只重验代码 WU；plan/review 等非代码工作不承担腿交付权限。 */
+function findMandateRejection(
+  snapshots: WorkUnitSnapshot[],
+  action: 'deliver' | 'mark-delivered',
+  scope: { repo: string; leg: string | null },
+): string | null {
+  for (const snapshot of snapshots) {
+    if (!CODE_TYPES.has(snapshot.type)) continue;
+    try {
+      assertMandateAllows(snapshot, action, scope);
+    } catch (error) {
+      return `${snapshot.id}: ${getErrorMessage(error)}`;
+    }
+  }
+  return null;
+}
+
+function findProjectMandateRejection(
+  project: ProjectData,
+  snapshots: WorkUnitSnapshot[],
+  action: 'deliver' | 'mark-delivered',
+): string | null {
+  for (const leg of resolveDeliveries(project)) {
+    if (!leg.gitRepo || !leg.branch) continue;
+    const rejection = findMandateRejection(legSnapshots(project, snapshots, leg), action, {
+      repo: leg.gitRepo, leg: leg.branch,
+    });
+    if (rejection) return rejection;
+  }
+  return null;
+}
+
 /** #113 T7：单腿交付结果（多腿 deliverProject 逐腿产出） */
 export interface LegDeliverResult {
   gitRepo: string | null;
   branch: string | null;
   delivered: boolean;
-  reason?: 'already-delivered' | 'skipped-no-wu' | 'no-repo' | 'checkout-mismatch' | 'conflict' | 'not-ready' | 'merge-pending';
+  reason?: 'already-delivered' | 'skipped-no-wu' | 'no-repo' | 'checkout-mismatch' | 'conflict' | 'not-ready' | 'merge-pending' | 'mandate-rejected';
   deliverCommit?: string;
   conflictFiles?: string[];
   detail?: string;
@@ -326,7 +358,7 @@ export interface LegDeliverResult {
 
 export type DeliverOutcome =
   | { delivered: true; deliverCommit: string; legs?: LegDeliverResult[] }
-  | { delivered: false; reason: 'branch-only' | 'not-ready' | 'merge-pending' | 'no-repo' | 'checkout-mismatch' | 'conflict' | 'not-found'; missing?: string[]; conflictFiles?: string[]; detail?: string; legs?: LegDeliverResult[] };
+  | { delivered: false; reason: 'branch-only' | 'not-ready' | 'merge-pending' | 'mandate-rejected' | 'no-repo' | 'checkout-mismatch' | 'conflict' | 'not-found'; missing?: string[]; conflictFiles?: string[]; detail?: string; legs?: LegDeliverResult[] };
 
 type MergeResult =
   | { ok: true; deliverCommit: string }
@@ -440,6 +472,13 @@ export async function deliverProject(
   if (!status.deliverable) {
     return { delivered: false, reason: 'not-ready', missing: status.missing };
   }
+  const invalidBranch = (status.legs ?? [{ branch: status.branch }]).find(leg => leg.branch && !isValidGitBranch(leg.branch));
+  if (invalidBranch) {
+    return { delivered: false, reason: 'conflict', detail: `非法 PMO 分支名，拒绝交付: ${invalidBranch.branch}` };
+  }
+  // 多腿在各自锁内按本腿授权失败，保持逐腿独立；单腿可在任何 Git 前直接拒绝。
+  const mandateRejection = status.legs ? null : findProjectMandateRejection(initial.project, initial.snapshots, 'deliver');
+  if (mandateRejection) return { delivered: false, reason: 'mandate-rejected', detail: mandateRejection };
 
   const withLegLock = resolveLegLocker(fileStore, deps);
   const updateProject = deps?.updateProject
@@ -503,6 +542,15 @@ export async function deliverProject(
             result = { gitRepo: leg.gitRepo, branch: leg.branch, delivered: false, reason: 'not-ready', detail: latestLeg.missing.join('；') };
             return;
           }
+          const rejection = findMandateRejection(
+            legSnapshots(latest.project, latest.snapshots, latestLeg),
+            'deliver',
+            { repo: latestLeg.gitRepo!, leg: latestLeg.branch! },
+          );
+          if (rejection) {
+            result = { gitRepo: leg.gitRepo, branch: leg.branch, delivered: false, reason: 'mandate-rejected', detail: rejection };
+            return;
+          }
 
           const merge = await mergeBranchIntoDefault(latestLeg.gitRepo!, latestLeg.branch!, `deliver: ${status.pmoNumber} [${latestLeg.branch}]`, deps?.withRepo);
           if (merge.ok === true) {
@@ -541,6 +589,7 @@ export async function deliverProject(
     const firstFailure = results.find(r => !r.delivered && r.reason !== 'skipped-no-wu')!;
     const reason = firstFailure.reason === 'no-repo' || firstFailure.reason === 'checkout-mismatch'
       || firstFailure.reason === 'merge-pending' || firstFailure.reason === 'not-ready'
+      || firstFailure.reason === 'mandate-rejected'
       ? firstFailure.reason
       : 'conflict';
     return {
@@ -573,6 +622,8 @@ export async function deliverProject(
       if (!latest.status.gitRepo || !latest.status.branch) {
         return { delivered: false as const, reason: 'no-repo' as const };
       }
+      const rejection = findProjectMandateRejection(latest.project, latest.snapshots, 'deliver');
+      if (rejection) return { delivered: false as const, reason: 'mandate-rejected' as const, detail: rejection };
 
       const merge = await mergeBranchIntoDefault(latest.status.gitRepo, latest.status.branch, `deliver: ${status.pmoNumber}`, deps?.withRepo);
       if (merge.ok === false) {
@@ -604,7 +655,7 @@ export async function deliverProject(
 
 export type MarkDeliveredOutcome =
   | { marked: true; deliverCommit: string; deliveredAt: string }
-  | { marked: false; reason: 'not-found' | 'not-branch-only' | 'already-delivered' | 'merge-pending'; detail?: string };
+  | { marked: false; reason: 'not-found' | 'not-branch-only' | 'already-delivered' | 'merge-pending' | 'mandate-rejected'; detail?: string };
 
 /**
  * branch-only 交付闭环：系统外合并发生后，人工把 commit 哈希落档。
@@ -630,6 +681,8 @@ export async function markProjectDelivered(
   if (initialPending.length > 0) {
     return { marked: false, reason: 'merge-pending', detail: `同腿合并未决：${initialPending.join(', ')}` };
   }
+  const mandateRejection = findProjectMandateRejection(initial.project, initial.snapshots, 'mark-delivered');
+  if (mandateRejection) return { marked: false, reason: 'mandate-rejected', detail: mandateRejection };
 
   const withLegLock = resolveLegLocker(fileStore, deps);
   const legs = resolveDeliveries(initial.project)
@@ -652,6 +705,8 @@ export async function markProjectDelivered(
     if (pending.length > 0) {
       return { marked: false, reason: 'merge-pending', detail: `同腿合并未决：${pending.join(', ')}` };
     }
+    const rejection = findProjectMandateRejection(latest.project, latest.snapshots, 'mark-delivered');
+    if (rejection) return { marked: false, reason: 'mandate-rejected', detail: rejection };
 
     const deliveredAt = new Date().toISOString();
     await updateProject(projectId, { deliveredAt, deliveredBy: by, deliverCommit: commit });

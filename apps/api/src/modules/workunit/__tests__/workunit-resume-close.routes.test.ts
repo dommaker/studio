@@ -88,7 +88,7 @@ describe('#185（决策 #87 D2）：/resume + /close 路由（Web 按钮通道�
     mockResumeFromWeb.mockResolvedValue(true);
     const res = await post('/wu-1/resume');
     expect(res.status).toBe(200);
-    expect(mockResumeFromWeb).toHaveBeenCalledWith('wu-1', expect.anything());
+    expect(mockResumeFromWeb).toHaveBeenCalledWith('wu-1', expect.anything(), { id: 'local', type: 'Operator' });
     const json = await res.json() as { data: { id: string } };
     expect(json.data.id).toBe('wu-1');
   });

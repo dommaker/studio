@@ -1,5 +1,5 @@
 /** PMO 发布用例：频道消息 + plan WorkUnit + 项目激活的唯一编排入口。 */
-import { PLAN_TASK_CONTRACT } from '@dommaker/studio-shared';
+import { PLAN_TASK_CONTRACT, type MandatePrincipal } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { getChannelMessageService, resolveOrNotice } from '../channels/index.js';
 import { WorkUnitService } from '../workunit/index.js';
@@ -14,7 +14,7 @@ export function resolvePlanTokenBudget(env: NodeJS.ProcessEnv = process.env): nu
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : PLAN_TOKEN_BUDGET_DEFAULT;
 }
 
-export async function publishProject(input: { projectId: string; channelId: string; assigneeId?: string }) {
+export async function publishProject(input: { projectId: string; channelId: string; assigneeId?: string; requestedBy?: MandatePrincipal }) {
   const project = await projectRepository.get(input.projectId);
   if (!project) throw new Error('Project not found');
   if (project.status !== 'pending') throw new Error('Project must be pending to publish');
@@ -64,6 +64,11 @@ FOG: <待决问题>
 人工确认时会审核这份待决问题清单（可增删改），确认通过后系统据此初始化探路台账（不再逐条建决策单——裁决在本会话内进行）；无 FOG 行 = 非探路型，只按 TASK 行派工。`,
     channelId: input.channelId,
     reqId: project.reqAlias ?? null,
+    authorization: {
+      requestedBy: input.requestedBy ?? { id: 'system', type: 'System' },
+      source: { kind: 'channel', channelId: input.channelId, messageId: message.id },
+      repositories: legs.flatMap(leg => leg.gitRepo ? [{ repo: leg.gitRepo, leg: leg.branch }] : []),
+    },
     metadata: {
       pmoId: project.id,
       pmoNumber: project.pmoNumber,

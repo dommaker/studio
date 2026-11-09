@@ -3,6 +3,7 @@ import { parseAttestations, type AssignmentRecord, type WorkUnitMetadataReposito
 import { cancelUnresolvedAssignments, type WorkUnitData } from './workunit-crud.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
+import { assertExecutionMandate } from './mandate.js';
 
 const PROGRESS_LOG_MAX_ENTRIES = 5;
 const PROGRESS_LOG_SUMMARY_MAX_CHARS = 200;
@@ -89,6 +90,7 @@ export class ExecutionJournal {
   async beginStep(input: BeginAssignmentInput): Promise<WorkUnitSnapshot | null> {
     const at = new Date().toISOString();
     return this.repository.mutateSnapshot(input.wu.id, current => {
+      assertExecutionMandate(current);
       const existing = currentAssignment(current);
       if (existing && ['queued', 'running'].includes(existing.status)) {
         const updated: AssignmentRecord = {
@@ -134,6 +136,7 @@ export class ExecutionJournal {
   replaceForSession(wuId: string, expectedAssignmentId: string, sessionId: string): Promise<WorkUnitSnapshot | null> {
     const at = new Date().toISOString();
     return this.repository.mutateSnapshot(wuId, current => {
+      assertExecutionMandate(current);
       const existing = currentAssignment(current);
       if (!existing || existing.id !== expectedAssignmentId || !['queued', 'running'].includes(existing.status)) return null;
       const assignment = nextAssignment(current, 'session-replacement', at);
@@ -165,6 +168,7 @@ export class ExecutionJournal {
     return this.repository.mutateSnapshot(wuId, current => {
       // close 可能插在 metadata 回复与本操作之间；已关闭 WU 不得再复活 queued 轮次。
       if (current.status !== 'blocked') return null;
+      assertExecutionMandate(current);
       const existing = currentAssignment(current);
       if (existing && ['queued', 'running'].includes(existing.status)) return current;
       if ((current.assignments ?? []).some(a => ['queued', 'running'].includes(a.status))) return null;

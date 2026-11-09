@@ -5,7 +5,7 @@
  * and LLM-based suggestions for task creation (AC-E2，走 SystemExecutor /
  * studio 角色绑定的 CLI；角色未配置或调用失败时 suggest 返回空建议，非阻断).
  */
-import { FileStore, parseChannels } from '@dommaker/studio-shared';
+import { FileStore, parseChannels, type MandatePrincipal } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/index.js';
 import type { WorkUnitData } from '../workunit/index.js';
 import { ChannelMessageService, getChannelMessageService, type MessageMeta } from './channel-message.service.js';
@@ -21,6 +21,7 @@ export interface ConvertInput {
   assigneeId?: string;
   projectPath?: string;
   reqId?: string | null;        // REQ 需求编号（显式指定；缺省走 token/自动新建）
+  requestedBy?: MandatePrincipal; // 服务端路由注入，非消息元数据
 }
 
 export interface ConvertSuggestion {
@@ -104,6 +105,10 @@ export class ConvertToTaskService {
       assigneeId: input.assigneeId ?? undefined,
       projectPath: input.projectPath ?? null,
       reqId,
+      authorization: input.requestedBy ? {
+        requestedBy: input.requestedBy,
+        source: { kind: 'channel', channelId, messageId },
+      } : undefined,
       metadata: {
         creationMode: 'convert',
         originalMessageId: messageId,

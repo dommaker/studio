@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { FileStore, type MandateRecord, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { getDeliveryStatus, deliverProject, markProjectDelivered } from '../delivery.js';
 import type { ProjectData } from '../project.service.js';
 
@@ -43,14 +43,28 @@ function project(overrides: Partial<ProjectData>): ProjectData {
   };
 }
 
+function mandate(workUnitId: string): MandateRecord {
+  const actor = { id: 'operator-1', type: 'Operator' } as const;
+  return {
+    workUnitId, revision: 1, policyVersion: '1', requestedBy: actor, grantedBy: actor,
+    grantedAt: '2026-07-29T00:00:00Z', source: { kind: 'api' }, reqId: 'REQ-0011', pmoId: 'proj-1',
+    repositories: [{ repo: '/repo/x', leg: 'PMO-11' }],
+    deliveryActions: ['merge', 'deliver', 'mark-delivered'],
+    budget: { tokens: null, planSteps: null }, expansionPrincipals: [],
+    history: [{ revision: 1, action: 'issued', actor, at: '2026-07-29T00:00:00Z' }],
+  };
+}
+
 let seq = 0;
 function wu(overrides: Partial<WorkUnitSnapshot> & { metadataObj?: Record<string, unknown> }): WorkUnitSnapshot {
   const { metadataObj, ...rest } = overrides;
+  const id = `wu-${++seq}`;
   return {
-    id: `wu-${++seq}`, parentId: null, type: 'task', scope: 's', assigneeId: null,
+    id, parentId: null, type: 'task', scope: 's', assigneeId: null,
     status: 'done', failureType: null, retryCount: 0, timeoutAt: null,
     channelId: null, projectPath: null, reqId: 'REQ-0011',
-    metadata: metadataObj ? JSON.stringify(metadataObj) : null,
+    metadata: JSON.stringify({ worktreeBaseRepo: '/repo/x', pmoBranch: 'PMO-11', ...metadataObj }),
+    mandate: mandate(id),
     createdAt: '2026-07-29T00:00:00Z', updatedAt: '2026-07-29T00:00:00Z',
     claimedAt: null, completedAt: '2026-07-29T01:00:00Z',
     ...rest,
@@ -289,6 +303,30 @@ describe('deliverProject（PMO-b 交付守卫）', () => {
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
+  it('代码 WU Mandate 撤销 → 交付交回授权，零 Git/台账写入', async () => {
+    const revoked = readyWu();
+    revoked.mandate = { ...revoked.mandate!, revokedAt: '2026-07-29T02:00:00Z' };
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge' }), snapshots: [revoked] });
+
+    const result = await deliverProject('proj-1', 'operator-1', undefined, deps);
+
+    expect(result).toMatchObject({ delivered: false, reason: 'mandate-rejected' });
+    expect(mockExecSh).not.toHaveBeenCalled();
+    expect(deps.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('项目实际交付腿不在 WU Mandate 中 → 不合并项目目标', async () => {
+    const deps = makeDeps({
+      project: project({ deliveryPolicy: 'auto-merge', gitBranch: 'pmo/other' }),
+      snapshots: [readyWu()],
+    });
+
+    const result = await deliverProject('proj-1', 'operator-1', undefined, deps);
+
+    expect(result).toMatchObject({ delivered: false, reason: 'mandate-rejected' });
+    expect(mockExecSh).not.toHaveBeenCalled();
+  });
+
   it.each(['queued', 'running'])('同腿 WU merge %s → merge-pending，零 Git 写', async state => {
     const pending = wu({
       status: 'in_review', completedAt: null,
@@ -454,6 +492,17 @@ describe('markProjectDelivered（#469 branch-only 人工落档）', () => {
     const deps = makeDeps({ project: project({ deliveryPolicy: 'branch-only', deliveredAt: '2026-08-01T00:00:00Z' }) });
     const r = await markProjectDelivered('proj-1', 'Alice', COMMIT, undefined, deps);
     expect(r).toMatchObject({ marked: false, reason: 'already-delivered' });
+    expect(deps.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('Mandate 撤销 → 人工交付落档同样拒绝', async () => {
+    const revoked = wu({ metadataObj: fullEvidence });
+    revoked.mandate = { ...revoked.mandate!, revokedAt: '2026-07-29T02:00:00Z' };
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'branch-only' }), snapshots: [revoked] });
+
+    const result = await markProjectDelivered('proj-1', 'operator-1', COMMIT, undefined, deps);
+
+    expect(result).toMatchObject({ marked: false, reason: 'mandate-rejected' });
     expect(deps.updateProject).not.toHaveBeenCalled();
   });
 
