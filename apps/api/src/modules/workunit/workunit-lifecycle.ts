@@ -11,6 +11,7 @@ import { type FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@domm
 import { parseWuMetadata } from './wu-metadata.js';
 import { isAcceptedMergeReceipt, resolveValidTransitions, WORKUNIT_CLOSED_EVENT_TYPE, type WorkUnitMetadata, type CloseWorkUnitOptions } from './workunit.types.js';
 import { cancelUnresolvedAssignments, snapshotToData, syncCurrentAssignmentEvidence, type WorkUnitData, type WorkUnitLifecycleRepository } from './workunit-crud.js';
+import { withReviewDispatchIntent } from './effects.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { writeStudioEvent } from '@dommaker/studio-shared';
 import { workUnitPort, type WorkUnitAuditActor } from './workunit-ports.js';
@@ -201,7 +202,7 @@ export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLife
       : typeof metadata === 'string'
         ? metadata
         : JSON.stringify(metadata);
-    const updated: WorkUnitSnapshot = {
+    const transitioned: WorkUnitSnapshot = {
       ...current,
       ...(nextStatus === 'closed' ? cancelUnresolvedAssignments(current, isoNow) : {}),
       ...(metadata && typeof metadata !== 'string' ? syncCurrentAssignmentEvidence(current, metadata, isoNow) : {}),
@@ -214,6 +215,7 @@ export class WorkUnitLifecycleService implements WorkUnitLifecycle, WorkUnitLife
       closedAt: nextStatus === 'closed' ? isoNow : current.status === 'closed' ? null : current.closedAt,
       updatedAt: isoNow,
     };
+    const updated = withReviewDispatchIntent(current, transitioned);
     const event: WorkUnitEvent = {
       type: opts.eventType,
       wuId: current.id,

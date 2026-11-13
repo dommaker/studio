@@ -15,6 +15,7 @@ import type {
   StuckMetrics,
   Failure24hMetrics,
   EvidenceMetrics,
+  EffectMetrics,
   OverviewMetrics,
 } from './metrics.types.js';
 
@@ -584,6 +585,30 @@ function aggregateEvidence(ctx: OverviewContext): EvidenceMetrics {
   };
 }
 
+function aggregateEffects(ctx: OverviewContext): EffectMetrics {
+  const byStatus: Record<string, number> = {};
+  const receiptsByOutcome: Record<string, number> = {};
+  let recoveryChecks = 0;
+  let duplicatesPrevented = 0;
+  for (const snapshot of ctx.input.snapshots) {
+    for (const effect of snapshot.effects ?? []) {
+      byStatus[effect.status] = (byStatus[effect.status] ?? 0) + 1;
+    }
+    for (const receipt of snapshot.effectReceipts ?? []) {
+      receiptsByOutcome[receipt.outcome] = (receiptsByOutcome[receipt.outcome] ?? 0) + 1;
+      if (receipt.recovery === 'queued-restarted' || receipt.recovery === 'running-reconciled') recoveryChecks++;
+      if (receipt.result?.duplicatePrevented === true) duplicatesPrevented++;
+    }
+  }
+  return {
+    description: '持久副作用：各状态 Effect、Receipt 结果、恢复核查与去重次数。needs_reconciliation 或 failed 非零需要核查',
+    byStatus,
+    receiptsByOutcome,
+    recoveryChecks,
+    duplicatesPrevented,
+  };
+}
+
 export function aggregateOverview(input: OverviewAggregateInput): OverviewMetrics {
   const ctx = buildOverviewContext(input);
   const taskFlow = aggregateTaskFlow(ctx);
@@ -598,6 +623,7 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
   const stuck = aggregateStuck(ctx);
   const failure24h = aggregateFailure24h(ctx);
   const evidence = aggregateEvidence(ctx);
+  const effects = aggregateEffects(ctx);
 
   const hasData = input.snapshots.length > 0 || input.wuEvents.length > 0 || input.events.length > 0;
   return {
@@ -614,6 +640,7 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
     stuck,
     failure24h,
     evidence,
+    effects,
     source: hasData ? 'events' : 'insufficient-data',
   };
 }

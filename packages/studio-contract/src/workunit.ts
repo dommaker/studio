@@ -83,6 +83,35 @@ export const mandateSchema = z.object({
   revokeReason: z.string().optional(),
 });
 
+/** #707：additive 持久副作用只读投影；客户端没有 Effect 写口。 */
+export const effectRecordSchema = z.object({
+  id: z.string(),
+  workUnitId: z.string(),
+  kind: z.literal('review-dispatch'),
+  idempotencyKey: z.string(),
+  trigger: z.enum(['automatic', 'manual']),
+  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled', 'needs_reconciliation']),
+  attempts: z.number().int().nonnegative(),
+  maxAttempts: z.number().int().positive(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  nextAttemptAt: z.string().optional(),
+  startedAt: z.string().optional(),
+  lastError: z.string().optional(),
+});
+
+export const effectReceiptSchema = z.object({
+  id: z.string(),
+  effectId: z.string(),
+  idempotencyKey: z.string(),
+  outcome: z.enum(['succeeded', 'retrying', 'failed', 'cancelled']),
+  at: z.string(),
+  attempts: z.number().int().nonnegative(),
+  result: z.record(z.string(), z.unknown()).optional(),
+  error: z.string().optional(),
+  recovery: z.enum(['queued-restarted', 'running-reconciled', 'revocation']).optional(),
+});
+
 /**
  * WorkUnit wire 形状（JSON 序列化后的 WorkUnitData：Date → ISO string）。
  * 字段正本 = apps/api workunit-crud.ts snapshotToData；dependsOn 不存在于后端（前端手抄版的漂移字段）。
@@ -111,6 +140,9 @@ export const workUnitSchema = z.object({
   mandate: mandateSchema.optional(),
   /** #705：additive 执行轮次只读摘要；旧 WU 可缺省。 */
   execution: workUnitExecutionSchema.optional(),
+  /** #707：additive Effect/Receipt 只读投影；旧 WU 可缺省。 */
+  effects: z.array(effectRecordSchema).optional(),
+  effectReceipts: z.array(effectReceiptSchema).optional(),
   /** #109：仅列表项与事件负载附带的「可认领」标记 */
   claimable: z.boolean().optional(),
 });

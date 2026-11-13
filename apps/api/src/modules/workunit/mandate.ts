@@ -203,8 +203,26 @@ export class MandateService {
       if (!canExpandMandate(current.mandate, actor)) throw new Error('Mandate expansion forbidden');
       const at = new Date().toISOString();
       const revision = current.mandate.revision + 1;
+      const effects = (current.effects ?? []).map(effect =>
+        effect.status === 'queued'
+          ? { ...effect, status: 'cancelled' as const, lastError: reason ?? 'Mandate revoked', nextAttemptAt: undefined, updatedAt: at }
+          : effect.status === 'running'
+            ? { ...effect, status: 'needs_reconciliation' as const, updatedAt: at }
+            : effect);
+      const cancellationReceipts = (current.effects ?? []).filter(effect => effect.status === 'queued').map(effect => ({
+        id: `receipt-${effect.id}-revocation-${revision}`,
+        effectId: effect.id,
+        idempotencyKey: effect.idempotencyKey,
+        outcome: 'cancelled' as const,
+        at,
+        attempts: effect.attempts,
+        error: reason ?? 'Mandate revoked',
+        recovery: 'revocation' as const,
+      }));
       return {
         ...current,
+        effects,
+        effectReceipts: [...(current.effectReceipts ?? []), ...cancellationReceipts],
         mandate: {
           ...current.mandate,
           revision,

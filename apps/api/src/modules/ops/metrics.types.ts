@@ -228,6 +228,15 @@ export interface EfficiencyMetrics {
   sectionTrim: SectionTrimMetrics;
 }
 
+/** #707：Effect/Receipt 当前快照指标；撤销不计恢复核查。 */
+export interface EffectMetrics {
+  description: string;
+  byStatus: Record<string, number>;
+  receiptsByOutcome: Record<string, number>;
+  recoveryChecks: number;
+  duplicatesPrevented: number;
+}
+
 export interface OverviewMetrics {
   windowDays: number;
   generatedAt: string;
@@ -245,6 +254,8 @@ export interface OverviewMetrics {
   failure24h: Failure24hMetrics;
   /** F6 证据台账（决策 1；双轨期与门模型并存比对） */
   evidence: EvidenceMetrics;
+  /** #707 持久副作用与恢复核查 */
+  effects: EffectMetrics;
   /** 数据源状态：有任何 WU 或事件数据 → 'events'，全空 → 'insufficient-data' */
   source: 'events' | 'insufficient-data';
 }

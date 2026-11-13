@@ -313,6 +313,16 @@ export const evidenceMetricsSchema = z.object({
 });
 export type EvidenceMetrics = z.infer<typeof evidenceMetricsSchema>;
 
+/** #707：Effect/Receipt 当前快照与恢复核查指标。 */
+export const effectMetricsSchema = z.object({
+  description: z.string(),
+  byStatus: z.record(z.string(), z.number()),
+  receiptsByOutcome: z.record(z.string(), z.number()),
+  recoveryChecks: z.number().int().nonnegative(),
+  duplicatesPrevented: z.number().int().nonnegative(),
+});
+export type EffectMetrics = z.infer<typeof effectMetricsSchema>;
+
 /** GET /overview 响应 data（前端只消费 evidence/roles/humanIntervention/alerts/stuck/failure24h
  * 六段，其余段落正本声明不裁剪） */
 export const overviewMetricsSchema = z.object({
@@ -329,6 +339,7 @@ export const overviewMetricsSchema = z.object({
   stuck: stuckMetricsSchema,
   failure24h: failure24hMetricsSchema,
   evidence: evidenceMetricsSchema,
+  effects: effectMetricsSchema,
   source: metricsSourceSchema,
 });
 export type OverviewMetrics = z.infer<typeof overviewMetricsSchema>;

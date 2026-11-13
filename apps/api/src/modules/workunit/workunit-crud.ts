@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { eventBus, FileStore, parseAttestations, parseWuPmoId, WorkUnitMetadataRepository, type AssignmentRecord, type MandateRecord, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { eventBus, FileStore, parseAttestations, parseWuPmoId, WorkUnitMetadataRepository, type AssignmentRecord, type EffectReceipt, type EffectRecord, type MandateRecord, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { assertExecutionMandate, issueMandate, type MandateAuthorization } from './mandate.js';
 import { workUnitPort } from './workunit-ports.js';
 import { postWuSystemMessage } from './wu-messenger.js';
@@ -118,6 +118,9 @@ export interface WorkUnitData {
   mandate?: MandateRecord;
   /** #705：跨 Assignment 的只读执行摘要，不暴露内部写口。 */
   execution?: WorkUnitExecutionSummary;
+  /** #707：持久副作用与回执只读投影；写路径仅接受领域命令。 */
+  effects?: EffectRecord[];
+  effectReceipts?: EffectReceipt[];
 }
 
 /**
@@ -228,6 +231,8 @@ export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
     closedAt: s.closedAt ? new Date(s.closedAt) : null,
     ...(s.mandate ? { mandate: s.mandate } : {}),
     ...(execution ? { execution } : {}),
+    ...(s.effects ? { effects: s.effects } : {}),
+    ...(s.effectReceipts ? { effectReceipts: s.effectReceipts } : {}),
   };
 }
 

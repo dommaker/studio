@@ -208,6 +208,38 @@ export interface MandateRecord {
   revokeReason?: string;
 }
 
+export type EffectStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'needs_reconciliation';
+
+/** #707：提交后执行的持久副作用意图；随所属 WU 的同一事件提交落盘。 */
+export interface EffectRecord {
+  id: string;
+  workUnitId: string;
+  kind: 'review-dispatch';
+  idempotencyKey: string;
+  trigger: 'automatic' | 'manual';
+  status: EffectStatus;
+  attempts: number;
+  maxAttempts: number;
+  createdAt: string;
+  updatedAt: string;
+  nextAttemptAt?: string;
+  startedAt?: string;
+  lastError?: string;
+}
+
+/** #707：Effect 的终局或重试回执；恢复核查结果也留在同一 WU 事件流。 */
+export interface EffectReceipt {
+  id: string;
+  effectId: string;
+  idempotencyKey: string;
+  outcome: 'succeeded' | 'retrying' | 'failed' | 'cancelled';
+  at: string;
+  attempts: number;
+  result?: Record<string, unknown>;
+  error?: string;
+  recovery?: 'queued-restarted' | 'running-reconciled' | 'revocation';
+}
+
 export interface WorkUnitEvent {
   type: WorkUnitEventType;
   wuId: string;
@@ -240,6 +272,9 @@ export interface WorkUnitSnapshot {
   /** #705：执行轮次是 WU 的 typed 内部历史；旧事件缺省为无 Assignment。 */
   currentAssignmentId?: string | null;
   assignments?: AssignmentRecord[];
+  /** #707：副作用意图与回执随 WU 同一事件流提交；旧事件缺省为空。 */
+  effects?: EffectRecord[];
+  effectReceipts?: EffectReceipt[];
   /** #327: 关闭时刻（ISO 8601，可选——旧快照无此字段仍可加载）。频道消息归档的计龄锚点：
       仅 status=closed 时有值，reopen（closed→unassigned）清除为 null */
   closedAt?: string | null;

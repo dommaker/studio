@@ -212,10 +212,18 @@ const v5DeliveryLegLocks: Migration = {
   },
 };
 
-/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
-export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections, v5DeliveryLegLocks];
+/** #707：Effect/Receipt 是既有 WU 事件/快照的可选 typed 字段，无需重写历史数据。 */
+const v6EffectReceipts: Migration = {
+  version: 6,
+  name: 'v6-effect-receipts',
+  isApplied: async (rootDir) => (await readSchemaVersion(rootDir)) >= 6,
+  apply: async () => {},
+};
 
-export const CURRENT_SCHEMA_VERSION = 5;
+/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
+export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections, v5DeliveryLegLocks, v6EffectReceipts];
+
+export const CURRENT_SCHEMA_VERSION = 6;
 
 export interface RunMigrationsOptions {
   /** 测试注入用；缺省 = MIGRATIONS */

@@ -154,6 +154,39 @@ describe('WorkUnit Mandate 授权', () => {
     expect(recovered.mandate?.history.at(-1)).toMatchObject({ action: 'reauthorized', actor: operator });
   });
 
+  it('#707: 撤销取消排队评审，运行中副作用进入恢复核查', async () => {
+    const queued = await service.create({
+      scope: '排队评审', status: 'active', channelId: 'channel-1',
+      authorization: { requestedBy: operator, source: { kind: 'api' } },
+    });
+    await service.transitionStatus(queued.id, 'in_review');
+    const revokedQueued = await service.revokeMandate(queued.id, operator, '停止评审');
+    const queuedSnapshot = (await store.getIndex({ id: revokedQueued.id }))[0]!;
+    expect(queuedSnapshot.effects?.[0]).toMatchObject({ status: 'cancelled' });
+    expect(queuedSnapshot.effectReceipts?.at(-1)).toMatchObject({
+      outcome: 'cancelled', recovery: 'revocation',
+    });
+
+    const running = await service.create({
+      scope: '运行中评审', status: 'active', channelId: 'channel-1',
+      authorization: { requestedBy: operator, source: { kind: 'api' } },
+    });
+    await service.transitionStatus(running.id, 'in_review');
+    const current = (await store.getIndex({ id: running.id }))[0]!;
+    const runningSnapshot: typeof current = {
+      ...current,
+      effects: current.effects?.map(effect => ({ ...effect, status: 'running' as const, attempts: 1 })),
+    };
+    await store.commitSnapshot({
+      type: 'updated', wuId: running.id, timestamp: new Date().toISOString(),
+      data: runningSnapshot as unknown as Record<string, unknown>,
+    }, runningSnapshot);
+
+    await service.revokeMandate(running.id, operator, '核查运行中副作用');
+    const revokedRunning = (await store.getIndex({ id: running.id }))[0]!;
+    expect(revokedRunning.effects?.[0]).toMatchObject({ status: 'needs_reconciliation' });
+  });
+
   it('恢复认领时发现执行根已漂出 Mandate，会拒绝而不是继续执行', async () => {
     const created = await service.create({
       scope: '范围重验', status: 'unassigned',

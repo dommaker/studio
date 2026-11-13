@@ -47,6 +47,9 @@ const { mockGetAgentSummary, mockGetStats, mockGetOverviewMetrics, mockGetEffici
         selfReviewCount: 0, needsHuman: 0,
         mergeDivergence: 0, doneWithoutReceipt: 0, derivedMismatch: 0, derivedByColumn: {},
       },
+      effects: {
+        description: 'effects', byStatus: {}, receiptsByOutcome: {}, recoveryChecks: 0, duplicatesPrevented: 0,
+      },
     }),
     mockGetEfficiencyMetrics: vi.fn().mockResolvedValue({
       windowDays: 7, generatedAt: '2026-07-27T00:00:00.000Z',

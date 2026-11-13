@@ -205,6 +205,30 @@ describe('aggregateOverview (D16)', () => {
     expect(m.alerts.byLevel).toEqual({ warning: 1, critical: 1 });
   });
 
+  it('#707: Effect 状态、Receipt 结果与恢复核查从只读快照聚合', () => {
+    const input = makeInput();
+    const at = iso(T - H);
+    input.snapshots[0].effects = [
+      { id: 'e1', workUnitId: 'wu-a', kind: 'review-dispatch', idempotencyKey: 'k1', trigger: 'automatic', status: 'succeeded', attempts: 1, maxAttempts: 3, createdAt: at, updatedAt: at },
+      { id: 'e2', workUnitId: 'wu-a', kind: 'review-dispatch', idempotencyKey: 'k2', trigger: 'automatic', status: 'queued', attempts: 1, maxAttempts: 3, createdAt: at, updatedAt: at },
+    ];
+    input.snapshots[0].effectReceipts = [
+      { id: 'r1', effectId: 'e1', idempotencyKey: 'k1', outcome: 'succeeded', at, attempts: 1, recovery: 'running-reconciled', result: { duplicatePrevented: true } },
+      { id: 'r2', effectId: 'e2', idempotencyKey: 'k2', outcome: 'retrying', at, attempts: 1, recovery: 'queued-restarted' },
+      { id: 'r3', effectId: 'e2', idempotencyKey: 'k2', outcome: 'cancelled', at, attempts: 1, recovery: 'revocation' },
+    ];
+    input.snapshots[1].effects = [
+      { id: 'e3', workUnitId: 'wu-b', kind: 'review-dispatch', idempotencyKey: 'k3', trigger: 'automatic', status: 'failed', attempts: 3, maxAttempts: 3, createdAt: at, updatedAt: at },
+      { id: 'e4', workUnitId: 'wu-b', kind: 'review-dispatch', idempotencyKey: 'k4', trigger: 'automatic', status: 'needs_reconciliation', attempts: 1, maxAttempts: 3, createdAt: at, updatedAt: at },
+    ];
+
+    const m = aggregateOverview(input);
+    expect(m.effects.byStatus).toEqual({ succeeded: 1, queued: 1, failed: 1, needs_reconciliation: 1 });
+    expect(m.effects.receiptsByOutcome).toEqual({ succeeded: 1, retrying: 1, cancelled: 1 });
+    expect(m.effects.recoveryChecks).toBe(2);
+    expect(m.effects.duplicatesPrevented).toBe(1);
+  });
+
   // assignee-resolver 口径修复钉板：未认领指名 WU（assigneeId = profile id，无实例 state）
   // 此前 instanceToProfile map 查找 miss → 静默归因为 null；修复后按 profile id 直通归因
   it('未认领指名 WU（assigneeId=profile id）：角色完成数与 token 按 profile 归因', () => {

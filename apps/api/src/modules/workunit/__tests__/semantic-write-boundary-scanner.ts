@@ -13,6 +13,7 @@ const SEMANTIC_COMMAND_FILES = [
   'modules/workunit/trace-link.ts',
   'modules/workunit/waiting-gate.ts',
   'modules/workunit/mandate.ts',
+  'modules/workunit/effects.ts',
 ];
 
 const SEMANTIC_SERVICE_RECEIVERS = new Set([

@@ -20,7 +20,12 @@ import { WorkUnitService } from '../../workunit/workunit-review.js';
 import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 import { ReviewDispatcher, REVIEW_DISPATCH_RETRY_DELAY_MS } from '../review-dispatcher.js';
 
-const { mockPostWuSystemMessage } = vi.hoisted(() => ({ mockPostWuSystemMessage: vi.fn() }));
+const { mockPostWuSystemMessage, mockDispatchMonitorAlerts } = vi.hoisted(() => ({
+  mockPostWuSystemMessage: vi.fn(),
+  mockDispatchMonitorAlerts: vi.fn(),
+}));
+
+vi.mock('../../ops/index.js', () => ({ dispatchMonitorAlerts: mockDispatchMonitorAlerts }));
 
 // wu-messenger 间谍包装：真实发送保留（消息断言不受影响），另断言委托参数（milestone 等）
 vi.mock('../../workunit/wu-messenger.js', async (importOriginal) => {
@@ -62,6 +67,7 @@ function metaOf(raw: string | null): WorkUnitMetadata {
 
 beforeEach(async () => {
   mockPostWuSystemMessage.mockClear(); // 清调用记录（保留间谍包装的实现）
+  mockDispatchMonitorAlerts.mockClear();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatcher-'));
   fileStore = new FileStore(tmpDir);
   wuService = new WorkUnitService(fileStore);
@@ -253,6 +259,61 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     const snapshots = await fileStore.getIndex();
     const reviewChildren = snapshots.filter(s => s.parentId === parent.id && s.type === 'review');
     expect(reviewChildren).toHaveLength(1); // 不创建第二个
+  });
+
+  it('#707: 事件丢失后重启恢复评审派单，恢复重跑不重复创建子 WU', async () => {
+    eventBus.unsubscribeAll?.('workunit.status_changed');
+    const parent = await wuService.create({
+      scope: '可恢复评审', type: 'feature', channelId: 'ch-test', status: 'active',
+    });
+    await wuService.transitionStatus(parent.id, 'in_review');
+    expect((await fileStore.getIndex()).filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(0);
+
+    const restartedStore = new FileStore(tmpDir);
+    const restarted = new ReviewDispatcher(restartedStore, new WorkUnitService(restartedStore));
+    await restarted.recoverEffects();
+
+    let snapshots = await restartedStore.getIndex();
+    const children = snapshots.filter(s => s.parentId === parent.id && s.type === 'review');
+    expect(children).toHaveLength(1);
+    const persistedParent = snapshots.find(s => s.id === parent.id)!;
+    expect(persistedParent.effects?.[0]).toMatchObject({ status: 'succeeded', attempts: 1 });
+    expect(persistedParent.effectReceipts?.at(-1)).toMatchObject({
+      outcome: 'succeeded', recovery: 'queued-restarted',
+      result: { reviewWorkUnitId: children[0].id },
+    });
+
+    const recoveredMessages = await restartedStore.queryMessages('ch-test', { workUnitId: parent.id });
+    expect(recoveredMessages.some(message => message.content.includes('评审派单') && message.content.includes('恢复'))).toBe(true);
+
+    await restarted.recoverEffects();
+    snapshots = await restartedStore.getIndex();
+    expect(snapshots.filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(1);
+  });
+
+  it('#707: 崩溃发生在建单后/回执前时认养原子 WU，并记录去重结果', async () => {
+    eventBus.unsubscribeAll?.('workunit.status_changed');
+    const parent = await wuService.create({
+      scope: '崩溃窗口评审', type: 'feature', channelId: 'ch-test', status: 'active',
+    });
+    await wuService.transitionStatus(parent.id, 'in_review');
+    const persisted = (await fileStore.getIndex({ id: parent.id }))[0]!;
+    const effect = persisted.effects![0]!;
+    await wuService.create({
+      scope: '已创建但未回执的评审', type: 'review', parentId: parent.id,
+      channelId: 'ch-test', status: 'unassigned', metadata: { effectId: effect.id },
+    });
+
+    const restartedStore = new FileStore(tmpDir);
+    const restarted = new ReviewDispatcher(restartedStore, new WorkUnitService(restartedStore));
+    await restarted.recoverEffects();
+
+    const snapshots = await restartedStore.getIndex();
+    expect(snapshots.filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(1);
+    expect(snapshots.find(s => s.id === parent.id)?.effectReceipts?.at(-1)).toMatchObject({
+      outcome: 'succeeded', recovery: 'queued-restarted',
+      result: { duplicatePrevented: true },
+    });
   });
 
   it('AC-4.5: child done + approved -> 父 reviewPassed', async () => {
@@ -836,27 +897,84 @@ describe('2026-09 性能治理：路径 A 事件链失败 30s 进程内重试', 
     getChannelSpy.mockRestore();
   });
 
-  it('重试也失败 → 不再叠加重试（交 5min 对账兜底）', async () => {
+  it('#707: 重启时为未到期的持久重试补建定时器', async () => {
+    vi.useFakeTimers();
+    eventBus.unsubscribeAll?.('workunit.status_changed');
+    const parent = await createActiveParent('实现功能 RT1R');
+    await wuService.transitionStatus(parent.id, 'in_review');
+    const current = (await fileStore.getIndex({ id: parent.id }))[0]!;
+    const nextAttemptAt = new Date(Date.now() + REVIEW_DISPATCH_RETRY_DELAY_MS).toISOString();
+    const queued = {
+      ...current,
+      effects: current.effects?.map(effect => ({ ...effect, nextAttemptAt })),
+    };
+    await fileStore.commitSnapshot({
+      type: 'updated', wuId: parent.id, timestamp: new Date().toISOString(),
+      data: queued as unknown as Record<string, unknown>,
+    }, queued);
+
+    const restartedStore = new FileStore(tmpDir);
+    const restarted = new ReviewDispatcher(restartedStore, new WorkUnitService(restartedStore));
+    const getChannelSpy = vi.spyOn(restartedStore, 'getChannel');
+    await restarted.recoverEffects();
+    expect(getChannelSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS);
+    await restarted.waitForSettled();
+    expect(getChannelSpy).toHaveBeenCalled();
+    expect(await restartedStore.getIndex().then(snaps => snaps.find(s => s.parentId === parent.id && s.type === 'review'))).toBeDefined();
+  });
+
+  it('三次执行都失败 → 永久失败，不再叠加重试', async () => {
     vi.useFakeTimers();
     const getChannelSpy = vi.spyOn(fileStore, 'getChannel')
-      .mockRejectedValueOnce(new Error('jitter-1'))
-      .mockRejectedValueOnce(new Error('jitter-2'));
+      .mockRejectedValue(new Error('persistent jitter'));
 
     const parent = await createActiveParent('实现功能 RT2');
     await wuService.transitionStatus(parent.id, 'in_review');
     await dispatcher.waitForSettled();
 
-    await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS);
-    await dispatcher.waitForSettled();
+    for (let retry = 0; retry < 2; retry++) {
+      await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS);
+      await dispatcher.waitForSettled();
+    }
     expect(await findReviewChild(parent.id)).toBeUndefined();
-    expect(getChannelSpy).toHaveBeenCalledTimes(2);
+    expect(getChannelSpy).toHaveBeenCalledTimes(3);
+    const persisted = (await fileStore.getIndex({ id: parent.id }))[0]!;
+    expect(persisted.effects?.[0]).toMatchObject({ status: 'failed', attempts: 3 });
+    expect(mockDispatchMonitorAlerts).toHaveBeenCalledWith([expect.objectContaining({
+      source: 'review_redispatch', level: 'critical', relatedTaskIds: [parent.id],
+    })]);
 
-    // 再过一个周期：无第三次尝试
+    // 永久失败后不再执行。
     await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS * 2);
     await dispatcher.waitForSettled();
-    expect(getChannelSpy).toHaveBeenCalledTimes(2);
-    expect(await findReviewChild(parent.id)).toBeUndefined();
+    expect(getChannelSpy).toHaveBeenCalledTimes(3);
     getChannelSpy.mockRestore();
+  });
+
+  it('#707: 启动恢复期间达到重试上限同样升 critical', async () => {
+    eventBus.unsubscribeAll?.('workunit.status_changed');
+    const parent = await createActiveParent('实现功能 RT2R');
+    await wuService.transitionStatus(parent.id, 'in_review');
+    const current = (await fileStore.getIndex({ id: parent.id }))[0]!;
+    const queued = {
+      ...current,
+      effects: current.effects?.map(effect => ({ ...effect, attempts: 2 })),
+    };
+    await fileStore.commitSnapshot({
+      type: 'updated', wuId: parent.id, timestamp: new Date().toISOString(),
+      data: queued as unknown as Record<string, unknown>,
+    }, queued);
+
+    const restartedStore = new FileStore(tmpDir);
+    vi.spyOn(restartedStore, 'getChannel').mockRejectedValue(new Error('still failing'));
+    const restarted = new ReviewDispatcher(restartedStore, new WorkUnitService(restartedStore));
+    await restarted.recoverEffects();
+
+    expect(mockDispatchMonitorAlerts).toHaveBeenCalledWith([expect.objectContaining({
+      source: 'review_redispatch', level: 'critical', relatedTaskIds: [parent.id],
+    })]);
   });
 
   it('重试触发时父 WU 已离开 in_review（人工已收口）→ 跳过不建单', async () => {

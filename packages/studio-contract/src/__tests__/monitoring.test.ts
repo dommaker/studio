@@ -166,6 +166,9 @@ describe('overviewMetricsSchema（D16 九组 + #456 + F6）', () => {
       mergeDivergence: 1, doneWithoutReceipt: 2, derivedMismatch: 0,
       derivedByColumn: { todo: 1, doing: 2 },
     },
+    effects: {
+      description: 'd', byStatus: { queued: 1 }, receiptsByOutcome: { succeeded: 2 }, recoveryChecks: 1, duplicatesPrevented: 1,
+    },
     source: 'events',
   };
 

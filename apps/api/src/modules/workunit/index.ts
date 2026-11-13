@@ -13,6 +13,8 @@ export type { CollabMeta } from './delegation-gate.js';
 export { DerivationLedger } from './derivation-ledger.js';
 export { ExecutionJournal } from './execution-journal.js';
 export type { ExecutionAction, ExecutionStepResult, RecordStepResultInput, StepBookkeeping } from './execution-journal.js';
+export { EffectService } from './effects.js';
+export type { EffectHandlerContext, EffectProjection, EffectRecoveryResult } from './effects.js';
 export { scanGateEscalationReminders } from './gate-escalation.js';
 export { initInReviewInbox } from './in-review-inbox.js';
 export { assertMandateActive, assertMandateAllows } from './mandate.js';
