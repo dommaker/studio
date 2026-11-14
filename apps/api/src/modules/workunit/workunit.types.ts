@@ -19,6 +19,8 @@ export interface WorkUnitMergeIntent {
 export interface WorkUnitMergeReceipt {
   id: string;
   merged: boolean;
+  /** #710：由历史 WU 的真实 Git 对账与目标验证补证，不是正常 merge Effect 的当场回执。 */
+  legacy?: boolean;
   mergedAt?: string;
   mergeCommit?: string;
   targetBranch: string;
@@ -229,6 +231,15 @@ export interface WorkUnitMetadata {
   // B3b-ii 评审通过后自动合并（决策 D1/D3 后半，merge-on-review-pass.ts）
   mergeIntent?: WorkUnitMergeIntent;   // 评审接受后的持久合并意图；queued/running 时 WU 保持 in_review
   mergeReceipt?: WorkUnitMergeReceipt; // 真实 Git 合并与目标验证回执；代码 WU 的完成/交付证据
+  /** #710：历史 done 的补证状态；unverified 永不等于严格交付证据。 */
+  legacyEvidence?: {
+    status: 'legacy-unverified' | 'reconciled';
+    checkedAt: string;
+    reason?: string;
+    repairWorkUnitId?: string;
+  };
+  legacyRepairOf?: string;     // 修复 WU 指向未完成交付的历史 WU；不继承其会话或执行证据
+  legacyRepairReason?: string;
   mergedAt?: string;          // task 分支合并回 base 分支完成时间；#704 起仅作 Git 事实，不再代表 verify/cleanup 已完成
   mergeCommit?: string;       // 本任务真实 merge commit 全哈希
   mergeCleanedAt?: string;    // worktree/task 分支幂等清理完成时间；done 后崩溃恢复哨兵

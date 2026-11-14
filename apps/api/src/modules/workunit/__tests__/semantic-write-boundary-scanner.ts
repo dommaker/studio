@@ -14,6 +14,7 @@ const SEMANTIC_COMMAND_FILES = [
   'modules/workunit/waiting-gate.ts',
   'modules/workunit/mandate.ts',
   'modules/workunit/effects.ts',
+  'modules/workunit/legacy-migration.ts',
 ];
 
 const SEMANTIC_SERVICE_RECEIVERS = new Set([

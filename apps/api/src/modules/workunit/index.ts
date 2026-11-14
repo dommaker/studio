@@ -17,6 +17,7 @@ export { EffectService } from './effects.js';
 export type { EffectHandlerContext, EffectProjection, EffectRecoveryResult } from './effects.js';
 export { scanGateEscalationReminders } from './gate-escalation.js';
 export { initInReviewInbox } from './in-review-inbox.js';
+export { migrateLegacyWorkUnits } from './legacy-migration.js';
 export { assertMandateActive, assertMandateAllows } from './mandate.js';
 export { MAX_TIMEOUT_RELEASES, pidStartMatchesInstance, scanTimedOutWorkUnits } from './timeout-release.js';
 export { noteTokenLedgerWritten, resolveTokenLedgerFile } from './token-ledger.js';

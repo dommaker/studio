@@ -34,6 +34,7 @@ vi.mock('../../modules/knowledge/scheduling/evolution-scheduler.js', () => ({
 }));
 vi.mock('../../modules/workunit/index.js', () => ({
   WorkUnitService: class {},
+  migrateLegacyWorkUnits: async () => { calls.push('legacy-migration'); },
   recoverWorktreeMerges: async () => { calls.push('merge-recovery'); },
 }));
 vi.mock('../../modules/channels/index.js', () => ({
@@ -51,7 +52,7 @@ describe('startCoreServices', () => {
   it('按原 index.ts 顺序启动全部核心服务', async () => {
     await startCoreServices();
     expect(calls).toEqual([
-      'monitor', 'auditor', 'requirement-rollup', 'pmo-rollup', 'ops', 'merge-recovery', 'external-reply-recovery', 'evolution-scheduler',
+      'monitor', 'auditor', 'requirement-rollup', 'pmo-rollup', 'ops', 'legacy-migration', 'merge-recovery', 'external-reply-recovery', 'evolution-scheduler',
     ]);
   });
 
@@ -59,7 +60,7 @@ describe('startCoreServices', () => {
     flags.failOnMonitor = true;
     await expect(startCoreServices()).resolves.toBeUndefined();
     expect(calls).toEqual([
-      'auditor', 'requirement-rollup', 'pmo-rollup', 'ops', 'merge-recovery', 'external-reply-recovery', 'evolution-scheduler',
+      'auditor', 'requirement-rollup', 'pmo-rollup', 'ops', 'legacy-migration', 'merge-recovery', 'external-reply-recovery', 'evolution-scheduler',
     ]);
   });
 });

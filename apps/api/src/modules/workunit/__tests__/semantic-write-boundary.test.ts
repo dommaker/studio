@@ -49,6 +49,7 @@ describe('ARCH-03 写口检测夹具', () => {
     'waiting-gate.ts',
     'mandate.ts',
     'effects.ts',
+    'legacy-migration.ts',
   ])('仅语义命令允许 repository 通用 mutator：%s', file => {
     const fileName = `modules/workunit/${file}`;
     expect(findSemanticWriteViolations('this.repository.mutate(id, latest => latest)', fileName)).toEqual([]);
