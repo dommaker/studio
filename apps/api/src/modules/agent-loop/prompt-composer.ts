@@ -21,7 +21,7 @@
 import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';
 import { knowledgePorts } from '../knowledge/index.js';
-import { postWuSystemMessage } from '../workunit/index.js';
+import { loadRecoveryPacket, postWuSystemMessage } from '../workunit/index.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
 import { buildContinuePrompt, buildReplyPrompt } from './agent-loop-parsers.js';
 import { metricsFileStore } from './agent-loop-events.js';
@@ -260,9 +260,16 @@ export async function composeStepPrompt(
   const contract = await runSection('contract', budget =>
     Promise.resolve(buildContractSection(wu, metadata, budget)));
 
-  // #95: handoff 前序进展段（续用不命中 + stepCount>0 时注入；挂载位 base 后/hint 前）
-  const handoff = await runSection('handoff', budget =>
-    Promise.resolve(buildHandoffSection(metadata, ctx.isNewSession === true, budget)));
+  // #711：有 StepRecord 的新会话注入结构化恢复包；旧单保留 #95 前序进展回退。
+  const handoff = await runSection('handoff', async budget => {
+    const recovery = ctx.isNewSession === true
+      ? await loadRecoveryPacket(deps.fileStore, wu)
+      : null;
+    return buildHandoffSection(
+      metadata, ctx.isNewSession === true, budget,
+      recovery && recovery.steps.length > 0 ? recovery : null,
+    );
+  });
 
   const leadSections = [persona.section, roster.section, skills.section, pmoMap.section, memory.section]
     .filter(s => s.length > 0)

@@ -61,9 +61,15 @@ async function createClaimed() {
 }
 
 describe('AgentLoop Assignment 执行轮次', () => {
-  it('开始执行把 queued 转为 running，结果进展聚合到同一轮', async () => {
+  it('开始执行把 queued 转为 running，结果进展和 StepRecord 聚合到同一轮', async () => {
     loop = createLoop(vi.fn().mockResolvedValue({
-      success: true, outputText: 'ACTION: PROGRESS:已完成第一步', rawOutput: '', totalDurationMs: 1,
+      success: true,
+      outputText: 'STEP_RECORD: {"acProgress":[{"ac":"AC1","status":"completed"}],"decisions":["保留事件流"],"nextStep":"继续验证"}\nACTION: PROGRESS:已完成第一步',
+      rawOutput: [
+        '{"type":"assistant","content":[{"type":"tool_use","id":"cmd-1","name":"Bash","input":{"command":"pnpm typecheck"}},{"type":"tool_use","id":"edit-1","name":"Edit","input":{"file_path":"/repo/a.ts"}}]}',
+        '{"type":"user","content":[{"type":"tool_result","tool_use_id":"cmd-1","is_error":false},{"type":"tool_result","tool_use_id":"edit-1","is_error":false}]}',
+      ].join('\n'),
+      totalDurationMs: 1,
     }));
     const claimed = await createClaimed();
     loop.ensureLease(claimed);
@@ -77,6 +83,17 @@ describe('AgentLoop Assignment 执行轮次', () => {
     const recorded = await service.getById(claimed.id);
     expect(recorded?.execution?.current).toMatchObject({ status: 'running', progressCount: 1 });
     expect(recorded?.execution?.totals.progressCount).toBe(1);
+    const snapshot = (await store.getIndex({ id: claimed.id }))[0];
+    expect(snapshot.stepRecords).toHaveLength(1);
+    expect(snapshot.stepRecords![0]).toMatchObject({
+      assignmentId: result.assignmentId,
+      acProgress: [{ ac: 'AC1', status: 'completed' }],
+      modifiedFiles: ['/repo/a.ts'],
+      commands: [{ command: 'pnpm typecheck', status: 'passed' }],
+      decisions: ['保留事件流'],
+      nextStep: '继续验证',
+    });
+    expect(snapshot.stepRecords![0].transcriptRefs[0]).toContain(`#step=1`);
   });
 
   it('NEED_INPUT 回复 supersede 旧 waiting 并创建链接的 queued 轮次', async () => {

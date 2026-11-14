@@ -165,6 +165,48 @@ export interface AssignmentRecord {
   evidence: AssignmentEvidence[];
 }
 
+export interface StepAcProgress {
+  ac: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  note?: string;
+}
+
+export interface StepCommandRecord {
+  command: string;
+  status: 'passed' | 'failed' | 'unknown';
+}
+
+export interface StepVerificationRecord {
+  status: 'passed' | 'failed';
+  commands: string[];
+  at: string;
+}
+
+/** Agent 可报告的执行详情；id、步号、Assignment 与时间由服务端写入。 */
+export interface StepRecordDetails {
+  acProgress?: StepAcProgress[];
+  modifiedFiles?: string[];
+  commands?: StepCommandRecord[];
+  verification?: StepVerificationRecord | null;
+  decisions?: string[];
+  artifacts?: string[];
+  nextStep?: string;
+  transcriptRefs?: string[];
+}
+
+/** #711：一个执行步的结构化工作记录；只能追加，随 WU 事件流持久化。 */
+export interface StepRecord extends Required<Omit<StepRecordDetails, 'verification' | 'nextStep'>> {
+  id: string;
+  workUnitId: string;
+  assignmentId: string;
+  step: number;
+  action: string;
+  result: string;
+  at: string;
+  verification: StepVerificationRecord | null;
+  nextStep: string | null;
+}
+
 export type MandatePrincipalType = 'Operator' | 'System';
 
 export interface MandatePrincipal {
@@ -274,6 +316,8 @@ export interface WorkUnitSnapshot {
   /** #705：执行轮次是 WU 的 typed 内部历史；旧事件缺省为无 Assignment。 */
   currentAssignmentId?: string | null;
   assignments?: AssignmentRecord[];
+  /** #711：逐步结构化事实与 Assignment 同事务追加；旧事件缺省为空。 */
+  stepRecords?: StepRecord[];
   /** #707：副作用意图与回执随 WU 同一事件流提交；旧事件缺省为空。 */
   effects?: EffectRecord[];
   effectReceipts?: EffectReceipt[];

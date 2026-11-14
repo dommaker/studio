@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { eventBus, FileStore, parseAttestations, parseWuPmoId, WorkUnitMetadataRepository, type AssignmentRecord, type EffectReceipt, type EffectRecord, type MandateRecord, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { eventBus, FileStore, parseAttestations, parseWuPmoId, WorkUnitMetadataRepository, type AssignmentRecord, type EffectReceipt, type EffectRecord, type MandateRecord, type StepVerificationRecord, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { assertExecutionMandate, issueMandate, type MandateAuthorization } from './mandate.js';
 import { workUnitPort } from './workunit-ports.js';
 import { postWuSystemMessage } from './wu-messenger.js';
@@ -143,6 +143,17 @@ export function cancelUnresolvedAssignments(
       : assignment
   );
   return { assignments };
+}
+
+/** StepRecord 与恢复包共用的当前 L1 验证事实转换口径。 */
+export function verificationFromMetadata(metadata: WorkUnitMetadata): StepVerificationRecord | null {
+  const l1 = parseAttestations(metadata)?.l1;
+  if (!l1) return null;
+  return {
+    status: l1.verdict === 'approved' ? 'passed' : 'failed',
+    commands: l1.verdict === 'approved' ? metadata.verifyReport?.commands ?? [] : [],
+    at: l1.at,
+  };
 }
 
 /** 评审/人工确认在 Assignment 结束后仍归入当前轮次；WU 证据台账保持原真源。 */

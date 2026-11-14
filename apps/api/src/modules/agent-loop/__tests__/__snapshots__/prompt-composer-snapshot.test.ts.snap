@@ -80,6 +80,9 @@ topics/review.md — 评审口径沉淀
 ## 要求
 
 根据回复调整方案，继续工作。仓库根有 AGENTS.md/CLAUDE.md 时以它们为准。每步结束后输出：
+  ACTION 前输出一行 STEP_RECORD JSON（无内容的字段用空数组/null）：
+  STEP_RECORD: {"acProgress":[{"ac":"<验收标准>","status":"pending|in_progress|completed","note":"可省"}],"modifiedFiles":[],"decisions":[],"artifacts":[],"nextStep":null}
+  修改文件和命令由系统从工具事件补记；decisions 只写已经确认的决策，不写候选想法。
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
   ACTION: NEED_INPUT:<需要什么>   需要人类输入（有选项时下一行加 OPTIONS: [{"label":"方案 A","value":"a"},...]，value 可省）

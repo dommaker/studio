@@ -19,6 +19,8 @@ export { scanGateEscalationReminders } from './gate-escalation.js';
 export { initInReviewInbox } from './in-review-inbox.js';
 export { migrateLegacyWorkUnits } from './legacy-migration.js';
 export { assertMandateActive, assertMandateAllows } from './mandate.js';
+export { loadRecoveryPacket } from './recovery.js';
+export type { RecoveryPacket, RecoveryRepositoryState } from './recovery.js';
 export { MAX_TIMEOUT_RELEASES, pidStartMatchesInstance, scanTimedOutWorkUnits } from './timeout-release.js';
 export { noteTokenLedgerWritten, resolveTokenLedgerFile } from './token-ledger.js';
 export { TraceLink } from './trace-link.js';

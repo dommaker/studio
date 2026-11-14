@@ -49,8 +49,9 @@ function applyJournal(
 ): WorkUnitMetadata {
   let next: Record<string, unknown> | undefined;
   const repository = {
-    mutate: (_id: string, mutator: (current: Record<string, unknown>) => Record<string, unknown>) => {
-      next = mutator(latest);
+    mutateSnapshot: (_id: string, mutator: (current: Record<string, unknown>) => Record<string, unknown>) => {
+      const updated = mutator({ ...latest, metadata: JSON.stringify(latest) });
+      next = JSON.parse(updated.metadata as string);
       return Promise.resolve(null);
     },
   } as unknown as WorkUnitMetadataRepository;

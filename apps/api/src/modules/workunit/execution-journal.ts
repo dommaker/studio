@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { parseAttestations, type AssignmentRecord, type WorkUnitMetadataRepository, type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { cancelUnresolvedAssignments, type WorkUnitData } from './workunit-crud.js';
+import { parseAttestations, type AssignmentRecord, type StepRecord, type StepRecordDetails, type WorkUnitMetadataRepository, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { cancelUnresolvedAssignments, verificationFromMetadata, type WorkUnitData } from './workunit-crud.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { assertExecutionMandate } from './mandate.js';
@@ -16,6 +16,7 @@ export interface ExecutionStepResult {
   assignmentId?: string;
   tokenCount?: number;
   transcriptRecorded?: boolean;
+  stepRecord?: StepRecordDetails;
   rulings?: { question: string; suggestion: string; default?: string }[];
   directions?: WorkUnitMetadata['planDirections'];
   metadataUpdates?: Partial<WorkUnitMetadata>;
@@ -263,6 +264,7 @@ export class ExecutionJournal {
       else delete next.pendingReplies;
 
       let assignments = current.assignments;
+      let stepRecords = current.stepRecords;
       if (assignment) {
         const status = action === 'complete' ? 'succeeded'
           : action === 'need_input' ? 'waiting'
@@ -286,10 +288,47 @@ export class ExecutionJournal {
           evidence: [...priorEvidence, ...nextEvidence],
         };
         assignments = (current.assignments ?? []).map(a => a.id === assignment.id ? updated : a);
+
+        const details = result.stepRecord ?? {};
+        const record: StepRecord = {
+          id: randomUUID(),
+          workUnitId: current.id,
+          assignmentId: assignment.id,
+          step: nextStepCount,
+          action,
+          result: result.summary,
+          at,
+          acProgress: details.acProgress ?? [],
+          modifiedFiles: details.modifiedFiles ?? [],
+          commands: details.commands ?? [],
+          verification: stepVerification(latest, next, details),
+          decisions: details.decisions ?? [],
+          artifacts: details.artifacts ?? [],
+          nextStep: details.nextStep ?? null,
+          transcriptRefs: details.transcriptRefs ?? [],
+        };
+        stepRecords = [...(current.stepRecords ?? []), record];
       }
-      return { ...current, metadata: JSON.stringify(next), ...(assignments ? { assignments } : {}) };
+      return {
+        ...current,
+        metadata: JSON.stringify(next),
+        ...(assignments ? { assignments } : {}),
+        ...(stepRecords ? { stepRecords } : {}),
+      };
     });
   }
+}
+
+function stepVerification(
+  beforeMetadata: WorkUnitMetadata,
+  afterMetadata: WorkUnitMetadata,
+  details: StepRecordDetails,
+) {
+  if (details.verification !== undefined) return details.verification;
+  const before = parseAttestations(beforeMetadata)?.l1;
+  const after = parseAttestations(afterMetadata)?.l1;
+  if (!after || JSON.stringify(before) === JSON.stringify(after)) return null;
+  return verificationFromMetadata(afterMetadata);
 }
 
 function parseMetadata(raw: string | null): Record<string, unknown> {

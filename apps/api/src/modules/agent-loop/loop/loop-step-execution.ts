@@ -1,4 +1,4 @@
-import { parseStreamEvents, extractCliSessionId } from '@dommaker/studio-shared';
+import { parseStreamEvents, extractCliSessionId, type StepRecordDetails } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
@@ -8,7 +8,7 @@ import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamSte
 import { knowledgeService } from '../../knowledge/index.js';
 import { harvestCompletionMetadata } from '../completion-harvest.js';
 import type { StepResult, Target } from '../agent-loop.types.js';
-import { parseAgentOutput } from '../agent-loop-parsers.js';
+import { parseAgentOutput, stepActivityFromEvents } from '../agent-loop-parsers.js';
 import {
   resolveRealUsage, writeWorkunitTokenEvent,
   resolveToolTraceFile, writeToolCallEvents, type RealUsage,
@@ -387,10 +387,27 @@ export async function executeAgentStep(
       }));
     }
 
+    const activity = stepActivityFromEvents(stepEvents);
+    const reported = stepResult.stepRecord;
+    const commands = new Map([
+      ...(reported?.commands ?? []),
+      ...(activity.commands ?? []),
+    ].map(command => [`${command.command}\0${command.status}`, command]));
+    const stepRecord: StepRecordDetails = {
+      ...reported,
+      modifiedFiles: [...new Set([...(activity.modifiedFiles ?? []), ...(reported?.modifiedFiles ?? [])])],
+      commands: [...commands.values()],
+      transcriptRefs: [...new Set([
+        ...(reported?.transcriptRefs ?? []),
+        ...(toolTraceSource ? [`${transcriptPath(wu.id)}#step=${stepNo}`] : []),
+      ])],
+    };
+
     return {
       ...stepResult,
       assignmentId,
       transcriptRecorded: Boolean(toolTraceSource),
+      stepRecord,
       metadataUpdates,
       channelVersion,
     };

@@ -59,6 +59,7 @@
 - **子 WU 不继承会话簿记**：clearSessionBookkeeping 清除 19 字段（含 #699 补入的 cliSessionId）；四种 provider 的 review 建单回归均断言真实 CLI 会话号不继承，新增簿记字段必须同步清单与测试
 - **#467 裁决轮 / #567 方向锁定协议**：RULING/DIRECTION 行 → StepResult.rulings/directions → metadata.planRulings/planDirections；提交落地在 pmo/plan-ruling.ts、pmo/plan-direction.ts
 - **观察/唤醒口径（#330/#493/#523 + B5）**：唤醒只放行不裁决，归属裁决归 observe；B5 回复检测改 `readChannelMessagesDelta` 字节水位增量读
+- **#711 StepRecord 恢复**：每步 ACTION 前的可选 `STEP_RECORD:` JSON 提供 AC 进展、已确认决策、产物和下一步；执行段从真实工具事件补记 Bash 命令与 Write/Edit 文件，并附 per-WU transcript 步号引用。新会话 handoff 有 StepRecord 时改注 `## 恢复包`，由 WorkUnit 当前快照 + 实时 Git 构建，旧无记录单保留 progressLog 回退；段配额与截断度量不变，不整份回注 transcript。
 - **PERF-01 token 写侧契约**：`writeWorkunitTokenEvent` 必须把 appendJsonl 的同一 event 对象传给 `noteTokenLedgerWritten`；账本只在旧 offset 到文件尾精确等于该 event 完整字节时 direct-apply，否则按 byte offset 补扫。direct 保留已有首尾内容锚点，读侧 `syncTokenLedger` 以 size + `dev:ino` + O(1) 首尾 SHA-256 锚点复核；copytruncate/轮转/截断后从事件流重建，调用方不得另传重序列化副本或用最终文件 size 冒充已处理 watermark。
 - **F4 review 派发 / P7 总开关**：`STUDIO_AUTO_REVIEW=false` 闸事件、对账和启动恢复的自动路径；#707 起失败按持久 Effect 每 30s 重试、最多 3 次，永久失败升 critical；恢复建单/认养在频道留「断链已恢复」，Receipt 记录 `duplicatePrevented`
 - **PERF-02 step 簿记读取复杂度**：`loop-record-persistence → ExecutionJournal → WorkUnitMetadataRepository → updateMetadata` 调用链与 fencing 语义不变；FileStore 锁内改读 per-WU current projection + 精确匹配的 per-WU head，不再随 index 历史行全量 fold。租约 flush 同样逐 WU 点查 projection，zombie/非 active 丢弃纪律不变；events 半行时写路径 fail-closed，不粘连新事件。

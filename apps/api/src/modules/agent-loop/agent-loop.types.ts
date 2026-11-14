@@ -3,7 +3,7 @@
 // 纯类型模块，零运行时依赖；agent-loop.ts re-export 保持对外导出语义不变。
 // KnowledgeSearchAnalysis 零生产调用方，工单 43 随 knowledge-search-analysis 一并删除。
 import type { WorkUnitMetadata, WorkUnitData } from '../workunit/index.js';
-import type { ChannelMessageData } from '@dommaker/studio-shared';
+import type { ChannelMessageData, StepRecordDetails } from '@dommaker/studio-shared';
 
 /** Agent output action after parsing */
 export interface StepResult {
@@ -36,6 +36,8 @@ export interface StepResult {
   /** 本步真实 billed tokens 与 transcript 落档事实，供 Assignment/WU 聚合。 */
   tokenCount?: number;
   transcriptRecorded?: boolean;
+  /** #711：Agent 报告与工具事件派生的结构化步骤详情。 */
+  stepRecord?: StepRecordDetails;
   /** Metadata fields to merge into WorkUnit.metadata (set by agentStep, written atomically by recordResult) */
   metadataUpdates?: Partial<WorkUnitMetadata>;
 }
