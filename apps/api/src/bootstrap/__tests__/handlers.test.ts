@@ -11,6 +11,7 @@ const spies = vi.hoisted(() => ({
   scanStaleAgentInstances: vi.fn(async () => ({ terminated: 2 })),
   getEvolutionService: vi.fn(() => ({})),
   recoverWorktreeMerges: vi.fn(async () => ({ attempted: 0, failed: 0 })),
+  recoverExternalReplies: vi.fn(async () => ({ attempted: 0, failed: 0 })),
   failOnRegister: { value: false },
 }));
 
@@ -30,6 +31,9 @@ vi.mock('../../modules/workunit/index.js', () => ({
   WorkUnitService: class {},
   recoverWorktreeMerges: spies.recoverWorktreeMerges,
 }));
+vi.mock('../../modules/channels/index.js', () => ({
+  recoverExternalReplies: spies.recoverExternalReplies,
+}));
 vi.mock('../../modules/agent-loop/index.js', () => ({
   reconcileDispatchBreaks: vi.fn(),
 }));
@@ -41,6 +45,7 @@ beforeEach(() => {
   spies.scanStaleAgentInstances.mockClear();
   spies.getEvolutionService.mockClear();
   spies.recoverWorktreeMerges.mockClear();
+  spies.recoverExternalReplies.mockClear();
   spies.failOnRegister.value = false;
 });
 
@@ -63,10 +68,11 @@ describe('registerScanHandlers', () => {
     expect(spies.scanStaleAgentInstances).toHaveBeenCalledOnce();
   });
 
-  it('dispatch-reconciliation-scan 同时恢复持久 merge intent', async () => {
+  it('dispatch-reconciliation-scan 同时恢复持久 merge 与外部回复 intent', async () => {
     await registerScanHandlers();
     await registry.get('dispatch-reconciliation-scan')!();
     expect(spies.recoverWorktreeMerges).toHaveBeenCalledOnce();
+    expect(spies.recoverExternalReplies).toHaveBeenCalledOnce();
   });
 
   it('evolution review-proposal adapter 随注册构造单例', async () => {
