@@ -13,11 +13,11 @@
 - `seed.ts` — `seedBuiltinSkillsStep()`（#223 内置 skill 播种，best-effort）
 - `soft-steps.ts` — 「失败只 log 不拒启」纪律唯一固化点（#686）：`runSoftSteps`（顺序执行，单项失败只 warn 不阻断）+ `mountSoftSteps`（fire-and-forget，加载/挂载失败只 warn）；bridges/services/handlers/warmup 四处装配表共用，新增步骤 = 对应表加一行
 - `warmup.ts` — `startWarmupTasks()`（冷启动异步任务表：GAP-16/RKB/SessionSummary/#173/#213/#327/G-002/G-003/P1b；P2-c 起同一 barrel 的多次动态 import 合并为单次——少一次重复模块求值，并消除 vitest 同模块并发动态 import 的 mock 竞态）+ `startPostRoutesWarmup()`（AS-020 本地 workspace 注册；§9.5 members 迁移已随 #696 验收退役）；#686 起两表走 mountSoftSteps 单循环
-- `services.ts` — `startCoreServices()`（CORE_SERVICES 表走 runSoftSteps：monitor → auditor → RequirementRollup → PmoProgressRollup → OpsService → WorkUnitMergeRecovery → EvolutionScheduler；#686 起 monitor/auditor 裸 start 一并纳入软启动纪律；#704 启动扫描 queued/running、merged+not-run、passed 未 settle 及 done 后未清理现场并续跑）
+- `services.ts` — `startCoreServices()`（CORE_SERVICES 表走 runSoftSteps：monitor → auditor → RequirementRollup → PmoProgressRollup → OpsService → WorkUnitMergeRecovery → EvolutionScheduler；#686 起 monitor/auditor 裸 start 一并纳入软启动纪律；#704 启动扫描 queued/running、merged+not-run、passed 未 settle 及 done 后未清理现场并续跑；#708 起由持久 merge Effect/Receipt 驱动恢复，旧 metadata 仅懒补建意图）
 - `bridges.ts` — `initEventSubscriptions()`（EVENT_SUBSCRIPTIONS 表走 runSoftSteps：ReviewDispatcher → DistillLoop 共 12 项 workunit.status_changed 等事件订阅，单项失败不阻断）
 - `agent-loop.ts` — `startAgentLoops()`（AS-026：内置角色幂等创建 → provider 回填 → scheduler.start → 注册系统触发器（standby 跳过）→ bridges → 挂载 loop → assignee 自检）+ `sweepEmptyAgentDirs()`（#363）
 - `channels.ts` — `initChannels()`（ensureDefaultChannels，Goal 管线需要）
-- `handlers.ts` — `registerScanHandlers()`（SCAN_HANDLERS 表 5 个周期扫描 handler + evolution-scan；dispatch-reconciliation 除派工/评审对账外，#704 起同轮恢复持久 merge intent；2026-10-03 C 批起失败只 warn 不拒启，#686 起纪律经 runSoftSteps 固化）
+- `handlers.ts` — `registerScanHandlers()`（SCAN_HANDLERS 表 5 个周期扫描 handler + evolution-scan；dispatch-reconciliation 除派工/评审对账外，#704 起同轮恢复持久 merge intent，#708 起实际执行统一走 merge Effect 恢复口；2026-10-03 C 批起失败只 warn 不拒启，#686 起纪律经 runSoftSteps 固化）
 - `readiness.ts` — 进程级 readiness 状态（`markReady()/isReady()/readyTimestamp()`，`resetReadiness()` 供测试）：listen 前移后「端口可服务 ≠ 全量就绪」，bootstrap 初始化链尾 markReady()，`app.ts` 的 `/readyz` 据此 200/503；deploy 健康检查以 /readyz 为准（/health 仅 liveness）
 - `module-sinks.ts` — `registerModuleSinks()`：装配期依赖倒置注入点（auth/notifications/review-proposal + ARCH-02 WorkUnit + ARCH-04 ProjectReadPort），bootstrap() 里挂 registerRoutes 之前。
 - `project-read-sinks.ts` — ARCH-04 项目读口生产组合步骤：把 PMO `projectRead` 注入 Requirements 持有的 `ProjectReadPort`；Requirements 不再依赖 PMO barrel/service，未装配读口 fail-fast。

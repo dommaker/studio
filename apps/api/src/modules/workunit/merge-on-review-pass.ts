@@ -56,6 +56,7 @@ import { assertMandateAllows } from './mandate.js';
 import { workUnitPort } from './workunit-ports.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
+import { EffectService, isMergeCleanupEffect, mergeCleanupIdempotencyKey, type EffectHandlerContext } from './effects.js';
 
 export type WorkUnitReviewMergePort = Pick<WorkUnitReview, 'blockForMergeFailure' | 'recordMergeProgress' | 'settleMerge'>
   & Pick<WorkUnitQuery, 'getById'>
@@ -752,29 +753,85 @@ async function runMergeVerification(wu: WorkUnitData, meta: WorkUnitMetadata, me
   return (await workUnitPort('verification')).run(wu, meta, mergeCwd, { cwdProvenance: 'merge-target' });
 }
 
-/** 启动/周期对账恢复：未 settle 的 merge effect 与 done 后未完成的幂等清理。 */
+/** 持久 merge Effect 的唯一 handler：重试与重启都先核查真实 Git，再续跑领域回执。 */
+export async function performMergeEffect(
+  wuService: WorkUnitReviewMergePort,
+  fileStore: FileStore,
+  context: EffectHandlerContext,
+): Promise<Record<string, unknown>> {
+  try {
+    const outcome = await mergeWorktreeBranchOnReviewPass(
+      wuService,
+      snapshotToData(context.workUnit),
+      fileStore,
+      { recovery: context.recovery || context.effect.attempts > 1 || isMergeCleanupEffect(context.effect) },
+    );
+    if (!outcome.attempted && outcome.reason === 'lock-busy') throw new Error('delivery leg lock busy');
+    const fresh = await wuService.getById(context.workUnit.id);
+    const metadata = parseWuMetadata(fresh?.metadata);
+    if (fresh?.status === 'done' && metadata.mergeReceipt?.merged === true && !metadata.mergeCleanedAt) {
+      throw new Error('merge cleanup incomplete');
+    }
+    return { ...outcome };
+  } catch (error) {
+    if (context.effect.attempts >= context.effect.maxAttempts) {
+      if (context.workUnit.status !== 'done' && context.workUnit.status !== 'closed') {
+        await wuService.blockForMergeFailure(context.workUnit.id, [], {
+          blockReason: `merge-effect-failed: ${getErrorMessage(error).slice(0, 240)}`,
+          mergeConflict: false,
+        }).catch(fallback => logger.warn('[MergeOnReviewPass] permanent failure fallback blocked write failed', {
+          wuId: context.workUnit.id, error: String(fallback),
+        }));
+      }
+      try {
+        (await workUnitPort('alert')).dispatch([{
+          source: 'merge_effect_permanent_failure',
+          level: 'critical',
+          subject: context.effect.id,
+          relatedTaskIds: [context.workUnit.id],
+          message: `Merge Effect 永久失败：${getErrorMessage(error).slice(0, 240)}`,
+        }]);
+      } catch (alertError) {
+        logger.warn('[MergeOnReviewPass] permanent failure alert failed', {
+          wuId: context.workUnit.id, error: String(alertError),
+        });
+      }
+    }
+    throw error;
+  }
+}
+
+/** 启动/周期对账恢复：持久 Effect 为主，旧 metadata 仅用于懒补建意图。 */
 export async function recoverWorktreeMerges(
   wuService: WorkUnitReviewMergePort,
   fileStore: FileStore,
 ): Promise<{ attempted: number; failed: number }> {
+  const effects = new EffectService(fileStore);
   const snapshots = await fileStore.getIndex();
-  const candidates = snapshots.filter(snapshot => {
-    const metadata = parseWuMetadata(snapshot.metadata);
-    if (!metadata.worktreeBranch || !metadata.worktreeBaseRepo || !metadata.worktreeBaseBranch) return false;
-    if (snapshot.status === 'in_review') return hasUnsettledMergeEffect(snapshot.metadata);
-    return snapshot.status === 'done' && metadata.mergeReceipt?.merged === true && !metadata.mergeCleanedAt;
-  });
-
   let failed = 0;
-  for (const snapshot of candidates) {
+  for (const snapshot of snapshots) {
+    const metadata = parseWuMetadata(snapshot.metadata);
+    if (!metadata.worktreeBranch || !metadata.worktreeBaseRepo || !metadata.worktreeBaseBranch) continue;
+    const mergeNeeded = snapshot.status === 'in_review' && hasUnsettledMergeEffect(snapshot.metadata);
+    const cleanupNeeded = snapshot.status === 'done' && metadata.mergeReceipt?.merged === true && !metadata.mergeCleanedAt;
+    if (!mergeNeeded && !cleanupNeeded) continue;
+    const mergeKey = metadata.mergeIntent?.id ?? `merge:${snapshot.id}`;
+    const mergeEffect = (snapshot.effects ?? []).find(effect => effect.idempotencyKey === mergeKey);
+    const idempotencyKey = cleanupNeeded && (!mergeEffect || ['succeeded', 'failed', 'cancelled'].includes(mergeEffect.status))
+      ? mergeCleanupIdempotencyKey(snapshot.id)
+      : mergeKey;
+    if ((snapshot.effects ?? []).some(effect => effect.idempotencyKey === idempotencyKey)) continue;
     try {
-      await mergeWorktreeBranchOnReviewPass(wuService, snapshotToData(snapshot), fileStore, { recovery: true });
-    } catch (err) {
+      await effects.enqueue(snapshot.id, { kind: 'merge', idempotencyKey, trigger: 'automatic' });
+    } catch (error) {
       failed++;
-      logger.warn('[MergeOnReviewPass] recovery failed; left for next reconciliation', { wuId: snapshot.id, error: String(err) });
+      logger.warn('[MergeOnReviewPass] failed to backfill persistent merge effect', { wuId: snapshot.id, error: String(error) });
     }
   }
-  return { attempted: candidates.length, failed };
+  const recovered = await effects.recover(context => performMergeEffect(wuService, fileStore, context), {
+    include: (_snapshot, effect) => effect.kind === 'merge',
+  });
+  return { attempted: recovered.attempted + failed, failed: recovered.failed + failed };
 }
 
 // ── #157（T6）：analysis 原型单 reviewPassed 收尾 ──

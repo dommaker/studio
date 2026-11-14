@@ -1,5 +1,5 @@
 ---
-status: active
+status: done
 ---
 
 # #708 将 Git 合并接入持久 Effect

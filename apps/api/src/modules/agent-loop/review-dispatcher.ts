@@ -255,14 +255,15 @@ export class ReviewDispatcher {
       }
     }
     const result = await this.effects.recover(context => this.performReviewEffect(context), {
-      include: (snapshot, effect) => effect.trigger === 'manual'
-        || (autoReviewEnabled() && snapshot.status === 'in_review'),
+      include: (snapshot, effect) => effect.kind === 'review-dispatch'
+        && (effect.trigger === 'manual' || (autoReviewEnabled() && snapshot.status === 'in_review')),
     });
     // recover 不执行未到期的意图，但必须重建其进程内唤醒定时器。
     const latest = await this.fileStore.getIndex();
     for (const snapshot of latest) {
       const before = snapshots.find(item => item.id === snapshot.id);
       for (const effect of snapshot.effects ?? []) {
+        if (effect.kind !== 'review-dispatch') continue;
         const previous = before?.effects?.find(item => item.id === effect.id);
         if (effect.status === 'failed' && previous?.status !== 'failed') {
           this.alertPermanentFailure(effect);

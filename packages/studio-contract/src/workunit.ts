@@ -87,7 +87,7 @@ export const mandateSchema = z.object({
 export const effectRecordSchema = z.object({
   id: z.string(),
   workUnitId: z.string(),
-  kind: z.literal('review-dispatch'),
+  kind: z.enum(['review-dispatch', 'merge']),
   idempotencyKey: z.string(),
   trigger: z.enum(['automatic', 'manual']),
   status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled', 'needs_reconciliation']),

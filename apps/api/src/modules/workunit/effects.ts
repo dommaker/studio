@@ -57,6 +57,19 @@ function newEffect(
   };
 }
 
+/** merge 领域意图与持久 Effect 共用幂等键；Effect 只承载执行生命周期。 */
+export function newMergeEffect(workUnitId: string, idempotencyKey = `merge:${workUnitId}`): EffectRecord {
+  return newEffect(workUnitId, 'merge', idempotencyKey, 'automatic', new Date().toISOString());
+}
+
+export function mergeCleanupIdempotencyKey(workUnitId: string): string {
+  return `merge:${workUnitId}:cleanup`;
+}
+
+export function isMergeCleanupEffect(effect: EffectRecord): boolean {
+  return effect.kind === 'merge' && effect.idempotencyKey === mergeCleanupIdempotencyKey(effect.workUnitId);
+}
+
 /** 进入评审的领域事实与派单意图必须共享同一个快照提交。 */
 export function withReviewDispatchIntent(
   current: WorkUnitSnapshot,

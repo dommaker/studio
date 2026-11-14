@@ -97,7 +97,10 @@ export interface WorkUnitReadPort {
 }
 
 export interface WorkUnitAlertPort {
-  dispatch(alerts: Array<{ source: 'in_review_orphan'; level: 'warning'; subject: string; relatedTaskIds: string[]; message: string }>): void;
+  dispatch(alerts: Array<
+    | { source: 'in_review_orphan'; level: 'warning'; subject: string; relatedTaskIds: string[]; message: string }
+    | { source: 'merge_effect_permanent_failure'; level: 'critical'; subject: string; relatedTaskIds: string[]; message: string }
+  >): void;
 }
 
 export interface WorkUnitPorts {

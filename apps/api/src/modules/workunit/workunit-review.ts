@@ -10,7 +10,7 @@
  */
 
 import { withAttestation, deriveDisplayState, createSettledTracker, WorkUnitSnapshotConflictError, type AttestationEntry, type FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
-import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from './merge-on-review-pass.js';
+import { mergeWorktreeBranchOnReviewPass, performMergeEffect, cleanupPrototypeWorktreeOnReviewPass } from './merge-on-review-pass.js';
 import { MandateService, type MandateExpansion } from './mandate.js';
 import type { MandatePrincipal } from '@dommaker/studio-shared';
 import { parseWuMetadata } from './wu-metadata.js';
@@ -22,6 +22,7 @@ import { workUnitPort, type WorkUnitAuditActor } from './workunit-ports.js';
 import { logger } from '@dommaker/studio-shared/node';
 import { HostExecutionPolicyError } from '../../core/host-execution-policy.js';
 import { getStore } from '../../core/store.js';
+import { EffectService, mergeCleanupIdempotencyKey, newMergeEffect } from './effects.js';
 
 /**
  * #228 测试可观测性（纯增量，不改变行为）：登记 reviewPassed 的 best-effort
@@ -159,26 +160,37 @@ export class WorkUnitReviewService implements WorkUnitReview {
         targetBranch: metadata.pmoBranch ?? metadata.worktreeBaseBranch!,
       };
     }
+    const mergeEffect = requiresMerge && !metadata.mergeReceipt
+      ? newMergeEffect(id, metadata.mergeIntent!.id)
+      : null;
 
     const updated = await this.persistSnapshot(current, metadata, requiresMerge
-      ? { eventType: 'updated', auditActor: attestationActor(attestation) }
+      ? {
+          eventType: 'updated',
+          auditActor: attestationActor(attestation),
+          ...(mergeEffect ? { patch: { effects: [...(current.effects ?? []).filter(effect => effect.id !== mergeEffect.id), mergeEffect] } } : {}),
+        }
       : { eventType: 'completed', status: 'done', markCompleted: true, auditActor: attestationActor(attestation) });
 
     const updatedData = snapshotToData(updated);
+    const mergePort = {
+      getById: (wuId: string) => this.query.getById(wuId),
+      update: (wuId: string, input: Parameters<WorkUnitRepository['update']>[1]) => this.repository.update(wuId, input),
+      blockForMergeFailure: (wuId: string, files: string[], opts?: { blockReason?: string }) => this.blockForMergeFailure(wuId, files, opts),
+      recordMergeProgress: (wuId: string, intent: WorkUnitMergeIntent) => this.recordMergeProgress(wuId, intent),
+      settleMerge: (wuId: string, settlement: WorkUnitMergeSettlement) => this.settleMerge(wuId, settlement),
+    };
     if (updatedData.type === 'analysis') {
       trackReviewPassEffect(cleanupPrototypeWorktreeOnReviewPass(updatedData).catch(err =>
         logger.warn('[WorkUnit] prototype worktree cleanup failed (non-blocking)', { workUnitId: id, error: String(err) })
       ));
-    } else if (!metadata.mergeReceipt) {
-      const mergePort = {
-        getById: (wuId: string) => this.query.getById(wuId),
-        update: (wuId: string, input: Parameters<WorkUnitRepository['update']>[1]) => this.repository.update(wuId, input),
-        blockForMergeFailure: (wuId: string, files: string[], opts?: { blockReason?: string }) => this.blockForMergeFailure(wuId, files, opts),
-        recordMergeProgress: (wuId: string, intent: WorkUnitMergeIntent) => this.recordMergeProgress(wuId, intent),
-        settleMerge: (wuId: string, settlement: WorkUnitMergeSettlement) => this.settleMerge(wuId, settlement),
-      };
+    } else if (!mergeEffect && !metadata.mergeReceipt) {
+      trackReviewPassEffect(mergeWorktreeBranchOnReviewPass(mergePort, updatedData, this.fileStore));
+    } else if (mergeEffect) {
+      const effects = new EffectService(this.fileStore);
       const existingEffect = reviewPassMergeEffects.get(id);
-      const effect = existingEffect ?? mergeWorktreeBranchOnReviewPass(mergePort, updatedData, this.fileStore)
+      const effect = existingEffect ?? effects.execute(id, mergeEffect.id,
+        context => performMergeEffect(mergePort, this.fileStore, context))
         .catch(async err => {
           logger.warn('[WorkUnit] merge-on-review-pass failed; blocking WorkUnit', { workUnitId: id, error: String(err) });
           await this.blockForMergeFailure(id, [], {
@@ -195,7 +207,18 @@ export class WorkUnitReviewService implements WorkUnitReview {
     }
 
     if (awaitingUnavailableConfirmation) {
-      return this.settleMerge(id, { receipt: metadata.mergeReceipt!, outcome: 'done' });
+      const settled = await this.settleMerge(id, { receipt: metadata.mergeReceipt!, outcome: 'done' });
+      if (settled.status === 'done' && !parseWuMetadata(settled.metadata).mergeCleanedAt) {
+        const effects = new EffectService(this.fileStore);
+        const cleanup = await effects.enqueue(id, {
+          kind: 'merge', idempotencyKey: mergeCleanupIdempotencyKey(id), trigger: 'automatic',
+        });
+        trackReviewPassEffect(effects.execute(id, cleanup.id, context => performMergeEffect(mergePort, this.fileStore, context))
+          .catch(error => logger.warn('[WorkUnit] deferred merge cleanup failed; left for recovery', {
+            workUnitId: id, error: String(error),
+          })));
+      }
+      return settled;
     }
     return snapshotToData(updated);
   }
@@ -422,7 +445,7 @@ export class WorkUnitReviewService implements WorkUnitReview {
         ...metadata.mergeReceipt,
         failure: { kind: 'merge-error', detail: opts?.blockReason, conflictFiles },
       };
-    } else if (metadata.mergeIntent) {
+    } else if (metadata.mergeIntent && opts?.mergeConflict !== false) {
       metadata.mergeReceipt = {
         id: metadata.mergeIntent.id,
         merged: false,

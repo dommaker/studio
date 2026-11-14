@@ -214,7 +214,7 @@ export type EffectStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canc
 export interface EffectRecord {
   id: string;
   workUnitId: string;
-  kind: 'review-dispatch';
+  kind: 'review-dispatch' | 'merge';
   idempotencyKey: string;
   trigger: 'automatic' | 'manual';
   status: EffectStatus;
