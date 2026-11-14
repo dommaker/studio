@@ -1,6 +1,6 @@
 /** ARCH-02 WorkUnit 端口生产装配；bootstrap 与行为测试共用同一组合步骤。 */
 import { recordAgentDecision } from '../modules/audit-logs/index.js';
-import { ChannelMessageService, resolveOrNotice } from '../modules/channels/index.js';
+import { ChannelMessageService, getExternalReplyService, resolveOrNotice } from '../modules/channels/index.js';
 import { registerWorkUnitPorts } from '../modules/workunit/index.js';
 import { RequirementService, resolvePmoProjectIdForWU } from '../modules/requirements/index.js';
 import {
@@ -54,10 +54,19 @@ async function bindRequirementToProject(reqId: string, hit: { name: string; path
 export function registerWorkUnitSinks(): void {
   registerWorkUnitPorts({
     message: {
-      createAgentMessage: input => channelMessages(input.fileStore).createAgentMessage(
-        input.channelId, input.agentName, input.content,
-        { replyToId: input.replyToId, meta: input.meta, workUnitId: input.workUnitId },
-      ),
+      createAgentMessage: input => input.workUnitId
+        ? getExternalReplyService(input.fileStore).post({
+            channelId: input.channelId,
+            agentName: input.agentName,
+            content: input.content,
+            workUnitId: input.workUnitId,
+            replyToId: input.replyToId,
+            meta: input.meta,
+          })
+        : channelMessages(input.fileStore).createAgentMessage(
+            input.channelId, input.agentName, input.content,
+            { replyToId: input.replyToId, meta: input.meta },
+          ),
       createHumanMessage: input => channelMessages(input.fileStore).createHumanMessage(
         input.channelId, input.content, input.replyToId, input.workUnitId,
       ),

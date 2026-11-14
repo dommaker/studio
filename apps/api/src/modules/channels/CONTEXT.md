@@ -11,7 +11,8 @@ Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线
 | 模块 | 导出 | 职责 |
 |------|------|------|
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
-| channel-message.service.ts | `getChannelMessageService()`（惰性单例）/ `ChannelMessageService` / `toChannelMessageWire` | 消息创建/更新/删除 + event/SSE 发布（系统消息唯一发布路径）；REST 出口把 MessageRecord 的 Date/meta 归一为 contract wire |
+| channel-message.service.ts | `getChannelMessageService()`（惰性单例）/ `ChannelMessageService` / `toChannelMessageWire` | 消息创建/更新/删除 + event/SSE 发布（系统消息唯一发布路径）；REST 出口把 MessageRecord 的 Date/meta 归一为 contract wire；#709 `AgentMessageOptions.messageId` 允许持久 Effect 固定身份 |
+| external-reply.service.ts | `ExternalReplyService` / `getExternalReplyService()` / `recoverExternalReplies()` | #709 WU 外部回复持久执行 adapter：提交 `external-reply` Effect 后执行，payload 固定消息正文与 messageId，重试/重启按 id 认养去重；启动与周期恢复、三次失败 critical 告警 |
 | channel.service.ts | `getChannelService()`（惰性单例）/ `ChannelService` / `ChannelError` / `validateDefaultWorkspaceId()` | #532 频道记录读写收口：404 判定单点（getOrThrow）、写路径内部失效列表缓存（create/update/archive/restore/deleteWithFallback/updateMembers）、初始 agent 创建 |
 | message-routing.ts | `routeMessage()` / `DispatchContext` | 消息路由编排骨架：#281 文件引用校验/剔除面 → replyTo 线程回复（继承 + #327 降级放行 + F5 复活）→ @mention / intent 委托 wu-dispatch → 合并窗口并入（判定委托 merge-target）→ 纯存储 |
 | merge-target.ts | `resolveMergeTarget()` / `getMergeWindowMs()` / `MergeTargetResolution` | #632 合并目标三态判定（唯一并入 / 歧义守卫 fail-closed / 无目标纯存储；#495 在途状态集与窗口 env 覆盖）：发送前预览端点与 routeMessage 共用（预览 = 实际路由）；#688 自 message-routing.ts 拆出 |
@@ -31,6 +32,7 @@ Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线
 
 **本模块依赖**：
 - `@dommaker/studio-shared` — FileStore（Channel / RequirementsDoc 等文件存储，已替代 studio-prisma DB）, logger, modelGateway, eventBus, toKebab
+- `workunit` — #709 ExternalReplyService 复用 EffectService 与告警端口；WorkUnit 反向经 message 端口调用，不直接 import Channels
 - `agents/monitor-agent` — 管线监控
 
 **被依赖**：
@@ -40,6 +42,7 @@ Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线
 
 - **#700 建单归属统一**：mention、显式 new-task、消息转任务均经 `resolveReqIdForDispatch` + `resolveWorkspaceForWU`（含 #PMO 别名投影）解析 REQ/PMO/workspaceRoot；无归属一律 blocked + waitingReason=ownership 并在原消息线程提问。new-task 接受 reqId/channel 透传；convert 保留显式 projectPath 优先级并落 anchorMessageId=原消息 id。
 - **#706 授权与上下文分离**：频道建单/消息转任务从 `req.user` 传 `requestedBy`，来源消息 id 在派发后写入 Mandate；回复、合并窗口和文件引用只追加消息/pendingReplies，不改 Mandate。归属绑定、token 预算和 plan 步数续期必须经 `WorkUnitService.authorizeMandate`，操作人取认证 Principal；展示名、authorType 与消息 meta 不参与授权。
+- **#709 外部回复持久化**：`postWuSystemMessage` 的全部 WU 回复经 bootstrap message port 进入 `ExternalReplyService`，先入 `external-reply` Effect 再调用原始 `ChannelMessageService`；随机 messageId 在入队时固定，重试/重启先按 id 查询，已存在只补 Receipt 不再发 SSE。临时失败 30s 后重试、最多三次，永久失败写 failed Receipt 并升 `external_reply_permanent_failure` critical。撤销取消 queued；running 撤销后只核查已落盘消息，找不到保持 `needs_reconciliation`，不补发。非 WU agent 消息与人类消息不走此层。
 - **契约驱动（2026-09 批次 1/7）**：全部 REST 端点走 `core/http.ts defineRoute`（schema 在 `@dommaker/studio-contract` channels.ts），响应统一 `{ data }` 壳（原 `{success,data}` 退役）；消息分页 `{ data: { messages, total, hasMore } }`（原平铺 `{success,data,total,hasMore}` 退役）；ChannelError 经路由层 `translating()` 转 HttpError（status 自带 400/404/409）；`PATCH /:id` 的 defaultProfileId 退役守卫依赖 updateChannelBodySchema 的 `.passthrough()`（zod 默认 strip 会先于守卫吞掉该键）；`GET /:id/attachments/:attachmentId` 二进制流例外（pipe 至 finish 才返回，否则 defineRoute 在 headersSent 前 end() 截断流）；SSE 事件负载不属 REST 契约，保留本地解析器
 - **频道图片附件（2026-09，docs/plans/2026-09-channel-attachments.md；SEC-07 票据收口）**：`POST /:id/attachments`（requireAuth+requireNotGuest，与发消息同语义）收 JSON base64（不引 multipart 依赖），单图 ≤5MB 超限 413，落盘 `STUDIO_DATA_DIR/attachments/<channelId>/<uuid>.<ext>`（扩展名白名单 png/jpg/gif/webp）；返回相对 URL，消息体只存该 URL，**无附件元数据表**。`GET /:id/attachments/:attachmentId` 由 app 在 Lurk Wall 前消费 60 秒单用途、绑定精确附件路径的 `?token=` 流式票据，再经 `requireAuth` 校验当前 Operator Session；长期 JWT、跨资源、过期与重放均拒绝。前端 `AttachmentImage` 异步取票，长期登录 JWT 不进 URL/消息历史。json limit：全局 2mb 不动，附件路径预挂 8mb parser。
 - **输出文件路径**：`perInvocationOutputFile()` 返回绝对路径（ANALYST_DIR 基于 REPO_DIR）。scout 路径用相对路径，session-manager 有 worktree fallback

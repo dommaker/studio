@@ -42,6 +42,7 @@ function newEffect(
   idempotencyKey: string,
   trigger: EffectRecord['trigger'],
   at: string,
+  payload?: Record<string, unknown>,
 ): EffectRecord {
   return {
     id: effectId(workUnitId, idempotencyKey),
@@ -54,6 +55,7 @@ function newEffect(
     maxAttempts: EFFECT_MAX_ATTEMPTS,
     createdAt: at,
     updatedAt: at,
+    ...(payload ? { payload } : {}),
   };
 }
 
@@ -129,7 +131,10 @@ export class EffectService {
   /** 人工补派与旧数据补账共用；相同幂等键只保留一个意图。 */
   async enqueue(
     workUnitId: string,
-    input: { kind: EffectRecord['kind']; idempotencyKey: string; trigger: EffectRecord['trigger'] },
+    input: {
+      kind: EffectRecord['kind']; idempotencyKey: string; trigger: EffectRecord['trigger'];
+      payload?: Record<string, unknown>;
+    },
   ): Promise<EffectRecord> {
     let selected: EffectRecord | undefined;
     const updated = await this.repository.mutateSnapshot(workUnitId, current => {
@@ -139,7 +144,7 @@ export class EffectService {
         return current;
       }
       const at = new Date().toISOString();
-      selected = newEffect(workUnitId, input.kind, input.idempotencyKey, input.trigger, at);
+      selected = newEffect(workUnitId, input.kind, input.idempotencyKey, input.trigger, at, input.payload);
       return { ...current, effects: [...(current.effects ?? []), selected], updatedAt: at };
     });
     if (!updated || !selected) throw new Error('WorkUnit not found');
@@ -170,7 +175,7 @@ export class EffectService {
     workUnitId: string,
     id: string,
     handler: EffectHandler,
-    opts: { recovery?: boolean } = {},
+    opts: { recovery?: boolean; reconcileRevoked?: boolean } = {},
   ): Promise<EffectRecord | null> {
     const key = `${workUnitId}:${id}`;
     const existing = this.inFlight.get(key);
@@ -185,7 +190,7 @@ export class EffectService {
     workUnitId: string,
     id: string,
     handler: EffectHandler,
-    opts: { recovery?: boolean },
+    opts: { recovery?: boolean; reconcileRevoked?: boolean },
   ): Promise<EffectRecord | null> {
     let selected: EffectRecord | undefined;
     let shouldRun = false;
@@ -196,14 +201,16 @@ export class EffectService {
       selected = effect;
       if (['succeeded', 'failed', 'cancelled'].includes(effect.status)) return current;
       if (effect.status === 'running' && !opts.recovery) return current;
-      if (effect.status === 'needs_reconciliation' && current.mandate?.revokedAt) return current;
+      if (effect.status === 'needs_reconciliation' && current.mandate?.revokedAt && !opts.reconcileRevoked) return current;
       if (effect.status === 'queued' && effect.nextAttemptAt && Date.parse(effect.nextAttemptAt) > Date.now()) return current;
       shouldRun = true;
       recoveryKind = effect.status === 'queued' ? 'queued-restarted' : 'running-reconciled';
 
       const at = new Date().toISOString();
       try {
-        assertMandateActive(current);
+        if (!(opts.reconcileRevoked && effect.status === 'needs_reconciliation' && current.mandate?.revokedAt)) {
+          assertMandateActive(current);
+        }
       } catch (error) {
         const outcome = current.mandate?.revokedAt ? 'cancelled' : 'failed';
         selected = {
@@ -273,6 +280,18 @@ export class EffectService {
           selected = effect;
           return current;
         }
+        if (opts.reconcileRevoked && current.mandate?.revokedAt) {
+          const at = new Date().toISOString();
+          selected = {
+            ...effect, status: 'needs_reconciliation', lastError: String(error),
+            updatedAt: at, nextAttemptAt: undefined,
+          };
+          return {
+            ...current,
+            effects: (current.effects ?? []).map(item => item.id === id ? selected! : item),
+            updatedAt: at,
+          };
+        }
         const at = new Date().toISOString();
         const retry = effect.attempts < effect.maxAttempts;
         selected = {
@@ -299,7 +318,11 @@ export class EffectService {
   /** 启动时从磁盘恢复；EventBus 是否曾投递不参与判定。 */
   async recover(
     handler: EffectHandler,
-    opts: { include?: (snapshot: WorkUnitSnapshot, effect: EffectRecord) => boolean } = {},
+    opts: {
+      include?: (snapshot: WorkUnitSnapshot, effect: EffectRecord) => boolean;
+      /** 仅限可按持久事实只读认养的 kind；不得在撤销后产生新副作用。 */
+      reconcileRevoked?: boolean;
+    } = {},
   ): Promise<EffectRecoveryResult> {
     const result: EffectRecoveryResult = { attempted: 0, succeeded: 0, failed: 0, cancelled: 0 };
     const snapshots = await this.fileStore.getIndex();
@@ -308,9 +331,11 @@ export class EffectService {
         if (!['queued', 'running', 'needs_reconciliation'].includes(effect.status)) continue;
         if (opts.include && !opts.include(snapshot, effect)) continue;
         if (effect.status === 'queued' && effect.nextAttemptAt && Date.parse(effect.nextAttemptAt) > Date.now()) continue;
-        if (effect.status === 'needs_reconciliation' && snapshot.mandate?.revokedAt) continue;
+        if (effect.status === 'needs_reconciliation' && snapshot.mandate?.revokedAt && !opts.reconcileRevoked) continue;
         result.attempted++;
-        const recovered = await this.execute(snapshot.id, effect.id, handler, { recovery: true });
+        const recovered = await this.execute(snapshot.id, effect.id, handler, {
+          recovery: true, reconcileRevoked: opts.reconcileRevoked,
+        });
         if (recovered?.status === 'succeeded') result.succeeded++;
         else if (recovered?.status === 'cancelled') result.cancelled++;
         else if (recovered?.status === 'failed') result.failed++;

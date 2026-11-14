@@ -18,6 +18,7 @@ export type MonitorAlertSource =
   | 'analysis_respawn' // #183（#159）：analysis 派工断链对账补建（3 次仍败升 critical）
   | 'review_redispatch' // #183（#66 决议①）：review 断链对账重跑（3 次仍败升 critical）
   | 'merge_effect_permanent_failure' // #708：merge/cleanup Effect 三次仍败，保留现场并升 critical
+  | 'external_reply_permanent_failure' // #709：外部回复 Effect 三次仍败，保留 Receipt 并升 critical
   | 'analysis_confirm' // #186（#167 决议 2）：无频道 analysis 确认提示投 Web「需要处理」收件箱
   | 'stale_claim_guard'; // #221（#214 决议）：认领陈旧守卫——unassigned updatedAt>72h 已被 observe 拦截，首次拦截告警
 

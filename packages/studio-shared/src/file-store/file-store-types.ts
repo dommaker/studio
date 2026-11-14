@@ -214,8 +214,10 @@ export type EffectStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canc
 export interface EffectRecord {
   id: string;
   workUnitId: string;
-  kind: 'review-dispatch' | 'merge';
+  kind: 'review-dispatch' | 'merge' | 'external-reply';
   idempotencyKey: string;
+  /** #709：external-reply 等副作用的执行载荷；随意图一起持久化。 */
+  payload?: Record<string, unknown>;
   trigger: 'automatic' | 'manual';
   status: EffectStatus;
   attempts: number;

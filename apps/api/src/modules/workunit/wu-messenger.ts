@@ -6,7 +6,9 @@
  *  merge-on-review-pass.postSystemMessage / waiting-input.postStudioSystemMessage /
  *  timeout-release.postTimeoutSystemMessage）——其中 4 处只裸写 FileStore，
  * 不发 eventBus/SSE，频道页不实时可见、NotificationBell 不响。本模块统一走
- * ChannelMessageService.createAgentMessage（append + eventBus 'channel.message_sent' + SSE）。
+ * message 端口；#709 起由 ExternalReplyService 持久化后调用 ChannelMessageService
+ * （append + eventBus 'channel.message_sent' + SSE，重试/恢复按固定 messageId 去重）。
+ * 里程碑 NotificationService 通知仍属 #468 best-effort 旁路，不属于频道回复 Receipt。
  *
  * 形态约定：
  * - 默认 agentName='Studio'，挂在 WU 线程 anchor 下——显式 replyToId > metadata.anchorMessageId

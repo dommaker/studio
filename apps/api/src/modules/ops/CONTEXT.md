@@ -9,7 +9,7 @@
 - Monitor Agent：5min 轮询健康监控 + 渐进告警 + 轨迹评估/每日洞察 + 知识沉淀闸门与每日 TTL 清理 + 实例超时巡检
 - OpsService 进程级守护：preflight 启动检查、health 轮询自愈、代理守护、默认数据 ensure
 
-由 bootstrap/services 启动链装配（monitor 为启动链第一环；启动顺序 monitor → auditor → rollup → OpsService → EvolutionScheduler）。
+由 bootstrap/services 启动链装配（monitor 为启动链第一环；后续含 rollup、OpsService、merge/external-reply Effect 恢复与 EvolutionScheduler）。
 
 ### 目录结构
 
@@ -30,7 +30,7 @@
 - `monitor-lifecycle.ts` — 知识沉淀闸门+每日 TTL 清理（#653 起 studio-events.jsonl 清理已删——事件保留执法归 studio-events-rotation 单口）
 - `lock-events-bridge.ts` — lock.* 事件 → Monitor 告警桥（#169；#687 自 events 模块迁入——桥消费的是 Monitor 能力，归属本模块，斩断 events 基础设施反向依赖）
 - `instance-timeout-scan.ts` — 心跳过期 5min 扫描+pid 复核（依赖 monitor-alerts；#363 统一回收 terminated 实例；2026-09-24 起 terminate 死实例后连带释放其持有的 active WU 回池）
-- `types.ts` — MonitorAlert/MonitorAlertSource 类型；#708 增 `merge_effect_permanent_failure`（critical 走既有告警管线，Triage 映射 null）
+- `types.ts` — MonitorAlert/MonitorAlertSource 类型；#708 增 `merge_effect_permanent_failure`，#709 增 `external_reply_permanent_failure`（均 critical 走既有告警管线，Triage 映射 null）
 - `ops.service.ts` — OpsService 门面 + `createOpsService` 工厂
 - `ops-rules.ts` — 守护规则加载（processes_to_clean 等契约）
 - `__tests__/` — monitor-* / monitoring-* / metrics / ops-* / current-wu-context 等 20 个测试

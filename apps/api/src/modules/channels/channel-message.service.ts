@@ -39,6 +39,8 @@ export interface AgentMessageOptions {
   replyToId?: string;
   meta?: MessageMeta;
   workUnitId?: string; // AS-025 §5.16: 讨论空间关联
+  /** #709：持久 Effect 在提交前固定消息 id，供恢复核查去重。 */
+  messageId?: string;
 }
 
 export interface MessageRecord {
@@ -59,7 +61,7 @@ export function toChannelMessageWire(message: MessageRecord): ChannelMessage {
 }
 
 /** 将 FileStore 的字符串时间转为 Date，解析 meta JSON */
-function shapeMessageData(data: ChannelMessageData): MessageRecord {
+export function shapeMessageData(data: ChannelMessageData): MessageRecord {
   return {
     id: data.id,
     channelId: data.channelId,
@@ -144,7 +146,7 @@ export class ChannelMessageService {
 
     const now = new Date().toISOString();
     const msg: ChannelMessageData = {
-      id: uuidv4(),
+      id: options?.messageId ?? uuidv4(),
       channelId,
       authorType: 'agent',
       agentName,

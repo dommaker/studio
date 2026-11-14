@@ -39,6 +39,8 @@ const SCAN_HANDLERS: readonly ScanHandler[] = [
     const { WorkUnitService, recoverWorktreeMerges } = await import('../modules/workunit/index.js');
     const fileStore = getStore();
     await recoverWorktreeMerges(new WorkUnitService(fileStore), fileStore);
+    const { recoverExternalReplies } = await import('../modules/channels/index.js');
+    await recoverExternalReplies(fileStore);
   }],
 ];
 

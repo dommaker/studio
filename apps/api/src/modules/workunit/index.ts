@@ -32,5 +32,5 @@ export { ANALYSIS_TASKS_MAX, DECISION_SPEC_TYPES, hasCompleteMergeReceipt, hasUn
 export type { UnfitRoleEntry, WorkUnitMetadata } from './workunit.types.js';
 export { buildStatusById, hasUnfinishedDeps } from './wu-dependencies.js';
 export { postWuSystemMessage } from './wu-messenger.js';
-export { registerWorkUnitPorts, resetWorkUnitPorts } from './workunit-ports.js';
+export { registerWorkUnitPorts, resetWorkUnitPorts, workUnitPort } from './workunit-ports.js';
 export { clearSessionBookkeeping, mergedWuView, parseWuMetadata, parseWuTitle } from './wu-metadata.js';

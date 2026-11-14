@@ -7,4 +7,6 @@
 export { ensureDefaultChannels } from './channel-init.js';
 export { getChannelMessageService, ChannelMessageService, toChannelMessageWire } from './channel-message.service.js';
 export type { MessageMeta, MessageRecord } from './channel-message.service.js';
+export { ExternalReplyService, getExternalReplyService, recoverExternalReplies } from './external-reply.service.js';
+export type { ExternalReplyInput } from './external-reply.service.js';
 export { resolveOrNotice, resolveStageRouting, ROUTING_STAGE_LABELS } from './routing.js';
