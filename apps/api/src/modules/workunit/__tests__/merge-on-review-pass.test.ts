@@ -10,9 +10,10 @@ import { eventBus, FileStore, WorkUnitSnapshotConflictError } from '@dommaker/st
 import { WorkUnitService, waitForReviewPassSettled } from '../workunit-review.js';
 import type { WorkUnitMetadata } from '../workunit.types.js';
 import type { WorkUnitData } from '../workunit-crud.js';
-import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from '../merge-on-review-pass.js';
+import { mergeWorktreeBranchOnReviewPass, recoverWorktreeMerges, cleanupPrototypeWorktreeOnReviewPass } from '../merge-on-review-pass.js';
+import { EffectService } from '../effects.js';
 
-const { mockExecSh, mockExecFile, mockHostExecFile, mockPostWuSystemMessage, mockResolvePmoProjectId, mockSystemExecRun, mockLoadSingleSkill } = vi.hoisted(() => ({
+const { mockExecSh, mockExecFile, mockHostExecFile, mockPostWuSystemMessage, mockResolvePmoProjectId, mockSystemExecRun, mockLoadSingleSkill, mockDispatchMonitorAlerts } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
   mockExecFile: vi.fn(),
   mockHostExecFile: vi.fn(),
@@ -20,7 +21,10 @@ const { mockExecSh, mockExecFile, mockHostExecFile, mockPostWuSystemMessage, moc
   mockResolvePmoProjectId: vi.fn(),
   mockSystemExecRun: vi.fn(),
   mockLoadSingleSkill: vi.fn(),
+  mockDispatchMonitorAlerts: vi.fn(),
 }));
+
+vi.mock('../../ops/index.js', () => ({ dispatchMonitorAlerts: mockDispatchMonitorAlerts }));
 
 vi.mock('child_process', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -186,6 +190,25 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(outcome).toEqual({ attempted: false, reason: 'mandate-rejected' });
     expect(calledCommands()).toEqual([]);
     expect((await wuService.getById(wu.id))?.status).toBe('blocked');
+  });
+
+  it('queued merge Effect 撤销后恢复零 Git，并保留撤销 Receipt', async () => {
+    const wu = await createWu(worktreeMeta());
+    const effects = new EffectService(fileStore, { retryDelayMs: 0 });
+    const queued = await effects.enqueue(wu.id, {
+      kind: 'merge', idempotencyKey: `merge:${wu.id}`, trigger: 'automatic',
+    });
+    await wuService.revokeMandate(wu.id, { id: 'operator-1', type: 'Operator' }, '停止交付');
+
+    const recovered = await recoverWorktreeMerges(wuService, fileStore);
+
+    expect(recovered).toEqual({ attempted: 0, failed: 0 });
+    expect(calledCommands()).toEqual([]);
+    const updated = await wuService.getById(wu.id);
+    expect(updated!.effects?.find(effect => effect.id === queued.id)).toEqual(expect.objectContaining({ status: 'cancelled' }));
+    expect(updated!.effectReceipts?.filter(receipt => receipt.effectId === queued.id).at(-1)).toEqual(expect.objectContaining({
+      outcome: 'cancelled', recovery: 'revocation',
+    }));
   });
 
   it('仓库不在 Mandate 范围时 merge 零 Git 子进程并交回授权', async () => {
@@ -788,6 +811,94 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(meta.mergeCleanedAt).toBeUndefined();
   });
 
+  it('Effect 清理失败保持可恢复，不写成功 Receipt', async () => {
+    fs.writeFileSync(path.join(REPO, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }));
+    fs.writeFileSync(path.join(REPO, 'pnpm-lock.yaml'), '');
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('worktree remove')) throw new Error('permission denied');
+      if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta());
+
+    await wuService.reviewPassed(wu.id);
+    await waitForReviewPassSettled();
+
+    const updated = await wuService.getById(wu.id);
+    expect(updated!.status).toBe('done');
+    expect(JSON.parse(updated!.metadata!).mergeCleanedAt).toBeUndefined();
+    expect(updated!.effects?.find(effect => effect.idempotencyKey === `merge:${wu.id}`)).toEqual(expect.objectContaining({
+      status: 'queued', attempts: 1,
+    }));
+    expect(updated!.effectReceipts?.at(-1)).toEqual(expect.objectContaining({ outcome: 'retrying' }));
+  });
+
+  it('base merge receipt 未持久化时 Effect 失败且不清理 worktree/分支', async () => {
+    fs.writeFileSync(path.join(REPO, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }));
+    fs.writeFileSync(path.join(REPO, 'pnpm-lock.yaml'), '');
+    const wu = await createWu(worktreeMeta());
+    const commitSnapshot = fileStore.commitSnapshot.bind(fileStore);
+    let failed = false;
+    vi.spyOn(fileStore, 'commitSnapshot').mockImplementation(async (event, snapshot, options) => {
+      const metadata = JSON.parse(snapshot.metadata ?? '{}') as WorkUnitMetadata;
+      if (!failed && metadata.mergeReceipt?.merged && metadata.mergeReceipt.verification.status === 'not-run') {
+        failed = true;
+        throw new Error('receipt store unavailable');
+      }
+      return commitSnapshot(event, snapshot, options);
+    });
+
+    await wuService.reviewPassed(wu.id);
+    await waitForReviewPassSettled();
+
+    const updated = await wuService.getById(wu.id);
+    expect(updated!.status).toBe('in_review');
+    expect(JSON.parse(updated!.metadata!).mergeReceipt).toBeUndefined();
+    expect(updated!.effects?.find(effect => effect.idempotencyKey === `merge:${wu.id}`)).toEqual(expect.objectContaining({
+      status: 'queued', attempts: 1,
+    }));
+    expect(calledCommands().some(c => c.includes('worktree remove'))).toBe(false);
+    expect(calledCommands().some(c => c.includes('branch -d'))).toBe(false);
+  });
+
+  it('最终 attempt 回执仍失败时不伪造 merged=false，永久失败升 critical', async () => {
+    vi.useFakeTimers();
+    try {
+      fs.writeFileSync(path.join(REPO, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }));
+      fs.writeFileSync(path.join(REPO, 'pnpm-lock.yaml'), '');
+      const wu = await createWu(worktreeMeta());
+      const commitSnapshot = fileStore.commitSnapshot.bind(fileStore);
+      vi.spyOn(fileStore, 'commitSnapshot').mockImplementation(async (event, snapshot, options) => {
+        const metadata = JSON.parse(snapshot.metadata ?? '{}') as WorkUnitMetadata;
+        if (metadata.mergeReceipt?.merged && metadata.mergeReceipt.verification.status === 'not-run') {
+          throw new Error('receipt store unavailable');
+        }
+        return commitSnapshot(event, snapshot, options);
+      });
+
+      await wuService.reviewPassed(wu.id);
+      await waitForReviewPassSettled();
+      for (let attempt = 1; attempt < 3; attempt++) {
+        await vi.advanceTimersByTimeAsync(30_001);
+        await recoverWorktreeMerges(wuService, fileStore);
+      }
+
+      const updated = await wuService.getById(wu.id);
+      expect(updated!.status).toBe('blocked');
+      expect(JSON.parse(updated!.metadata!).mergeReceipt).toBeUndefined();
+      expect(updated!.effects?.find(effect => effect.idempotencyKey === `merge:${wu.id}`)).toEqual(expect.objectContaining({
+        status: 'failed', attempts: 3,
+      }));
+      expect(calledCommands().filter(c => c.includes('merge --no-ff'))).toHaveLength(1);
+      expect(calledCommands().some(c => c.includes('worktree remove'))).toBe(false);
+      expect(mockDispatchMonitorAlerts).toHaveBeenCalledWith([expect.objectContaining({
+        source: 'merge_effect_permanent_failure', level: 'critical', relatedTaskIds: [wu.id],
+      })]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('baseRepo 在合并前被替换时，后续 Git/verify 仍使用固定 capability', async () => {
     const outside = path.join(tmpDir, 'outside');
     const original = path.join(tmpDir, 'repo-original');
@@ -860,10 +971,19 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(passed.status).toBe('in_review');
     expect(passed.completedAt).toBeNull();
     expect(JSON.parse(passed.metadata!).mergeIntent).toEqual(expect.objectContaining({ state: 'queued' }));
+    const mergeEffect = passed.effects?.find(effect => effect.idempotencyKey === `merge:${wu.id}`);
+    expect(mergeEffect).toEqual(expect.objectContaining({ kind: 'merge', status: 'queued', attempts: 0 }));
 
     await waitForReviewPassSettled();
     const updated = await wuService.getById(wu.id);
     expect(updated!.status).toBe('done');
+    expect(updated!.effects?.find(effect => effect.id === mergeEffect!.id)).toEqual(expect.objectContaining({
+      status: 'succeeded', attempts: 1,
+    }));
+    expect(updated!.effectReceipts?.filter(receipt => receipt.effectId === mergeEffect!.id).at(-1)).toEqual(expect.objectContaining({
+      outcome: 'succeeded',
+      result: expect.objectContaining({ merged: true, mergeCommit: HEAD }),
+    }));
     expect(updated!.completedAt).not.toBeNull();
     const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
     expect(meta.mergeReceipt).toEqual(expect.objectContaining({
@@ -962,6 +1082,12 @@ describe('B3b-ii: 评审通过后自动合并', () => {
       expect(confirmed.status).toBe('done');
       expect(confirmed.completedAt).not.toBeNull();
       const completedAt = confirmed.completedAt;
+      await waitForReviewPassSettled();
+      const cleaned = await wuService.getById(wu.id);
+      expect(JSON.parse(cleaned!.metadata!).mergeCleanedAt).toEqual(expect.any(String));
+      expect(cleaned!.effects?.find(effect => effect.idempotencyKey === `merge:${wu.id}:cleanup`)).toEqual(expect.objectContaining({
+        kind: 'merge', status: 'succeeded', attempts: 1,
+      }));
       await wuService.reviewPassed(wu.id, { kind: 'human-confirm', by: 'alice' });
       expect((await wuService.getById(wu.id))!.completedAt).toEqual(completedAt);
       expect(completions).toHaveLength(1);
@@ -991,7 +1117,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(meta.mergeConflict).toBeUndefined();
   });
 
-  it('merge effect 非预期异常也转 blocked，不永久卡 merge queued', async () => {
+  it('merge effect 非预期异常进入持久重试，不立即伪造合并回执', async () => {
     const wu = await createWu(worktreeMeta());
     fs.rmSync(REPO, { recursive: true, force: true });
 
@@ -999,10 +1125,13 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     await waitForReviewPassSettled();
 
     const updated = await wuService.getById(wu.id);
-    expect(updated!.status).toBe('blocked');
+    expect(updated!.status).toBe('in_review');
+    expect(updated!.effects?.find(effect => effect.idempotencyKey === `merge:${wu.id}`)).toEqual(expect.objectContaining({
+      kind: 'merge', status: 'queued', attempts: 1,
+    }));
+    expect(updated!.effectReceipts?.at(-1)).toEqual(expect.objectContaining({ outcome: 'retrying' }));
     const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
-    expect(meta.mergeReceipt).toEqual(expect.objectContaining({ merged: false }));
-    expect(meta.blockReason).toContain('merge-effect-failed');
+    expect(meta.mergeReceipt).toBeUndefined();
   });
 
   it('merge 在途禁止拒绝或直接写 done，不能绕过 receipt', async () => {

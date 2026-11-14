@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, eventBus, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
+import { EffectService } from '../../workunit/index.js';
 import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 import { ReviewDispatcher, REVIEW_DISPATCH_RETRY_DELAY_MS } from '../review-dispatcher.js';
 
@@ -289,6 +290,32 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     await restarted.recoverEffects();
     snapshots = await restartedStore.getIndex();
     expect(snapshots.filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(1);
+  });
+
+  it('#708: 评审恢复不消费 queued merge Effect', async () => {
+    eventBus.unsubscribeAll?.('workunit.status_changed');
+    const parent = await wuService.create({
+      scope: '持久合并', type: 'task', channelId: 'ch-test', status: 'active',
+    });
+    await wuService.transitionStatus(parent.id, 'in_review');
+    const effects = new EffectService(fileStore);
+    const persisted = (await fileStore.getIndex({ id: parent.id }))[0]!;
+    for (const effect of persisted.effects ?? []) {
+      if (effect.kind === 'review-dispatch') await effects.cancel(parent.id, effect.id, 'isolate merge recovery');
+    }
+    const merge = await effects.enqueue(parent.id, {
+      kind: 'merge', idempotencyKey: `merge:${parent.id}`, trigger: 'automatic',
+    });
+
+    const restartedStore = new FileStore(tmpDir);
+    const restarted = new ReviewDispatcher(restartedStore, new WorkUnitService(restartedStore));
+    await restarted.recoverEffects();
+
+    const snapshots = await restartedStore.getIndex();
+    expect(snapshots.filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(0);
+    expect(snapshots.find(s => s.id === parent.id)?.effects?.find(effect => effect.id === merge.id)).toMatchObject({
+      kind: 'merge', status: 'queued', attempts: 0,
+    });
   });
 
   it('#707: 崩溃发生在建单后/回执前时认养原子 WU，并记录去重结果', async () => {

@@ -8,6 +8,7 @@ const fileStore = new FileStore(process.env.STUDIO_DATA_DIR);
 const markerFile = process.env.MERGE_MARKER_FILE;
 
 registerWorkUnitPorts({
+  audit: async () => {},
   verification: {
     isCodeWorktreeType: type => ['task', 'bug', 'feature', 'refactor'].includes(type),
     resolveCommands: async () => ({ commands: ['test'], source: 'convention' }),

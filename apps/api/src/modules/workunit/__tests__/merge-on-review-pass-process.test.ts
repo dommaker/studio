@@ -136,6 +136,8 @@ describe('merge delivery-leg process coordination', () => {
     const crashed = await service.getById(item.workUnitId);
     expect(crashed!.status).toBe('in_review');
     expect(JSON.parse(crashed!.metadata!).mergeReceipt).toBeUndefined();
+    const mergeEffect = crashed!.effects?.find(effect => effect.idempotencyKey === `merge:${item.workUnitId}`);
+    expect(mergeEffect).toEqual(expect.objectContaining({ kind: 'merge', status: 'running', attempts: 1 }));
     const { stdout: crashedHead } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
     await execFileAsync('git', ['merge-base', '--is-ancestor', item.sourceCommit, crashedHead.trim()], { cwd: repo });
     const later = await createBranchWorkUnit('wu-later');
@@ -153,6 +155,15 @@ describe('merge delivery-leg process coordination', () => {
       mergeCommit: crashedHead.trim(),
       verification: expect.objectContaining({ status: 'passed' }),
     }));
+    expect(updated!.effects?.find(effect => effect.id === mergeEffect!.id)).toEqual(expect.objectContaining({
+      status: 'succeeded', attempts: 2,
+    }));
+    expect(updated!.effectReceipts?.filter(receipt => receipt.effectId === mergeEffect!.id).at(-1)).toEqual(expect.objectContaining({
+      outcome: 'succeeded', recovery: 'running-reconciled',
+      result: expect.objectContaining({ merged: true, mergeCommit: crashedHead.trim() }),
+    }));
+    const { stdout: mergeLog } = await execFileAsync('git', ['log', '--merges', '--format=%s'], { cwd: repo });
+    expect(mergeLog.split('\n').filter(subject => subject.includes(`merge: ${item.workUnitId} `))).toHaveLength(1);
     const { stdout: recoveredHead } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
     expect(recoveredHead.trim()).toBe(laterHead.trim());
   }, 30_000);
