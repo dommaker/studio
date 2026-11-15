@@ -3,15 +3,15 @@
  *
  * 覆盖（对应 #99 AC + 设计要点）：
  *   AC1: WU done → 触发提取，产出写入角色记忆草稿区（appendDraft）
- *   AC2: 提取输入来自归档器 transcript（readTranscript 拼接 rawOutput），非逐步埋点
- *   AC3: 提取失败可观测（knowledge:extraction 事件）+ 不阻塞收尾（不抛）
- *   - 去重：memoryExtractedAt 哨兵，重复 done 事件不重复提取
+ *   AC2: 提取输入来自归档器 committed transcript（拼接 rawOutput），非逐步埋点
+ *   AC3: 提取失败可观测 + 不阻塞收尾 + 不推进水位，恢复后可重试
+ *   - 去重：memoryExtractedAt 成功哨兵，重复 done 事件不重复提取
  *   - roleId 取不到 → 跳过（no-role-id 事件）
  *   - 熔断：每日 token 预算超限 → 跳过（budget-exhausted 事件），不落哨兵可重试
- *   - 非 done 状态 → 忽略
+ *   - 非 done 状态 → 忽略；启动 recoverPending 续扫完成 WU
  *
- * mock getSystemExecutor（真实 LLM 不可测）；readTranscript/appendTranscriptStep 与
- * roleMemoryStore 走真实实现（测试环境隔离目录）。
+ * mock getSystemExecutor（真实 LLM 不可测）；transcript 与 roleMemoryStore
+ * 走真实实现（测试环境隔离目录）。
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -20,7 +20,7 @@ import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 import type { WorkUnitData } from '../../workunit/workunit-crud.js';
-import { appendTranscriptStep, transcriptsDir } from '../../transcripts/transcript-archive.js';
+import { appendTranscriptStep, finalizeTranscriptAssignment, transcriptsDir } from '../../transcripts/transcript-archive.js';
 import { roleMemoryRoot, roleMemoryStore } from '../role-memory.js';
 import { resetDailyTokenBudgetState } from '../../agent-loop/daily-token-budget.js';
 
@@ -205,9 +205,12 @@ describe('WuCompletionExtractor（#99 AC）', () => {
       content: '根因+责任+预防',
     });
 
-    // 哨兵落档（fire-and-forget 前落，防重复触发）
-    const fresh = await wuService.getById(wu.id);
-    expect(JSON.parse(fresh!.metadata!).memoryExtractedAt).toBeTruthy();
+    // 成功副作用落定后再写成功哨兵。
+    const marked = await waitFor(async () => {
+      const fresh = await wuService.getById(wu.id);
+      return Boolean(JSON.parse(fresh!.metadata ?? '{}').memoryExtractedAt);
+    });
+    expect(marked).toBe(true);
   });
 
   it('AC2: 提取输入来自归档器 transcript（readTranscript 全文），LLM 收到拼接 rawOutput', async () => {
@@ -229,7 +232,42 @@ describe('WuCompletionExtractor（#99 AC）', () => {
     expect(mockRun.mock.calls[0][1]).toMatchObject({ systemPrompt: MEMORY_EXTRACTION_SYSTEM_PROMPT });
   });
 
-  it('AC3: 提取失败不抛（不阻塞收尾），落 failed 事件可观测', async () => {
+  it('写入中的 Assignment 不触发完成提取，也不落成功哨兵', async () => {
+    const roleId = `role-${Date.now()}-writing`;
+    await createProfile(roleId);
+    const wu = await createDoneWu(roleId);
+    await appendTranscriptStep({
+      workUnitId: wu.id, assignmentId: 'still-writing', step: 1, action: 'complete', rawOutput: 'PARTIAL',
+    });
+
+    await extractor.maybeExtract(wu);
+    expect(mockRun).not.toHaveBeenCalled();
+    const fresh = await wuService.getById(wu.id);
+    expect(JSON.parse(fresh!.metadata ?? '{}').memoryExtractedAt).toBeUndefined();
+  });
+
+  it('已有 committed 段但另一 Assignment 仍在写入时，不提前落完成哨兵', async () => {
+    const roleId = `role-${Date.now()}-mixed`;
+    await createProfile(roleId);
+    const wu = await createDoneWu(roleId);
+    await appendTranscriptStep({ workUnitId: wu.id, assignmentId: 'committed-a', step: 1, rawOutput: 'COMMITTED' });
+    await finalizeTranscriptAssignment({ workUnitId: wu.id, assignmentId: 'committed-a', status: 'succeeded' });
+    await appendTranscriptStep({ workUnitId: wu.id, assignmentId: 'writing-a', step: 2, rawOutput: 'PARTIAL' });
+    mockRun.mockResolvedValue({ output: JSON.stringify({ entries: [] }), usage: undefined });
+
+    await extractor.maybeExtract(wu);
+    expect(mockRun).toHaveBeenCalledTimes(1);
+    let fresh = await wuService.getById(wu.id);
+    expect(JSON.parse(fresh!.metadata ?? '{}').memoryExtractedAt).toBeUndefined();
+
+    await finalizeTranscriptAssignment({ workUnitId: wu.id, assignmentId: 'writing-a', status: 'waiting' });
+    await extractor.maybeExtract(fresh!);
+    expect(mockRun).toHaveBeenCalledTimes(2);
+    fresh = await wuService.getById(wu.id);
+    expect(JSON.parse(fresh!.metadata ?? '{}').memoryExtractedAt).toBeTruthy();
+  });
+
+  it('AC3: 提取失败不抛且不推进水位，恢复后可重试', async () => {
     const roleId = `role-${Date.now()}-c`;
     await createProfile(roleId);
     const wu = await createDoneWu(roleId);
@@ -238,7 +276,6 @@ describe('WuCompletionExtractor（#99 AC）', () => {
     mockRun.mockRejectedValueOnce(new Error('LLM down'));
 
     emitStatus(wu, 'done');
-    // 事件订阅链不因提取失败而抛：等 failed 事件落盘
     const ok = await waitFor(async () => {
       const events = await readExtractionEvents();
       return events.some(e => {
@@ -248,10 +285,15 @@ describe('WuCompletionExtractor（#99 AC）', () => {
     });
     expect(ok).toBe(true);
 
-    // 哨兵已落（失败也不重复触发）；草稿未写
-    const fresh = await wuService.getById(wu.id);
-    expect(JSON.parse(fresh!.metadata!).memoryExtractedAt).toBeTruthy();
+    const failed = await wuService.getById(wu.id);
+    expect(JSON.parse(failed!.metadata ?? '{}').memoryExtractedAt).toBeUndefined();
     expect(await roleMemoryStore.readDraft(roleId)).toHaveLength(0);
+
+    mockRun.mockResolvedValueOnce({ output: JSON.stringify({ entries: [] }), usage: undefined });
+    await extractor.maybeExtract(failed!);
+    expect(mockRun).toHaveBeenCalledTimes(2);
+    const recovered = await wuService.getById(wu.id);
+    expect(JSON.parse(recovered!.metadata ?? '{}').memoryExtractedAt).toBeTruthy();
   });
 
   it('去重：memoryExtractedAt 哨兵已存在 → 不重复提取', async () => {
@@ -410,5 +452,33 @@ describe('两档路由（#101：auto→promote / manual→卡）', () => {
     const manualInputs = mockSubmit.mock.calls[0][1];
     expect(manualInputs).toHaveLength(1);
     expect(manualInputs[0].title).toBe('Manual Lesson');
+  });
+
+  it('启动恢复从持久 watermark 续读完成 WU', async () => {
+    const roleId = `role-${Date.now()}-recovery`;
+    await createProfile(roleId);
+    const wu = await wuService.create({ type: 'task', scope: 's', status: 'done', assigneeId: roleId });
+    createdWuIds.push(wu.id);
+    await appendTranscriptStep({ workUnitId: wu.id, step: 1, action: 'complete', rawOutput: 'RECOVERY-RAW' });
+    mockRun.mockResolvedValue({ output: JSON.stringify({ entries: [] }), usage: undefined });
+
+    await extractor.recoverPending();
+    expect(mockRun).toHaveBeenCalledTimes(1);
+    expect(mockRun.mock.calls[0][0]).toContain('RECOVERY-RAW');
+    const fresh = await wuService.getById(wu.id);
+    expect(JSON.parse(fresh!.metadata ?? '{}').memoryExtractedAt).toBeTruthy();
+  });
+
+  it('启动恢复隔离单个 WU 失败，继续处理其余完成任务', async () => {
+    const first = await wuService.create({ type: 'task', scope: 'first', status: 'done' });
+    const second = await wuService.create({ type: 'task', scope: 'second', status: 'done' });
+    createdWuIds.push(first.id, second.id);
+    const maybeExtract = vi.spyOn(extractor, 'maybeExtract')
+      .mockRejectedValueOnce(new Error('first failed'))
+      .mockResolvedValue(undefined);
+
+    await expect(extractor.recoverPending()).resolves.toBeUndefined();
+    expect(maybeExtract).toHaveBeenCalledTimes(2);
+    expect(new Set(maybeExtract.mock.calls.map(call => call[0].id))).toEqual(new Set([first.id, second.id]));
   });
 });

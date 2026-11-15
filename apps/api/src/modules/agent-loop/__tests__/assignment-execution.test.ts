@@ -226,6 +226,31 @@ describe('AgentLoop Assignment 执行轮次', () => {
     expect(completed?.execution?.current?.status).toBe('succeeded');
   });
 
+  it('步骤落盘后再返回，recordResult 在完成事件前提交 transcript 终止标记', async () => {
+    loop = createLoop(vi.fn().mockResolvedValue({
+      success: true,
+      outputText: 'ACTION: COMPLETE:归档完成',
+      rawOutput: '{"type":"result","result":"归档完成"}',
+      totalDurationMs: 1,
+    }));
+    const claimed = await createClaimed();
+    loop.ensureLease(claimed);
+
+    const result = await loop.agentStep({ workUnit: claimed });
+    expect(result.transcriptRecorded).toBe(true);
+    expect(await readTranscript(claimed.id)).toEqual([]);
+
+    await loop.recordResult({ workUnit: claimed }, result);
+    const entries = await readTranscript(claimed.id);
+    expect(entries.filter(entry => entry.rawOutput).map(entry => entry.rawOutput))
+      .toEqual(['{"type":"result","result":"归档完成"}']);
+    expect(entries.at(-1)).toMatchObject({
+      assignmentId: result.assignmentId,
+      kind: 'terminal',
+      status: 'succeeded',
+    });
+  });
+
   it('已取消 Assignment 迟到完成不写 token、执行事件或 transcript', async () => {
     let finishExecution: ((result: ExecutionResult) => void) | null = null;
     loop = createLoop(vi.fn(() => new Promise<ExecutionResult>(resolve => { finishExecution = resolve; })));

@@ -12,13 +12,15 @@
  *
  * 幂等：只在真实迁入 done 时扫描；done 上补证据（previousStatus=done）不触发。
  * 旧事件缺 previousStatus 时保持原触发兼容，聚合侧仍按 (skill, workUnitId) 去重。
+ * #712：skill-usage 独立 watermark 只读 committed 增量；事件全部写成功才推进，启动续扫恢复。
  *
  * 宽口径说明：agent 在文本中提及路径而未真读也算命中（罕见，接受）；数据积累后
  * 如需收紧另议。
  */
-import { eventBus, writeStudioEvent } from '@dommaker/studio-shared';
-import { readTranscript } from '../transcripts/index.js';
+import { eventBus, FileStore, writeStudioEvent } from '@dommaker/studio-shared';
+import { consumeTranscript, reconcileTranscriptAssignments } from '../transcripts/index.js';
 import type { WorkUnitData } from '../workunit/index.js';
+import { getStore } from '../../core/store.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 /**
@@ -39,6 +41,8 @@ export function extractUsedSkillNames(text: string): string[] {
 export class SkillUsageScanner {
   private subscribed = false;
 
+  constructor(private readonly fileStore: FileStore = getStore()) {}
+
   /** 订阅 workunit.status_changed（done 触发）。幂等。 */
   subscribeToEvents(): void {
     if (this.subscribed) return;
@@ -54,29 +58,42 @@ export class SkillUsageScanner {
     });
   }
 
+  /** 启动时续扫完成 WU；单个失败保留其水位，不阻断其他任务恢复。 */
+  async recoverPending(): Promise<void> {
+    const snapshots = await this.fileStore.listCurrentSnapshots();
+    for (const snapshot of snapshots.filter(item => item.status === 'done')) {
+      await this.scan({ id: snapshot.id } as WorkUnitData).catch(err =>
+        logger.warn('[SkillUsageScan] recovery failed (non-blocking)', { wuId: snapshot.id, error: String(err) }));
+    }
+  }
+
   /**
-   * 扫一个 WU 的归档 transcript，每命中 skill 发射一条 knowledge:skill_used
-   * （channel=transcript，level=info signal——提级后归信号档：热 30 天 → 月度 gz 归档，
-   * 不再随噪声 7 天滚动删除）。返回命中名单（测试/观测用）。
+   * 扫一个 WU 的 committed transcript，每命中 skill 发射一条 knowledge:skill_used。
+   * 全部事件写成功后 consumeTranscript 才推进本消费者的独立水位。
    */
   async scan(wu: WorkUnitData): Promise<string[]> {
-    const entries = await readTranscript(wu.id);
-    const text = entries.map(e => e.rawOutput ?? '').join('\n');
-    const names = extractUsedSkillNames(text);
-    for (const skillName of names) {
-      await writeStudioEvent('knowledge:skill_used', {
-        skillName,
-        workUnitId: wu.id,
-        channel: 'transcript',
-      }, { source: 'skill-usage-scan', level: 'info' }).catch(err => {
-        logger.warn('[SkillUsageScan] emit skill_used failed', { wuId: wu.id, skillName, error: String(err) });
-        return false;
-      });
-    }
-    if (names.length > 0) {
-      logger.info('[SkillUsageScan] skill usage emitted', { wuId: wu.id, skills: names });
-    }
-    return names;
+    const snapshot = (await this.fileStore.getIndex({ id: wu.id }))[0];
+    if (snapshot) await reconcileTranscriptAssignments(snapshot);
+    const result = await consumeTranscript(wu.id, 'skill-usage', async entries => {
+      const text = entries.map(e => e.rawOutput ?? '').join('\n');
+      const names = extractUsedSkillNames(text);
+      for (const skillName of names) {
+        const written = await writeStudioEvent('knowledge:skill_used', {
+          skillName,
+          workUnitId: wu.id,
+          channel: 'transcript',
+        }, { source: 'skill-usage-scan', level: 'info' }).catch(err => {
+          logger.warn('[SkillUsageScan] emit skill_used failed', { wuId: wu.id, skillName, error: String(err) });
+          throw err;
+        });
+        if (!written) throw new Error(`skill_used write failed: ${skillName}`);
+      }
+      if (names.length > 0) {
+        logger.info('[SkillUsageScan] skill usage emitted', { wuId: wu.id, skills: names });
+      }
+      return names;
+    });
+    return result.value;
   }
 }
 
@@ -86,5 +103,7 @@ let _scanner: SkillUsageScanner | null = null;
 export function initSkillUsageScan(): SkillUsageScanner {
   if (!_scanner) _scanner = new SkillUsageScanner();
   _scanner.subscribeToEvents();
+  void _scanner.recoverPending().catch(err =>
+    logger.warn('[SkillUsageScan] startup recovery failed (non-blocking)', { error: String(err) }));
   return _scanner;
 }

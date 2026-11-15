@@ -8,6 +8,7 @@ import { ExecutionJournal } from '../execution-journal.js';
 import { loadRecoveryPacket } from '../recovery.js';
 import { parseWuMetadata } from '../wu-metadata.js';
 import { WorkUnitService } from '../workunit-review.js';
+import { appendTranscriptStep, transcriptPath } from '../../transcripts/index.js';
 
 let tmpDir: string;
 let repo: string;
@@ -131,5 +132,43 @@ describe('#711 StepRecord 与恢复包', () => {
       root: path.join(tmpDir, 'missing'), branch: null, commit: null, dirty: null,
     });
     expect(JSON.stringify(packet)).not.toContain('deadbeef');
+  });
+
+  it('恢复包只保留已提交 transcript 引用，Assignment 终止后可重读', async () => {
+    const created = await service.create({ scope: '恢复原文', type: 'task', status: 'unassigned' });
+    const claimed = await service.claim(created.id, 'instance-1');
+    const assignmentId = claimed.execution!.current!.id;
+    const journal = new ExecutionJournal(new WorkUnitMetadataRepository(store));
+    await journal.beginStep({ wu: claimed, provider: 'claude' });
+    const ref = `${transcriptPath(created.id)}#step=1`;
+    try {
+      await journal.recordStepResult({
+        wu: claimed, metadata: parseWuMetadata(claimed.metadata), action: 'progress',
+        result: {
+          action: 'progress', assignmentId, summary: '留下原文',
+          transcriptRecorded: true, stepRecord: { transcriptRefs: [ref] },
+        },
+        guardUpdates: {}, freshnessUpdates: {},
+        bookkeeping: { stepCount: 1, consecutiveStuck: 0, waitingUpdates: {}, blockReasonUpdates: {} },
+      });
+      await appendTranscriptStep({
+        workUnitId: created.id, assignmentId, step: 1, action: 'progress', rawOutput: 'committed later',
+      });
+
+      const writing = await loadRecoveryPacket(store, (await service.getById(created.id))!);
+      expect(writing!.transcriptRefs).toEqual([]);
+
+      const running = (await service.getById(created.id))!;
+      await journal.recordStepResult({
+        wu: running, metadata: parseWuMetadata(running.metadata), action: 'need_input',
+        result: { action: 'need_input', assignmentId, summary: '等待回复' },
+        guardUpdates: {}, freshnessUpdates: {},
+        bookkeeping: { stepCount: 2, consecutiveStuck: 1, waitingUpdates: {}, blockReasonUpdates: {} },
+      });
+      const committed = await loadRecoveryPacket(store, (await service.getById(created.id))!);
+      expect(committed!.transcriptRefs).toEqual([ref]);
+    } finally {
+      fs.rmSync(transcriptPath(created.id), { force: true });
+    }
   });
 });

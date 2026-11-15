@@ -19,7 +19,7 @@ import {
   type PromptComposerDeps,
 } from '../prompt-composer.js';
 import { runStepRetry, resetUnestablishedSessionBookkeeping } from '../step-retry-policy.js';
-import { appendTranscriptStep, transcriptPath } from '../../transcripts/index.js';
+import { appendTranscriptStep, transcriptPath, transcriptStepRef } from '../../transcripts/index.js';
 import type { StepDeps } from './loop-deps.js';
 import { logger } from '@dommaker/studio-shared/node';
 
@@ -321,18 +321,25 @@ export async function executeAgentStep(
       } catch { /* non-blocking */ }
     }
 
-    // #97: transcript 归档 —— 本步原文（raw CLI stdout，provider 无关）追加到 per-WU
-    // 归档文件（JSONL，studioPath('transcripts/<wuId>.jsonl')）。三消费方（#99 WU 收尾
-    // 提取、handoff 摘要、#85 执行质量评估）共用；fire-and-forget，失败绝不阻断任务流程。
+    // #712：步骤写盘完成后再返回，transcriptRecorded 只报告真实落盘结果。
+    // 写失败不阻断任务流程；StepRecord 保留预期引用，后续对账会把残缺段标为 failed。
+    let transcriptRecorded = false;
     if (toolTraceSource) {
-      void appendTranscriptStep({
-        workUnitId: wu.id,
-        assignmentId,
-        sessionId: effectiveSessionId ?? undefined,
-        step: stepNo,
-        action: stepResult.action,
-        rawOutput: toolTraceSource,
-      }).catch(() => {});
+      // 解析/记账等 await 之后立即复核，缩小换代后迟到原文的写入窗。
+      if (!(await assignmentIsCurrent())) return staleResult();
+      try {
+        await appendTranscriptStep({
+          workUnitId: wu.id,
+          assignmentId,
+          sessionId: effectiveSessionId ?? undefined,
+          step: stepNo,
+          action: stepResult.action,
+          rawOutput: toolTraceSource,
+        });
+        transcriptRecorded = true;
+      } catch (err) {
+        logger.warn('[AgentLoop] transcript append failed (non-blocking)', { workUnitId: wu.id, assignmentId, error: String(err) });
+      }
     }
 
     // WU 过程可视化：执行步事件（本步思考/工具调用/skill 注入/用量 → 事件流落盘 + SSE，
@@ -399,14 +406,14 @@ export async function executeAgentStep(
       commands: [...commands.values()],
       transcriptRefs: [...new Set([
         ...(reported?.transcriptRefs ?? []),
-        ...(toolTraceSource ? [`${transcriptPath(wu.id)}#step=${stepNo}`] : []),
+        ...(toolTraceSource ? [transcriptStepRef(wu.id, stepNo)] : []),
       ])],
     };
 
     return {
       ...stepResult,
       assignmentId,
-      transcriptRecorded: Boolean(toolTraceSource),
+      transcriptRecorded,
       stepRecord,
       metadataUpdates,
       channelVersion,

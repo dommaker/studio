@@ -15,7 +15,7 @@
 import { z } from 'zod';
 import { dataBodySchema } from './envelope.js';
 
-// ── 实体：TranscriptEntry（JSONL 一行 = 一步）──
+// ── 实体：TranscriptEntry（JSONL 一行 = step 或 Assignment terminal；watermark 不经 HTTP 暴露）──
 
 export const transcriptEntrySchema = z.object({
   workUnitId: z.string(),
@@ -28,6 +28,11 @@ export const transcriptEntrySchema = z.object({
   action: z.string().optional(),
   /** 本步原文（raw CLI stdout；provider 无关，全文保留不截断） */
   rawOutput: z.string().optional(),
+  /** 稳定内容身份与 Assignment 提交状态（#712，additive） */
+  contentId: z.string().optional(),
+  kind: z.enum(['step', 'terminal']).optional(),
+  status: z.enum(['succeeded', 'waiting', 'failed', 'superseded', 'cancelled']).optional(),
+  reason: z.string().optional(),
   /** 归档时间 ISO 8601 */
   createdAt: z.string(),
 });

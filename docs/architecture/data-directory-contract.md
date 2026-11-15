@@ -53,7 +53,7 @@ data/
 - 用户配置：`config.env`、`providers.json`（provider 覆盖，深合并语义，`packages/studio-shared/src/providers.ts:242`；可选，用户创建）。
 - 认证与密钥：`users.json`、`sessions.json`（auth session 数组）、`.daemon/`（`jwt-secret`、`encryption-key`、`admin-token` 等，CLI 自举，`apps/api/src/cli/server.ts:39-61`）。
 - 索引与状态：`skills-index.json`、`mcp-permissions.json`、`projects.json`（CLI 工程注册清单，与 `projects/` 目录是两回事）、`session-checkpoint.json`、`active-project`（CLI 当前项目指针）。
-- 程序数据目录：`agents-registry/`、`auditor/`（daily-snapshots.jsonl append-only）、`data/` 见①、`distill/`（提案与 runs jsonl）、`knowledge/`（FileKnowledgeStore 唯一库 + resolution md）、`okr/`（含 kr-history.jsonl append-only）、`projects/`（PMO 项目逐文件 JSON）、`skills/`（每 skill 一子目录，hash 升级机制）、`snapshots/`（环境快照）、`transcripts/`（按 WU 会话原文）、`triggers/`、`workspaces/`（`{id}.json`，内嵌 runtimes）、`.analyst/`（CLI analyst 工作目录）。
+- 程序数据目录：`agents-registry/`、`auditor/`（daily-snapshots.jsonl append-only）、`data/` 见①、`distill/`（提案与 runs jsonl）、`knowledge/`（FileKnowledgeStore 唯一库 + resolution md）、`okr/`（含 kr-history.jsonl append-only）、`projects/`（PMO 项目逐文件 JSON）、`skills/`（每 skill 一子目录，hash 升级机制）、`snapshots/`（环境快照）、`transcripts/`（按 WU 会话原文；#712 起同一 JSONL 内 additive 记录 step/terminal/per-consumer watermark，旧无 kind 步骤兼容，不新增目录或 schema 版本）、`triggers/`、`workspaces/`（`{id}.json`，内嵌 runtimes）、`.analyst/`（CLI analyst 工作目录）。
 - 事件流：`mcp-audit-logs.jsonl`（append-only）。
 - 契约新增（本票冻结，实现票落地）：`harness-knowledge/`（KNOWLEDGE_DIR 归数据根，见 §8）、`tunnel-url`（TUNNEL_URL_FILE 归数据根，见 §8）、`data/manifest.json`（版本标记，见 §5）。
 

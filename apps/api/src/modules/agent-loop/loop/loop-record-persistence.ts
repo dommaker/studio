@@ -6,6 +6,7 @@ import type { CompletionGuardNotices } from '../completion-gates.js';
 import type { StepResult } from '../agent-loop.types.js';
 import type { ResultRecorderDeps } from './loop-deps.js';
 import { logger } from '@dommaker/studio-shared/node';
+import { reconcileTranscriptAssignments } from '../../transcripts/index.js';
 
 /** 步骤数上限：超限强制 in_review 交人工。review WU 单独放宽——
  *  评审职责是读不是写，无提交守卫豁免后正常 ≤5 步收口；阈值仅是防死循环的安全阀 */
@@ -98,5 +99,14 @@ export async function persistResultBookkeeping(
   const recorded = await deps.executionJournal.recordStepResult({
     wu, metadata, action, result, guardUpdates, freshnessUpdates, bookkeeping,
   });
+  if (recorded) {
+    // 必须先通过 Assignment fencing 再补 terminal；完成事件在本函数返回后才发布。
+    // 对账写失败保留未完成段，消费者启动/读取时会按同一快照重试。
+    try {
+      await reconcileTranscriptAssignments(recorded);
+    } catch (err) {
+      logger.warn('[AgentLoop] transcript reconcile failed (non-blocking)', { workUnitId: wuId, error: String(err) });
+    }
+  }
   return { recorded: Boolean(recorded), stepCount, consecutiveStuck, blockReasonUpdates, stepLimit };
 }

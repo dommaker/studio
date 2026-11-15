@@ -10,6 +10,7 @@ import { withDirectoryCapability } from '@dommaker/studio-shared/node';
 import { execFileAsync } from '../../core/exec-async.js';
 import { verificationFromMetadata, type WorkUnitData } from './workunit-crud.js';
 import { parseWuMetadata } from './wu-metadata.js';
+import { consumeTranscript, parseTranscriptStepRef, reconcileTranscriptAssignments, transcriptStepRef } from '../transcripts/index.js';
 
 export interface RecoveryRepositoryState {
   root: string;
@@ -119,7 +120,16 @@ export async function loadRecoveryPacket(
     ?? metadata.workspaceRoot
     ?? snapshot.projectPath;
   const repository = root ? await readRecoveryRepository(root) : null;
-  return createRecoveryPacket(snapshot, repository);
+  await reconcileTranscriptAssignments(snapshot);
+  const result = await consumeTranscript(snapshot.id, 'recovery', async entries => {
+    const committedRefs = new Set(entries.map(entry => transcriptStepRef(snapshot.id, entry.step)));
+    const packet = createRecoveryPacket(snapshot, repository);
+    // 外部引用原样保留；本归档的引用必须能定位到 committed step/terminal。
+    packet.transcriptRefs = packet.transcriptRefs.filter(ref =>
+      parseTranscriptStepRef(snapshot.id, ref) === null || committedRefs.has(ref));
+    return packet;
+  }, { replay: true });
+  return result.value;
 }
 
 function unique(values: string[]): string[] {
