@@ -9,7 +9,7 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 ### 核心导出
 
 - `index.ts` — 模块公共出口 barrel（P2-c 立界：跨模块唯一合法 import 面，实际消费反推生成；深路径 import 由 eslint `local/no-deep-module-import` 拦截）
-- `project-read-port.ts` — ARCH-04 Requirements 持有的 PMO 只读端口与最小结构模型：项目 get/list/别名/杂务查询 + 交付纯投影 + WU→腿归属；实现由 bootstrap `project-read-sinks.ts` 装配，生产未注册 fail-fast，禁止静态/type-only/动态 import PMO 回退。Requirements 因此退出 PMO SCC（17→16）
+- `project-read-port.ts` — ARCH-04 Requirements 持有的 PMO 只读端口与最小结构模型：项目 get/list/别名/杂务查询 + 交付纯投影 + WU→腿归属；实现由 bootstrap `project-read-sinks.ts` 装配，生产未注册 fail-fast，禁止静态/type-only/动态 import PMO 回退。Requirements 因此退出 PMO SCC（17→16）；#715 起 `ProjectReadData` 增可选 `companyId` 并导出 `projectReadPort()`，供 agent-loop 构造 company/project 知识召回作用域
 - `requirement.service.ts` — Requirement Service（REQ CRUD 与编号分配；B3a: projectId 挂接 PMO 项目；决策 4 别名层 get/list/update/getChain 别名感知；createFromDispatch：#636 A′ 裁决——无 token 派单先派生频道当前 PMO 第一级（最近挂接 REQ 所属非杂务 PMO），命中新 REQ 挂接其 projectId；派生落杂务/无结果/失败降级决策 2 杂务归集（只查不建）→ 孤儿新建）。ARCH-04 起所有缺省 PMO 读路径只经 `ProjectReadPort`，不再加载 PMO barrel/WU/频道链
 - `requirement.routes.ts` — Requirement API 路由
 - `req-binding.ts` — REQ 绑定解析（显式 reqId > #REQ-XXXX token > #PMO-n/#PM-n token（决策 4 别名层解析，无别名存量拒绝歧义降级）> 自动新建（含 #636 当前 PMO 挂接）），@mention / new-task / convert-to-task 共用
