@@ -255,8 +255,8 @@ export interface WorkUnitMetadata {
     summary?: string;         // LLM 输出摘要（截断，成功时落）
     error?: string;           // 失败原因（spawn 失败/超时/仍有残留冲突/重放 merge 失败）
   };
-  knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
-  memoryExtractedAt?: string;    // #99: WU 收尾角色记忆批量提取已触达时间戳（去重——同一 WorkUnit 只提取一次；区别于 R3 的 knowledgeExtractedAt）
+  knowledgeExtractedAt?: string; // legacy 触达哨兵；#716 起不再写入或作为成功/去重依据，成功看 knowledge-extraction Effect/Receipt
+  memoryExtractedAt?: string;    // #99: WU 收尾角色记忆批量提取成功时间戳（区别于 legacy knowledgeExtractedAt）
   matchedSkills?: string[];   // 决策 7: step 时域匹配命中并实际注入的 skill 名（agent-loop 落盘，度量用）
   lastCommitHash?: string;    // §10.5: PROGRESS 无提交监视 — 上次观察到的 worktree HEAD
   noCommitSteps?: number;     // §10.5: 连续无新提交步数（满 3 步频道提醒一次并归零）

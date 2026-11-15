@@ -20,7 +20,7 @@
 | `demote` | `role-memory.ts` | 拒绝草稿：追加 rejected 墓碑行 |
 | `checkCapacity` | `role-memory.ts` | 容量检查：超限 -> 结构化提醒（不拒绝写入） |
 | `roleMemoryDir` / `sanitizeRoleId` / `sanitizeTopicSlug` | `role-memory.ts` | 路径函数 + 路径穿越防护 |
-| `MemoryProposalStore` / `submitMemoryProposal` | `review-adapter.ts` | review-proposal 正本 adapter（#353）：per-role draft.jsonl 存取（读侧归一）+ 一批草稿聚合一张 memory_proposal 卡（cardData 形状同 #101 旧卡） |
+| `MemoryProposalStore` / `submitMemoryProposal` / `repostMemoryProposal` | `review-adapter.ts` | review-proposal 正本 adapter（#353）：per-role draft.jsonl 存取 + 聚合 memory_proposal 卡；#716 起蒸馏恢复可重发 card-failed 原卡，不重复写草稿 |
 | `registerMemoryReviewAdapter` | `review-adapter.ts` | 注册 kind='memory' adapter（onApprove→promote / onReject→demote）；initWuCompletionExtraction 装配 + submit 自助注册 |
 | `WuCompletionExtractor` / `initWuCompletionExtraction` | `completion-extraction.ts` | WU 收尾提取钩子 + 单例工厂；`recoverPending()` 启动续扫 done WU 的未消费 watermark |
 | `buildTranscriptText` / `normalizeDraftInput` | `completion-extraction.ts` | 纯函数：transcript 拼接 / appendDraft 入参转换 |

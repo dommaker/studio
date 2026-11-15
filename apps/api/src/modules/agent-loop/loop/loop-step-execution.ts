@@ -380,11 +380,10 @@ export async function executeAgentStep(
     // R1: 携带本次注入的知识条目 id，反馈环才有数据
     deps.recordExecutionOutcome(wu, result, injectedKnowledgeIds).catch(() => {});
 
-    // #715：只暂存会话；真正提取延迟到 recordResult 的最终守卫与 StepRecord 持久化之后，
-    // 避免 Agent 自报 COMPLETE 但守卫驳回时把失败/未合并工作误记为成功实践。
+    // #716：只暂存完成事实；真正输入由 Effect 从 committed transcript 恢复读取，
+    // 成功由 Effect/Receipt 表达，不再提前写 knowledgeExtractedAt 哨兵。
     let learningConversation: { role: string; content: string }[] | undefined;
-    if (stepResult.action === 'complete' && !metadata.knowledgeExtractedAt) {
-      metadataUpdates.knowledgeExtractedAt = new Date().toISOString();
+    if (stepResult.action === 'complete') {
       learningConversation = [
         { role: 'user', content: wu.scope ?? '' },
         ...pendingReplies.map(content => ({ role: 'user', content })),

@@ -169,6 +169,10 @@ describe('overviewMetricsSchema（D16 九组 + #456 + F6）', () => {
     effects: {
       description: 'd', byStatus: { queued: 1 }, receiptsByOutcome: { succeeded: 2 }, recoveryChecks: 1, duplicatesPrevented: 1,
     },
+    knowledgePublishing: {
+      description: 'd', byState: { 'distill:failed': 1 }, failed: 1, retryAfter: 0, cardFailed: 0, staleRunning: 0,
+      items: [{ id: 'dr-1', kind: 'distill', state: 'failed', attempts: 3, updatedAt: '2026-07-27T00:00:00.000Z' }],
+    },
     source: 'events',
   };
 
@@ -176,6 +180,8 @@ describe('overviewMetricsSchema（D16 九组 + #456 + F6）', () => {
     expect(overviewMetricsResponseSchema.parse({ data: overview }).data.stuck.blocked).toBe(1);
     expect(overviewMetricsResponseSchema.parse({ data: overview }).data.evidence.mergeDivergence).toBe(1);
     expect(overviewMetricsResponseSchema.parse({ data: overview }).data.evidence.doneWithoutReceipt).toBe(2);
+    expect(overviewMetricsResponseSchema.parse({ data: overview }).data.knowledgePublishing.items[0].kind).toBe('distill');
+    expect(() => overviewMetricsResponseSchema.parse({ data: { ...overview, knowledgePublishing: undefined } })).toThrow();
     expect(() => humanInterventionMetricsSchema.parse({
       ...overview.humanIntervention, avgPerCompletedWu: undefined,
     })).toThrow();

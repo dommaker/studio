@@ -23,6 +23,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import {
   createJsonlReviewAdapter,
+  repostProposal,
   type ApproveOutcome,
   type ReviewProposalAdapter,
 } from '../review-proposal/index.js';
@@ -138,4 +139,9 @@ export async function submitSkillProposal(
   input: Omit<SkillReviewProposal, 'id' | 'createdAt'>,
 ): Promise<{ proposalId: string; posted: boolean }> {
   return skillKit.submit(input);
+}
+
+/** 蒸馏恢复：复用已有 skill 提案重发人审卡，不新建 draft 或提案。 */
+export async function repostSkillProposal(proposalId: string): Promise<{ posted: boolean }> {
+  return repostProposal(getSkillReviewAdapter(), proposalId);
 }

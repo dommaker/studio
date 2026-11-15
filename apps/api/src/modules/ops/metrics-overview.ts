@@ -16,6 +16,8 @@ import type {
   Failure24hMetrics,
   EvidenceMetrics,
   EffectMetrics,
+  KnowledgePublishingMetrics,
+  KnowledgePublishingRun,
   OverviewMetrics,
 } from './metrics.types.js';
 
@@ -36,6 +38,8 @@ export interface OverviewAggregateInput {
   resolveAssigneeProfile: AssigneeProfileResolver;
   /** profileId → name */
   profileNames: Map<string, string>;
+  /** #716：蒸馏运行只读投影；纯函数测试可缺省。 */
+  distillRuns?: KnowledgePublishingRun[];
   now: number;
   windowDays?: number;
 }
@@ -609,6 +613,71 @@ function aggregateEffects(ctx: OverviewContext): EffectMetrics {
   };
 }
 
+const KNOWLEDGE_PUBLISHING_STALE_RUNNING_MS = 15 * 60_000;
+
+function aggregateKnowledgePublishing(ctx: OverviewContext): KnowledgePublishingMetrics {
+  const byState: Record<string, number> = {};
+  const items: KnowledgePublishingMetrics['items'] = [];
+  let failed = 0;
+  let retryAfter = 0;
+  let staleRunning = 0;
+
+  const add = (item: KnowledgePublishingMetrics['items'][number]): void => {
+    byState[`${item.kind}:${item.state}`] = (byState[`${item.kind}:${item.state}`] ?? 0) + 1;
+    if (item.state === 'failed') failed++;
+    if (item.state === 'retry-after') retryAfter++;
+    const stale = item.state === 'running'
+      && ctx.now - Date.parse(item.updatedAt) > KNOWLEDGE_PUBLISHING_STALE_RUNNING_MS;
+    if (stale) staleRunning++;
+    if (item.state === 'failed' || item.state === 'retry-after' || item.state === 'needs_reconciliation' || stale) {
+      items.push(item);
+    }
+  };
+
+  for (const snapshot of ctx.input.snapshots) {
+    for (const effect of snapshot.effects ?? []) {
+      if (effect.kind !== 'knowledge-extraction') continue;
+      const state = effect.status === 'queued'
+        ? effect.nextAttemptAt ? 'retry-after' : 'triggered'
+        : effect.status;
+      add({
+        id: effect.id,
+        kind: 'knowledge-extraction',
+        state,
+        workUnitId: effect.workUnitId,
+        attempts: effect.attempts,
+        updatedAt: effect.updatedAt,
+        ...(effect.nextAttemptAt ? { nextAttemptAt: effect.nextAttemptAt } : {}),
+        ...(effect.lastError ? { lastError: effect.lastError } : {}),
+      });
+    }
+  }
+  for (const run of ctx.input.distillRuns ?? []) {
+    const state = run.outcome === 'executed' ? 'succeeded' : run.outcome;
+    const lastError = run.lastError ?? run.error;
+    add({
+      id: run.id,
+      kind: 'distill',
+      state,
+      attempts: run.attempts ?? (state === 'triggered' ? 0 : 1),
+      updatedAt: run.executedAt,
+      ...(run.nextAttemptAt ? { nextAttemptAt: run.nextAttemptAt } : {}),
+      ...(lastError ? { lastError } : {}),
+    });
+  }
+  const cardFailed = (ctx.input.distillRuns ?? [])
+    .filter(run => (run.lastError ?? run.error)?.startsWith('landing-card-failed:')).length;
+  return {
+    description: '知识提取与蒸馏的持久发布状态；failed、retry-after、card-failed、needs_reconciliation 或 running 超过 15 分钟需要运营核查',
+    byState,
+    failed,
+    retryAfter,
+    cardFailed,
+    staleRunning,
+    items,
+  };
+}
+
 export function aggregateOverview(input: OverviewAggregateInput): OverviewMetrics {
   const ctx = buildOverviewContext(input);
   const taskFlow = aggregateTaskFlow(ctx);
@@ -624,8 +693,9 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
   const failure24h = aggregateFailure24h(ctx);
   const evidence = aggregateEvidence(ctx);
   const effects = aggregateEffects(ctx);
+  const knowledgePublishing = aggregateKnowledgePublishing(ctx);
 
-  const hasData = input.snapshots.length > 0 || input.wuEvents.length > 0 || input.events.length > 0;
+  const hasData = input.snapshots.length > 0 || input.wuEvents.length > 0 || input.events.length > 0 || (input.distillRuns?.length ?? 0) > 0;
   return {
     windowDays: ctx.windowDays,
     generatedAt: new Date(ctx.now).toISOString(),
@@ -641,6 +711,7 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
     failure24h,
     evidence,
     effects,
+    knowledgePublishing,
     source: hasData ? 'events' : 'insufficient-data',
   };
 }

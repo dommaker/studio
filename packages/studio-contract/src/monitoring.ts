@@ -323,6 +323,27 @@ export const effectMetricsSchema = z.object({
 });
 export type EffectMetrics = z.infer<typeof effectMetricsSchema>;
 
+/** #716：知识提取与蒸馏发布异常只读投影。 */
+export const knowledgePublishingMetricsSchema = z.object({
+  description: z.string(),
+  byState: z.record(z.string(), z.number()),
+  failed: z.number().int().nonnegative(),
+  retryAfter: z.number().int().nonnegative(),
+  cardFailed: z.number().int().nonnegative(),
+  staleRunning: z.number().int().nonnegative(),
+  items: z.array(z.object({
+    id: z.string(),
+    kind: z.enum(['knowledge-extraction', 'distill']),
+    state: z.string(),
+    workUnitId: z.string().optional(),
+    attempts: z.number().int().nonnegative(),
+    updatedAt: z.string(),
+    nextAttemptAt: z.string().optional(),
+    lastError: z.string().optional(),
+  })),
+});
+export type KnowledgePublishingMetrics = z.infer<typeof knowledgePublishingMetricsSchema>;
+
 /** GET /overview 响应 data（前端只消费 evidence/roles/humanIntervention/alerts/stuck/failure24h
  * 六段，其余段落正本声明不裁剪） */
 export const overviewMetricsSchema = z.object({
@@ -340,6 +361,7 @@ export const overviewMetricsSchema = z.object({
   failure24h: failure24hMetricsSchema,
   evidence: evidenceMetricsSchema,
   effects: effectMetricsSchema,
+  knowledgePublishing: knowledgePublishingMetricsSchema,
   source: metricsSourceSchema,
 });
 export type OverviewMetrics = z.infer<typeof overviewMetricsSchema>;

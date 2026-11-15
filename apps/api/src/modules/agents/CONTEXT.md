@@ -2,7 +2,7 @@
 
 ### 职责
 
-Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言——正本在 core/system-role.ts 本模块直引、default-provider/default-triggers、session-summary）。REST API CRUD + 事件驱动自动挂载/运行/终止。
+Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言——正本在 core/system-role.ts 本模块直引、default-provider/default-triggers）。REST API CRUD + 事件驱动自动挂载/运行/终止。
 
 P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 超级域五个子系统 + Triage 已拆分为顶层模块——决策循环 `modules/agent-loop`、健康监控 `modules/agent-monitor`（含 instance-timeout-scan）、日审 `modules/agent-auditor`、进程守护 `modules/agent-ops`、知识维护 `modules/agent-knowledge`、Triage 并入 `modules/triage`。其后 #683（2026-10-09）将 agent-monitor / agent-ops / monitoring / src/monitoring 四面合并为 `modules/ops`。
 
@@ -16,20 +16,18 @@ P2-d（2026-10，docs/plans/2026-10-agents-superdomain-split.md）：原 agents 
 - `default-triggers.ts` — 10 个系统 trigger（inspection-scan/dispatch-reconciliation/doc-semantic-review/#523 workunit-gate-escalation 等）
 - `system-executor.ts` — SystemExecutor 系统级 LLM 直调（读 studio 角色 provider，轻量 spawn 无状态；6+ 模块经 barrel 消费）
 - ~~`system-role.ts`~~ — 系统角色断言 re-export 壳已随 2026-10-16 批次 F 删除：正本 `core/system-role.ts`，agents 内部消费方与 barrel 均直引 core，无行为变化
-- `session-summary.service.ts` — 会话级知识提取（daemon 启动/6h 增量，纯代码无 LLM；2026-10-03 D 批/#663 起 git 子进程全链走 `core/exec-async.execFileAsync`——原 execFileSync 首跑全量提取阻塞事件循环 ≈10s；2026-10-08 #675 起提取循环逐条 `setImmediate` 让出——首跑 HEAD~50..HEAD 在合并历史下可达数百提交（实测 692），逐条同步 ingest 写的 microtask 紧循环曾饿死事件循环 ≈3.3s，见 performance-baseline.md §10；#715 起 session-summary 产物带 repo 作用域、完整 commit、提取版本与 unknown 验证/交付结果，不把 commit 存在冒充已验证合并）
+- ~~`session-summary.service.ts`~~ — #716 退役：实际扫描 Git commit 而非会话，且 checkpoint 会越过失败；真实 session summary 归 `modules/events/session-summary-generator.ts`，历史 `session-checkpoint.json` 不再读写。
 
 ### 核心导出
 
-- `index.ts` — 模块公共出口 barrel：`AgentInstanceService`/`INSTANCE_ALIVE_TIMEOUT_MS`/`summarizeRoleStates`、`ensureStudioProfile`、`backfillProfileProviders`、`registerDefaultTriggers`、`sessionSummaryService`、`getSystemExecutor`/`StudioRoleNotConfiguredError`、`isSystemRole`/`STUDIO_ROLE_NAME`（直 re-export `core/system-role.js`，批次 F 起无中间壳）、`aggregateTreeTokens`/`sumTokensForWorkUnits`
+- `index.ts` — 模块公共出口 barrel：`AgentInstanceService`/`INSTANCE_ALIVE_TIMEOUT_MS`/`summarizeRoleStates`、`ensureStudioProfile`、`backfillProfileProviders`、`registerDefaultTriggers`、`getSystemExecutor`/`StudioRoleNotConfiguredError`、`isSystemRole`/`STUDIO_ROLE_NAME`（直 re-export `core/system-role.js`）、`aggregateTreeTokens`/`sumTokensForWorkUnits`
 
 ### 依赖关系
 
 - 上游：`@dommaker/studio-shared`、`@dommaker/studio-agent`（AgentRunner/worktree）、`core/`（store/system-role）、`modules/workunit`（实例-WU 聚合、token 聚合）、`modules/triggers`（default-triggers）、`middleware/`、`utils/`
-- 下游：`route-registry.ts`（profile/instance 两条路由线挂载；token-usage 线已随 Phase 4 批5 删除）、`bootstrap/`（agent-loop/handlers/warmup 装配）、`modules/agent-loop`/`modules/agent-knowledge`（system-executor）、`modules/ops`（agent-instance 聚合，#683 起 monitor 并入 ops）、`modules/channels`/`modules/knowledge`/`modules/distill`/`modules/role-memory`/`modules/skills`（system-executor/summarizeRoleStates 等，部分动态）
+- 下游：`route-registry.ts`、`bootstrap/`、`modules/agent-loop`/`modules/agent-knowledge`（system-executor）、`modules/ops`、`modules/channels`/`modules/knowledge`/`modules/distill`/`modules/role-memory`/`modules/skills`（部分动态）
 
 ### 注意事项
-
-- **fs 直写保留理由（P2-e 登记）**：`session-summary.service.ts` 的 `session-checkpoint.json`（根级检查点，契约 §8 登记条目）为同步写，布局冻结不改 FileStore 域方法；路径经 `studioPath()`。
 > P2-d 注：下列注意事项多数条目描述的运行口径（决策循环/派单链/唤醒/租约/审计/监控探测）现属各新顶层模块——循环执行见 `modules/agent-loop/CONTEXT.md`、健康监控见 `modules/ops/CONTEXT.md`（#683 起 agent-monitor 并入 ops）、日审见 `modules/agent-auditor/CONTEXT.md`、进程守护见 `modules/ops/CONTEXT.md`（#683 起 agent-ops 并入 ops）、知识维护见 `modules/agent-knowledge/CONTEXT.md`、Triage 见 `modules/triage/CONTEXT.md`；条目原文保留于此作详目档案，新增条目请落对应模块。
 
 - **Ops 看门狗探针语义（2026-09-21，生产假阴性自杀循环事故修复）**：`ops.service getStatus()` 探针打免鉴权 `/health`（app.ts 注册于鉴权中间件之前，不依赖任何业务路由），**收到任何 HTTP 响应（含 401/403/5xx）即判活，只有连接失败/超时才判死**——严禁改回「业务路由 + statusCode===200」判定（2026-09-15 /api/v1/channels 加 requireAuth 后恒 401 → apiResponding 恒 false → healthCheck 每 5 分钟 process.exit(1) → systemd 拉起，单日 193 次重启、真实流量物理不可达）。防回归测试：`ops/__tests__/ops-health-probe.test.ts`。已知残留假阴性面（未修，仅记录）：判死后 daemon-busy 豁免检查的 `fileStore.getIndex` 读失败被 catch 静默吞掉 → 有活跃执行 session 也照 exit

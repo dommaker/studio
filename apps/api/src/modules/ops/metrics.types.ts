@@ -265,6 +265,39 @@ export interface EffectMetrics {
   duplicatesPrevented: number;
 }
 
+export interface KnowledgePublishingItem {
+  id: string;
+  kind: 'knowledge-extraction' | 'distill';
+  state: string;
+  workUnitId?: string;
+  attempts: number;
+  updatedAt: string;
+  nextAttemptAt?: string;
+  lastError?: string;
+}
+
+/** #716：知识提取与蒸馏的持久发布状态；items 只保留失败、待重试与卡住项。 */
+export interface KnowledgePublishingMetrics {
+  description: string;
+  byState: Record<string, number>;
+  failed: number;
+  retryAfter: number;
+  cardFailed: number;
+  staleRunning: number;
+  items: KnowledgePublishingItem[];
+}
+
+export interface KnowledgePublishingRun {
+  id: string;
+  proposalId: string;
+  executedAt: string;
+  outcome: 'triggered' | 'running' | 'succeeded' | 'failed' | 'retry-after' | 'executed';
+  attempts?: number;
+  nextAttemptAt?: string;
+  lastError?: string;
+  error?: string;
+}
+
 export interface OverviewMetrics {
   windowDays: number;
   generatedAt: string;
@@ -284,6 +317,8 @@ export interface OverviewMetrics {
   evidence: EvidenceMetrics;
   /** #707 持久副作用与恢复核查 */
   effects: EffectMetrics;
+  /** #716 知识发布失败、重试与卡住状态 */
+  knowledgePublishing: KnowledgePublishingMetrics;
   /** 数据源状态：有任何 WU 或事件数据 → 'events'，全空 → 'insufficient-data' */
   source: 'events' | 'insufficient-data';
 }

@@ -6,9 +6,9 @@
  * 可审计（knowledge:extraction 事件）、可熔断（daily-token-budget 守卫）。失败绝不阻塞
  * WU 收尾，也不推进水位；memoryExtractedAt 只在成功后落档，启动时恢复未完成消费。
  *
- * 与旧 R3 会话提取（agent-loop COMPLETE 步 → KnowledgeService.extractFromConversation，
- * proposal 入库 KnowledgeStore）并行独立：#99 只加新钩子，不动旧路径；旧路径及其触发器
- * 删除归 #102。去重哨兵用 metadata.memoryExtractedAt（区别于旧路径 knowledgeExtractedAt）。
+ * 与 R3 会话提取（agent-loop COMPLETE → knowledge-extraction Effect → committed transcript
+ * → KnowledgeService.extractFromConversation）并行独立。#716 后两条链都从持久状态恢复；
+ * 本链去重哨兵用 metadata.memoryExtractedAt，区别于 legacy knowledgeExtractedAt。
  *
  * 事件订阅只负责即时唤醒；持久 watermark + 启动续扫负责进程重启后的恢复。
  */

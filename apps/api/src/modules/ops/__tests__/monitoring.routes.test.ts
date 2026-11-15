@@ -50,6 +50,9 @@ const { mockGetAgentSummary, mockGetStats, mockGetOverviewMetrics, mockGetEffici
       effects: {
         description: 'effects', byStatus: {}, receiptsByOutcome: {}, recoveryChecks: 0, duplicatesPrevented: 0,
       },
+      knowledgePublishing: {
+        description: 'knowledge publishing', byState: {}, failed: 0, retryAfter: 0, cardFailed: 0, staleRunning: 0, items: [],
+      },
     }),
     mockGetEfficiencyMetrics: vi.fn().mockResolvedValue({
       windowDays: 7, generatedAt: '2026-07-27T00:00:00.000Z',

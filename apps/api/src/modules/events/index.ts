@@ -5,3 +5,4 @@
  * 公共面 = 生成时实际被模块外消费的符号；新增跨模块消费时在此补导出。
  */
 export { initWorkunitEventsBridge } from './workunit-events-bridge.js';
+export { initSessionSummaryGenerator } from './session-summary-generator.js';

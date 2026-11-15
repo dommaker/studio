@@ -12,6 +12,7 @@ import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { DistillService } from './distill-service.js';
 import { createSkillLanding, createMemoryLanding } from './distill-landings.js';
 import { getStore } from '../../core/store.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 
 let _service: DistillService | null = null;
@@ -37,9 +38,12 @@ export function getDistillService(): DistillService {
   return _service;
 }
 
-/** 启动接线（index.ts）：单例 + 订阅 workunit.status_changed → done */
+/** 启动接线：订阅即时触发，并从 runs.jsonl 恢复未完成 run 与重试定时器。 */
 export function initDistillLoop(): DistillService {
   const service = getDistillService();
   service.subscribeToEvents();
+  void service.recoverPendingRuns().catch(err =>
+    logger.warn('[Distill] startup recovery failed', { error: String(err) }),
+  );
   return service;
 }

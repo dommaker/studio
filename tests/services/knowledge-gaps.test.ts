@@ -314,13 +314,14 @@ describe('EnvSnapper (G-003)', () => {
 // ════════════════════════════════════════════
 
 describe('DecisionChainExtractor (G-004)', () => {
-  it('架构变更检测 — schema.prisma → true', async () => {
+  it('生产提取退役后仍保留历史 decision_chain 查询', async () => {
     const { decisionChainExtractor } = await import(
       '../../apps/api/src/modules/knowledge/producers/decision-chain-extractor.js'
     );
 
     expect(decisionChainExtractor).toBeDefined();
-    expect(typeof decisionChainExtractor.extractFromExecution).toBe('function');
+    expect(typeof decisionChainExtractor.query).toBe('function');
+    expect(decisionChainExtractor.extractFromExecution).toBeUndefined();
   });
 
   it('架构变更信号匹配', () => {

@@ -6,8 +6,8 @@
  *                       workUnitId 过滤 + 尾部倒读游标分页，替代全文件线性扫 + 200 硬顶）
  *
  * B9-014 POST /api/v1/events/agent-events 已随 P4.6（2026-10-17）删除：仓内无代码消费方
- *（外部 runtime 来源已断）；其挂的 session:end → session:summary 触发链随之无 HTTP
- * 入口（session-summary-generator 保留直测，恢复触发需另 ticket）。
+ *（外部 runtime 来源已断）；session:end → session:summary 现由 generator 直接监听
+ * StudioEvent 文件并执行启动恢复，不依赖 HTTP 入口。
  *
  * 契约驱动迁移（2026-10 批次 5/7）：走 core/http.ts defineRoute——type/source 必填
  * 收进 zod；D18 空 payload 拒绝（isEmptyEventPayload 唯一口径，含字符串 '{}' 语义）

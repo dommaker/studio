@@ -10,7 +10,7 @@
  *  (a) LLM 输出解析 → ingest 入库 maturity=draft（proposal）
  *  (b) draft 条目不参与 injectContext 注入（提案闸门）
  *  (d) knowledge:extraction 事件携带 token 计数 / duration / entry ids
- *  边界：无 LLM 配置静默跳过 / LLM 失败不抛出 / 空消息早退 / 形态门禁拒绝
+ *  边界：无 LLM 配置或模型/存储失败向上抛出（Effect 重试）/ 空消息早退 / 形态门禁拒绝
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -254,22 +254,33 @@ describe('R3: extractFromConversation', () => {
     );
   });
 
-  it('无 LLM 配置时静默跳过（e2e 降级路径）：不入库、不记事件', async () => {
+  it('无 LLM 配置时向上报告失败：不入库、不记成功事件，由 Effect 重试', async () => {
     const { StudioRoleNotConfiguredError } = await import('../../agents/system-executor.js');
     mockRun.mockRejectedValue(new StudioRoleNotConfiguredError());
     const { ks, ingest } = createKS();
 
-    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).resolves.not.toThrow();
+    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).rejects.toThrow(StudioRoleNotConfiguredError);
     expect(ingest.ingestEntry).not.toHaveBeenCalled();
     expect(mockAppendJsonl).not.toHaveBeenCalled();
   });
 
-  it('LLM 调用失败被吞掉：不抛出、不入库、不记事件（模板兜底不受影响）', async () => {
+  it('LLM 临时失败向上抛出：不入库、不记成功事件，由 Effect 重试', async () => {
     mockRun.mockRejectedValue(new Error('provider down'));
     const { ks, ingest } = createKS();
 
-    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).resolves.not.toThrow();
+    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).rejects.toThrow('provider down');
     expect(ingest.ingestEntry).not.toHaveBeenCalled();
+    expect(mockAppendJsonl).not.toHaveBeenCalled();
+  });
+
+  it('知识库存储失败向上抛出，不伪装成门禁拒绝或提取成功', async () => {
+    mockRun.mockResolvedValue(makeRunResult({
+      entries: [{ type: 'guideline', title: '可复用恢复经验', content: '模型或存储临时失败时保留持久执行状态，并在恢复后继续重试。', tags: ['recovery'] }],
+    }));
+    const { ks, ingest } = createKS();
+    ingest.ingestEntry.mockImplementationOnce(() => { throw new Error('disk full'); });
+
+    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).rejects.toThrow('disk full');
     expect(mockAppendJsonl).not.toHaveBeenCalled();
   });
 

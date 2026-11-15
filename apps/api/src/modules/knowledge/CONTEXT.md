@@ -30,7 +30,8 @@
 | `knowledge-track` | `knowledge-track.ts` | Track 实现体（#669 刀2）：recordConsumption/recordOutcome/recordSkillExecution impl |
 | `knowledge-lifecycle` | `knowledge-lifecycle.ts` | Lifecycle 实现体（#669 刀2）：promote/demote/decay/merge/graduateConstraint impl |
 | `knowledge-measure` | `knowledge-measure.ts` | Measure 实现体（#669 刀2）：getFlywheelMetrics/getHealthReport/getAuditReport/getAnalystAccuracy/getStats impl（实算内核在 knowledge-metrics 纯函数） |
-| `conversation-extractor` | `producers/conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门（knowledge-service.ts 拆出；提案卡 #355 起归 review-adapter）。总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`（默认开，P7/P8 批次 2026-09-16）：整体跳过 LLM 提取——无凭证/fake-provider 环境豁免真实 CLI 空转 |
+| `conversation-extractor` | `producers/conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门；#716 起存储异常向上传播，不再冒充普通门禁拒绝。总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`（默认开） |
+| `KnowledgeExtractionEffects` | `knowledge-extraction-effects.ts` | #716：WU 完成后的知识提取持久 Effect/Receipt；从 committed transcript + 独立 watermark 恢复输入，queued+nextAttemptAt 即 retry-after，启动恢复未完成 Effect 并补扫 done WU；不再使用 `knowledgeExtractedAt` 触达哨兵冒充成功 |
 | `review-adapter` | `review-adapter.ts` | #355：knowledge 人审提案 adapter（kind='knowledge'），接线 review-proposal 正本——聚合卡渲染（knowledge_proposal 旧文案，cardData 旧形状 + proposalId）+ onApprove 逐条目 promote / onReject 逐条目 demote；存取物化 <dataDir>/knowledge-proposals.jsonl；ARCH-06 起由 bootstrap/knowledge.ts 显式注册，导入 KnowledgeService 无注册副作用；装配样板走正本 createJsonlReviewAdapter 工厂（P2.2） |
 | `knowledge-metrics` | `knowledge-metrics.ts` | R1/M1 事件流度量纯函数：computeOutcomeMetrics（hitRate/improvement）+ scanKnowledgeEvents（审计计数）（knowledge-service.ts 拆出） |
 | `knowledgeRoutes` | `routes/routes.ts` | REST API 挂载门面（挂载同目录 3 个公共子路由 + internal，P4.2 起 files 子路由已删） |
@@ -68,7 +69,7 @@ knowledge/
 │   ├── env-snapper.ts         # Producer: 环境快照
 │   ├── pattern-miner.ts       # Producer: 交互模式（读口走 pattern-entry 口径）
 │   ├── pattern-entry.ts       # 交互模式条目统一口径：listInteractionPatterns（types:['pattern'] 判别）+ parsePatternContent（安全解析）
-│   ├── decision-chain-extractor.ts # Producer: 决策链
+│   ├── decision-chain-extractor.ts # #716 起仅历史 decision_chain 查询；生产提取已退役
 │   ├── conversation-extractor.ts # R3 会话提取管道
 │   ├── eval-case-generator.ts # Producer: 评估用例
 │   └── eval-case-store.ts     # EvalCaseStore（评估用例持久化）

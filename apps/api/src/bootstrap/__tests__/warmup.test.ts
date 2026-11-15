@@ -7,7 +7,6 @@ import { describe, it, expect, vi } from 'vitest';
 const spies = vi.hoisted(() => ({
   verifyConsumptionChain: vi.fn(async () => {}),
   ensureSeedResolutions: vi.fn(async () => {}),
-  summarize: vi.fn(),
   rotateStudioEvents: vi.fn(async () => {}),
   rotateStudioLogFiles: vi.fn(async () => {}),
   archiveLegacyStudioLogs: vi.fn(async () => {}),
@@ -25,9 +24,6 @@ vi.mock('../../modules/knowledge/index.js', () => ({
   resolutionService: { ensureSeedResolutions: spies.ensureSeedResolutions },
   ruleScanner: { fullScan: spies.fullScan },
   getEnvSnapper: () => ({ startPeriodicSnapshots: spies.startPeriodicSnapshots }),
-}));
-vi.mock('../../modules/agents/index.js', () => ({
-  sessionSummaryService: { summarize: spies.summarize },
 }));
 vi.mock('../../modules/agent-knowledge/index.js', () => ({
   getKnowledgeCurator: () => ({ coldStartAll: spies.coldStartAll }),

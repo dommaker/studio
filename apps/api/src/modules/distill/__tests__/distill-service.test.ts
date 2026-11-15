@@ -188,7 +188,7 @@ describe('端到端：矿石 → 门槛 → 发卡 → approve → 产物入库 
     // 运行记录落数据区
     const runs = await service.listRuns();
     expect(runs).toHaveLength(1);
-    expect(runs[0].outcome).toBe('executed');
+    expect(runs[0].outcome).toBe('succeeded');
     expect(runs[0].proposalId).toBe(proposals[0].id);
     expect(runs[0].materialIds.sort()).toEqual(ores.map(o => o.id).sort());
     expect(runs[0].productIds).toEqual([products[0].id]);
@@ -265,8 +265,9 @@ describe('reject 路径：零副作用', () => {
 });
 
 describe('失败路径：不消费原料、不阻塞 WU 收尾', () => {
-  it('LLM 异常 → 原料不归档、无产物；提案 failed + 失败运行记录 + 事件', async () => {
+  it('LLM 异常达到重试上限 → 原料不归档、无产物；提案 failed + 失败运行记录 + 事件', async () => {
     const ores = [seedOre(), seedOre(), seedOre()];
+    service = new DistillService({ store, fileStore, dataDir, eventsFile, maxAttempts: 1 });
     await service.maybePropose({});
     const proposal = (await listProposals())[0];
 
@@ -285,8 +286,9 @@ describe('失败路径：不消费原料、不阻塞 WU 收尾', () => {
     expect(eventStages(await readEvents())).toContain('failed');
   });
 
-  it('JSON 解析失败（runJson 抛 SystemExecutorJsonParseError 形态）→ 同样不消费原料', async () => {
+  it('JSON 解析失败达到上限（runJson 抛 SystemExecutorJsonParseError 形态）→ 同样不消费原料', async () => {
     const ores = [seedOre(), seedOre(), seedOre()];
+    service = new DistillService({ store, fileStore, dataDir, eventsFile, maxAttempts: 1 });
     await service.maybePropose({});
     const proposal = (await listProposals())[0];
 
@@ -309,6 +311,77 @@ describe('失败路径：不消费原料、不阻塞 WU 收尾', () => {
     await new Promise(r => setTimeout(r, 150));
     // 不抛即通过；无提案无副作用
     expect(await listProposals()).toHaveLength(0);
+  });
+});
+
+describe('持久执行与临时失败重试', () => {
+  it('approve 在调用模型前先落 run，running 快照带完整 materialIds', async () => {
+    seedOre(); seedOre(); seedOre();
+    await service.maybePropose({});
+    const proposal = (await listProposals())[0];
+
+    let observed: Awaited<ReturnType<DistillService['listRuns']>> = [];
+    mockRunJson.mockImplementation(async () => {
+      observed = await service.listRuns();
+      return { products: [] };
+    });
+    await approve(proposal.id);
+
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({
+      proposalId: proposal.id,
+      outcome: 'running',
+      attempts: 1,
+      materialIds: proposal.materialIds,
+    });
+  });
+
+  it('模型临时失败 → retry-after + 提案 pending；再次 approve 复用同一 run 并最终 succeeded', async () => {
+    const ores = [seedOre(), seedOre(), seedOre()];
+    service = new DistillService({ store, fileStore, dataDir, eventsFile, maxAttempts: 3, retryDelayMs: 60_000 });
+    await service.maybePropose({});
+    const proposal = (await listProposals())[0];
+    mockRunJson
+      .mockRejectedValueOnce(new Error('provider timeout'))
+      .mockResolvedValueOnce({ products: [{ title: 'P', content: 'C', tags: [] }] });
+
+    const first = await approve(proposal.id);
+    expect(first.kind).toBe('skipped');
+    expect((await distillStore().getProposal(proposal.id))?.status).toBe('pending');
+    const retrying = await service.listRuns();
+    expect(retrying).toHaveLength(1);
+    expect(retrying[0]).toMatchObject({ outcome: 'retry-after', attempts: 1, lastError: 'provider timeout' });
+    expect(retrying[0].nextAttemptAt).toEqual(expect.any(String));
+    for (const ore of ores) expect(store.get(ore.id)?.maturity).toBe('active');
+
+    const second = await approve(proposal.id);
+    expect(second.kind).toBe('executed');
+    const succeeded = await service.listRuns();
+    expect(succeeded).toHaveLength(1);
+    expect(succeeded[0]).toMatchObject({ id: retrying[0].id, outcome: 'succeeded', attempts: 2 });
+    expect(succeeded[0].nextAttemptAt).toBeUndefined();
+    expect(succeeded[0].lastError).toBeUndefined();
+    expect((await distillStore().getProposal(proposal.id))?.status).toBe('executed');
+    expect(mockRunJson).toHaveBeenCalledTimes(2);
+  });
+
+  it('连续临时失败达到 maxAttempts 才 failed，并清除 nextAttemptAt', async () => {
+    service = new DistillService({ store, fileStore, dataDir, eventsFile, maxAttempts: 2, retryDelayMs: 60_000 });
+    seedOre(); seedOre(); seedOre();
+    await service.maybePropose({});
+    const proposal = (await listProposals())[0];
+    mockRunJson.mockRejectedValue(new Error('provider down'));
+
+    expect((await approve(proposal.id)).kind).toBe('skipped');
+    expect((await distillStore().getProposal(proposal.id))?.status).toBe('pending');
+    expect((await approve(proposal.id)).kind).toBe('failed');
+
+    const runs = await service.listRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ outcome: 'failed', attempts: 2, lastError: 'provider down' });
+    expect(runs[0].nextAttemptAt).toBeUndefined();
+    expect((await distillStore().getProposal(proposal.id))?.status).toBe('failed');
+    expect(mockRunJson).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -417,7 +490,7 @@ describe('7 天烧钱熔断', () => {
     }
   });
 
-  it('LLM 产出空 products → 不消费原料，运行记录 outcome=executed productIds=[]', async () => {
+  it('LLM 产出空 products → 不消费原料，运行记录 outcome=succeeded productIds=[]', async () => {
     const ores = [seedOre(), seedOre(), seedOre()];
     await service.maybePropose({});
     const proposal = (await listProposals())[0];
@@ -428,7 +501,7 @@ describe('7 天烧钱熔断', () => {
       expect(store.get(ore.id)?.maturity).toBe('active');
     }
     const runs = await service.listRuns();
-    expect(runs[0].outcome).toBe('executed');
+    expect(runs[0].outcome).toBe('succeeded');
     expect(runs[0].productIds).toEqual([]);
   });
 });

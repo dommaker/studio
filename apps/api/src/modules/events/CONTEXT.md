@@ -11,7 +11,7 @@
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | event.routes.ts | POST /api/v1/events | 创建 StudioEvent（消费方 = 前端 `utils/clientPerf.ts:38` 性能上报） |
 | event.routes.ts | GET /api/v1/events | 查询 StudioEvent（requireAuth；#180 起：type/since/until/level/keyword/workUnitId 过滤 + 尾部倒读游标分页 `cursor`→`nextCursor`，替代全文件线性扫 + 200 硬顶；level 缺省 ≥info，level=debug 看全部；倒读实现 `../../utils/studio-events-tail.ts`；消费方 = 前端 `api/events.ts:31` EventSearchPanel/NeedsAttentionSection + `api/workunit.ts:273,280` listTokenEvents/listExecutionStepEvents） |
-| ~~event.routes.ts~~ | ~~POST /api/v1/events/agent-events~~ | 已随 P4.6（2026-10-17）删除：仓内无代码消费方（B9-014 外部 runtime 来源已断）；其挂的 session:end → session:summary 触发链随之无 HTTP 入口（session-summary-generator 本体与直测保留，恢复触发需另票） |
+| ~~event.routes.ts~~ | ~~POST /api/v1/events/agent-events~~ | 已随 P4.6（2026-10-17）删除；#716 起 session:end → session:summary 改由统一事件文件监听与启动补扫驱动，不恢复此 HTTP 入口 |
 | runtime-events.routes.ts | POST /api/v1/executions/events | runtime 事件回调（URL/请求/响应形状不变）。SEC-05 起 legacy 无 broker 标记本机 runtime 走 requireLocalhost；sandbox Agent 必须有 broker `sab_` 来源标记 + per-execution `sta_`，body executionId 必填且恒等，这是 Agent 唯一 HTTP allowlist 端点；省略/伪造 token 不降 localhost，活逻辑 = eventBus 'events' 频道发布 |
 | sse.routes.ts | GET /api/v1/events/stream | SSE 实时事件流（#491 起消费 Last-Event-ID 补发窗口遗漏；SEC-07 起 route-registry 挂 requireAuth，app 在 Lurk Wall 前消费短期单用途流式票据，长期 JWT query/重放/跨资源拒绝） |
 | sse.routes.ts | GET /api/v1/events/clients | SSE 客户端列表 (debug) |
@@ -20,7 +20,7 @@
 | （agent-loop 直发） | workunit.execution.step | WU 执行步事件（思考/工具/skill/用量）：agent-loop 每步结束经 eventBus.publish 直发（不经过桥），`workunit.` 前缀自动落 workunits topic；落盘形态 `workunit:execution_step` 供 GET /events 回放 |
 | （agent-loop 直发） | workunit.execution.stream | WU 步内流式 chunk（Layer B，2026-07-30）：step 执行中 CLI stdout 按行提炼 thinking/text/tool/result 直发，**SSE-only 不落盘**（行级体量防膨胀；步级归档走 execution.step）；同前缀落 workunits topic |
 | （agent-loop 直发） | workunit.tokens | WU 执行完成的 token 记账（2026-08-24 SSE 负载加深）：writeWorkunitTokenEvent 落盘 workunit:tokens 后顺带发 SSE（data = 落盘现成字段 + channelId），WU 抽屉 token 条事件驱动刷新；同前缀落 workunits topic |
-| session-summary-generator.ts | generateSessionSummary() | session:end → session:summary 聚合（payload 形状 = 共享类型 `SessionSummaryPayload`/`SessionPatternType`，正本在 studio-shared/studio-events.ts，读方 ops/agent-auditor 同源）；落盘后 eventBus 发布 'session:summary'（#687 依赖倒置：KE-001 P5 复发模式 Skill 建议迁 skills/session-pattern-suggest 订阅接出，本模块不 import skills） |
+| session-summary-generator.ts | generateSessionSummary() / initSessionSummaryGenerator() / recoverSessionSummaries() | #716：直接监听统一 StudioEvent 文件中的真实 `session:end`，启动补扫缺失摘要；按 sessionId 以已持久化 `session:summary` 去重，失败不留完成标记并可在下轮重试。聚合 payload 正本在 studio-shared/studio-events.ts；落盘后 eventBus 发布 'session:summary' 供 skills 订阅 |
 | session-summary-generator.ts | classifyPattern() (内部) | 根据文件/工具序列分类模式 |
 
 ### 依赖关系
@@ -31,13 +31,13 @@
 
 ### 测试
 
-六个测试文件，74 个用例：
+六个测试文件，76 个用例：
 
 | 文件 | 用例数 | 覆盖内容 |
 |------|--------|---------|
 | `__tests__/runtime-events.routes.test.ts` | 4 | POST /api/v1/executions/events：响应壳/eventBus/缺键兜底 + SEC-05 无效身份零副作用、有效回调、execution 不匹配与 Operator 控制面拒绝 |
 | `__tests__/event.routes.test.ts` | 21 | POST/GET：创建/查询/验证/空 payload 拒收（D18）/错误路径；#180 起 GET 用真临时文件 + STUDIO_EVENTS_FILE 缝（过滤/游标/鉴权栈）；agent-events 用例随 P4.6 端点删除 |
-| `__tests__/session-summary-generator.test.ts` | 17 | classifyPattern 13种模式 + generateSessionSummary 边界情况 |
+| `__tests__/session-summary-generator.test.ts` | 19 | classifyPattern + generateSessionSummary + #716 持久去重、启动恢复、真实文件触发 |
 | `__tests__/workunit-events-bridge.test.ts` | 3 | workunit.* + workunit:removed + requirement.* 事件转发 'events' 频道（信封形状）；桥 started 幂等是模块态，同文件后续用例 init 为 no-op 靠订阅残留生效 |
 | `__tests__/sse-routes.test.ts` | 13 | getTopicFromEventType 映射表锁定；#324 背压断开慢客户端；#491 重连 replay（按序补发/topics 过滤/不可解析游标/有洞不补发）；#524 stream chunk 不入 replay buffer；B6 广播每事件序列化一次 |
 | `__tests__/sse-replay-buffer.test.ts` | 7 | #491 replay buffer：seq 单调递增、环形淘汰、replay 窗口语义（有洞 → null） |
@@ -49,7 +49,7 @@
 - POST /api/v1/events 的 payload 为空（{} / null / 缺失 / '{}'）→ 400（D18：空事件不产信号只产噪音，调用方自查）
 - SSE 使用 EventBus pub/sub (B0-002)，不依赖数据库
 - **SSE 帧格式（2026-07-29 修复）**：只写 `id:` + `data:` 匿名事件（不写 `event:` 命名行——EventSource.onmessage 只收匿名事件），且 data 是完整信封 `{event_type, event_id, timestamp, data}`（此前只发内层 payload，客户端按 event_type 分发恒失败，全站 SSE 实际不通）。topic 映射（`getTopicFromEventType` 纯前缀，已导出供单测锁定）：execution./runtime.→executions、node.→nodes、task.→tasks、goal.→goals、knowledge.→knowledge、workunit.→workunits（含 workunit.tokens / workunit.execution.*）、channel.→channels、requirement.→requirements（2026-08-24 新增）、其余→all（客户端默认订阅 all 全收）。**B6（2026-09-16 channel 性能审计）**：广播循环每事件仅 1 次 `JSON.stringify`（惰性 memo——零匹配客户端零成本），各客户端复用同一字符串；原为逐客户端重复序列化且在发消息热路径上
-- session:summary 在 session:end 时触发，fire-and-forget
+- **session summary 恢复（#716）**：不再依赖已删除的 agent-events HTTP 入口；warmup 挂载统一事件文件监听与启动补扫，真实 `session:end` 触发 fire-and-forget 生成。`session:summary` 落盘是唯一完成事实，生成失败不写哨兵，后续文件事件或重启可重试。
 - **SSE replay（#491，2026-09-11）**：`id:` 行自本票起为服务端单调 seq（不再是信封 event_id；event_id 仍在 data 信封内供前端幂等去重）。事件广播时先入 `sseReplayBuffer`（sse-replay-buffer.ts，环形 500 条，进程级内存、不落盘、重启即清），重连带 `Last-Event-ID` 时按 seq 升序补发窗口内遗漏事件（按订阅 topics 过滤，补发先于 connection.established——后者以 currentSeq 为 id，先发会让游标越过补发事件）；游标早于 buffer 最老事件（有洞）或无法解析（旧版 uuid）则不补发，由前端 onReconnect 全量 refetch 兜底（决策 9）。**#524 P1-3（#516 项⑥）**：`workunit.execution.stream` chunk 不入 replay buffer（sse.routes.ts 入队处一处过滤，不占 seq）——补发价值最低流量最大（Layer B 不落盘、前端纯内存、重连走全量 refetch 兜底），关键事件独占 500 条补发窗口，高 stream 负载下重连补发恢复有效；直播广播照常（id 取 currentSeq，游标语义不变）
 - **SSE 与全局 compression（#263 / 根因 #259，2026-08-19）**：app.ts 全局 compression 中间件必须带 `filter: shouldCompress`（`apps/api/src/middleware/compression-filter.ts`）——默认 compressible 对 `text/event-stream` 经 `^text/` fallback 返回 true 会缓冲 SSE 流，频道实时推送全灭。/events/stream 与 /mcp/sse 均经此中间件覆盖；新增 SSE 端点只要走同一 app 即自动生效
 - patternType 分类规则：纯 deterministic，不调 LLM

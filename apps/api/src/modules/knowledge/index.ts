@@ -9,6 +9,7 @@ export { evalCaseGenerator } from './producers/eval-case-generator.js';
 export { startEvolutionScheduler, stopEvolutionScheduler } from './scheduling/evolution-scheduler.js';
 export { checkDocumentFreshness } from './knowledge-design-doc.js';
 export { knowledgeService, knowledgePorts } from './knowledge-service.js';
+export { getKnowledgeExtractionEffects } from './knowledge-extraction-effects.js';
 export type { AuditReport, FlywheelMetrics } from './knowledge-service.js';
 export type {
   KnowledgeConsumePort,

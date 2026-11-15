@@ -14,13 +14,14 @@
  * 工单 30：类型区 → metrics.types.ts，纯函数聚合区 → metrics-aggregate.ts（re-export 保持导出路径兼容）。
  */
 
+import * as path from 'node:path';
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { buildAssigneeProfileResolver } from '../workunit/index.js';
 import { aggregateOverview, aggregateCacheHitRate, aggregateContextComparison, aggregateSectionTrim, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
-import type { OverviewMetrics, EfficiencyMetrics } from './metrics.types.js';
+import type { OverviewMetrics, EfficiencyMetrics, KnowledgePublishingRun } from './metrics.types.js';
 import { getStore } from '../../core/store.js';
 import { OverviewProjection } from './overview-projection.js';
 
@@ -59,6 +60,8 @@ export interface OverviewOptions {
   eventsFile?: string;
   /** 测试注入：workunits events.jsonl 路径（默认 FileStore 数据目录下） */
   wuEventsFile?: string;
+  /** 测试注入：蒸馏 runs.jsonl 所在目录（默认 studioPath('distill')） */
+  distillDataDir?: string;
   /** 测试注入时钟（提供时跳过缓存） */
   now?: number;
 }
@@ -85,7 +88,7 @@ export class MetricsService {
   async getOverviewMetrics(opts?: OverviewOptions): Promise<OverviewMetrics> {
     const windowDays = opts?.windowDays ?? DEFAULT_WINDOW_DAYS;
     const now = opts?.now ?? Date.now();
-    const cacheKey = `${opts?.eventsFile ?? ''}|${opts?.wuEventsFile ?? ''}|${windowDays}`;
+    const cacheKey = `${opts?.eventsFile ?? ''}|${opts?.wuEventsFile ?? ''}|${opts?.distillDataDir ?? ''}|${windowDays}`;
     if (opts?.now) return this.loadOverview(opts, windowDays, now);
 
     const hit = this.cache.get(cacheKey);
@@ -105,13 +108,14 @@ export class MetricsService {
 
   private async loadOverview(opts: OverviewOptions | undefined, windowDays: number, now: number): Promise<OverviewMetrics> {
     const projection = new OverviewProjection(this.fileStore, opts?.wuEventsFile ?? this.defaultWuEventsFile());
-    const [snapshots, windowRows, events, states, profiles] = await Promise.all([
+    const [snapshots, windowRows, events, states, profiles, distillRuns] = await Promise.all([
       this.loadCurrentSnapshots(),
       projection.load(now).catch(() => ({ wuEvents: [], humanMessages: [] })),
       // #456：failure24h 趋势要求 windowDays=1 时仍读取 48h。
       readStudioEventsSince({ file: opts?.eventsFile, sinceMs: now - Math.max(windowDays, 2) * 86400_000 }).catch(() => [] as Array<Record<string, unknown>>),
       this.fileStore.listStates().catch(() => [] as Array<{ id: string; roleId: string }>),
       this.fileStore.listProfiles().catch(() => [] as Array<{ id: string; name: string }>),
+      this.loadDistillRuns(opts?.distillDataDir ?? studioPath('distill')).catch(() => []),
     ]);
     const { wuEvents, humanMessages } = windowRows;
 
@@ -129,6 +133,7 @@ export class MetricsService {
       humanMessages,
       resolveAssigneeProfile,
       profileNames,
+      distillRuns,
       now,
       windowDays,
     });
@@ -140,6 +145,20 @@ export class MetricsService {
       return this.fileStore.listCurrentSnapshots().catch(() => [] as WorkUnitSnapshot[]);
     }
     return this.fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]);
+  }
+
+  /** ops 自有只读投影，避免为读取蒸馏状态引入 ops → distill 运行时装配依赖。 */
+  private async loadDistillRuns(dataDir: string): Promise<KnowledgePublishingRun[]> {
+    const rows = await this.fileStore.readJsonl<KnowledgePublishingRun>(path.join(dataDir, 'runs.jsonl'));
+    const latest = new Map<string, KnowledgePublishingRun>();
+    for (const row of rows) {
+      latest.set(row.id, {
+        ...row,
+        attempts: row.attempts ?? (row.outcome === 'triggered' ? 0 : 1),
+        lastError: row.lastError ?? row.error,
+      });
+    }
+    return [...latest.values()];
   }
 
   /**

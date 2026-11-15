@@ -19,7 +19,7 @@
 - `metrics.service.ts` — D16 指标聚合服务：`getOverviewMetrics({windowDays})`，60s 内存缓存 + 同 key miss single-flight，`invalidateCache()` 测试用
 - `overview-projection.ts` — PERF-05 按日窗口投影：WU events 以完整行 `dev/ino/offset` 增量恢复；human 每频道 head 同含文件代际，压实换 inode 后即使再增长过旧 offset 也重建，更新/墓碑仅重建对应频道；90 天数据仅在 UTC 日变化时 prune，落 `logs/projections/`
 - `metrics-aggregate.ts` — D16 聚合公共面（`aggregateOverview` 经 `metrics-overview.ts` re-export；`aggregateCacheHitRate` / `aggregateSectionTrim` / `aggregateContextComparison` 留本文件，均经 `metrics.service.ts` re-export）；`metrics-overview.ts` — Overview 采样上下文 + 11 个指标组纯函数与 `aggregateOverview` 编排（2026-10-17 纯平移，既有 metrics.service 测试锁定口径）
-- `metrics.types.ts` — D16 类型契约（`OverviewMetrics` 等指标接口，经 `metrics.service.ts` re-export）；#703 起 `EvidenceMetrics` 增加代码 WU `mergeDivergence/doneWithoutReceipt` 快照计数；#707 起 `EffectMetrics` 从 WU 只读快照聚合 Effect 状态、Receipt outcome、恢复核查与 `duplicatesPrevented` 去重次数，经 `/monitoring/overview` 暴露
+- `metrics.types.ts` — D16 类型契约（`OverviewMetrics` 等指标接口，经 `metrics.service.ts` re-export）；#703 起 `EvidenceMetrics` 增加代码 WU `mergeDivergence/doneWithoutReceipt` 快照计数；#707 起 `EffectMetrics` 从 WU 只读快照聚合 Effect 状态、Receipt outcome、恢复核查与 `duplicatesPrevented` 去重次数；#716 起 `KnowledgePublishingMetrics` 聚合知识提取/蒸馏的 by-state、failed、retry-after、cardFailed、stale-running 与异常薄项，均经 `/monitoring/overview` 只读暴露
 - `current-wu-context.ts` — #318 共享出口：当前 WU 聚合上下文（快照 + pmo 归属链 + channelId）
 - `monitor.service.ts` — Monitor 门面（5min 轮询健康监控 + 渐进告警）
 - `monitor-probes.ts` — WU 级探测（失败趋势/停滞/超时/池停滞/评审停滞/僵尸认领守卫——#464 起 stale_claim_guard 命中除告警外同步向 WU 所在频道发「已沉睡」milestone 提醒；#610 起 expireTriggerPendingWorkUnits——trigger 建单 pending 超期未确认自动关闭，阈值 TRIGGER_PENDING_EXPIRY_DAYS 默认 7 天，人工建的 pending 单不受影响，decision/spec/plan 豁免）

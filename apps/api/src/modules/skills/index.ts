@@ -6,7 +6,7 @@
  */
 export { generateManifest } from './manifest-generator.js';
 export { loadManifest } from './manifest-loader.js';
-export { getSkillReviewAdapter, submitSkillProposal } from './review-adapter.js';
+export { getSkillReviewAdapter, submitSkillProposal, repostSkillProposal } from './review-adapter.js';
 export { skillLoaderService } from './skill-loader.js';
 export { parseSkillHintsFromScope, selectSkillsForInjection } from './skill-selector.js';
 export { skillStore } from './skill-store.js';

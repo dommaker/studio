@@ -123,7 +123,7 @@ function conversationLearningMetadata(ctx?: ConversationExtractionCtx): Learning
  *   isInjectableMaturity 闸门）；模板式 extractFromExecution 保留为兜底。
  * - 提取开销（tokens/duration）以 knowledge:extraction 事件单独度量，
  *   不计入注入红线。
- * - 永不抛出：LLM 未配置/调用失败仅记日志（e2e 无 LLM 时静默跳过）。
+ * - #716：模型/存储失败向上抛出，由持久 Effect 记录并调度重试；显式总开关关闭时跳过。
  * - P8（2026-09-16 perf 实测）：总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`
  *   整体跳过——无凭证/fake-provider 环境里 studio 角色 provider 仍指向真实
  *   CLI，每次 WU 完成都起真实 LLM 进程挂到超时，纯空转+日志噪声。
@@ -138,10 +138,10 @@ export async function extractFromConversationImpl(
     logger.info('[KnowledgeService] extractFromConversation skipped: STUDIO_KNOWLEDGE_EXTRACTION=false', { source });
     return;
   }
-  // P2-c 拆环：knowledge→agents 静态边转函数内动态 import（置于 try 外，catch 的 instanceof 也要用）
+  // P2-c 拆环：knowledge→agents 静态边转函数内动态 import。
   // P2-d 刀7：getExtractFromTextSystemPrompt 随知识维护 Agent 迁 agent-knowledge
   const { getExtractFromTextSystemPrompt } = await import('../agent-knowledge/index.js');
-  const { getSystemExecutor, StudioRoleNotConfiguredError } = await import('../agents/index.js');
+  const { getSystemExecutor } = await import('../agents/index.js');
   try {
     const transcript = buildConversationTranscript(messages);
     if (!transcript) return;
@@ -206,12 +206,9 @@ export async function extractFromConversationImpl(
       logger.warn('[KnowledgeService] Failed to persist knowledge:extraction event', { error: String(e) });
     }
   } catch (err) {
-    if (err instanceof StudioRoleNotConfiguredError) {
-      logger.info('[KnowledgeService] extractFromConversation skipped: studio role provider not configured', { source });
-      return;
-    }
-    // 提取失败绝不影响任务完成（模板兜底仍由 extractFromExecution 独立承担）
+    // #716：任务完成不被阻断，但失败必须传回持久 Effect，不能吞成成功。
     logger.warn('[KnowledgeService] extractFromConversation failed', { source, error: String(err) });
+    throw err;
   }
 }
 

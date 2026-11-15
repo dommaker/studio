@@ -38,6 +38,24 @@ export async function submitProposal<P extends ReviewProposalBase>(
   return { posted };
 }
 
+/** 恢复已有提案的人审卡；pending 直接认养，card-failed 重发成功后回到 pending。 */
+export async function repostProposal<P extends ReviewProposalBase>(
+  adapter: ReviewProposalAdapter<P>,
+  id: string,
+): Promise<{ posted: boolean }> {
+  const proposal = await adapter.store.getProposal(id);
+  if (!proposal || !['pending', 'card-failed'].includes(proposal.status)) return { posted: false };
+  if (proposal.status === 'pending') return { posted: true };
+
+  const { content, cardData } = adapter.renderCardContent(proposal);
+  const posted = await postReviewProposalCard(
+    { cardType: adapter.cardType, content, cardData, logTag: adapter.kind, author: adapter.author },
+    { fileStore: adapter.fileStore },
+  );
+  await adapter.store.appendStatus(id, posted ? 'pending' : 'card-failed');
+  return { posted };
+}
+
 /** 人审 approve：闸口校验 → adapter.onApprove → 按 outcome 落墓碑 */
 export async function approveProposal(kind: string, id: string): Promise<ApproveLifecycleResult> {
   const adapter = getReviewProposalAdapter(kind);

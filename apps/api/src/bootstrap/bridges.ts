@@ -4,8 +4,17 @@
 // 各项彼此无依赖，单项失败只 log 不阻断后续（纪律固化在 soft-steps.ts，#686）。
 // 表驱动：新增订阅 = EVENT_SUBSCRIPTIONS 加一行。
 import { runSoftSteps, type SoftStep } from './soft-steps.js';
+import { getStore } from '../core/store.js';
 
 const EVENT_SUBSCRIPTIONS: readonly SoftStep[] = [
+  {
+    // #716：知识提取 Effect 启动恢复 + 完成 WU transcript 补扫。
+    name: 'KnowledgeExtractionRecovery',
+    run: async () => {
+      const service = (await import('../modules/knowledge/index.js')).getKnowledgeExtractionEffects(getStore());
+      await service.recoverPending();
+    },
+  },
   {
     // AC-4.1: ReviewDispatcher subscribes to workunit.status_changed
     name: 'ReviewDispatcher',

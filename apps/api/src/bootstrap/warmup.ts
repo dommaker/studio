@@ -24,12 +24,11 @@ const WARMUP_TASKS: readonly SoftStep[] = [
     },
   },
   {
-    // agents 域：SessionSummary 增量提取——启动时跑一次 + 每 6 小时增量跑一次（daemon 长期运行不丢分析）
+    // 真实 session:end 落盘触发 + 启动恢复；完成标记就是持久化的 session:summary 事件。
     name: 'session-summary',
     run: async () => {
-      const { sessionSummaryService } = await import('../modules/agents/index.js');
-      setTimeout(() => sessionSummaryService.summarize(), 3000);
-      setInterval(() => sessionSummaryService.summarize(), 6 * 60 * 60 * 1000);
+      const { initSessionSummaryGenerator } = await import('../modules/events/index.js');
+      initSessionSummaryGenerator();
     },
   },
   {
@@ -96,8 +95,6 @@ const POST_ROUTES_WARMUP: readonly SoftStep[] = [
     },
   },
 ];
-
-// G-004: 决策链提取（KK 提取时自动触发，见 knowledge-curator.service.ts）
 
 export function startWarmupTasks(): void {
   mountSoftSteps(WARMUP_TASKS);

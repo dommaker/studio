@@ -231,3 +231,24 @@ export async function submitMemoryProposal(
   }
   return entries;
 }
+
+/** 恢复已落 draft 的 memory_proposal 卡；pending 直接认养，card-failed 复用原条目重发。 */
+export async function repostMemoryProposal(
+  entries: MemoryDraftEntry[],
+  ctx: { workUnitId?: string; source: string },
+): Promise<{ posted: boolean }> {
+  if (entries.length === 0) return { posted: true };
+  const adapter = getReviewProposalAdapter<MemoryDraftEntry>('memory') ?? registerMemoryReviewAdapter();
+  const records = await Promise.all(entries.map(entry => adapter.store.getProposal(entry.id)));
+  if (records.some(record => !record || !['pending', 'card-failed'].includes(record.status))) return { posted: false };
+  const targets = records.filter(record => record!.status === 'card-failed');
+  if (targets.length === 0) return { posted: true };
+
+  const { content, cardData } = renderCard(targets.map(record => toCardEntry(record!)), ctx);
+  const posted = await postReviewProposalCard(
+    { cardType: adapter.cardType, content, cardData, logTag: adapter.kind },
+    { fileStore: adapter.fileStore },
+  );
+  for (const target of targets) await adapter.store.appendStatus(target!.id, posted ? 'pending' : 'card-failed');
+  return { posted };
+}

@@ -2,6 +2,9 @@
  * SessionSummaryGenerator tests — classifyPattern + generateSessionSummary (FileStore mock)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 // ── Mocks ──
 const mockAppendJsonl = vi.hoisted(() => vi.fn());
@@ -303,6 +306,75 @@ describe('SessionSummaryGenerator', () => {
 
       expect(result).not.toBeNull();
       expect(result!.durationMs).toBeUndefined();
+    });
+  });
+
+  describe('recoverSessionSummaries', () => {
+    it('deduplicates completed sessions persistently and retries failed writes', async () => {
+      const endEvent = {
+        type: 'session:end',
+        source: 'agent-1',
+        payload: JSON.stringify({ sessionId: 's-retry' }),
+        createdAt: '2026-01-01T01:00:00.000Z',
+      };
+      mockReadStudioEventsSince.mockResolvedValue([endEvent]);
+      mockAppendJsonl
+        .mockRejectedValueOnce(new Error('write failed'))
+        .mockResolvedValue(undefined);
+
+      const { recoverSessionSummaries } = await import('../session-summary-generator.js');
+      await recoverSessionSummaries();
+      await recoverSessionSummaries();
+
+      expect(mockAppendJsonl).toHaveBeenCalledTimes(2);
+
+      mockReadStudioEventsSince.mockResolvedValue([
+        endEvent,
+        {
+          type: 'session:summary',
+          source: 'agent-1',
+          payload: JSON.stringify({ sessionId: 's-retry' }),
+          createdAt: '2026-01-01T01:01:00.000Z',
+        },
+      ]);
+      await recoverSessionSummaries();
+
+      expect(mockAppendJsonl).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('initSessionSummaryGenerator', () => {
+    it('generates a summary when a real session:end event is appended', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-summary-watch-'));
+      const eventsFile = path.join(tmpDir, 'studio-events.jsonl');
+      const previousEventsFile = process.env.STUDIO_EVENTS_FILE;
+      let stop: (() => void) | undefined;
+      try {
+        fs.writeFileSync(eventsFile, '', 'utf8');
+        process.env.STUDIO_EVENTS_FILE = eventsFile;
+        mockReadStudioEventsSince.mockResolvedValue([]);
+
+        const { initSessionSummaryGenerator } = await import('../session-summary-generator.js');
+        stop = initSessionSummaryGenerator();
+        await vi.waitFor(() => expect(mockReadStudioEventsSince).toHaveBeenCalled());
+
+        mockReadStudioEventsSince.mockResolvedValue([
+          {
+            type: 'session:end',
+            source: 'agent-1',
+            payload: JSON.stringify({ sessionId: 's-watched' }),
+            createdAt: '2026-01-01T01:00:00.000Z',
+          },
+        ]);
+        fs.appendFileSync(eventsFile, '{"type":"session:end"}\n', 'utf8');
+
+        await vi.waitFor(() => expect(mockAppendJsonl).toHaveBeenCalledTimes(1));
+      } finally {
+        stop?.();
+        if (previousEventsFile === undefined) delete process.env.STUDIO_EVENTS_FILE;
+        else process.env.STUDIO_EVENTS_FILE = previousEventsFile;
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
   });
 });

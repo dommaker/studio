@@ -1,5 +1,5 @@
 /**
- * bootstrap/bridges 测试（P2-a）：12 项事件订阅按原 index.ts 顺序初始化；
+ * bootstrap/bridges 测试（P2-a）：13 项事件订阅按原 index.ts 顺序初始化；
  * 单项失败只 log，不阻断后续订阅。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -8,6 +8,9 @@ const calls = vi.hoisted(() => [] as string[]);
 
 vi.mock('../../modules/agent-loop/index.js', () => ({
   getReviewDispatcher: () => ({ subscribeToEvents: () => calls.push('review-dispatcher') }),
+}));
+vi.mock('../../modules/knowledge/index.js', () => ({
+  getKnowledgeExtractionEffects: () => ({ recoverPending: async () => { calls.push('knowledge-extraction-recovery'); } }),
 }));
 vi.mock('../../modules/events/workunit-events-bridge.js', () => ({
   initWorkunitEventsBridge: () => calls.push('workunit-events-bridge'),
@@ -51,9 +54,10 @@ beforeEach(() => {
 });
 
 describe('initEventSubscriptions', () => {
-  it('按原 index.ts 顺序初始化全部 12 项订阅', async () => {
+  it('按原 index.ts 顺序初始化全部 13 项订阅', async () => {
     await initEventSubscriptions();
     expect(calls).toEqual([
+      'knowledge-extraction-recovery',
       'review-dispatcher',
       'workunit-events-bridge',
       'lock-events-bridge',

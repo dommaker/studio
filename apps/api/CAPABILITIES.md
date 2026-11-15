@@ -22,7 +22,6 @@
 | ops.service | src/modules/agents/ops/ops.service.ts | Ops Service — 系统生命周期守护 |
 | ops-rules | src/modules/agents/ops/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
-| session-summary.service | src/modules/agents/session-summary.service.ts | SessionSummaryService — 会话级知识提取 (2026-05-25) |
 | triage.service | src/modules/agents/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | src/modules/agents/types.ts | Agent 团队类型定义 |
 | routes | src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
@@ -40,7 +39,8 @@
 | routes | src/modules/executions/routes.ts | Execution API 路由 |
 | iron-laws.routes | src/modules/harness/iron-laws.routes.ts | Iron Laws API — 从 runtime-proxy 迁移 (2026-05-14) |
 | routes | src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015) |
-| decision-chain-extractor | src/modules/knowledge/decision-chain-extractor.ts | DecisionChainExtractor (G-004) — 从 Meeting 辩论 + Goal 执行中提取决策链 |
+| decision-chain-extractor | src/modules/knowledge/producers/decision-chain-extractor.ts | DecisionChainExtractor — #716 起退役生产提取，仅保留历史 decision_chain 查询 |
+| knowledge-extraction-effects | src/modules/knowledge/knowledge-extraction-effects.ts | #716 知识提取 Effect/Receipt — committed transcript 输入、有限重试与启动恢复 |
 | unified-query | src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
 | env-snapper | src/modules/knowledge/env-snapper.ts | EnvSnapper (G-003) — 系统环境自动快照 |
 | eval-case-generator | src/modules/knowledge/eval-case-generator.ts | EvalCaseGenerator — Better-Harness hill-climbing 吸收 |
@@ -191,7 +191,7 @@
 | routes | src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | routes | src/modules/discord/routes.ts | Discord Interactions Endpoint |
 | distill-landings | src/modules/distill/distill-landings.ts | distill-landings (#145) — 蒸馏产物分类落地的两个通道实现（运行时装配见 distill-runtime）。 |
-| distill-runs | src/modules/distill/distill-runs.ts | distill-runs (#351) — 蒸馏运行记录持久化（runs.jsonl） |
+| distill-runs | src/modules/distill/distill-runs.ts | distill-runs — runs.jsonl 持久状态机、重试与产物恢复清单（#716） |
 | distill-runtime | src/modules/distill/distill-runtime.ts | distill-runtime (#143) — 蒸馏模块运行时装配（唯一 import knowledge-singletons 的文件） |
 | distill-service | src/modules/distill/distill-service.ts | distill-service (#143) — 蒸馏主链路最小闭环（#83 D1/D2/D5 落地，spec #141） |
 | distill-threshold | src/modules/distill/distill-threshold.ts | distill-threshold (#143) — 蒸馏门槛检测纯函数（#83 D1 / spec #141） |

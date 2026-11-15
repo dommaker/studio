@@ -63,3 +63,61 @@ describe('runs 双时间戳基线', () => {
     expect(await store.lastRunAt()).toBe('2026-08-02T00:00:00.000Z');
   });
 });
+
+describe('持久执行状态与恢复投影', () => {
+  it('同一 run 的 triggered/running/retry-after/succeeded 追加快照折叠为最新状态', async () => {
+    const triggered = {
+      ...makeRun('r-state', '2026-08-01T00:00:00.000Z', 'triggered'),
+      materialIds: ['m1', 'm2'],
+      attempts: 0,
+    };
+    await store.appendRun(triggered);
+    await store.appendRun({
+      ...triggered,
+      executedAt: '2026-08-01T00:00:01.000Z',
+      outcome: 'running',
+      attempts: 1,
+    });
+    await store.appendRun({
+      ...triggered,
+      executedAt: '2026-08-01T00:00:02.000Z',
+      outcome: 'retry-after',
+      attempts: 1,
+      nextAttemptAt: '2026-08-01T00:00:32.000Z',
+      lastError: 'provider timeout',
+    });
+    await store.appendRun({
+      ...triggered,
+      executedAt: '2026-08-01T00:00:33.000Z',
+      outcome: 'succeeded',
+      attempts: 2,
+      productIds: ['product-1'],
+      nextAttemptAt: undefined,
+      lastError: undefined,
+    });
+
+    const runs = await store.listRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      id: 'r-state', outcome: 'succeeded', attempts: 2,
+      materialIds: ['m1', 'm2'], productIds: ['product-1'],
+    });
+    expect(runs[0].nextAttemptAt).toBeUndefined();
+    expect(runs[0].lastError).toBeUndefined();
+    expect(await store.getRun('r-state')).toEqual(runs[0]);
+    expect(await store.lastConsumedAt()).toBe('2026-08-01T00:00:33.000Z');
+  });
+
+  it('legacy executed/failed 保持可读，legacy error 归一为 lastError', async () => {
+    await store.appendRun({
+      ...makeRun('legacy-failed', '2026-08-01T00:00:00.000Z', 'failed'),
+      error: 'legacy provider error',
+    });
+    await store.appendRun(makeRun('legacy-executed', '2026-08-02T00:00:00.000Z', 'executed', ['p']));
+
+    const runs = await store.listRuns();
+    expect(runs.map(r => r.outcome)).toEqual(['failed', 'executed']);
+    expect(runs[0].lastError).toBe('legacy provider error');
+    expect(await store.lastConsumedAt()).toBe('2026-08-02T00:00:00.000Z');
+  });
+});

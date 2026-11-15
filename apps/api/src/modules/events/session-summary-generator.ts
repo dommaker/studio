@@ -1,15 +1,15 @@
 /**
  * B9-015: SessionSummaryGenerator — server-side session aggregation
  *
- * Called after batch ingest of agent events.
+ * Watches real session:end writes and recovers unfinished sessions at startup.
  * Aggregates same-session events → session:summary with filesChanged, toolsUsed, patternType.
  */
 
 import { eventBus } from '@dommaker/studio-shared';
 import type { SessionPatternType, SessionSummaryPayload } from '@dommaker/studio-shared';
-import * as os from 'os';
-import * as path from 'path';
-// #342：窗口读口（尾部倒读 + 窗口外早停）——两个事件读点切到此读口；
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+// #342：窗口读口（尾部倒读 + 窗口外早停）；
 // #654：file 缺省即 resolveStudioEventsFile()（调用时解析，认 STUDIO_EVENTS_FILE）
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
@@ -35,9 +35,12 @@ interface SessionSummary extends SessionSummaryPayload {
  */
 export async function generateSessionSummary(sessionId: string): Promise<SessionSummary | null> {
   try {
-    // #342：窗口读 30d（挂在事件批量写入 HTTP 路径上，读成本必须与文件总量解耦）；
+    // #342：窗口读 30d，读成本与文件总量解耦；
     // sessionId 的 payload.includes 子串匹配仍在窗口行内进行
     const allEvents: any[] = await readStudioEventsSince({ sinceMs: Date.now() - EVENTS_WINDOW_MS });
+    if (allEvents.some((event) => event.type === 'session:summary' && readSessionId(event) === sessionId)) {
+      return null;
+    }
     const events = allEvents
       .filter((e: any) => e.payload && typeof e.payload === 'string' && e.payload.includes(sessionId))
       .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -128,6 +131,78 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
     logger.warn('[SessionSummary] Generation failed', { sessionId, error: String(e) });
     return null;
   }
+}
+
+function readSessionId(event: any): string | null {
+  if (typeof event.payload !== 'string') return null;
+  try {
+    const payload = JSON.parse(event.payload);
+    return typeof payload.sessionId === 'string' && payload.sessionId ? payload.sessionId : null;
+  } catch {
+    return null;
+  }
+}
+
+async function runRecovery(): Promise<void> {
+  try {
+    const events: any[] = await readStudioEventsSince({ sinceMs: Date.now() - EVENTS_WINDOW_MS });
+    const completed = new Set(
+      events.filter((event) => event.type === 'session:summary').map(readSessionId).filter(Boolean),
+    );
+    const ended = new Set(
+      events.filter((event) => event.type === 'session:end').map(readSessionId).filter(Boolean),
+    );
+    for (const sessionId of ended) {
+      if (!completed.has(sessionId)) await generateSessionSummary(sessionId as string);
+    }
+  } catch (e: unknown) {
+    logger.warn('[SessionSummary] Recovery failed', { error: String(e) });
+  }
+}
+
+let recoveryQueue: Promise<void> = Promise.resolve();
+
+/** Recover completed sessions after restart; only persisted summaries suppress retries. */
+export function recoverSessionSummaries(): Promise<void> {
+  recoveryQueue = recoveryQueue.then(runRecovery, runRecovery);
+  return recoveryQueue;
+}
+
+let activeStop: (() => void) | undefined;
+
+/** Watch the real StudioEvent file so direct studio-agent writes trigger the same recovery path. */
+export function initSessionSummaryGenerator(): () => void {
+  if (activeStop) return activeStop;
+
+  const eventsFile = resolveStudioEventsFile();
+  const directory = path.dirname(eventsFile);
+  const basename = path.basename(eventsFile);
+  fs.mkdirSync(directory, { recursive: true });
+
+  let stopped = false;
+  let timer: NodeJS.Timeout | undefined;
+  const scheduleRecovery = () => {
+    if (stopped) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { void recoverSessionSummaries(); }, 50);
+    timer.unref();
+  };
+  const watcher = fs.watch(directory, { persistent: false }, (_eventType, filename) => {
+    if (!filename || filename.toString() === basename) scheduleRecovery();
+  });
+  watcher.on('error', (error) => {
+    logger.warn('[SessionSummary] Event watch failed', { error: String(error) });
+  });
+
+  const stop = () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    watcher.close();
+    if (activeStop === stop) activeStop = undefined;
+  };
+  activeStop = stop;
+  void recoverSessionSummaries();
+  return stop;
 }
 
 /**

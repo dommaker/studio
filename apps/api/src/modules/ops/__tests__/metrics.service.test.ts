@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { WorkUnitSnapshot, WorkUnitEvent } from '@dommaker/studio-shared';
-import { aggregateOverview, MetricsService } from '../metrics.service.js';
+import { aggregateOverview, MetricsService, type OverviewAggregateInput } from '../metrics.service.js';
 import { buildAssigneeProfileResolver } from '../../workunit/assignee-resolver.js';
 
 const T = new Date('2026-07-27T12:00:00.000Z').getTime();
@@ -27,7 +27,7 @@ function makeWu(overrides: Partial<WorkUnitSnapshot> & { metadataObj?: Record<st
   };
 }
 
-function makeInput() {
+function makeInput(): OverviewAggregateInput {
   const snapshots: WorkUnitSnapshot[] = [
     makeWu({
       id: 'wu-a', status: 'done', assigneeId: 'inst-1',
@@ -103,7 +103,7 @@ function makeInput() {
     profileIds: new Set(profileNames.keys()),
   });
 
-  return { snapshots, wuEvents, events, humanMessages, resolveAssigneeProfile, profileNames, now: T, windowDays: 7 };
+  return { snapshots, wuEvents, events, humanMessages, resolveAssigneeProfile, profileNames, distillRuns: [], now: T, windowDays: 7 };
 }
 
 describe('aggregateOverview (D16)', () => {
@@ -227,6 +227,36 @@ describe('aggregateOverview (D16)', () => {
     expect(m.effects.receiptsByOutcome).toEqual({ succeeded: 1, retrying: 1, cancelled: 1 });
     expect(m.effects.recoveryChecks).toBe(2);
     expect(m.effects.duplicatesPrevented).toBe(1);
+  });
+
+  it('#716: 知识提取与蒸馏的失败、retry-after 和 stale-running 进入只读投影', () => {
+    const input = makeInput();
+    input.snapshots[0].effects = [
+      { id: 'ke-retry', workUnitId: 'wu-a', kind: 'knowledge-extraction', idempotencyKey: 'ke1', trigger: 'automatic', status: 'queued', attempts: 1, maxAttempts: 3, createdAt: iso(T - 2 * H), updatedAt: iso(T - H), nextAttemptAt: iso(T + H), lastError: 'model down' },
+      { id: 'ke-stuck', workUnitId: 'wu-a', kind: 'knowledge-extraction', idempotencyKey: 'ke2', trigger: 'automatic', status: 'running', attempts: 2, maxAttempts: 3, createdAt: iso(T - 3 * H), updatedAt: iso(T - 2 * H) },
+    ];
+    input.distillRuns = [
+      { id: 'dr-failed', proposalId: 'p1', executedAt: iso(T - H), outcome: 'failed', signals: { topicTags: [], manualCount: 0 }, materialIds: [], productIds: [], attempts: 3, lastError: 'store down' },
+      { id: 'dr-stuck', proposalId: 'p2', executedAt: iso(T - 2 * H), outcome: 'running', signals: { topicTags: [], manualCount: 0 }, materialIds: [], productIds: [], attempts: 1 },
+      { id: 'dr-card', proposalId: 'p3', executedAt: iso(T - H), outcome: 'retry-after', signals: { topicTags: [], manualCount: 0 }, materialIds: [], productIds: [], attempts: 1, lastError: 'landing-card-failed:sp-card' },
+    ];
+
+    const m = aggregateOverview(input);
+    expect(m.knowledgePublishing.byState).toEqual({
+      'knowledge-extraction:retry-after': 1,
+      'knowledge-extraction:running': 1,
+      'distill:failed': 1,
+      'distill:running': 1,
+      'distill:retry-after': 1,
+    });
+    expect(m.knowledgePublishing.failed).toBe(1);
+    expect(m.knowledgePublishing.retryAfter).toBe(2);
+    expect(m.knowledgePublishing.staleRunning).toBe(2);
+    expect(m.knowledgePublishing.cardFailed).toBe(1);
+    expect(m.knowledgePublishing.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'ke-retry', kind: 'knowledge-extraction', state: 'retry-after', workUnitId: 'wu-a' }),
+      expect.objectContaining({ id: 'dr-failed', kind: 'distill', state: 'failed', lastError: 'store down' }),
+    ]));
   });
 
   // assignee-resolver 口径修复钉板：未认领指名 WU（assigneeId = profile id，无实例 state）
@@ -405,6 +435,21 @@ describe('MetricsService', () => {
     expect(m.roles.roles.find(r => r.profileId === 'dev')?.profileName).toBe('开发');
   });
 
+  it('#716: overview 从既有 runs.jsonl 装配蒸馏失败投影', async () => {
+    const distillDataDir = path.join(dir, 'distill');
+    fs.mkdirSync(distillDataDir, { recursive: true });
+    fs.writeFileSync(path.join(distillDataDir, 'runs.jsonl'), JSON.stringify({
+      id: 'dr-file', proposalId: 'p-file', executedAt: iso(T - H), outcome: 'failed',
+      signals: { topicTags: [], manualCount: 0 }, materialIds: [], productIds: [], attempts: 3, lastError: 'disk full',
+    }) + '\n');
+
+    const m = await new MetricsService(fileStoreStub as never).getOverviewMetrics({ eventsFile, wuEventsFile, distillDataDir, now: T });
+    expect(m.knowledgePublishing.failed).toBe(1);
+    expect(m.knowledgePublishing.items).toEqual([
+      expect.objectContaining({ id: 'dr-file', kind: 'distill', state: 'failed', lastError: 'disk full' }),
+    ]);
+  });
+
   it('60s 缓存：窗口内第二次调用不重新扫文件；invalidateCache 后重扫', async () => {
     const svc = new MetricsService(fileStoreStub as never);
     const first = await svc.getOverviewMetrics({ eventsFile, wuEventsFile });
@@ -427,7 +472,9 @@ describe('MetricsService', () => {
     await cold.getOverviewMetrics({ eventsFile, wuEventsFile });
     await cold.getOverviewMetrics({ eventsFile, wuEventsFile });
 
-    expect(fileStoreStub.readJsonl).not.toHaveBeenCalled();
+    // #716 新增的小体量蒸馏状态读口；WU events 与 human messages 仍由持久投影直读，不全量回放。
+    expect(fileStoreStub.readJsonl).toHaveBeenCalledTimes(1);
+    expect(fileStoreStub.readJsonl).toHaveBeenCalledWith(expect.stringMatching(/distill\/runs\.jsonl$/));
     expect(fileStoreStub.queryAllMessages).not.toHaveBeenCalled();
   });
 

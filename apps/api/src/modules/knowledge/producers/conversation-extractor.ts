@@ -118,6 +118,6 @@ export function ingestConversationEntry(
     return typeof id === 'string' && id ? { id, title, type } : null;
   } catch (e) {
     logger.warn('[KnowledgeService] Failed to ingest conversation entry', { error: String(e) });
-    return null;
+    throw e;
   }
 }

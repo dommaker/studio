@@ -20,7 +20,7 @@ import { logger } from '@dommaker/studio-shared/node';
 import { prepareResultReply } from './loop-record-reply.js';
 import { persistResultBookkeeping } from './loop-record-persistence.js';
 import { dispatchResultEvents } from './loop-record-events.js';
-import { knowledgePorts } from '../../knowledge/index.js';
+import { knowledgePorts, getKnowledgeExtractionEffects } from '../../knowledge/index.js';
 import { CODE_WORKTREE_TYPES } from '../wu-verification.js';
 import { getErrorMessage } from '../../../utils/errors.js';
 
@@ -112,13 +112,18 @@ export class ResultRecorder {
           learning: { ...evidence, extractionVersion: 'execution-1', revision: 1, outcome },
         }).catch(err => logger.warn(`[AgentLoop] extractFromExecution failed: ${getErrorMessage(err)}`));
       }
-      if (action === 'complete' && result.learningConversation) {
-        void knowledgePorts.produce.extractFromConversation(result.learningConversation, {
-          ...evidence,
-          extractionVersion: 'conversation-1',
-          revision: 1,
-          outcome,
-        }).catch(err => logger.warn(`[AgentLoop] extractFromConversation failed: ${getErrorMessage(err)}`));
+      if (action === 'complete' && result.learningConversation && result.assignmentId) {
+        try {
+          await getKnowledgeExtractionEffects(deps.fileStore).trigger(wu.id, result.assignmentId, {
+            ...evidence,
+            extractionVersion: 'conversation-1',
+            revision: 1,
+            outcome,
+          });
+        } catch (err) {
+          // 完成主链不被提取存储故障阻断；启动补扫会从未消费 transcript 重建意图。
+          logger.warn(`[AgentLoop] knowledge extraction effect enqueue failed: ${getErrorMessage(err)}`);
+        }
       }
     }
 
