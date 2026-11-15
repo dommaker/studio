@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vites
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { execFileSync } from 'node:child_process';
 
 // SKILLS_DIR 在 manifest-loader 模块加载时读取 —— 必须先设再 import prompt-composer
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-skills-'));
@@ -1348,7 +1349,7 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).not.toContain('## PMO 地图');
   });
 
-  it('契约段 review → REVIEW_RESULT 协议行，挂 base 后、handoff 前、hint 前，不进稳定前缀', async () => {
+  it('契约段 review → REVIEW_RESULT + 评审上下文，拒绝旧 handoff 与实现者 hint', async () => {
     const { prompt, knowledgeContext } = await composeStepPrompt(
       {
         wu: makeWu({ type: 'review' }),
@@ -1369,12 +1370,12 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
 
     const baseIdx = prompt.indexOf('## 当前工作');
     const contractIdx = prompt.indexOf('## 产出契约');
-    const handoffIdx = prompt.indexOf('## 前序进展');
-    const hintIdx = prompt.indexOf('## 提交提醒');
+    const purposeIdx = prompt.indexOf('## 评审上下文');
     expect(baseIdx).toBeGreaterThanOrEqual(0);
     expect(contractIdx).toBeGreaterThan(baseIdx);
-    expect(handoffIdx).toBeGreaterThan(contractIdx);
-    expect(hintIdx).toBeGreaterThan(handoffIdx);
+    expect(purposeIdx).toBeGreaterThan(contractIdx);
+    expect(prompt).not.toContain('## 前序进展');
+    expect(prompt).not.toContain('## 提交提醒');
   });
 
   it('契约段 implement → 测试先行 + Phase commit 格式', async () => {
@@ -1794,5 +1795,238 @@ describe('#285（决策 #257 D1/D2/D4/D6/D7/D9）：files 段「## 引用文件�
 
     expect(mockPostWuSystemMessage).not.toHaveBeenCalled();
     expect(sectionTrimmedEvents().filter(e => e.section === 'files')).toEqual([]);
+  });
+});
+
+describe('#713: 按执行用途组装上下文', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement', 'review'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '## 相关知识\n- 登录模块先写失败测试', injectedIds: ['rule-login'] });
+    mockReadIndex.mockResolvedValue('');
+    mockProjectGet.mockResolvedValue(null);
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-purpose-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
+
+  it('实现上下文包含目标、Mandate、AC、仓库规则和相关知识', async () => {
+    const wu = makeWu({
+      type: 'implement',
+      scope: '实现登录功能',
+      mandate: {
+        revision: 3,
+        policyVersion: '1',
+        repositories: [{ repo: '/repo/studio', leg: 'PMO-7' }],
+        deliveryActions: ['merge'],
+        budget: { tokens: 50000, planSteps: null },
+      },
+    });
+
+    const { prompt, knowledgeContext } = await composeStepPrompt(
+      { wu, metadata: { ac: ['登录成功返回会话', '失败时不泄露凭证'] } as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('实现登录功能');
+    expect(prompt).toContain('## 实现上下文');
+    expect(prompt).toContain('revision: 3');
+    expect(prompt).toContain('/repo/studio (PMO-7)');
+    expect(prompt).toContain('登录成功返回会话');
+    expect(prompt).toContain('失败时不泄露凭证');
+    expect(prompt).toContain('仓库根有 AGENTS.md/CLAUDE.md 时以它们为准');
+    expect(prompt).toContain('## 产出契约');
+    expect(knowledgeContext).toContain('登录模块先写失败测试');
+  });
+
+  it('评审上下文只含需求、AC、base/head diff 与验证证据，不含实现者历史或通用知识', async () => {
+    const repo = path.join(testDir, 'repo');
+    fs.mkdirSync(repo);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    git('init', '-b', 'main');
+    git('config', 'user.email', 'test@example.invalid');
+    git('config', 'user.name', 'Test');
+    fs.writeFileSync(path.join(repo, 'login.ts'), 'export const login = false;\n');
+    git('add', 'login.ts');
+    git('commit', '-m', 'base');
+    git('checkout', '-b', 'task/wu-parent');
+    fs.writeFileSync(path.join(repo, 'login.ts'), 'export const login = true;\n');
+    git('commit', '-am', 'implement login');
+
+    const wu = makeWu({
+      type: 'review',
+      scope: '审查代码变更（diff-only 输入契约）\n背景（仅供定位）：实现登录功能\ngit diff main...task/wu-parent 看全部变更',
+    });
+    const metadata = {
+      ac: ['登录成功返回会话'],
+      worktreePath: repo,
+      worktreeBaseBranch: 'main',
+      worktreeBranch: 'task/wu-parent',
+      verifyReport: { commands: ['pnpm test', 'pnpm typecheck'], source: 'convention', passedAt: '2026-11-15T00:00:00Z' },
+      attestations: { l1: { verdict: 'approved', at: '2026-11-15T00:00:00Z', by: 'implementer' } },
+      stepCount: 4,
+      progressLog: [{ step: 4, action: 'progress', summary: '实现者私有进展' }],
+      sessionSummary: '实现者私有会话摘要',
+      verifyFailHint: '实现者上一轮失败细节',
+      commitGuardHint: '实现者提交提醒',
+    };
+
+    const { prompt, knowledgeContext } = await composeStepPrompt(
+      { wu, metadata: metadata as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 评审上下文');
+    expect(prompt).toContain('实现登录功能');
+    expect(prompt).toContain('登录成功返回会话');
+    expect(prompt).toContain('base: main; head: task/wu-parent');
+    expect(prompt).toContain('git diff main...task/wu-parent');
+    expect(prompt).toContain('diff --git a/login.ts b/login.ts');
+    expect(prompt).toContain('+export const login = true;');
+    expect(prompt).toContain('passed at 2026-11-15T00:00:00Z');
+    expect(prompt).toContain('pnpm test');
+    expect(prompt).toContain('REVIEW_RESULT');
+    expect(prompt).not.toContain('实现者私有进展');
+    expect(prompt).not.toContain('实现者私有会话摘要');
+    expect(prompt).not.toContain('实现者上一轮失败细节');
+    expect(prompt).not.toContain('实现者提交提醒');
+    expect(knowledgeContext).not.toContain('登录模块先写失败测试');
+    expect(mockInjectContext).not.toHaveBeenCalled();
+  });
+
+  it('恢复上下文由持久 StepRecord 识别，聚焦未完成工作且保留产出契约与预算', async () => {
+    const wu = makeWu({ type: 'implement', scope: '恢复登录实现' });
+    const metadata = { ac: ['完成登录'], stepCount: 0, sessionSummary: '过期会话摘要' };
+    const step = {
+      id: 'step-1', workUnitId: wu.id, assignmentId: 'assignment-1', step: 1,
+      action: 'progress', result: '已写登录测试', at: '2026-11-15T00:00:00Z',
+      acProgress: [{ ac: '完成登录', status: 'in_progress' }], modifiedFiles: [],
+      commands: [], verification: null, decisions: [], artifacts: [],
+      nextStep: '实现登录处理器', transcriptRefs: [],
+    };
+    const snapshot = {
+      ...wu, metadata: JSON.stringify(metadata), stepRecords: [step], currentAssignmentId: 'assignment-1',
+      createdAt: new Date(), updatedAt: new Date(),
+    };
+    await fileStore.commitSnapshot({
+      type: 'created', wuId: wu.id, timestamp: '2026-11-15T00:00:00Z', data: snapshot,
+    }, snapshot as any);
+
+    const { prompt } = await composeStepPrompt(
+      { wu, metadata: metadata as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 恢复上下文');
+    expect(prompt).toContain('## 恢复包');
+    expect(prompt).toContain('完成登录');
+    expect(prompt).toContain('实现登录处理器');
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).not.toContain('过期会话摘要');
+    expect(mockAppendJsonl).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      type: 'prompt:section_trimmed', payload: expect.stringContaining('"section":"handoff"'),
+    }));
+  });
+
+  it('委派上下文只含子范围、必要引用和期望产出，不带父授权、历史或通用知识', async () => {
+    writeSkill('tdd-implement', '通用实现流程');
+    const wu = makeWu({
+      type: 'implement', scope: '只补登录表单校验',
+      mandate: { revision: 9, repositories: [{ repo: '/repo/parent', leg: null }] },
+    });
+    const metadata = {
+      creationMode: 'agent-delegate',
+      fileRefs: [{ repo: '/repo/studio', path: 'src/login-form.ts' }],
+      workspaceRoot: '/repo/studio',
+      pmoId: 'parent-pmo', ac: ['父任务验收标准'],
+      stepCount: 3, progressLog: [{ step: 3, action: 'progress', summary: '父会话进展' }],
+      sessionSummary: '父会话摘要', commitGuardHint: '父提交提醒',
+    };
+
+    const { prompt, knowledgeContext } = await composeStepPrompt(
+      { wu, metadata: metadata as any, isNewSession: true },
+      deps(makeRole({ persona: '委派角色自述' })),
+    );
+
+    expect(prompt).toContain('## 委派上下文');
+    expect(prompt).toContain('只补登录表单校验');
+    expect(prompt).toContain('期望产出');
+    expect(prompt).toContain('## 产出契约');
+    expect(knowledgeContext).toContain('src/login-form.ts');
+    expect(knowledgeContext).not.toContain('委派角色自述');
+    expect(knowledgeContext).not.toContain('## 本次任务 Skills');
+    expect(prompt).not.toContain('本环节标准打法');
+    expect(prompt).not.toContain('父任务验收标准');
+    expect(prompt).not.toContain('/repo/parent');
+    expect(prompt).not.toContain('父会话进展');
+    expect(prompt).not.toContain('父会话摘要');
+    expect(prompt).not.toContain('父提交提醒');
+    expect(knowledgeContext).not.toContain('登录模块先写失败测试');
+    expect(mockProjectGet).not.toHaveBeenCalled();
+    expect(mockInjectContext).not.toHaveBeenCalled();
+  });
+
+  it('用途正文与恢复共用既有 handoff token 预算，产出契约不被截断', async () => {
+    const { prompt } = await composeStepPrompt(
+      {
+        wu: makeWu({ type: 'review', scope: '审查登录变更' }),
+        metadata: { ac: ['验'.repeat(8000)] } as any,
+      },
+      deps(makeRole()),
+    );
+
+    const events = mockAppendJsonl.mock.calls
+      .map(call => call[1])
+      .filter((event: any) => event.type === 'prompt:section_trimmed')
+      .map((event: any) => JSON.parse(event.payload));
+    expect(events).toEqual([expect.objectContaining({ section: 'handoff', quota: SECTION_QUOTAS.handoff })]);
+    expect(events[0].originalTokens).toBeGreaterThan(events[0].trimmedTokens);
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).toContain('REVIEW_RESULT');
+  });
+
+  it('大 diff 截断时仍优先保留评审验证证据', async () => {
+    const repo = path.join(testDir, 'large-diff-repo');
+    fs.mkdirSync(repo);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    git('init', '-b', 'main');
+    git('config', 'user.email', 'test@example.invalid');
+    git('config', 'user.name', 'Test');
+    fs.writeFileSync(path.join(repo, 'large.ts'), 'export const value = 0;\n');
+    git('add', 'large.ts');
+    git('commit', '-m', 'base');
+    git('checkout', '-b', 'task/large');
+    fs.writeFileSync(path.join(repo, 'large.ts'), Array.from({ length: 8000 }, (_, i) => `export const value${i} = ${i};`).join('\n'));
+    git('commit', '-am', 'large diff');
+
+    const { prompt } = await composeStepPrompt(
+      {
+        wu: makeWu({ type: 'review', scope: '审查大变更' }),
+        metadata: {
+          worktreePath: repo, worktreeBaseBranch: 'main', worktreeBranch: 'task/large',
+          verifyReport: { commands: ['pnpm test'], source: 'convention', passedAt: '2026-11-15T00:00:00Z' },
+          attestations: { l1: { verdict: 'approved', at: '2026-11-15T00:00:00Z', by: 'implementer' } },
+        } as any,
+      },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('### 验证证据');
+    expect(prompt).toContain('passed at 2026-11-15T00:00:00Z');
+    expect(prompt).toContain('pnpm test');
+    expect(mockAppendJsonl).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      type: 'prompt:section_trimmed', payload: expect.stringContaining('"section":"handoff"'),
+    }));
   });
 });

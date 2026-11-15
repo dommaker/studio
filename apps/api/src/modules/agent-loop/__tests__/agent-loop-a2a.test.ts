@@ -165,11 +165,17 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
   });
 
   describe('recordResult DELEGATE 分支（§4.1 机制 3-5）', () => {
-    it('闸门通过 → 建子单 + collab 元数据 + delegate 卡片 + 父按 progress 继续', async () => {
-      const parent = await setupParent();
+    it('闸门通过 → 建子单 + collab/必要引用 + delegate 卡片 + 父按 progress 继续', async () => {
+      const parent = await setupParent({
+        fileRefs: [
+          { repo: '/repo/studio', path: 'src/login.ts' },
+          { repo: '/repo/studio', path: 'src/unrelated.ts' },
+          { repo: '/repo/other', path: 'src/login.ts' },
+        ],
+      });
       await loop.recordResult({ workUnit: parent }, {
-        action: 'delegate', summary: '审查登录模块的实现',
-        delegate: { targetName: 'AgentB', scope: '审查登录模块的实现' },
+        action: 'delegate', summary: '审查 /repo/studio/src/login.ts 的实现',
+        delegate: { targetName: 'AgentB', scope: '审查 /repo/studio/src/login.ts 的实现' },
       });
 
       // 父 WU：状态不变（active），collab 补记为根记录且 delegationCount=1
@@ -189,9 +195,10 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
       expect(child.channelId).toBe(channelId);
       expect(child.reqId).toBe('REQ-0001');
       expect(child.workspaceId).toBe('ws-1');
-      expect(child.scope).toBe('审查登录模块的实现');
+      expect(child.scope).toBe('审查 /repo/studio/src/login.ts 的实现');
       const childMeta = JSON.parse(child.metadata!) as WorkUnitMetadata;
       expect(childMeta.creationMode).toBe('agent-delegate');
+      expect(childMeta.fileRefs).toEqual([{ repo: '/repo/studio', path: 'src/login.ts' }]);
       expect(childMeta.collab).toEqual({
         rootId: parent.id,
         depth: 1,
@@ -203,7 +210,7 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
       // delegate 卡片：@A 委派 @B：<scope>（深度 1/2），authorType=agent
       const cards = (await channelMessages()).filter(m => m.authorType === 'agent');
       expect(cards).toHaveLength(1);
-      expect(cards[0].content).toBe(`@AgentA 委派 @AgentB：审查登录模块的实现（深度 1/2）`);
+      expect(cards[0].content).toBe(`@AgentA 委派 @AgentB：审查 /repo/studio/src/login.ts 的实现（深度 1/2）`);
       expect(cards[0].workUnitId).toBe(parent.id);
     });
 

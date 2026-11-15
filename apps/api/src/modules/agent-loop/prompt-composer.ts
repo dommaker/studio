@@ -1,5 +1,5 @@
 /**
- * prompt/上下文组装编排（2026-08 从 agent-loop.agentStep 抽出；#671 按组装段拆分）：
+ * prompt/上下文组装编排（2026-08 从 agent-loop.agentStep 抽出；#671 按组装段拆分；#713 按执行用途裁剪）：
  * agentStep 的 prompt 组装与上下文注入段 —— hint/traceId 邻接的 hint 读取、
  * base prompt 选择（pendingReplies > newReplies > continue）、三类 guard hint 注入、
  * 注入段分段软定额 + 池内余量共享（#91），以及 hint 消费清除增量。
@@ -34,8 +34,9 @@ import { buildPmoMapSection } from './prompt-sections/prompt-section-map.js';
 import { buildMemorySection } from './prompt-sections/prompt-section-memory.js';
 import { buildFilesSection } from './prompt-sections/prompt-section-files.js';
 import { buildContractSection } from './prompt-sections/prompt-section-contract.js';
-import { buildHandoffSection, WAITING_QUESTION_REPLAY_MAX_CHARS } from './prompt-sections/prompt-section-handoff.js';
-import { logger } from '@dommaker/studio-shared/node';
+import { buildHandoffSection, WAITING_QUESTION_REPLAY_MAX_CHARS, type PromptPurpose } from './prompt-sections/prompt-section-handoff.js';
+import { logger, withDirectoryCapability } from '@dommaker/studio-shared/node';
+import { execFileAsync } from '../../core/exec-async.js';
 
 // #671：拆分前公共面 re-export——定额表 / 段模板 / 段常量原经本文件导出，拆后出口不变
 export { SECTION_QUOTAS } from './prompt-quota.js';
@@ -81,6 +82,22 @@ export interface ComposedStepPrompt {
   consumedHintUpdates: Partial<WorkUnitMetadata>;
 }
 
+/** #713：评审 diff 在组装时从真实 worktree 读取；失败只保留 base/head 定位，不伪造空 diff。 */
+async function readReviewDiff(metadata: WorkUnitMetadata): Promise<string | null> {
+  const root = metadata.worktreePath ?? metadata.workspaceRoot;
+  const base = metadata.worktreeBaseBranch;
+  if (!root || !base) return null;
+  const head = metadata.worktreeBranch ?? 'HEAD';
+  try {
+    return await withDirectoryCapability(root, cwd => execFileAsync(
+      'git', ['diff', '--no-ext-diff', `${base}...${head}`, '--'],
+      { cwd, timeout: 5000, maxBuffer: 10 * 1024 * 1024 },
+    ));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 组装本 step 的 prompt 与注入上下文：
  *  1. hint 读取（pendingReplies / commitGuardHint / verifyFailHint / childGuardHint / processCheckHint / diffEmptyHint / contractArtifactHint，注入后即消费）；
@@ -96,6 +113,14 @@ export async function composeStepPrompt(
   deps: PromptComposerDeps,
 ): Promise<ComposedStepPrompt> {
   const { wu, metadata } = ctx;
+  const purpose: PromptPurpose = wu.type === 'review'
+    ? 'review'
+    : metadata.creationMode === 'agent-delegate'
+      ? 'delegation'
+      : ctx.isNewSession === true && ((typeof metadata.stepCount === 'number' && metadata.stepCount > 0) || metadata.errorType)
+        ? 'recovery'
+        : 'implementation';
+  const includeImplementationHints = purpose === 'implementation' || purpose === 'recovery';
 
   // F5: 恢复挂起时由 message-routing 写入的人类回复（优先级最高，注入后即消费）
   const pendingReplies = Array.isArray(metadata.pendingReplies)
@@ -145,14 +170,14 @@ export async function composeStepPrompt(
       ? buildReplyPrompt(wu, ctx.newReplies)
       : buildContinuePrompt(wu);
   // #95: hint（guard hint）段延后组装 —— 前序进展段挂载在 base 之后、hint 之前
-  const hintBlocks = [
+  const hintBlocks = includeImplementationHints ? [
     commitGuardHint ? `## 提交提醒\n\n${commitGuardHint}` : null,
     verifyFailHint ? `## 验证失败\n\n${verifyFailHint}` : null,
     childGuardHint ? `## 子任务提醒\n\n${childGuardHint}` : null,
     processCheckHint ? `## 过程检查提醒\n\n${processCheckHint}` : null,
     diffEmptyHint ? `## 提交内容提醒\n\n${diffEmptyHint}` : null,
     contractArtifactHint ? `## 契约产物提醒\n\n${contractArtifactHint}` : null,
-  ].filter((s): s is string => s !== null).join('\n\n');
+  ].filter((s): s is string => s !== null).join('\n\n') : '';
 
   // #91: 分段软定额 + 池内余量共享 —— 段有效预算 = 定额 + 池；用量差额回流池中。
   // 任一段截断落 prompt:section_trimmed 事件（fire-and-forget，供定额初值校准）。
@@ -198,28 +223,45 @@ export async function composeStepPrompt(
   // → map → memory → knowledge → files（#285）；任务本体尾组（拼 prompt）序 = base → contract → handoff → hint。
   // 段组装顺序即池共享顺序（前段余量流入后段），与稳定前缀序一致。
 
+  // #713：委派只保留子范围、必要引用和期望产出，不注入角色自述或通用 Skills。
+  const includeRoleAndSkills = purpose !== 'delegation';
+
   // 决策 13 + #91: `## 你的角色` 段（persona ?? description + preset 的 skills/tools/constraints；皆空则省略）
-  const persona = await runSection('persona', budget => Promise.resolve(buildPersonaSection(deps.role, budget)));
+  const persona = await runSection('persona', budget => Promise.resolve(includeRoleAndSkills
+    ? buildPersonaSection(deps.role, budget)
+    : { section: '', tokens: 0, originalTokens: 0 }));
+
+  // #713：评审/委派不继承父 PMO、角色记忆或通用知识；评审 Skills 仍服务本单审查。
+  const includeSharedKnowledge = purpose === 'implementation' || purpose === 'recovery';
 
   // A2A §4.1 机制 2: 成员花名册段（## 频道成员与委派）
-  const roster = await runSection('roster', budget => buildRosterSection(wu, deps, budget));
+  const roster = await runSection('roster', budget => includeSharedKnowledge
+    ? buildRosterSection(wu, deps, budget)
+    : Promise.resolve({ section: '', tokens: 0, originalTokens: 0 }));
 
   // 决策 7/11: skill 段（## 本次任务 Skills）step 时计算，吃 skill 库最新版
   interface SkillSection extends BuiltSection { matched: string[] }
-  const skills = await runSection<SkillSection>('skills', budget => buildSkillSection(wu, deps, budget));
+  const skills = await runSection<SkillSection>('skills', budget => includeRoleAndSkills
+    ? buildSkillSection(wu, deps, budget)
+    : Promise.resolve({ section: '', tokens: 0, originalTokens: 0, matched: [] }));
   const skillMatched = 'matched' in skills ? skills.matched : [];
 
   // #111 T5: PMO 地图完整段（## PMO 地图）——#119 起移入稳定前缀（skills 后、memory 前），
   // 不再拼进 prompt 尾部。
-  const pmoMap = await runSection('map', budget => buildPmoMapSection(metadata, budget));
+  const pmoMap = await runSection('map', budget => includeSharedKnowledge
+    ? buildPmoMapSection(metadata, budget)
+    : Promise.resolve({ section: '', tokens: 0, originalTokens: 0 }));
 
   // #100: memory 段内容源 = 角色记忆索引常驻注入（per-role MEMORY.md 索引全文，依赖 #98 存储服务）
-  const memory = await runSection('memory', budget => buildMemorySection(deps.role.id, budget));
+  const memory = await runSection('memory', budget => includeSharedKnowledge
+    ? buildMemorySection(deps.role.id, budget)
+    : Promise.resolve({ section: '', tokens: 0, originalTokens: 0 }));
 
   // GAP-5 + R1 反馈环: knowledge 段 —— injectContext 内部按 maxTokens（= 定额 + 池余量）截断，
   // 截断尺寸经 usage 回传（originalTokens > keptTokens 即发生了段内截断）。
   let injectedKnowledgeIds: string[] = [];
   const knowledge = await runSection('knowledge', async budget => {
+    if (!includeSharedKnowledge) return { section: '', tokens: 0, originalTokens: 0 };
     const injected = await knowledgePorts.consume.injectContext(wu.type, {
       tags: [wu.type],
       maxTokens: budget,
@@ -262,12 +304,15 @@ export async function composeStepPrompt(
 
   // #711：有 StepRecord 的新会话注入结构化恢复包；旧单保留 #95 前序进展回退。
   const handoff = await runSection('handoff', async budget => {
-    const recovery = ctx.isNewSession === true
-      ? await loadRecoveryPacket(deps.fileStore, wu)
-      : null;
+    const [recovery, diff] = await Promise.all([
+      ctx.isNewSession === true ? loadRecoveryPacket(deps.fileStore, wu) : null,
+      purpose === 'review' ? readReviewDiff(metadata) : null,
+    ]);
+    const committedRecovery = recovery && recovery.steps.length > 0 ? recovery : null;
     return buildHandoffSection(
       metadata, ctx.isNewSession === true, budget,
-      recovery && recovery.steps.length > 0 ? recovery : null,
+      committedRecovery,
+      { purpose: committedRecovery && purpose === 'implementation' ? 'recovery' : purpose, wu, diff },
     );
   });
 

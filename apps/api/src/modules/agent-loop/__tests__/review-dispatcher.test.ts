@@ -209,6 +209,9 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
           errorType: 'execution_failed',
           errorDetail: 'x',
           errorAt: '2026-07-29T01:00:00Z',
+          pendingReplies: ['父实现会话未消费回复'],
+          waitingForInput: true,
+          waitingQuestion: '父实现会话待答问题',
         },
       });
       await wuService.transitionStatus(parent.id, 'in_review');
@@ -229,6 +232,9 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
       expect(meta.errorType).toBeUndefined();
       expect(meta.errorDetail).toBeUndefined();
       expect(meta.errorAt).toBeUndefined();
+      expect(meta.pendingReplies).toBeUndefined();
+      expect(meta.waitingForInput).toBeUndefined();
+      expect(meta.waitingQuestion).toBeUndefined();
       // 域血缘字段保留（#700：REQ 取父 WU 一等列，不只读开放 metadata）
       expect(child!.reqId).toBe('REQ-0042');
       expect(meta.pmoId).toBe('proj-1');

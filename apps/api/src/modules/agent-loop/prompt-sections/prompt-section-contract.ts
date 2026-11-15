@@ -122,6 +122,10 @@ export function buildContractSection(wu: WorkUnitData, metadata: WorkUnitMetadat
   if (wu.type === 'plan' && metadata.directionPick === false && template) {
     template = template.replace(PLAN_DIRECTION_SECTION, PLAN_DIRECTION_DISABLED_HINT);
   }
+  // #713：委派不注入 Skills 段，产出契约保留格式但去掉指向已裁剪索引的打法行。
+  if (metadata.creationMode === 'agent-delegate' && template) {
+    template = template.split('\n').filter(line => !line.startsWith('本环节标准打法：')).join('\n');
+  }
   if (!template || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
 
   const full = `## 产出契约\n\n${template}`;

@@ -42,11 +42,12 @@ export function parseWuTitle(metadata: string | null | undefined, scope: string)
  * claude --resume 自注入 --dangerously-skip-permissions 被 root guard 秒拒（code 1）。
  * 跨 WU 续用本就违反"同一 WU 内才续用"约定（异 cwd 会话不存在）。
  *
- * 本列表是这 19 个字段的唯一权威出处（原 review-dispatcher.createReviewWorkUnit 的手维护
+ * 本列表是这 22 个字段的唯一权威出处（原 review-dispatcher.createReviewWorkUnit 的手维护
  * delete 清单；#94 增 lastSessionResumed、#95 增 progressLog、#96 增 sessionSummary；
  * #176 增 blockedAt/resumeCount（死信计时基准/复活观测钩子，同理不继承）；
  * #171 删只写零消费方的 input_tokens 死字段 —— #67 决议：token 观测由 workunit:tokens 事件覆盖；
- * #265 增 ownershipAttempts——归属问答轮次计数同理不继承；#699 增 cliSessionId）。
+ * #265 增 ownershipAttempts——归属问答轮次计数同理不继承；#699 增 cliSessionId；
+ * #713 增 pendingReplies/waitingForInput/waitingQuestion——评审子 WU 不继承父会话待答内容）。
  * agent-loop 新增簿记字段时必须同步加入本列表与回归测试，否则会静默泄漏进 review 子 WU。
  *
  * 返回删掉簿记字段后的浅拷贝，不改入参（与 review-dispatcher 原语义一致：
@@ -72,6 +73,9 @@ export function clearSessionBookkeeping(meta: WorkUnitMetadata): WorkUnitMetadat
   delete cleaned._cumulativeTokens;
   delete cleaned.progressLog;  // #95: 父 WU 进展史不继承（子 WU 从零记自己的 progressLog）
   delete cleaned.sessionSummary; // #96: 父 WU 会话滚动摘要不继承（子 WU 从零记自己的会话）
+  delete cleaned.pendingReplies; // #713: 评审子 WU 不回放父 WU 未消费回复
+  delete cleaned.waitingForInput;
+  delete cleaned.waitingQuestion;
   delete cleaned.ownershipAttempts; // #265: 归属问答轮次计数不继承（子 WU 自己的归属问答从零计）
   return cleaned;
 }

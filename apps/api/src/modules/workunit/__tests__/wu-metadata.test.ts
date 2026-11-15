@@ -1,5 +1,5 @@
 // wu-metadata 契约测试：WorkUnitMetadata 访问器三件套（parseWuMetadata / clearSessionBookkeeping / mergedWuView）
-// 覆盖：容错解析矩阵（null/undefined/空串/坏 JSON/非对象 JSON）、19 字段会话簿记清除
+// 覆盖：容错解析矩阵（null/undefined/空串/坏 JSON/非对象 JSON）、22 字段会话簿记清除
 //       （含 cliSessionId、列表外字段存活、入参不可变）、
 //       合并视图语义（updates 覆盖、显式 undefined 清除 hint 的序列化口径）。
 // 纯函数无 FileStore 依赖，直接单测。
@@ -35,7 +35,7 @@ describe('parseWuMetadata 容错解析矩阵', () => {
   });
 });
 
-describe('clearSessionBookkeeping 19 字段权威清单', () => {
+describe('clearSessionBookkeeping 22 字段权威清单', () => {
   const BOOKKEEPING: Record<string, unknown> = {
     sessionId: 'sess-1',
     cliSessionId: 'cli-sess-1', // #699: 新增真实 CLI 会话号也必须进入隔离回归清单
@@ -55,6 +55,9 @@ describe('clearSessionBookkeeping 19 字段权威清单', () => {
     _cumulativeTokens: 42000,
     progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
     sessionSummary: '滚动摘要',
+    pendingReplies: ['父任务未消费回复'],
+    waitingForInput: true,
+    waitingQuestion: '父任务待答问题',
     ownershipAttempts: 2, // #265: 归属问答轮次计数不继承（子 WU 自己的归属问答从零计）
   };
 
