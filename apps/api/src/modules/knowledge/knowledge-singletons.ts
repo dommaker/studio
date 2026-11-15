@@ -18,7 +18,9 @@
  */
 
 import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery } from '@dommaker/harness';
-import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
+import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeStore, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
+import type { LearningMetadata } from './learning-metadata.js';
+import { withLearningMetadata } from './learning-metadata.js';
 import { KnowledgeInjector } from './knowledge-injector.js';
 import { eventBus } from '@dommaker/studio-shared';
 import { wrapWithSegmentSpan } from '@dommaker/studio-shared/read-metrics';
@@ -340,6 +342,7 @@ export interface QualityGateIngestInput {
    * 显式声明 origin:'agent'。
    */
   origin?: KnowledgeOrigin;
+  learning?: LearningMetadata;
 }
 
 /**
@@ -356,7 +359,7 @@ export interface QualityGateIngestInput {
  * 返回保存的条目；被任一门禁跳过时返回 null。
  */
 export function ingestWithQualityGate(
-  deps: { ingest: KnowledgeIngest },
+  deps: { ingest: KnowledgeIngest; store?: KnowledgeStore },
   input: QualityGateIngestInput,
 ): KnowledgeEntry | null {
   const entryType = input.entryType ?? input.type;
@@ -393,6 +396,15 @@ export function ingestWithQualityGate(
     return null;
   }
 
+  if (input.learning && deps.store) {
+    const refs = saved.entry.sourceReferences ?? [];
+    if (refs.length > 0) {
+      deps.store.update(saved.entry.id, {
+        sourceReferences: [withLearningMetadata({ ...refs[0] }, input.learning), ...refs.slice(1)],
+      });
+    }
+  }
+
   // 3. 成功：同步向量库 + entry_created 事件 + SSE 广播
   scheduleVectorDbSync();
   appendKnowledgeEvent('knowledge:entry_created', { entryType, title: input.title });
@@ -414,7 +426,7 @@ export function appendKnowledgeEvent(type: string, payload: Record<string, unkno
 
 // ── 知识条目变更 SSE 广播（2026-09 web-ux-optional-fixes Step 2） ──
 
-export type KnowledgeEntryChangeAction = 'created' | 'promoted' | 'demoted';
+export type KnowledgeEntryChangeAction = 'created' | 'updated' | 'promoted' | 'demoted';
 
 /**
  * 知识条目创建/成熟度变更 → SSE 广播（event_type: knowledge.entry_changed，

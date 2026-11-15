@@ -237,6 +237,50 @@ describe('UnifiedQuery', () => {
     });
   });
 
+  describe('learning applicability and quality', () => {
+    function saveLearning(id: string, learning?: Record<string, unknown>, extra: Record<string, unknown> = {}) {
+      (uq as any).store.save({
+        id, type: 'guideline', title: id, content: id,
+        maturity: 'verified', layer: 'project', created: '2026-06-01T00:00:00Z',
+        lastReferenced: '2026-06-04T00:00:00Z', contributors: [], projects: [],
+        tags: [], applicablePhases: [],
+        sourceReferences: [{ timestamp: '2026-06-01T00:00:00Z', ...(learning ? { learning } : {}) }],
+        referencedBy: [], executionResults: [], consumptionMode: 'signal', origin: 'agent',
+        ...extra,
+      });
+    }
+
+    it('filters scope before limit and pauses unknown legacy scope', () => {
+      saveLearning('repo-other', { scope: { kind: 'repo', id: '/other' } });
+      saveLearning('legacy');
+      saveLearning('repo-current', { scope: { kind: 'repo', id: '/current' } });
+      saveLearning('global', { scope: { kind: 'global' } });
+
+      const result = uq.getIndexes({ scope: { repo: '/current' }, limit: 2 });
+
+      expect(result.map(e => e.id)).toEqual(['repo-current', 'global']);
+    });
+
+    it('excludes superseded and low_quality entries from automatic recall', () => {
+      saveLearning('old', { scope: { kind: 'global' } });
+      saveLearning('new', { scope: { kind: 'global' }, revision: 2, supersedes: 'old' });
+      saveLearning('low', { scope: { kind: 'global' } }, { tags: ['low_quality'] });
+
+      const result = uq.getIndexes({ scope: {}, excludeTags: ['low_quality'], excludeSuperseded: true });
+
+      expect(result.map(e => e.id)).toEqual(['new']);
+    });
+
+    it('keeps unknown-scope and terminal legacy entries browsable', async () => {
+      saveLearning('legacy');
+      saveLearning('archived', { scope: { kind: 'global' } }, { maturity: 'archived' });
+
+      const result = await uq.listEntries({ limit: 10 });
+
+      expect(result.entries.map(e => e.id)).toEqual(expect.arrayContaining(['legacy', 'archived']));
+    });
+  });
+
   describe('getIndexes', () => {
     it('should return empty when KnowledgeStore has no matching entries', () => {
       const indexes = uq.getIndexes({ consumptionModes: ['signal'] });

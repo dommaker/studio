@@ -40,7 +40,7 @@ function flattenRoutes(router: any): FlatRoute[] {
 const EXPECTED_PUBLIC: Array<[string, string]> = [
   // entries.routes
   ['GET', '/gaps/:type'],
-  ['GET', '/unified'], ['POST', '/unified'],
+  ['GET', '/unified'], ['POST', '/unified'], ['PATCH', '/unified/:entryId'],
   // search.routes
   ['GET', '/resolutions'], ['GET', '/search'],
   // maintenance.routes（F1 手动触发入口，B7 token-burn issue）

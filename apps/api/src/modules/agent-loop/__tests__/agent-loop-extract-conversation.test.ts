@@ -99,11 +99,20 @@ describe('R3: COMPLETE → extractFromConversation', () => {
     mockCompleteOutput();
 
     const result = await (agentLoop).agentStep({ workUnit: wu });
+    await agentLoop.recordResult({ workUnit: wu }, result);
 
     expect(result.action).toBe('complete');
     expect(mockExtractFromConversation).toHaveBeenCalledTimes(1);
     const [messages, ctx] = mockExtractFromConversation.mock.calls[0];
-    expect(ctx).toEqual({ workUnitId: wu.id });
+    expect(ctx).toMatchObject({
+      workUnitId: wu.id,
+      assignmentId: result.assignmentId,
+      extractionVersion: 'conversation-1',
+      revision: 1,
+      scope: { kind: 'role', id: mockRole.id },
+      outcome: { execution: 'succeeded', delivery: 'unmerged' },
+    });
+    expect(ctx.stepRecordId).toBeTruthy();
     expect(messages).toEqual([
       { role: 'user', content: '实现登录功能' },
       { role: 'user', content: '用 OAuth 实现' },
@@ -114,7 +123,17 @@ describe('R3: COMPLETE → extractFromConversation', () => {
 
     // R3 兜底独立性：模板提取 extractFromExecution 照常触发（fire-and-forget，等 microtask 排空）
     await new Promise(r => setImmediate(r));
-    expect(mockExtractFromExecution).toHaveBeenCalled();
+    expect(mockExtractFromExecution).toHaveBeenCalledWith(expect.objectContaining({
+      consumedKnowledge: [],
+      learning: expect.objectContaining({
+        workUnitId: wu.id,
+        assignmentId: result.assignmentId,
+        stepRecordId: ctx.stepRecordId,
+        transcriptRefs: expect.any(Array),
+        evidenceRefs: expect.any(Array),
+        extractionVersion: 'execution-1',
+      }),
+    }));
   });
 
   it('非 COMPLETE（PROGRESS）不触发提取', async () => {
@@ -137,6 +156,7 @@ describe('R3: COMPLETE → extractFromConversation', () => {
     mockExtractFromConversation.mockRejectedValueOnce(new Error('LLM down'));
 
     const result = await (agentLoop).agentStep({ workUnit: wu });
+    await agentLoop.recordResult({ workUnit: wu }, result);
 
     expect(result.action).toBe('complete');
     expect(result.summary).toBe('登录功能已完成');

@@ -10,7 +10,9 @@
  * （审核闭环提案卡 #355 起归 review-adapter.ts → review-proposal 正本，本文件不再发卡。）
  */
 
-import type { KnowledgeIngest, KnowledgeSubsystem } from '@dommaker/harness';
+import type { KnowledgeIngest, KnowledgeStore, KnowledgeSubsystem } from '@dommaker/harness';
+import type { LearningMetadata } from '../learning-metadata.js';
+import { withLearningMetadata } from '../learning-metadata.js';
 
 import { validateKnowledgeForm } from '../knowledge-form-gate.js';
 import { writeTrendData } from '../trend-data.js';
@@ -51,9 +53,10 @@ export function buildConversationTranscript(messages: { role: string; content: s
  * 返回入库条目 {id,title,type}（提案卡聚合用）；被门禁跳过/拒绝时返回 null。
  */
 export function ingestConversationEntry(
-  deps: { ingest: KnowledgeIngest },
+  deps: { ingest: KnowledgeIngest; store: KnowledgeStore },
   raw: { type?: string; title?: string; content?: string; tags?: string[] },
   source: string,
+  learning?: LearningMetadata,
 ): { id: string; title: string; type: string } | null {
   try {
     const title = (raw.title || '').trim();
@@ -104,6 +107,14 @@ export function ingestConversationEntry(
     );
     if (saved.status === 'rejected') return null;
     const id = saved.entry.id;
+    if (learning) {
+      const refs = saved.entry.sourceReferences?.length
+        ? saved.entry.sourceReferences
+        : [{ workflow: source, timestamp: new Date().toISOString() }];
+      deps.store.update(id, {
+        sourceReferences: [withLearningMetadata({ ...refs[0] }, learning), ...refs.slice(1)],
+      });
+    }
     return typeof id === 'string' && id ? { id, title, type } : null;
   } catch (e) {
     logger.warn('[KnowledgeService] Failed to ingest conversation entry', { error: String(e) });

@@ -5,7 +5,6 @@ import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
 import { writeStudioEvent, resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../../utils/errors.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from '../execution-step-events.js';
-import { knowledgeService } from '../../knowledge/index.js';
 import { harvestCompletionMetadata } from '../completion-harvest.js';
 import type { StepResult, Target } from '../agent-loop.types.js';
 import { parseAgentOutput, stepActivityFromEvents } from '../agent-loop-parsers.js';
@@ -381,23 +380,16 @@ export async function executeAgentStep(
     // R1: 携带本次注入的知识条目 id，反馈环才有数据
     deps.recordExecutionOutcome(wu, result, injectedKnowledgeIds).catch(() => {});
 
-    // R3 会话提取（断点 B）：任务 COMPLETE → 触发一次 LLM 知识提取（proposal 入库，
-    // 审核前不注入）。模板式 extractFromExecution 保留为始终在线的兜底，两条链路独立。
-    // fire-and-forget：无 LLM 配置/提取失败仅记日志，绝不影响任务完成。
-    // 去重：metadata.knowledgeExtractedAt 标记后不再重复提取（随 recordResult 原子写入持久化）。
+    // #715：只暂存会话；真正提取延迟到 recordResult 的最终守卫与 StepRecord 持久化之后，
+    // 避免 Agent 自报 COMPLETE 但守卫驳回时把失败/未合并工作误记为成功实践。
+    let learningConversation: { role: string; content: string }[] | undefined;
     if (stepResult.action === 'complete' && !metadata.knowledgeExtractedAt) {
       metadataUpdates.knowledgeExtractedAt = new Date().toISOString();
-      const conversation = [
+      learningConversation = [
         { role: 'user', content: wu.scope ?? '' },
         ...pendingReplies.map(content => ({ role: 'user', content })),
         { role: 'assistant', content: stepResult.summary },
       ];
-      try {
-        void knowledgeService.extractFromConversation?.(conversation, { workUnitId: wu.id })
-          ?.catch((err: unknown) =>
-            logger.warn(`[AgentLoop] extractFromConversation failed: ${getErrorMessage(err)}`)
-          );
-      } catch { /* non-blocking */ }
     }
 
     // #542：per-WU-type COMPLETE 收割改注册表（completion-harvest.ts）——
@@ -431,6 +423,9 @@ export async function executeAgentStep(
       assignmentId,
       transcriptRecorded,
       stepRecord,
+      learningConversation,
+      executionResult: result,
+      consumedKnowledge: injectedKnowledgeIds,
       contextCursor: activeComposed.contextCursor,
       context: activeComposed.context,
       metadataUpdates,

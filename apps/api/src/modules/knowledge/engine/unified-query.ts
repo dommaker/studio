@@ -12,7 +12,22 @@ import type { KnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeEntry as HarnessEntry, QueryFilter as HarnessFilter } from '@dommaker/harness';
 import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge-singletons.js';
 import { getStore } from '../../../core/store.js';
+import {
+  collectSupersededIds,
+  matchesKnowledgeScope,
+  withLearningMetadata,
+  type KnowledgeScopeContext,
+} from '../learning-metadata.js';
 
+/** 已由 Studio 配置/本机快照直接证明适用范围的非学习条目。 */
+function globalSourceRef(source: string, timestamp: string) {
+  return withLearningMetadata({ source, timestamp }, {
+    scope: { kind: 'global' },
+    extractionVersion: 'system-1',
+    revision: 1,
+    outcome: { execution: 'succeeded', verification: 'not-run', delivery: 'not-required' },
+  });
+}
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -39,6 +54,9 @@ export interface UnifiedQueryFilter {
   /** 注入调用方既有兼容字段；结构化投影当前不使用。 */
   status?: string;
   excludeTags?: string[];
+  /** #715：传入（包括空对象）即启用自动召回的保守作用域门。 */
+  scope?: KnowledgeScopeContext;
+  excludeSuperseded?: boolean;
   agentType?: string;
   sources?: ('prisma' | 'store')[];
   limit?: number;
@@ -68,16 +86,18 @@ export class UnifiedQuery {
     const entries: StudioEntry[] = [];
 
     if (!filter.sources || filter.sources.includes('prisma')) {
-      entries.push(...await this.prismaToEntries(filter));
+      const synthesized = await this.prismaToEntries(filter);
+      entries.push(...synthesized.map(entry => ({
+        ...entry,
+        sourceReferences: entry.sourceReferences.map((ref: any) => globalSourceRef(String(ref.source ?? entry.id), ref.timestamp)),
+      })));
     }
 
     // Agent filtering
-    if (filter.agentType) {
-      return entries.filter(e =>
-        !e.applicableAgents?.length || e.applicableAgents.includes(filter.agentType!),
-      );
-    }
-    return entries;
+    const applicable = filter.agentType
+      ? entries.filter(e => !e.applicableAgents?.length || e.applicableAgents.includes(filter.agentType!))
+      : entries;
+    return this.filterAutomaticRecall(applicable, filter);
   }
 
   /**
@@ -89,7 +109,8 @@ export class UnifiedQuery {
 
     // KnowledgeStore entries
     if (!filter.sources || filter.sources.includes('store')) {
-      const harnessFilter: HarnessFilter = {};
+      // #715：浏览面保留 legacy 与历史终态；只有自动注入排除 archived/deprecated。
+      const harnessFilter: HarnessFilter = { excludeArchived: false };
       if (filter.consumptionModes?.length) {
         harnessFilter.consumptionModes = filter.consumptionModes as HarnessEntry['consumptionMode'][];
       }
@@ -162,10 +183,8 @@ export class UnifiedQuery {
     // （listEntries 是审核列表，不过滤；getIndexes 仅供注入链路使用）
     entries = entries.filter(e => e.maturity !== 'draft' && e.maturity !== 'deprecated');
 
-    // Exclude low_quality
-    if (filter.excludeTags?.includes('low_quality')) {
-      entries = entries.filter(e => !e.tags.includes('low_quality'));
-    }
+    // #715：scope / supersession / low_quality 必须在 limit 与注入预算之前执行。
+    entries = this.filterAutomaticRecall(entries, filter);
 
     // Agent filtering — applicableAgents 为空则对所有 agent 可见
     if (filter.agentType) {
@@ -219,10 +238,23 @@ export class UnifiedQuery {
       if (filter?.consumptionModes?.length) {
         harnessFilter.consumptionModes = filter.consumptionModes as HarnessEntry['consumptionMode'][];
       }
-      count += this.store.list(harnessFilter).length;
+      count += this.filterAutomaticRecall(this.store.list(harnessFilter), filter ?? {}).length;
     }
 
     return count;
+  }
+
+  private filterAutomaticRecall<T extends HarnessEntry>(entries: T[], filter: UnifiedQueryFilter): T[] {
+    let result = entries;
+    if (filter.scope) result = result.filter(entry => matchesKnowledgeScope(entry, filter.scope!));
+    if (filter.excludeSuperseded) {
+      const superseded = collectSupersededIds(entries);
+      result = result.filter(entry => !superseded.has(entry.id));
+    }
+    if (filter.excludeTags?.includes('low_quality')) {
+      result = result.filter(entry => !entry.tags.includes('low_quality'));
+    }
+    return result;
   }
 
   // ── Prisma → KnowledgeEntry conversion ─────────────────
@@ -231,9 +263,12 @@ export class UnifiedQuery {
     const entries: StudioEntry[] = [];
     const modes = filter.consumptionModes ?? [];
 
+    const qualitySource = (entry: HarnessEntry) =>
+      !filter.excludeTags?.includes('low_quality') || !entry.tags.includes('low_quality');
+
     // UserPreference → context entry (KnowledgeStore)
     if (modes.includes('context')) {
-      const prefEntries = this.store.list({ tags: ['preference', 'user-default'] });
+      const prefEntries = this.store.list({ tags: ['preference', 'user-default'] }).filter(qualitySource);
       if (prefEntries.length > 0) {
         const prefData = JSON.parse((prefEntries[0] as any).content || '{}');
         entries.push(this.preferenceToEntry(prefData, String((prefEntries[0] as any).id ?? 'user-default')));
@@ -242,7 +277,7 @@ export class UnifiedQuery {
 
     // BusinessRule → rule entries (KnowledgeStore)
     if (modes.includes('rule')) {
-      const ruleEntries = this.store.list({ tags: ['rule', 'active'] });
+      const ruleEntries = this.store.list({ tags: ['rule', 'active'] }).filter(qualitySource);
       for (const entry of ruleEntries) {
         const rule = JSON.parse((entry as any).content || '{}');
         entries.push(this.ruleToEntry({ ...rule, name: (entry as any).title }, String((entry as any).id ?? rule.name)));

@@ -221,7 +221,7 @@ export type NotificationCreatedPayload = z.infer<typeof notificationCreatedPaylo
 
 /** knowledge.entry_changed：轻量元信息（消费方当「重拉信号」用，不做就地拼接） */
 export const knowledgeEntryChangedPayloadSchema = z.object({
-  action: z.enum(['created', 'promoted', 'demoted']),
+  action: z.enum(['created', 'updated', 'promoted', 'demoted']),
   entryId: z.string().optional(),
   entryType: z.string().optional(),
   title: z.string().optional(),

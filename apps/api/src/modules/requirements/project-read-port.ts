@@ -17,6 +17,7 @@ export interface ProjectDeliveryLeg {
 /** Requirements 读链所需的最小项目模型；PMO ProjectData 以结构类型满足此端口。 */
 export interface ProjectReadData {
   id: string;
+  companyId?: string | null;
   pmoNumber: string;
   reqAlias?: string | null;
   title: string;

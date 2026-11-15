@@ -299,14 +299,14 @@ describe('KnowledgeService Phase 1A: Consume', () => {
       expect(results.every(r => r.entry.id !== '1')).toBe(true);
     });
 
-    it('penalizes low_quality entries', async () => {
+    it('uses the same low_quality exclusion as browsing and injection', async () => {
       const entries = [
         { id: '1', title: 'good', content: 'good deploy info', tags: ['pattern'], maturity: 'active', lastReferenced: new Date().toISOString() },
         { id: '2', title: 'bad', content: 'deploy info low quality', tags: ['pattern', 'low_quality'], maturity: 'active', lastReferenced: new Date().toISOString() },
       ];
       const { ks } = createKS({ entries });
       const results = await ks.search('deploy', { limit: 5 });
-      expect(results[0].entry.id).toBe('1'); // good ranks higher
+      expect(results.map(r => r.entry.id)).toEqual(['1']);
     });
   });
 
@@ -578,14 +578,35 @@ describe('KnowledgeService Phase 1B: Lifecycle', () => {
       expect(store.update).toHaveBeenCalledWith('e1', expect.objectContaining({ maturity: 'verified' }));
     });
 
-    it('promotes verified → proven', async () => {
+    it('promotes verified → proven only with verified successful delivery', async () => {
       const entries = [
-        { id: 'e1', title: 'Test', content: 'A'.repeat(120), tags: ['pattern'], maturity: 'verified', lastReferenced: new Date().toISOString() },
+        {
+          id: 'e1', title: 'Test', content: 'A'.repeat(120), tags: ['pattern'], maturity: 'verified', lastReferenced: new Date().toISOString(),
+          sourceReferences: [{ timestamp: '2026-11-07T00:00:00Z', learning: {
+            scope: { kind: 'global' }, extractionVersion: '1', revision: 1,
+            outcome: { execution: 'succeeded', verification: 'passed', delivery: 'not-required' },
+          } }],
+        },
       ];
       const { ks, store } = createKS({ entries });
       store.update = vi.fn().mockReturnValue(entries[0]);
       await ks.promote('e1');
       expect(store.update).toHaveBeenCalledWith('e1', expect.objectContaining({ maturity: 'proven' }));
+    });
+
+    it('does not prove agent-produced failed or unmerged work', async () => {
+      const entries = [
+        {
+          id: 'e1', title: 'Test', content: 'A'.repeat(120), tags: ['pattern'], maturity: 'verified', origin: 'agent',
+          sourceReferences: [{ timestamp: '2026-11-07T00:00:00Z', learning: {
+            scope: { kind: 'global' }, extractionVersion: '1', revision: 1,
+            outcome: { execution: 'succeeded', verification: 'passed', delivery: 'unmerged' },
+          } }],
+        },
+      ];
+      const { ks, store } = createKS({ entries });
+      await ks.promote('e1');
+      expect(store.update).not.toHaveBeenCalled();
     });
 
     it('does not promote if entry not found', async () => {

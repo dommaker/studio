@@ -23,6 +23,7 @@ import { FileStore, type AgentProfileData, type PresentedContextCursor } from '@
 import { estimateTokens } from '@dommaker/harness';
 import { knowledgePorts } from '../knowledge/index.js';
 import { loadRecoveryPacket, postWuSystemMessage } from '../workunit/index.js';
+import { projectReadPort, resolvePmoProjectIdForWU } from '../requirements/index.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
 import { buildContinuePrompt, buildReplyPrompt } from './agent-loop-parsers.js';
 import { metricsFileStore } from './agent-loop-events.js';
@@ -296,9 +297,16 @@ export async function composeStepPrompt(
   let injectedKnowledgeIds: string[] = [];
   const knowledge = await runSection('knowledge', async budget => {
     if (!includeSharedKnowledge) return { section: '', tokens: 0, originalTokens: 0 };
+    const projectId = await resolvePmoProjectIdForWU(wu, deps.fileStore).catch(() => null);
+    const companyId = projectId
+      ? await projectReadPort().then(port => port.get(projectId)).then(project => project?.companyId).catch(() => null)
+      : null;
+    const repo = metadata.worktreeBaseRepo ?? metadata.workspaceRoot ?? wu.projectPath
+      ?? wu.mandate?.repositories[0]?.repo ?? undefined;
     const injected = await knowledgePorts.consume.injectContext(wu.type, {
       tags: [wu.type],
       maxTokens: budget,
+      scope: { roleId: deps.role.id, companyId: companyId ?? undefined, projectId: projectId ?? undefined, repo },
     });
     injectedKnowledgeIds = injected.injectedIds ?? [];
     const keptTokens = injected.usage?.keptTokens ?? estimateTokens(injected.prompt);

@@ -5,6 +5,7 @@
 import type { WorkUnitMetadata, WorkUnitData } from '../workunit/index.js';
 import type { ChannelMessageData, PresentedContextCursor, StepRecordDetails } from '@dommaker/studio-shared';
 import type { PromptContextMetrics } from './prompt-composer.js';
+import type { ExecutionResult } from '@dommaker/studio-agent';
 
 /** Agent output action after parsing */
 export interface StepResult {
@@ -39,6 +40,10 @@ export interface StepResult {
   transcriptRecorded?: boolean;
   /** #711：Agent 报告与工具事件派生的结构化步骤详情。 */
   stepRecord?: StepRecordDetails;
+  /** #715：学习在最终守卫与 StepRecord 落库后消费原始执行结果和实际知识曝光。 */
+  learningConversation?: { role: string; content: string }[];
+  executionResult?: ExecutionResult;
+  consumedKnowledge?: string[];
   /** #714：成功步已呈现的段游标与 full/delta 度量，供 Assignment 落账和事件对照。 */
   contextCursor?: PresentedContextCursor;
   context?: PromptContextMetrics;

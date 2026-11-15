@@ -185,6 +185,41 @@ describe('R3: extractFromConversation', () => {
     expect(mockScheduleVectorDbSync).toHaveBeenCalled();
   });
 
+  it('persists complete learning provenance, scope, revision and outcome', async () => {
+    mockRun.mockResolvedValue(makeRunResult({
+      entries: [{ type: 'guideline', title: '可追溯经验', content: '保留真实执行证据，并通过来源引用追溯到具体任务、执行轮次、验证与交付结果。', tags: [] }],
+    }));
+    const { ks, store } = createKS();
+
+    await ks.extractFromConversation(MESSAGES, {
+      workUnitId: 'wu-r3',
+      assignmentId: 'assignment-r3',
+      stepRecordId: 'step-r3',
+      repo: '/repo/studio',
+      commit: 'b'.repeat(40),
+      transcriptRefs: ['transcript:wu-r3:1'],
+      evidenceRefs: ['evidence-r3'],
+      extractionVersion: '1',
+      revision: 2,
+      supersedes: 'old-entry',
+      scope: { kind: 'repo', id: '/repo/studio' },
+      outcome: { execution: 'succeeded', verification: 'passed', delivery: 'unmerged' },
+    });
+
+    expect(store.update).toHaveBeenCalledWith('ingested-1', {
+      sourceReferences: [expect.objectContaining({
+        learning: {
+          scope: { kind: 'repo', id: '/repo/studio' },
+          workUnitId: 'wu-r3', assignmentId: 'assignment-r3', stepRecordId: 'step-r3',
+          repo: '/repo/studio', commit: 'b'.repeat(40),
+          transcriptRefs: ['transcript:wu-r3:1'], evidenceRefs: ['evidence-r3'],
+          extractionVersion: '1', revision: 2, supersedes: 'old-entry',
+          outcome: { execution: 'succeeded', verification: 'passed', delivery: 'unmerged' },
+        },
+      })],
+    });
+  });
+
   it('(d) 发射 knowledge:extraction 事件：token 计数 + duration + entry ids', async () => {
     mockRun.mockResolvedValue(makeRunResult({
       entries: [

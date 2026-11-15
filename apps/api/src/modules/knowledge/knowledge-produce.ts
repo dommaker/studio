@@ -21,6 +21,8 @@ import type {
   TrendEntry,
   AnalystAccuracyInput,
 } from './knowledge-types.js';
+import type { LearningMetadata } from './learning-metadata.js';
+import { withLearningMetadata } from './learning-metadata.js';
 import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
 import { writeTrendData } from './trend-data.js';
 import { buildConversationTranscript, ingestConversationEntry } from './producers/conversation-extractor.js';
@@ -57,9 +59,10 @@ export async function extractFromExecutionImpl(deps: KnowledgeServiceDeps, resul
   if (existingSameTopic) {
     // Merge: update existing entry with new content
     const mergedContent = `${existingSameTopic.content}\n\n---\n${content}`;
+    const sourceRef = { source: `execution:${result.agentType}`, timestamp: new Date().toISOString() };
     const updatedRefs = [
       ...(existingSameTopic.sourceReferences || []),
-      { source: `execution:${result.agentType}`, timestamp: new Date().toISOString() },
+      result.learning ? withLearningMetadata(sourceRef, result.learning) : sourceRef,
     ];
     deps.store.save({ ...existingSameTopic, content: mergedContent, sourceReferences: updatedRefs.slice(-20) });
   } else {
@@ -68,6 +71,7 @@ export async function extractFromExecutionImpl(deps: KnowledgeServiceDeps, resul
       title,
       content,
       tags,
+      learning: result.learning,
     });
   }
 
@@ -88,6 +92,24 @@ export async function extractFromExecutionImpl(deps: KnowledgeServiceDeps, resul
   } catch (e) {
     logger.warn('[KnowledgeService] Failed to persist extractFromExecution event', { error: String(e) });
   }
+}
+
+function conversationLearningMetadata(ctx?: ConversationExtractionCtx): LearningMetadata | undefined {
+  if (!ctx?.scope || !ctx.outcome || !ctx.extractionVersion || typeof ctx.revision !== 'number') return undefined;
+  return {
+    scope: ctx.scope,
+    workUnitId: ctx.workUnitId,
+    assignmentId: ctx.assignmentId,
+    stepRecordId: ctx.stepRecordId,
+    repo: ctx.repo,
+    commit: ctx.commit,
+    transcriptRefs: ctx.transcriptRefs,
+    evidenceRefs: ctx.evidenceRefs,
+    extractionVersion: ctx.extractionVersion,
+    revision: ctx.revision,
+    supersedes: ctx.supersedes,
+    outcome: ctx.outcome,
+  };
 }
 
 /**
@@ -143,8 +165,9 @@ export async function extractFromConversationImpl(
 
     const entries = Array.isArray(result?.entries) ? result.entries.slice(0, 5) : [];
     const ingested: Array<{ id: string; title: string; type: string }> = [];
+    const learning = conversationLearningMetadata(ctx);
     for (const raw of entries) {
-      const saved = ingestConversationEntry({ ingest: deps.ingest }, raw, source);
+      const saved = ingestConversationEntry({ ingest: deps.ingest, store: deps.store }, raw, source, learning);
       if (saved) ingested.push(saved);
     }
     const entryIds = ingested.map(e => e.id);
@@ -204,7 +227,7 @@ export async function recordPatternImpl(deps: KnowledgeServiceDeps, entry: Patte
     // triage 业务门 + harness ingest 门（reject 跳过 / flag 自动 low_quality）
     // 均在 ingestWithQualityGate 内处理；studio 侧不再另起 linter 预检。
     ingestWithQualityGate(
-      { ingest: deps.ingest },
+      { ingest: deps.ingest, store: deps.store },
       {
         type: knowledgeType,
         title: entry.title,
@@ -216,6 +239,7 @@ export async function recordPatternImpl(deps: KnowledgeServiceDeps, entry: Patte
         maturity: 'active',
         consumptionMode: 'signal',
         origin: entry.origin ?? 'system',
+        learning: entry.learning,
       },
     );
   } catch {

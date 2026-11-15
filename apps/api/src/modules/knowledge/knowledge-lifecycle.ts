@@ -10,12 +10,15 @@
 import type { MaturityLevel } from '@dommaker/harness';
 import { publishKnowledgeEntryChanged } from './knowledge-singletons.js';
 import type { KnowledgeServiceDeps } from './knowledge-types.js';
+import { isProvenEligible } from './learning-metadata.js';
 
 export async function promoteImpl(deps: KnowledgeServiceDeps, entryId: string): Promise<void> {
   const entry = deps.store.get(entryId);
   if (!entry) return;
   const next: Record<string, MaturityLevel> = { draft: 'verified', verified: 'proven' };
   const target = next[entry.maturity];
+  // #715：draft 可先经人审成为 verified；proven 必须另有成功验证与交付结果。
+  if (target === 'proven' && !isProvenEligible(entry)) return;
   if (target) {
     deps.store.update(entryId, { maturity: target });
     publishKnowledgeEntryChanged('promoted', { entryId, entryType: entry.type, title: entry.title });

@@ -324,10 +324,15 @@ describe('知识晋升节奏 (#408: promotion 从 5min 循环拆到日级门控)
     expect(mockTryPromote).not.toHaveBeenCalled();
   });
 
-  it('晋升闸到期 → 扫描 excludeArchived 全库，仅 draft/verified 逐条 tryPromote（语义锁定）', async () => {
+  it('晋升闸到期 → draft 正常检查，verified 必须有成功交付结果才允许 proven', async () => {
+    const eligible = {
+      scope: { kind: 'global' }, extractionVersion: '1', revision: 1,
+      outcome: { execution: 'succeeded', verification: 'passed', delivery: 'merged' },
+    };
     mockStoreList.mockReturnValueOnce([
       { id: 'e-draft', maturity: 'draft' },
-      { id: 'e-verified', maturity: 'verified' },
+      { id: 'e-verified', maturity: 'verified', sourceReferences: [{ timestamp: '2026-11-07T00:00:00Z', learning: eligible }] },
+      { id: 'e-unmerged', maturity: 'verified' },
       { id: 'e-active', maturity: 'active' },
     ] as any[]);
     mockTryPromote.mockReturnValueOnce({ entryId: 'e-draft', from: 'draft', to: 'verified', reason: 'Promotion: draft → verified' });
@@ -343,7 +348,7 @@ describe('知识晋升节奏 (#408: promotion 从 5min 循环拆到日级门控)
     expect(mockLogger.info).toHaveBeenCalledWith('[MonitorService] Knowledge promoted', expect.objectContaining({
       entryId: 'e-draft', from: 'draft', to: 'verified',
     }));
-    expect(mockLogger.info).toHaveBeenCalledWith('[MonitorService] Knowledge promotion cycle completed', { promoted: 1, scanned: 2 });
+    expect(mockLogger.info).toHaveBeenCalledWith('[MonitorService] Knowledge promotion cycle completed', { promoted: 1, scanned: 3 });
   });
 
   it('晋升扫描后 24h 内的下一轮不重扫（稳态不再每轮全库归约）', async () => {

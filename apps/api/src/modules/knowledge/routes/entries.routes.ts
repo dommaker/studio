@@ -23,6 +23,9 @@ import {
   knowledgeGapQuerySchema,
   unifiedKnowledgeQuerySchema,
   createUnifiedEntryBodySchema,
+  knowledgeEntryParamsSchema,
+  updateKnowledgeScopeBodySchema,
+  knowledgeSuccessResponseSchema,
   knowledgeGapsResponseSchema,
   unifiedKnowledgeListResponseSchema,
   createUnifiedEntryResponseSchema,
@@ -30,7 +33,8 @@ import {
 import { sharedStore, publishKnowledgeEntryChanged } from '../knowledge-singletons.js';
 import { requireNotGuest } from '../../../middleware/auth.js';
 import { parsePagination } from '../../../utils/pagination.js';
-import { defineRoute } from '../../../core/http.js';
+import { defineRoute, HttpError } from '../../../core/http.js';
+import { completeKnowledgeScope, manualLearningMetadata, withLearningMetadata } from '../learning-metadata.js';
 
 export const entriesRoutes = Router();
 
@@ -101,7 +105,7 @@ entriesRoutes.post('/unified', requireNotGuest(), defineRoute(
   { body: createUnifiedEntryBodySchema, response: createUnifiedEntryResponseSchema },
   { status: 201 },
   async (req, _res, { body }) => {
-    const { type, title, content, consumptionMode, applicableAgents, tags } = body;
+    const { type, title, content, consumptionMode, applicableAgents, tags, scope } = body;
 
     const { sharedStore } = await import('../knowledge-singletons.js');
     const id = `manual-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -126,7 +130,10 @@ entriesRoutes.post('/unified', requireNotGuest(), defineRoute(
       projects: [],
       tags: entryTags,
       applicablePhases: [],
-      sourceReferences: [{ source: `manual:${operator}`, timestamp: now }] as any,
+      sourceReferences: [withLearningMetadata(
+        { source: `manual:${operator}`, timestamp: now },
+        manualLearningMetadata(scope),
+      )],
       referencedBy: [],
       executionResults: [],
       consumptionMode: consumptionMode as any,
@@ -137,5 +144,19 @@ entriesRoutes.post('/unified', requireNotGuest(), defineRoute(
     publishKnowledgeEntryChanged('created', { entryId: id, entryType: type, title });
 
     return { id, title, consumptionMode };
+  },
+));
+
+/** #715：人工补全 legacy 作用域；其他来源、版本和结果字段不得借此端点改写。 */
+entriesRoutes.patch('/unified/:entryId', requireNotGuest(), defineRoute(
+  { params: knowledgeEntryParamsSchema, body: updateKnowledgeScopeBodySchema, response: knowledgeSuccessResponseSchema },
+  async (_req, _res, { params, body }) => {
+    const result = completeKnowledgeScope(sharedStore, params.entryId, body.scope);
+    if (result.status === 'not-found') throw new HttpError(404, 'NOT_FOUND', `Knowledge entry not found: ${params.entryId}`);
+    if (result.status === 'already-scoped') throw new HttpError(409, 'CONFLICT', `Knowledge scope already set: ${params.entryId}`);
+    publishKnowledgeEntryChanged('updated', {
+      entryId: result.entry.id, entryType: result.entry.type, title: result.entry.title,
+    });
+    return { success: true };
   },
 ));

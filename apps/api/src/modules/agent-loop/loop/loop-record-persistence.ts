@@ -1,4 +1,4 @@
-import { withAttestation } from '@dommaker/studio-shared';
+import { withAttestation, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/index.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from '../wu-verification.js';
 import { prepareRecordBookkeeping } from '../result-bookkeeping.js';
@@ -37,6 +37,7 @@ export interface ResultPersistence {
   consecutiveStuck: number;
   blockReasonUpdates: Partial<WorkUnitMetadata>;
   stepLimit: number | null;
+  snapshot: WorkUnitSnapshot | null;
 }
 
 /** 簿记推导、F6-c 强制收口补验与单次原子写。 */
@@ -108,5 +109,5 @@ export async function persistResultBookkeeping(
       logger.warn('[AgentLoop] transcript reconcile failed (non-blocking)', { workUnitId: wuId, error: String(err) });
     }
   }
-  return { recorded: Boolean(recorded), stepCount, consecutiveStuck, blockReasonUpdates, stepLimit };
+  return { recorded: Boolean(recorded), stepCount, consecutiveStuck, blockReasonUpdates, stepLimit, snapshot: recorded };
 }

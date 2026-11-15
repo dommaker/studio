@@ -240,10 +240,15 @@ class SessionSummaryService {
           await knowledgeService.recordPattern({
             type: 'pattern',
             title: `[Session Fix] ${c.message.slice(0, 120)}`,
-            content: `Commit: ${c.hash.slice(0, 8)}\nMessage: ${c.message}\nFiles: ${c.files.join(', ')}\nPattern: ${gap}\nTriggers: ${trigger}`,
+            content: `Commit: ${c.hash}\nMessage: ${c.message}\nFiles: ${c.files.join(', ')}\nPattern: ${gap}\nTriggers: ${trigger}`,
             tags: ['session-summary'],
             // #371：钦定矿石——会话沉淀计入蒸馏 topic 信号（recordPattern 默认 system）
             origin: 'agent',
+            learning: {
+              scope: { kind: 'repo', id: REPO_DIR }, repo: REPO_DIR, commit: c.hash,
+              extractionVersion: 'session-summary-1', revision: 1,
+              outcome: { execution: 'succeeded', verification: 'unknown', delivery: 'unknown' },
+            },
           });
           count++;
         } catch (e) {
@@ -268,9 +273,14 @@ class SessionSummaryService {
         await knowledgeService.recordPattern({
           type: 'pattern',
           title: `[Session Feature] ${c.message.slice(0, 120)}`,
-          content: `Commit: ${c.hash.slice(0, 8)}\nMessage: ${c.message}\nFiles: ${c.files.join(', ')}`,
+          content: `Commit: ${c.hash}\nMessage: ${c.message}\nFiles: ${c.files.join(', ')}`,
           tags: ['session-summary'],
           origin: 'agent', // #371：同上，钦定矿石
+          learning: {
+            scope: { kind: 'repo', id: REPO_DIR }, repo: REPO_DIR, commit: c.hash,
+            extractionVersion: 'session-summary-1', revision: 1,
+            outcome: { execution: 'succeeded', verification: 'unknown', delivery: 'unknown' },
+          },
         });
         // #675：同 fix 循环，逐条让出事件循环
         await yieldToEventLoop();

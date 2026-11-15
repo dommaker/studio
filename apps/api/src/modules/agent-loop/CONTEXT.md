@@ -16,7 +16,7 @@
 - `loop/loop-claim.ts` — 认领段：claimAndAnnounce + 决策 14 适任判断链，仅依赖 ClaimDeps。
 - `loop/loop-step.ts` — 步执行编排：`agentStep(StepContext)` 串起 step-guards / 频道版本锚点与下述四段，返回 StepResult；实例身份由 AgentLoop 在调用边界快照，currentExecutionId 由 StepRunner 独占。#705 起 Executor 前经 ExecutionJournal 持久化 running Assignment，StepResult 携带 assignmentId 供结果 fencing。
 - `loop/loop-step-worktree.ts` / `loop-step-session.ts` / `loop-step-prompt.ts` / `loop-step-execution.ts` — worktree、会话、prompt、Executor 四段，统一只收 StepDeps；执行段经窄 callback 更新 currentExecutionId。session 丢失/上下文溢出的换会话重试同时 supersede 旧 Assignment、创建 session-replacement 链接轮次并更换 executionId；token、transcript、execution_step 均带 assignmentId，且写入前复核 currentAssignmentId，换代后的迟到产物不落 WU 公开历史。#712 起 transcript 步骤 await 落盘后才返回真实 transcriptRecorded；recordResult 通过 fencing 和原子簿记后、完成事件前按快照补 terminal，写失败留待消费端对账重试。
-- `loop/loop-record-result.ts` — 结果记录编排：recordResult 串起 skipped/fencing、合并视图、completion-gates 与三阶段；listUnfinishedChildren + postToDiscussionSpace 留本文件。
+- `loop/loop-record-result.ts` — 结果记录编排：recordResult 串起 skipped/fencing、合并视图、completion-gates 与三阶段；#715 起 COMPLETE 会话提取延迟到最终 action + StepRecord 持久化后，携带 Assignment/StepRecord/transcript/证据与 unmerged 结果，守卫驳回不产成功实践；listUnfinishedChildren + postToDiscussionSpace 留本文件。
 - `loop/loop-record-reply.ts` / `loop-record-persistence.ts` / `loop-record-events.ts` — DELEGATE/回帖、簿记原子写、写后事件与状态迁移；ARCH-03 的 WorkUnit `ExecutionJournal.recordStepResult` 语义命令不变，fencing 归 WuLeaseTracker。#709 起全部结果回帖仍经 `postWuSystemMessage`，由 Channels external-reply Effect 持久化、限次重试与恢复去重。
 - `execution-cwd.ts` — 执行目录解析三规则，deps 注入纯函数。
 - `agent-loop.types.ts` — 类型契约：StepResult / StepContext（Target + 调用边界 instance 快照）/ Observations / Target / RuntimeInstanceRow。

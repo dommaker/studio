@@ -19,6 +19,7 @@ import type {
 } from '@dommaker/harness';
 import type { EventEmitter } from 'node:events';
 import type { UnifiedQuery } from './engine/unified-query.js';
+import type { KnowledgeScopeContext, LearningMetadata } from './learning-metadata.js';
 
 // ── Type mapping (absorbed from KnowledgeBus) ──
 
@@ -53,6 +54,8 @@ export interface PatternEntry {
    * 真会话沉淀（session-summary）必须显式 origin:'agent' 才计入信号。
    */
   origin?: KnowledgeOrigin;
+  /** #715：可靠来源才声明；缺省保持 unknown，不参与自动注入。 */
+  learning?: LearningMetadata;
 }
 
 export interface IncidentEntry {
@@ -90,10 +93,11 @@ export interface ExtractionResult {
   consumedKnowledge: string[];
   /** 来源 execution ID，用于 AC-3.2 来源追溯 */
   sourceExecutionId?: string;
+  learning?: LearningMetadata;
 }
 
-/** R3: extractFromConversation 的可选上下文（来源追溯 / 事件归因） */
-export interface ConversationExtractionCtx {
+/** R3: extractFromConversation 的可选上下文（来源追溯 / 事件归因 / #715 学习元数据） */
+export interface ConversationExtractionCtx extends Partial<LearningMetadata> {
   workUnitId?: string;
   source?: string;
 }
@@ -121,6 +125,8 @@ export interface InjectOpts {
   tags?: string[];
   maxTokens?: number;
   includeRules?: boolean;
+  /** #715：当前 WU 的适用范围；候选过滤先于成熟度与预算。 */
+  scope?: KnowledgeScopeContext;
 }
 
 export interface SearchOpts {
@@ -128,6 +134,7 @@ export interface SearchOpts {
   tags?: string[];
   type?: string;
   mode?: 'keyword' | 'semantic' | 'hybrid';
+  scope?: KnowledgeScopeContext;
 }
 
 export interface SemanticSearchResult {

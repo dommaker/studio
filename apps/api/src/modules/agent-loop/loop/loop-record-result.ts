@@ -8,7 +8,7 @@
  * ARCH-05：只组合 ResultRecorderDeps；fencing 归 WuLeaseTracker，原子写归 ExecutionJournal。
  */
 import {
-  mergedWuView, postWuSystemMessage,
+  mergedWuView, parseWuMetadata, postWuSystemMessage,
   type WorkUnitData, type WorkUnitMetadata,
 } from '../../workunit/index.js';
 import type { MessageMeta } from '../../channels/index.js';
@@ -20,6 +20,9 @@ import { logger } from '@dommaker/studio-shared/node';
 import { prepareResultReply } from './loop-record-reply.js';
 import { persistResultBookkeeping } from './loop-record-persistence.js';
 import { dispatchResultEvents } from './loop-record-events.js';
+import { knowledgePorts } from '../../knowledge/index.js';
+import { CODE_WORKTREE_TYPES } from '../wu-verification.js';
+import { getErrorMessage } from '../../../utils/errors.js';
 
 export class ResultRecorder {
   constructor(private readonly deps: ResultRecorderDeps) {}
@@ -72,6 +75,52 @@ export class ResultRecorder {
     }, deps);
     if (!persisted.recorded) return; // WU 已被删除（terminate/GC 竞态）——簿记无处落，放弃本步收尾
     const { stepCount, consecutiveStuck, blockReasonUpdates, stepLimit } = persisted;
+
+    // #715：所有学习产物统一使用最终 action、已持久化 StepRecord 和真实证据。
+    if (persisted.snapshot && (result.executionResult || (action === 'complete' && result.learningConversation))) {
+      const snapshot = persisted.snapshot;
+      const latestMetadata = parseWuMetadata(snapshot.metadata);
+      const stepRecord = [...(snapshot.stepRecords ?? [])].reverse()
+        .find(record => record.assignmentId === result.assignmentId);
+      const repo = latestMetadata.worktreeBaseRepo ?? latestMetadata.workspaceRoot ?? wu.projectPath ?? undefined;
+      const scope = repo ? { kind: 'repo' as const, id: repo }
+        : latestMetadata.pmoId ? { kind: 'project' as const, id: latestMetadata.pmoId }
+          : { kind: 'role' as const, id: deps.role.id };
+      const evidence = {
+        workUnitId: wu.id,
+        assignmentId: result.assignmentId,
+        stepRecordId: stepRecord?.id,
+        repo,
+        commit: latestMetadata.mergeCommit ?? latestMetadata.lastCommitHash,
+        transcriptRefs: stepRecord?.transcriptRefs ?? [],
+        evidenceRefs: stepRecord?.artifacts ?? [],
+        scope,
+      };
+      const outcome = {
+        execution: result.executionResult?.success === false ? 'failed' as const : 'succeeded' as const,
+        verification: stepRecord?.verification?.status ?? 'not-run' as const,
+        delivery: CODE_WORKTREE_TYPES.has(wu.type) ? 'unmerged' as const : 'not-required' as const,
+      };
+      if (result.executionResult) {
+        void knowledgePorts.produce.extractFromExecution({
+          task: wu.scope ?? '',
+          diff: result.executionResult.outputText ?? '',
+          success: result.executionResult.success,
+          duration: result.executionResult.totalDurationMs ?? 0,
+          agentType: 'claude',
+          consumedKnowledge: result.consumedKnowledge ?? [],
+          learning: { ...evidence, extractionVersion: 'execution-1', revision: 1, outcome },
+        }).catch(err => logger.warn(`[AgentLoop] extractFromExecution failed: ${getErrorMessage(err)}`));
+      }
+      if (action === 'complete' && result.learningConversation) {
+        void knowledgePorts.produce.extractFromConversation(result.learningConversation, {
+          ...evidence,
+          extractionVersion: 'conversation-1',
+          revision: 1,
+          outcome,
+        }).catch(err => logger.warn(`[AgentLoop] extractFromConversation failed: ${getErrorMessage(err)}`));
+      }
+    }
 
     // P0 修复 6: trace 锚点 — 有 traceId 的 WU（频道消息链路）每步留一条可 grep 日志
     if (traceId) {

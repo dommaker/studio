@@ -19,7 +19,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { TriageIncidentInput } from '../triage/index.js';
 import { getTriageService } from '../triage/index.js';
 import { KnowledgeAudit } from '@dommaker/harness';
-import { sharedStore, sharedLifecycle } from '../knowledge/index.js';
+import { isProvenEligible, sharedStore, sharedLifecycle } from '../knowledge/index.js';
 import { knowledgeSync } from '../knowledge/index.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
 import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../../core/proc-probes.js';
@@ -166,6 +166,8 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
       let promoted = 0;
       for (const entry of allEntries) {
         try {
+          // #715：harness 自动晋升不能绕过 Studio 的 verified→proven 结果门。
+          if (entry.maturity === 'verified' && !isProvenEligible(entry)) continue;
           const result = sharedLifecycle.tryPromote(entry.id);
           if (result) {
             promoted++;

@@ -107,24 +107,9 @@ export class StepRunner {
     });
   }
 
-  /** Record execution outcome to knowledge service (GAP-6, non-blocking).
-   *  R1: consumedKnowledge = 本次 agentStep 经 injectContext 实际注入的知识条目 id。
-   *  #90: outcome 事件经 recordOutcomeEvent 单一正本落盘；本方法覆盖成功步（+ 会话提取）。
-   *  失败步由 agentStep 失败分支直接调 recordOutcomeEvent（success=false + errorType）。 */
+  /** outcome 事件即时落账；#715 起学习提取由 recordResult 在 StepRecord 持久化后统一触发。 */
   private async recordExecutionOutcome(wu: WorkUnitData, result: ExecutionResult, consumedKnowledge: string[] = []): Promise<void> {
     this.recordOutcomeEvent(wu, result.success, result.outputText ?? '', undefined, consumedKnowledge);
-    try {
-      await knowledgePorts.produce.extractFromExecution({
-        task: wu.scope ?? '',
-        diff: result.outputText ?? '',
-        success: result.success,
-        duration: result.totalDurationMs ?? 0,
-        agentType: 'claude',
-        consumedKnowledge,
-      });
-    } catch {
-      // Non-blocking
-    }
   }
 
   /** #90: knowledge:outcome 事件单一正本 —— success/failure 统一经此落盘，避免两套漂移。

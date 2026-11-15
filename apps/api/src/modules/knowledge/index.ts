@@ -24,3 +24,5 @@ export { preferenceObserver } from './producers/preference-observer.js';
 export { resolutionService } from './resolution.service.js';
 export { getKnowledgeReviewAdapter } from './review-adapter.js';
 export { ruleScanner } from './producers/rule-scanner.js';
+export { isProvenEligible } from './learning-metadata.js';
+export type { KnowledgeScope, KnowledgeScopeContext, LearningMetadata, LearningOutcome } from './learning-metadata.js';

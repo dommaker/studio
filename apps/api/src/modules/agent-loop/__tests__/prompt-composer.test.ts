@@ -225,11 +225,23 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
 
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
+      scope: { roleId: 'role-1', companyId: undefined, projectId: undefined, repo: undefined },
       // persona 703 + roster 493 + skills 635 + map 1181 + memory 318 全未用 → 余量入池
       maxTokens: SECTION_QUOTAS.knowledge
         + SECTION_QUOTAS.persona + SECTION_QUOTAS.roster + SECTION_QUOTAS.skills
         + SECTION_QUOTAS.map + SECTION_QUOTAS.memory,
     });
+  });
+
+  it('#715: 注入携带当前 role 与稳定母仓作用域', async () => {
+    await composeStepPrompt({
+      wu: makeWu({ projectPath: '/checkout/worktree' }),
+      metadata: { worktreeBaseRepo: '/repo/studio' } as any,
+    }, deps(makeRole({ id: 'role-executor' })));
+
+    expect(mockInjectContext).toHaveBeenCalledWith('feature', expect.objectContaining({
+      scope: { roleId: 'role-executor', companyId: undefined, projectId: undefined, repo: '/repo/studio' },
+    }));
   });
 
   it('skills 段占定额后余量入池：knowledge 预算 = 493 + (1831 - skillTokens) + 1181 + 318', async () => {
@@ -247,6 +259,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     expect(knowledgeContext).toContain('## 本次任务 Skills');
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
+      scope: { roleId: 'role-1', companyId: undefined, projectId: undefined, repo: undefined },
       // skills 有效预算 = 635 + persona 703 + roster 493 余量 = 1831
       maxTokens: SECTION_QUOTAS.knowledge
         + (SECTION_QUOTAS.skills + SECTION_QUOTAS.persona + SECTION_QUOTAS.roster - skillTokens)
@@ -276,6 +289,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     // skills 段截断后仅剩余量 (1831 - expectedTrimmed) 入池 → knowledge 预算
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
+      scope: { roleId: 'role-1', companyId: undefined, projectId: undefined, repo: undefined },
       maxTokens: SECTION_QUOTAS.knowledge + (effective - expectedTrimmed)
         + SECTION_QUOTAS.map + SECTION_QUOTAS.memory,
     });
@@ -300,6 +314,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     // persona 余量 (703 - expectedTrimmed) 入池 → knowledge 预算 = 493 + 余量 + roster/skills/map/memory 定额
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
+      scope: { roleId: 'role-1', companyId: undefined, projectId: undefined, repo: undefined },
       maxTokens: SECTION_QUOTAS.knowledge + (SECTION_QUOTAS.persona - expectedTrimmed)
         + SECTION_QUOTAS.roster + SECTION_QUOTAS.skills + SECTION_QUOTAS.map + SECTION_QUOTAS.memory,
     });

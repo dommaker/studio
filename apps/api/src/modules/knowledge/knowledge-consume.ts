@@ -31,6 +31,7 @@ import {
   keywordHitsToSemantic,
 } from './knowledge-semantic-search.js';
 import { logger } from '@dommaker/studio-shared/node';
+import { collectSupersededIds, matchesKnowledgeScope, type KnowledgeScopeContext } from './learning-metadata.js';
 
 // ── Stop words for keyword extraction ──
 
@@ -86,15 +87,20 @@ export async function injectContextImpl(deps: KnowledgeServiceDeps, agentType: s
   // 归一化到阶段词表再过滤——applicableAgents 为阶段词表（决策 8 单一词表），
   // 不归一化则 legacy WU 与阶段定向规则零交集，rule 段再度恒空。
   const stageAgentType = normalizeToStage(agentType);
-  const rules = await deps.query.queryEntries({ consumptionModes: ['rule'], agentType: stageAgentType, status: 'published' });
+  const recall = {
+    scope: opts?.scope ?? {},
+    excludeTags: ['low_quality'],
+    excludeSuperseded: true,
+  };
+  const rules = await deps.query.queryEntries({ ...recall, consumptionModes: ['rule'], agentType: stageAgentType, status: 'published' });
   const filteredRules = (rules || []).filter((r: any) => hasSourceReferences(r) && !isRoleMemory(r) && r.status !== 'stale' && isInjectableMaturity(r.maturity));
 
   // 2. context — full content injection (preferences + environment)
-  const context = await deps.query.queryEntries({ consumptionModes: ['context'], status: 'published' });
+  const context = await deps.query.queryEntries({ ...recall, consumptionModes: ['context'], status: 'published' });
   const filteredContext = (context || []).filter((c: any) => hasSourceReferences(c) && !isRoleMemory(c) && c.status !== 'stale' && isInjectableMaturity(c.maturity));
 
   // 3. signal — index injection (informational)
-  const signals = deps.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
+  const signals = deps.query.getIndexes({ ...recall, consumptionModes: ['signal'], limit: 5 });
   const filteredSignals = (signals || []).filter((s: any) => !isRoleMemory(s) && s.status !== 'stale' && isInjectableMaturity(s.maturity));
 
   // ③（wireups）：注入红线（INJECT_TOKEN_BUDGET）执行 — 候选按注入优先级（成熟度 → 引用计数）排序，
@@ -160,7 +166,7 @@ export async function injectContextImpl(deps: KnowledgeServiceDeps, agentType: s
   }
 
   // 4. reference — hint only
-  const refCount = await deps.query.count({ consumptionModes: ['reference'] });
+  const refCount = await deps.query.count({ ...recall, consumptionModes: ['reference'] });
   if (refCount > 0) {
     const hint = `[知识库: ${refCount} 条参考，遇到问题时用 search()]`;
     const hintTokens = estimateTokens(hint + '\n\n');
@@ -271,10 +277,10 @@ export async function searchImpl(deps: KnowledgeServiceDeps, state: RagProbeStat
   const limit = opts?.limit || 5;
 
   if (mode === 'semantic') {
-    return searchSemanticImpl(deps, state, query, limit);
+    return searchSemanticImpl(deps, state, query, limit, opts?.scope);
   }
   if (mode === 'hybrid') {
-    return searchHybridImpl(deps, state, query, limit);
+    return searchHybridImpl(deps, state, query, limit, opts?.scope);
   }
   return searchKeywordImpl(deps, query, opts);
 }
@@ -292,8 +298,12 @@ export function searchKeywordImpl(deps: KnowledgeServiceDeps, query: string, opt
     if (keywords.length === 0) return [];
 
     const now = Date.now();
+    const superseded = collectSupersededIds(all);
     const scored = all
       .filter((e: any) => e.maturity !== 'archived')
+      .filter((e: any) => !e.tags?.includes('low_quality'))
+      .filter((e: any) => !superseded.has(e.id))
+      .filter((e: any) => !opts?.scope || matchesKnowledgeScope(e, opts.scope))
       .filter((e: any) => !opts?.type || e.tags?.includes(opts.type))
       .map((e: any) => {
         const titleLower = (e.title || '').toLowerCase();
@@ -348,13 +358,20 @@ export function searchKeywordImpl(deps: KnowledgeServiceDeps, query: string, opt
 /**
  * Semantic-only search via mcp-local-rag.
  */
-export async function searchSemanticImpl(deps: KnowledgeServiceDeps, state: RagProbeState, query: string, limit: number): Promise<SearchResult[]> {
+function isVisibleSearchEntry(entry: any, superseded: Set<string>, scope?: KnowledgeScopeContext): boolean {
+  return !entry.tags?.includes('low_quality')
+    && !superseded.has(entry.id)
+    && (!scope || matchesKnowledgeScope(entry, scope));
+}
+
+export async function searchSemanticImpl(deps: KnowledgeServiceDeps, state: RagProbeState, query: string, limit: number, scope?: KnowledgeScopeContext): Promise<SearchResult[]> {
   const semanticResults = await semanticSearchImpl(deps, state, query, { limit });
+  const superseded = collectSupersededIds(deps.store.list({}));
   const results: SearchResult[] = [];
   for (const sr of semanticResults) {
     if (!sr.entryId) continue;
     const entry = deps.store.get(sr.entryId);
-    if (!entry) continue;
+    if (!entry || !isVisibleSearchEntry(entry, superseded, scope)) continue;
     results.push({
       entry,
       score: sr.score,
@@ -368,16 +385,17 @@ export async function searchSemanticImpl(deps: KnowledgeServiceDeps, state: RagP
  * Hybrid search: keyword + semantic, merged and deduplicated.
  * Keyword results take priority; semantic supplements.
  */
-export async function searchHybridImpl(deps: KnowledgeServiceDeps, state: RagProbeState, query: string, limit: number): Promise<SearchResult[]> {
-  const keywordResults = searchKeywordImpl(deps, query, { limit });
+export async function searchHybridImpl(deps: KnowledgeServiceDeps, state: RagProbeState, query: string, limit: number, scope?: KnowledgeScopeContext): Promise<SearchResult[]> {
+  const keywordResults = searchKeywordImpl(deps, query, { limit, scope });
   const seenIds = new Set(keywordResults.map(r => r.entry.id));
 
   const semanticResults = await semanticSearchImpl(deps, state, query, { limit });
+  const superseded = collectSupersededIds(deps.store.list({}));
   for (const sr of semanticResults) {
     if (!sr.entryId || seenIds.has(sr.entryId)) continue;
     seenIds.add(sr.entryId);
     const entry = deps.store.get(sr.entryId);
-    if (!entry) continue;
+    if (!entry || !isVisibleSearchEntry(entry, superseded, scope)) continue;
     keywordResults.push({
       entry,
       score: sr.score,

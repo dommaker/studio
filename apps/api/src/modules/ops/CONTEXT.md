@@ -23,7 +23,7 @@
 - `current-wu-context.ts` — #318 共享出口：当前 WU 聚合上下文（快照 + pmo 归属链 + channelId）
 - `monitor.service.ts` — Monitor 门面（5min 轮询健康监控 + 渐进告警）
 - `monitor-probes.ts` — WU 级探测（失败趋势/停滞/超时/池停滞/评审停滞/僵尸认领守卫——#464 起 stale_claim_guard 命中除告警外同步向 WU 所在频道发「已沉睡」milestone 提醒；#610 起 expireTriggerPendingWorkUnits——trigger 建单 pending 超期未确认自动关闭，阈值 TRIGGER_PENDING_EXPIRY_DAYS 默认 7 天，人工建的 pending 单不受影响，decision/spec/plan 豁免）
-- `monitor-system-probes.ts` — 系统/知识级探测与自修复（#409 起 worktree GC 唯一入口 gcStaleWorktrees——7d 阈值、prune 走 execAsync、不调 git worktree remove；#611 起 checkKnowledgeHealth 日级门控含 consumption 归零告警；harness 3.0.0/ADR-0041 起知识健康分与自动修复改判 KnowledgeAudit 唯一正本——healthScore.before，口径由「100 − error×3 − warn×1」换 audit 打分，阈值 60 不变）
+- `monitor-system-probes.ts` — 系统/知识级探测与自修复（#409 起 worktree GC 唯一入口 gcStaleWorktrees——7d 阈值、prune 走 execAsync、不调 git worktree remove；#611 起 checkKnowledgeHealth 日级门控含 consumption 归零告警；harness 3.0.0/ADR-0041 起知识健康分与自动修复改判 KnowledgeAudit 唯一正本——healthScore.before，口径由「100 − error×3 − warn×1」换 audit 打分，阈值 60 不变；#715 起 verified→proven 自动晋升先过 isProvenEligible，失败/未合并/未知结果不得借 harness 引用计数绕过结果门）
 - `monitor-alerts.ts` — 告警分发/Triage 升级（指纹冷却去重 w4h/c1h）
 - `monitor-reports.ts` — 轨迹评估 + dailyReflection 编排（采集段顺序调用 + 频道卡片/Discord/事件落盘；采集实现已抽出）
 - `monitor-reflection-collectors.ts` — dailyReflection 采集段（2026-10-17 自 monitor-reports 抽出，纯平移零行为变更）：会话活动 / 7 天交互模式（含 pattern_report 落盘 + 偏好更新）/ git 变更 / 知识积累 / 知识消费（含 .consumption-stats.json 落盘）/ 知识质量审计 / 知识索引快照 / 周日画像，各段自兜异常；session:summary payload 读口径经共享类型 `SessionSummaryPayload` 定型（studio-shared/studio-events.ts，写入方 session-summary-generator 同源）

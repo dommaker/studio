@@ -35,12 +35,41 @@ import { dataBodySchema } from './envelope.js';
 
 // ── 实体：KnowledgeEntry（import type 同源 harness + 下方编译期锚定，#685）──
 
-/**
- * 条目来源引用（历史行形态不一——人工创建行带 source 字段）→ 宽松 record。
- * 不与 harness SourceRef 锚定：SourceRef 是 interface（无索引签名），
- * 无法对 Record<string, unknown> 做 extends 断言，schema 即正本。
- */
-export const knowledgeSourceRefSchema = z.record(z.string(), z.unknown());
+/** #715：学习作用域、结果与版本；嵌在既有来源引用中，旧条目可缺省。 */
+export const knowledgeScopeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('global') }),
+  z.object({ kind: z.literal('company'), id: z.string().min(1) }),
+  z.object({ kind: z.literal('project'), id: z.string().min(1) }),
+  z.object({ kind: z.literal('repo'), id: z.string().min(1) }),
+  z.object({ kind: z.literal('role'), id: z.string().min(1) }),
+]);
+export type KnowledgeScopeWire = z.infer<typeof knowledgeScopeSchema>;
+
+export const knowledgeLearningOutcomeSchema = z.object({
+  execution: z.enum(['succeeded', 'failed', 'unknown']),
+  verification: z.enum(['passed', 'failed', 'not-run', 'unknown']),
+  delivery: z.enum(['merged', 'unmerged', 'not-required', 'unknown']),
+});
+
+export const knowledgeLearningMetadataSchema = z.object({
+  scope: knowledgeScopeSchema,
+  workUnitId: z.string().optional(),
+  assignmentId: z.string().optional(),
+  stepRecordId: z.string().optional(),
+  repo: z.string().optional(),
+  commit: z.string().optional(),
+  transcriptRefs: z.array(z.string()).optional(),
+  evidenceRefs: z.array(z.string()).optional(),
+  extractionVersion: z.string(),
+  revision: z.number().int().positive(),
+  supersedes: z.string().optional(),
+  outcome: knowledgeLearningOutcomeSchema,
+});
+
+/** 历史来源字段保持 passthrough；learning 是 additive 的可选结构化扩展。 */
+export const knowledgeSourceRefSchema = z.object({
+  learning: knowledgeLearningMetadataSchema.optional(),
+}).passthrough();
 
 /** harness ExecutionResult 同源（source 联合 'human'|'auto' 收窄为 string，单向锚定兜历史数据） */
 export const knowledgeExecutionResultSchema = z.object({
@@ -294,8 +323,13 @@ export const createUnifiedEntryBodySchema = z.object({
   consumptionMode: z.string().min(1),
   applicableAgents: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
+  scope: knowledgeScopeSchema.optional(),
 });
 export type CreateUnifiedEntryBody = z.infer<typeof createUnifiedEntryBodySchema>;
+
+export const knowledgeEntryParamsSchema = z.object({ entryId: z.string().min(1) });
+export const updateKnowledgeScopeBodySchema = z.object({ scope: knowledgeScopeSchema });
+export type UpdateKnowledgeScopeBody = z.infer<typeof updateKnowledgeScopeBodySchema>;
 
 /** POST /api/knowledge/upsert（scope/title/content 必填——原手写 400 收进 zod） */
 export const upsertKnowledgeBodySchema = z.object({
