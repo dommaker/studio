@@ -42,6 +42,7 @@ beforeEach(() => {
 
 afterEach(() => {
   loop?.stopLease();
+  vi.unstubAllEnvs();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -187,6 +188,68 @@ describe('AgentLoop Assignment 执行轮次', () => {
     expect(afterLateResult?.metadata).not.toContain('staleWrite');
     expect(afterLateResult?.metadata).not.toContain('stepCount');
     expect(afterLateResult?.execution?.current?.id).toBe(result.assignmentId);
+  });
+
+  it('同真实 CLI session 的 NEED_INPUT linked Assignment 继承已呈现游标', async () => {
+    vi.stubEnv('STUDIO_INCREMENTAL_CONTEXT', 'true');
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ success: true, outputText: 'ACTION: NEED_INPUT:选择哪个方案？', rawOutput: '' })
+      .mockResolvedValueOnce({ success: true, outputText: 'ACTION: PROGRESS:按方案 A 继续', rawOutput: '' });
+    loop = createLoop(execute);
+    const claimed = await createClaimed();
+    loop.ensureLease(claimed);
+
+    const first = await loop.agentStep({ workUnit: claimed });
+    expect(first.context.mode).toBe('full');
+    await loop.recordResult({ workUnit: claimed }, first);
+    const waiting = (await store.getIndex({ id: claimed.id }))[0];
+    const waitingAssignment = waiting.assignments?.find(a => a.id === waiting.currentAssignmentId);
+    expect(waitingAssignment?.cliSessionId).toBe(first.metadataUpdates?.sessionId);
+    expect(waitingAssignment?.presentedContext).toEqual(first.contextCursor);
+
+    await resumeWaitingWorkUnit(claimed.id, '使用方案 A', store);
+    const resumed = (await service.getById(claimed.id))!;
+    loop.ensureLease(resumed);
+    const second = await loop.agentStep({ workUnit: resumed });
+
+    expect(second.context.mode).toBe('delta');
+    const secondTask = execute.mock.calls[1][0] as AgentTask;
+    expect(secondTask.parameters?.knowledgeContext ?? '').not.toContain('assignment test');
+    expect(secondTask.prompt).toContain('使用方案 A');
+    await loop.recordResult({ workUnit: resumed }, second);
+    const current = (await store.getIndex({ id: claimed.id }))[0];
+    expect(current.assignments?.find(a => a.id === current.currentAssignmentId)?.presentedContext)
+      .toEqual(second.contextCursor);
+    vi.unstubAllEnvs();
+  });
+
+  it('上下文溢出替换真实 CLI session 后重置游标并发送完整快照', async () => {
+    vi.stubEnv('STUDIO_INCREMENTAL_CONTEXT', 'true');
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ success: true, outputText: 'ACTION: PROGRESS:首步完成', rawOutput: '' })
+      .mockResolvedValueOnce({ success: false, error: 'Prompt is too long' })
+      .mockResolvedValueOnce({ success: true, outputText: 'ACTION: PROGRESS:新会话恢复', rawOutput: '' });
+    loop = createLoop(execute);
+    const claimed = await createClaimed();
+    loop.ensureLease(claimed);
+    const first = await loop.agentStep({ workUnit: claimed });
+    await loop.recordResult({ workUnit: claimed }, first);
+
+    const resumable = (await service.getById(claimed.id))!;
+    loop.ensureLease(resumable);
+    const recovered = await loop.agentStep({ workUnit: resumable });
+
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(recovered.context.mode).toBe('full');
+    const retryTask = execute.mock.calls[2][0] as AgentTask;
+    expect(retryTask.parameters?.knowledgeContext).toContain('assignment test');
+    expect(retryTask.parameters?.sessionResume).toBeUndefined();
+    expect(recovered.assignmentId).not.toBe(first.assignmentId);
+    await loop.recordResult({ workUnit: resumable }, recovered);
+    const snapshot = (await store.getIndex({ id: claimed.id }))[0];
+    const current = snapshot.assignments?.find(a => a.id === snapshot.currentAssignmentId);
+    expect(current?.reason).toBe('session-replacement');
+    expect(current?.presentedContext).toEqual(recovered.contextCursor);
   });
 
   it('普通失败后的下一次执行创建链接的 retry Assignment', async () => {

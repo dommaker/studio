@@ -206,7 +206,12 @@ describe('efficiencyMetricsSchema（#120）', () => {
     expect(() => cacheHitRateMetricsSchema.parse({ ...cacheHitRate, byDay: undefined })).toThrow();
   });
 
-  it('efficiency 响应壳 = { data: { cacheHitRate, sectionTrim } }', () => {
+  it('efficiency 响应壳 = { data: { cacheHitRate, sectionTrim, contextComparison } }', () => {
+    const contextMode = {
+      steps: 1, presentedTokens: 100, repeatedTokens: 20, repeatedTokenPct: 17,
+      overflows: 0, recoveryAttempts: 0, recoverySucceeded: 0, humanInputsAfterRecovery: 0,
+      succeededSteps: 1, completedSteps: 1, successRatePct: 100, completionRatePct: 100,
+    };
     const efficiency: EfficiencyMetrics = {
       windowDays: 7,
       generatedAt: '2026-07-27T00:00:00.000Z',
@@ -219,6 +224,10 @@ describe('efficiencyMetricsSchema（#120）', () => {
         }],
         totals: { trimEvents: 3, totalOriginalTokens: 1500, totalTrimmedTokens: 900 },
         source: 'events',
+      },
+      contextComparison: {
+        description: 'd', windowDays: 7, full: contextMode, delta: contextMode,
+        qualityNotRegressed: true, rolloutEligible: true, source: 'events',
       },
     };
     expect(efficiencyMetricsResponseSchema.parse({ data: efficiency }).data.cacheHitRate.coveragePct).toBe(80);

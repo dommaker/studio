@@ -12,6 +12,8 @@ import type {
   CacheHitRateMetrics,
   StepCacheHitRate,
   SectionTrimMetrics,
+  ContextComparisonMetrics,
+  ContextModeMetrics,
 } from './metrics.types.js';
 import { DEFAULT_WINDOW_DAYS } from './metrics-overview.js';
 
@@ -196,5 +198,105 @@ export function aggregateSectionTrim(input: SectionTrimAggregateInput): SectionT
       .sort((a, b) => b.trimCount - a.trimCount || b.avgOriginalTokens - a.avgOriginalTokens),
     totals: { trimEvents, totalOriginalTokens: totalOriginal, totalTrimmedTokens: totalTrimmed },
     source: trimEvents > 0 ? 'events' : 'insufficient-data',
+  };
+}
+
+export interface ContextComparisonAggregateInput {
+  events: Array<Record<string, unknown>>;
+  now: number;
+  windowDays?: number;
+}
+
+interface ContextBucket {
+  steps: number;
+  presentedTokens: number;
+  repeatedTokens: number;
+  overflows: number;
+  recoveryAttempts: number;
+  recoverySucceeded: number;
+  humanInputsAfterRecovery: number;
+  succeededSteps: number;
+  completedSteps: number;
+  failedSteps: number;
+}
+
+function emptyContextBucket(): ContextBucket {
+  return {
+    steps: 0, presentedTokens: 0, repeatedTokens: 0, overflows: 0,
+    recoveryAttempts: 0, recoverySucceeded: 0, humanInputsAfterRecovery: 0,
+    succeededSteps: 0, completedSteps: 0, failedSteps: 0,
+  };
+}
+
+function contextNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function finalizeContextBucket(bucket: ContextBucket): ContextModeMetrics {
+  const terminalSteps = bucket.completedSteps + bucket.failedSteps;
+  const totalTokens = bucket.presentedTokens + bucket.repeatedTokens;
+  const { failedSteps: _, ...counters } = bucket;
+  return {
+    ...counters,
+    repeatedTokenPct: totalTokens > 0 ? Math.round((bucket.repeatedTokens / totalTokens) * 100) : 0,
+    successRatePct: bucket.steps > 0 ? Math.round((bucket.succeededSteps / bucket.steps) * 100) : null,
+    completionRatePct: terminalSteps > 0 ? Math.round((bucket.completedSteps / terminalSteps) * 100) : null,
+  };
+}
+
+/** #714：同一执行步事件流按 full/delta 分桶；质量门只报告证据，不自动改环境开关。 */
+export function aggregateContextComparison(input: ContextComparisonAggregateInput): ContextComparisonMetrics {
+  const windowDays = input.windowDays ?? DEFAULT_WINDOW_DAYS;
+  const windowStart = input.now - windowDays * 86400_000;
+  const buckets = { full: emptyContextBucket(), delta: emptyContextBucket() };
+  let samples = 0;
+
+  for (const row of input.events) {
+    if (row?.type !== 'workunit:execution_step') continue;
+    const at = getStudioEventTime(row);
+    if (!Number.isFinite(at) || at < windowStart || at > input.now + 60_000) continue;
+    const payload = parseStudioEventPayload(row);
+    if (!payload) continue;
+    const context = payload.context as Record<string, unknown> | undefined;
+    const mode = context?.mode;
+    if (!context || (mode !== 'full' && mode !== 'delta')) continue;
+    const bucket = buckets[mode];
+    samples++;
+    bucket.steps++;
+    bucket.presentedTokens += contextNumber(context.presentedTokens);
+    bucket.repeatedTokens += contextNumber(context.repeatedTokens);
+    if (payload.contextOverflow === true) bucket.overflows++;
+    if (payload.status === 'success') bucket.succeededSteps++;
+    if (payload.status === 'failed') bucket.failedSteps++;
+    if (payload.action === 'complete') bucket.completedSteps++;
+    const recoveredFrom = payload.recoveredFrom;
+    const recovery = recoveredFrom === 'full' || recoveredFrom === 'delta'
+      || context.recovery === true;
+    if (recovery) {
+      const recoveryBucket = recoveredFrom === 'full' || recoveredFrom === 'delta'
+        ? buckets[recoveredFrom]
+        : bucket;
+      recoveryBucket.recoveryAttempts++;
+      if (payload.status === 'success') recoveryBucket.recoverySucceeded++;
+      recoveryBucket.humanInputsAfterRecovery += contextNumber(context.humanInputs);
+    }
+  }
+
+  const full = finalizeContextBucket(buckets.full);
+  const delta = finalizeContextBucket(buckets.delta);
+  const hasQualitySamples = full.steps > 0 && delta.steps > 0
+    && full.completionRatePct !== null && delta.completionRatePct !== null;
+  const qualityNotRegressed = hasQualitySamples
+    ? delta.successRatePct! >= full.successRatePct!
+      && delta.completionRatePct! >= full.completionRatePct!
+    : null;
+  return {
+    description: 'full/delta 执行步对照：重复段 token、上下文溢出、新会话恢复、恢复后人类输入（人工重述代理）及步/完成成功率。两组均有质量样本且 delta 不回归才允许人工扩大启用。',
+    windowDays,
+    full,
+    delta,
+    qualityNotRegressed,
+    rolloutEligible: qualityNotRegressed === true,
+    source: samples > 0 ? 'events' : 'insufficient-data',
   };
 }

@@ -7,7 +7,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { aggregateCacheHitRate, aggregateSectionTrim, MetricsService } from '../metrics.service.js';
+import { aggregateCacheHitRate, aggregateContextComparison, aggregateSectionTrim, MetricsService } from '../metrics.service.js';
 import { buildAssigneeProfileResolver } from '../../workunit/assignee-resolver.js';
 
 const T = new Date('2026-07-27T12:00:00.000Z').getTime();
@@ -152,6 +152,92 @@ describe('aggregateSectionTrim (#120 段 trim 率)', () => {
     expect(m.source).toBe('insufficient-data');
     expect(m.totals.trimEvents).toBe(0);
     expect(m.bySection).toHaveLength(0);
+  });
+});
+
+describe('aggregateContextComparison (#714 full/delta 对照)', () => {
+  const contextEvent = (
+    executionId: string,
+    mode: 'full' | 'delta',
+    overrides: Record<string, unknown> = {},
+  ) => ({
+    type: 'workunit:execution_step',
+    source: 'agent-loop',
+    payload: JSON.stringify({
+      executionId, step: 1, status: 'success', action: 'complete', sessionResumed: true,
+      context: { mode, presentedTokens: 1000, repeatedTokens: 0, humanInputs: 0 },
+      ...overrides,
+    }),
+    createdAt: iso(T - 1 * D),
+  });
+
+  it('按模式对照重复内容、溢出、恢复、人类恢复后输入与任务质量', () => {
+    const events = [
+      contextEvent('full-1', 'full'),
+      contextEvent('full-2', 'full', { status: 'failed', action: 'failed', contextOverflow: true }),
+      contextEvent('delta-1', 'delta', {
+        context: { mode: 'delta', presentedTokens: 100, repeatedTokens: 800, humanInputs: 0 },
+      }),
+      contextEvent('delta-2', 'delta', {
+        action: 'progress',
+        context: { mode: 'delta', presentedTokens: 120, repeatedTokens: 800, humanInputs: 0 },
+      }),
+      contextEvent('delta-overflow', 'delta', { status: 'failed', action: 'failed', contextOverflow: true }),
+      contextEvent('recovery-1', 'full', {
+        step: 3, sessionResumed: false, recoveredFrom: 'delta', action: 'progress',
+        context: { mode: 'full', presentedTokens: 1000, repeatedTokens: 0, humanInputs: 1 },
+      }),
+    ];
+
+    const m = aggregateContextComparison({ events, now: T, windowDays: 7 });
+    expect(m.full).toMatchObject({ steps: 3, overflows: 1, succeededSteps: 2, successRatePct: 67 });
+    expect(m.delta).toMatchObject({
+      steps: 3, presentedTokens: 1220, repeatedTokens: 1600, repeatedTokenPct: 57,
+      overflows: 1, recoveryAttempts: 1, recoverySucceeded: 1, humanInputsAfterRecovery: 1,
+      succeededSteps: 2, successRatePct: 67,
+    });
+    expect(m.qualityNotRegressed).toBe(true);
+    expect(m.rolloutEligible).toBe(true);
+  });
+
+  it('delta 执行质量低于 full 时关闭扩大启用资格', () => {
+    const events = [
+      contextEvent('full', 'full'),
+      contextEvent('delta', 'delta', { status: 'failed', action: 'failed' }),
+    ];
+    const m = aggregateContextComparison({ events, now: T, windowDays: 7 });
+    expect(m.delta.successRatePct).toBe(0);
+    expect(m.qualityNotRegressed).toBe(false);
+    expect(m.rolloutEligible).toBe(false);
+  });
+
+  it('任一模式缺完成质量样本时不放行扩大启用', () => {
+    const events = [
+      contextEvent('full', 'full', { action: 'progress' }),
+      contextEvent('delta', 'delta', { action: 'progress' }),
+    ];
+    const m = aggregateContextComparison({ events, now: T, windowDays: 7 });
+    expect(m.qualityNotRegressed).toBeNull();
+    expect(m.rolloutEligible).toBe(false);
+  });
+
+  it('恢复只认显式 recovery 或 recoveredFrom，不按新会话步号猜测', () => {
+    const ordinary = contextEvent('ordinary', 'full', { step: 3, sessionResumed: false, action: 'progress' });
+    const recovered = contextEvent('recovered', 'full', {
+      action: 'progress',
+      context: { mode: 'full', presentedTokens: 1000, repeatedTokens: 0, humanInputs: 1, recovery: true },
+    });
+    const m = aggregateContextComparison({ events: [ordinary, recovered], now: T, windowDays: 7 });
+    expect(m.full.recoveryAttempts).toBe(1);
+    expect(m.full.recoverySucceeded).toBe(1);
+    expect(m.full.humanInputsAfterRecovery).toBe(1);
+  });
+
+  it('无对照事件时显式数据不足', () => {
+    const m = aggregateContextComparison({ events: [], now: T, windowDays: 7 });
+    expect(m.source).toBe('insufficient-data');
+    expect(m.qualityNotRegressed).toBeNull();
+    expect(m.rolloutEligible).toBe(false);
   });
 });
 

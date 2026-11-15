@@ -74,6 +74,10 @@ export interface BuildExecutionStepEventArgs {
   cliSessionId?: string;
   /** #94: 本步会话续用(true)/新建(false) 标记（undefined 时 payload 不产该键） */
   sessionResumed?: boolean;
+  /** #714：full/delta 对照度量；成功步即使没有文本也保留该样本。 */
+  context?: NonNullable<ExecutionStepEventPayload['context']>;
+  contextOverflow?: boolean;
+  recoveredFrom?: 'full' | 'delta';
   step: number;
   action?: string;
   /** #172: 缺省 'success'；'failed' 时无有效内容也产事件（失败信号不落空） */
@@ -181,7 +185,7 @@ export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): Exec
   const skills = (args.skills ?? []).filter(s => typeof s === 'string' && s.length > 0);
   const status = args.status ?? 'success';
 
-  if (status !== 'failed'
+  if (status !== 'failed' && !args.context
     && thinking.length === 0 && toolCalls.length === 0 && !text && !hasUsage && skills.length === 0) {
     return null;
   }
@@ -194,6 +198,9 @@ export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): Exec
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
     ...(args.cliSessionId ? { cliSessionId: args.cliSessionId } : {}),
     ...(args.sessionResumed !== undefined ? { sessionResumed: args.sessionResumed } : {}),
+    ...(args.context ? { context: args.context } : {}),
+    ...(args.contextOverflow ? { contextOverflow: true } : {}),
+    ...(args.recoveredFrom ? { recoveredFrom: args.recoveredFrom } : {}),
     step: args.step,
     ...(args.action ? { action: args.action } : {}),
     status,

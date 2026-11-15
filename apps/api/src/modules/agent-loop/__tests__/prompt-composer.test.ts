@@ -2030,3 +2030,116 @@ describe('#713: 按执行用途组装上下文', () => {
     }));
   });
 });
+
+describe('#714: 同一真实 CLI session 的增量上下文', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv('STUDIO_INCREMENTAL_CONTEXT', 'true');
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '## 相关知识\n- 登录模块先写失败测试', injectedIds: ['rule-login'] });
+    mockReadIndex.mockResolvedValue('');
+    mockProjectGet.mockResolvedValue(null);
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-delta-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (testDir) fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('新会话收到完整快照，同会话续用省略未变化段且保留产出契约', async () => {
+    const wu = makeWu({
+      type: 'implement',
+      scope: '实现登录功能',
+      mandate: { revision: 1, policyVersion: '1', repositories: [], deliveryActions: [], budget: { tokens: null } },
+    });
+    const metadata = { ac: ['登录成功返回会话'] } as any;
+    const role = makeRole({ persona: '实现角色' });
+
+    const full = await composeStepPrompt({ wu, metadata, isNewSession: true }, deps(role));
+    expect(full.knowledgeContext).toContain('实现角色');
+    expect(full.knowledgeContext).toContain('登录模块先写失败测试');
+    expect(full.prompt).toContain('## 实现上下文');
+    expect(full.prompt).toContain('## 产出契约');
+    expect(full.context.mode).toBe('full');
+    expect(full.contextCursor.handoff).toMatch(/^[a-f0-9]{64}$/);
+
+    const delta = await composeStepPrompt(
+      { wu, metadata, isNewSession: false, presentedCursor: full.contextCursor },
+      deps(role),
+    );
+    expect(delta.context.mode).toBe('delta');
+    expect(delta.context.repeatedTokens).toBeGreaterThan(0);
+    expect(delta.knowledgeContext).not.toContain('实现角色');
+    expect(delta.knowledgeContext).not.toContain('登录模块先写失败测试');
+    expect(delta.prompt).not.toContain('## 实现上下文');
+    expect(delta.prompt).toContain('## 产出契约');
+  });
+
+  it('变化段使用最新 revision，新人类输入和必要产出契约不被增量省略', async () => {
+    const wu = makeWu({ type: 'implement', scope: '实现登录功能' });
+    const role = makeRole();
+    const full = await composeStepPrompt(
+      { wu, metadata: { ac: ['旧验收标准'] } as any, isNewSession: true },
+      deps(role),
+    );
+
+    const delta = await composeStepPrompt(
+      {
+        wu,
+        metadata: { ac: ['新验收标准'], pendingReplies: ['请同时保留刷新令牌'] } as any,
+        isNewSession: false,
+        presentedCursor: full.contextCursor,
+      },
+      deps(role),
+    );
+
+    expect(delta.prompt).toContain('新验收标准');
+    expect(delta.prompt).not.toContain('旧验收标准');
+    expect(delta.contextCursor.handoff).not.toBe(full.contextCursor.handoff);
+    expect(delta.prompt).toContain('请同时保留刷新令牌');
+    expect(delta.prompt).toContain('## 产出契约');
+    expect(delta.context.humanInputs).toBe(1);
+  });
+
+  it('即使误带旧游标，新 CLI session 仍强制完整快照', async () => {
+    const wu = makeWu({ type: 'implement' });
+    const role = makeRole({ persona: '完整角色上下文' });
+    const first = await composeStepPrompt(
+      { wu, metadata: { ac: ['完整验收'] } as any, isNewSession: true },
+      deps(role),
+    );
+    const replacement = await composeStepPrompt(
+      { wu, metadata: { ac: ['完整验收'] } as any, isNewSession: true, presentedCursor: first.contextCursor },
+      deps(role),
+    );
+
+    expect(replacement.context.mode).toBe('full');
+    expect(replacement.knowledgeContext).toContain('完整角色上下文');
+    expect(replacement.prompt).toContain('完整验收');
+  });
+
+  it('未显式启用增量特性时保留 full 对照基线', async () => {
+    vi.stubEnv('STUDIO_INCREMENTAL_CONTEXT', 'false');
+    const wu = makeWu({ type: 'implement' });
+    const first = await composeStepPrompt({ wu, metadata: {} as any, isNewSession: true }, deps(makeRole()));
+    const resumed = await composeStepPrompt(
+      { wu, metadata: {} as any, isNewSession: false, presentedCursor: first.contextCursor },
+      deps(makeRole()),
+    );
+
+    expect(resumed.context.mode).toBe('full');
+    expect(resumed.context.repeatedTokens).toBe(0);
+  });
+});

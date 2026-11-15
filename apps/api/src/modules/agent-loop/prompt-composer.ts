@@ -18,7 +18,8 @@
  * knowledge barrel，同一模块 ID 解析到同一绝对路径，mock 照常生效）。
  */
 
-import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { createHash } from 'node:crypto';
+import { FileStore, type AgentProfileData, type PresentedContextCursor } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';
 import { knowledgePorts } from '../knowledge/index.js';
 import { loadRecoveryPacket, postWuSystemMessage } from '../workunit/index.js';
@@ -57,6 +58,8 @@ export interface PromptComposerCtx {
   newReplies?: string[];
   /** #95: 本步是否新建会话（续用不命中）。true 且 stepCount>0 时注入「前序进展」段 + 回放 waitingQuestion */
   isNewSession?: boolean;
+  /** #714：调用方只在同一真实 CLI session 续用时传入已呈现游标。 */
+  presentedCursor?: PresentedContextCursor;
 }
 
 /** prompt 组装外部依赖（loop 绑定状态下传；度量事件路径惰性解析，测试可改 env 生效）。 */
@@ -66,6 +69,15 @@ export interface PromptComposerDeps {
   fileStore: FileStore;
   /** studio-events.jsonl 路径解析（#654：归一 resolveStudioEventsFile，认 STUDIO_EVENTS_FILE，测试隔离用） */
   resolveEventsFile: () => string;
+}
+
+export interface PromptContextMetrics {
+  mode: 'full' | 'delta';
+  presentedTokens: number;
+  repeatedTokens: number;
+  humanInputs: number;
+  /** 本步是否因已有工作断链而建立新会话；溢出重试由 recoveredFrom 另行归因。 */
+  recovery: boolean;
 }
 
 export interface ComposedStepPrompt {
@@ -80,6 +92,9 @@ export interface ComposedStepPrompt {
   injectedKnowledgeIds: string[];
   /** 已消费 hint 的清除增量（undefined 在 JSON 序列化时丢弃），由 agentStep 合进 metadataUpdates */
   consumedHintUpdates: Partial<WorkUnitMetadata>;
+  /** #714：仅执行成功后推进到 Assignment；失败步不得把未成功呈现的内容记为已读。 */
+  contextCursor: PresentedContextCursor;
+  context: PromptContextMetrics;
 }
 
 /** #713：评审 diff 在组装时从真实 worktree 读取；失败只保留 base/head 定位，不伪造空 diff。 */
@@ -181,7 +196,19 @@ export async function composeStepPrompt(
 
   // #91: 分段软定额 + 池内余量共享 —— 段有效预算 = 定额 + 池；用量差额回流池中。
   // 任一段截断落 prompt:section_trimmed 事件（fire-and-forget，供定额初值校准）。
+  // #714：revision 取最终截断正文；池仍按完整快照用量流转，避免 delta 改变后续段截断结果。
   let pool = 0;
+  const useDelta = process.env.STUDIO_INCREMENTAL_CONTEXT === 'true'
+    && ctx.isNewSession === false && ctx.presentedCursor !== undefined;
+  const contextCursor: PresentedContextCursor = {};
+  const context: PromptContextMetrics = {
+    mode: useDelta ? 'delta' : 'full',
+    presentedTokens: 0,
+    repeatedTokens: 0,
+    humanInputs: pendingReplies.length > 0 ? pendingReplies.length : (ctx.newReplies?.length ?? 0),
+    recovery: ctx.isNewSession === true
+      && ((typeof metadata.stepCount === 'number' && metadata.stepCount > 0) || Boolean(metadata.errorType)),
+  };
   const runSection = async <T extends BuiltSection>(
     name: InjectSectionName,
     build: (budget: number) => Promise<T>,
@@ -216,6 +243,13 @@ export async function composeStepPrompt(
       }).catch(() => {});
     }
     pool = Math.max(0, budget - built.tokens);
+    const revision = createHash('sha256').update(built.section).digest('hex');
+    contextCursor[name] = revision;
+    if (useDelta && name !== 'contract' && ctx.presentedCursor?.[name] === revision) {
+      context.repeatedTokens += built.tokens;
+      return { ...built, section: '' };
+    }
+    context.presentedTokens += built.tokens;
     return built;
   };
 
@@ -367,5 +401,8 @@ export async function composeStepPrompt(
     consumedHintUpdates.contractArtifactHint = undefined;
   }
 
-  return { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds, consumedHintUpdates };
+  return {
+    prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds, consumedHintUpdates,
+    contextCursor, context,
+  };
 }

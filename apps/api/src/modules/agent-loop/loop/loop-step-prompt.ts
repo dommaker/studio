@@ -35,8 +35,22 @@ export async function composeAgentStepPrompt(
     role: deps.role, acceptedTypes: deps.acceptedTypes, fileStore: deps.fileStore,
     resolveEventsFile: resolveStudioEventsFile,
   };
+  // #714：游标属于真实 CLI session，而非 Assignment id；新 linked Assignment 只在同号时继承上一棒。
+  const snapshot = resumeSessionId
+    ? (await deps.fileStore.getIndex({ id: wu.id }).catch(() => []))[0]
+    : undefined;
+  const assignments = snapshot?.assignments ?? [];
+  const current = assignments.find(a => a.id === snapshot?.currentAssignmentId);
+  const previous = assignments.find(a => a.id === current?.previousAssignmentId);
+  const cursorOwner = current?.presentedContext ? current : previous;
+  const presentedCursor = cursorOwner?.cliSessionId === resumeSessionId
+    ? cursorOwner.presentedContext
+    : undefined;
   const composed = await composeStepPrompt(
-    { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: !resumeSessionId },
+    {
+      wu, metadata, newReplies: target.newReplies?.map(r => r.content),
+      isNewSession: !resumeSessionId, presentedCursor,
+    },
     composeDeps,
   );
   const { skillMatched } = composed;

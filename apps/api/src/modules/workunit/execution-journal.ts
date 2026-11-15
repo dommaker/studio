@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { parseAttestations, type AssignmentRecord, type StepRecord, type StepRecordDetails, type WorkUnitMetadataRepository, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { parseAttestations, type AssignmentRecord, type PresentedContextCursor, type StepRecord, type StepRecordDetails, type WorkUnitMetadataRepository, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { cancelUnresolvedAssignments, verificationFromMetadata, type WorkUnitData } from './workunit-crud.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
@@ -17,6 +17,8 @@ export interface ExecutionStepResult {
   tokenCount?: number;
   transcriptRecorded?: boolean;
   stepRecord?: StepRecordDetails;
+  /** #714：仅成功执行结果携带；由 recordStepResult 绑定本 Assignment 的真实 CLI session。 */
+  contextCursor?: PresentedContextCursor;
   rulings?: { question: string; suggestion: string; default?: string }[];
   directions?: WorkUnitMetadata['planDirections'];
   metadataUpdates?: Partial<WorkUnitMetadata>;
@@ -274,6 +276,11 @@ export class ExecutionJournal {
         const nextEvidence = evidenceFromMetadata(next).filter(entry =>
           !priorEvidence.some(old => old.level === entry.level && old.at === entry.at)
         );
+        const cliSessionId = typeof next.cliSessionId === 'string'
+          ? next.cliSessionId
+          : assignment.provider === 'claude' && typeof next.sessionId === 'string'
+            ? next.sessionId
+            : assignment.cliSessionId;
         const updated: AssignmentRecord = {
           ...assignment,
           status,
@@ -286,6 +293,10 @@ export class ExecutionJournal {
           transcriptCount: (assignment.transcriptCount ?? 0) + (result.transcriptRecorded ? 1 : 0),
           progress: progress ? [...(assignment.progress ?? []), progress] : assignment.progress ?? [],
           evidence: [...priorEvidence, ...nextEvidence],
+          ...(cliSessionId ? { cliSessionId } : {}),
+          ...(action !== 'failed' && result.contextCursor && cliSessionId
+            ? { presentedContext: result.contextCursor }
+            : {}),
         };
         assignments = (current.assignments ?? []).map(a => a.id === assignment.id ? updated : a);
 

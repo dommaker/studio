@@ -63,6 +63,19 @@ const { mockGetAgentSummary, mockGetStats, mockGetOverviewMetrics, mockGetEffici
         totals: { trimEvents: 3, totalOriginalTokens: 100, totalTrimmedTokens: 80 },
         bySection: [{ section: 'knowledge', trimCount: 2, avgOriginalTokens: 50, avgTrimmedTokens: 40, avgTrimPct: 20 }],
       },
+      contextComparison: {
+        description: 'context', windowDays: 7, qualityNotRegressed: null, rolloutEligible: false, source: 'insufficient-data',
+        full: {
+          steps: 0, presentedTokens: 0, repeatedTokens: 0, repeatedTokenPct: 0, overflows: 0,
+          recoveryAttempts: 0, recoverySucceeded: 0, humanInputsAfterRecovery: 0,
+          succeededSteps: 0, completedSteps: 0, successRatePct: null, completionRatePct: null,
+        },
+        delta: {
+          steps: 0, presentedTokens: 0, repeatedTokens: 0, repeatedTokenPct: 0, overflows: 0,
+          recoveryAttempts: 0, recoverySucceeded: 0, humanInputsAfterRecovery: 0,
+          succeededSteps: 0, completedSteps: 0, successRatePct: null, completionRatePct: null,
+        },
+      },
     }),
   };
 });

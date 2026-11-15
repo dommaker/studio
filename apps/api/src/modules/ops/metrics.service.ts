@@ -19,7 +19,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { buildAssigneeProfileResolver } from '../workunit/index.js';
-import { aggregateOverview, aggregateCacheHitRate, aggregateSectionTrim, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
+import { aggregateOverview, aggregateCacheHitRate, aggregateContextComparison, aggregateSectionTrim, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
 import type { OverviewMetrics, EfficiencyMetrics } from './metrics.types.js';
 import { getStore } from '../../core/store.js';
 import { OverviewProjection } from './overview-projection.js';
@@ -29,8 +29,8 @@ import { OverviewProjection } from './overview-projection.js';
 const CACHE_TTL_MS = 60_000;
 
 // re-export：保持既有消费方（routes / 测试）从 metrics.service 导入的路径不变
-export { aggregateOverview, aggregateCacheHitRate, aggregateSectionTrim } from './metrics-aggregate.js';
-export type { OverviewAggregateInput, CacheHitRateAggregateInput, SectionTrimAggregateInput } from './metrics-aggregate.js';
+export { aggregateOverview, aggregateCacheHitRate, aggregateContextComparison, aggregateSectionTrim } from './metrics-aggregate.js';
+export type { OverviewAggregateInput, CacheHitRateAggregateInput, ContextComparisonAggregateInput, SectionTrimAggregateInput } from './metrics-aggregate.js';
 export type {
   Percentile,
   TaskFlowMetrics,
@@ -176,6 +176,7 @@ export class MetricsService {
       generatedAt: new Date(now).toISOString(),
       cacheHitRate: aggregateCacheHitRate({ events, snapshots, resolveAssigneeProfile, profileNames, now, windowDays }),
       sectionTrim: aggregateSectionTrim({ events, now, windowDays }),
+      contextComparison: aggregateContextComparison({ events, now, windowDays }),
     };
 
     if (!opts?.now) this.efficiencyCache.set(cacheKey, { at: now, data });

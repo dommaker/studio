@@ -18,7 +18,7 @@
 - `monitoring.service.ts` — `MonitoringService` 监控服务类，封装聚合逻辑，依赖 `KnowledgeMetricsSource` 获取度量数据
 - `metrics.service.ts` — D16 指标聚合服务：`getOverviewMetrics({windowDays})`，60s 内存缓存 + 同 key miss single-flight，`invalidateCache()` 测试用
 - `overview-projection.ts` — PERF-05 按日窗口投影：WU events 以完整行 `dev/ino/offset` 增量恢复；human 每频道 head 同含文件代际，压实换 inode 后即使再增长过旧 offset 也重建，更新/墓碑仅重建对应频道；90 天数据仅在 UTC 日变化时 prune，落 `logs/projections/`
-- `metrics-aggregate.ts` — D16 聚合公共面（`aggregateOverview` 经 `metrics-overview.ts` re-export；`aggregateCacheHitRate` / `aggregateSectionTrim` 留本文件，均经 `metrics.service.ts` re-export）；`metrics-overview.ts` — Overview 采样上下文 + 11 个指标组纯函数与 `aggregateOverview` 编排（2026-10-17 纯平移，既有 metrics.service 测试锁定口径）
+- `metrics-aggregate.ts` — D16 聚合公共面（`aggregateOverview` 经 `metrics-overview.ts` re-export；`aggregateCacheHitRate` / `aggregateSectionTrim` / `aggregateContextComparison` 留本文件，均经 `metrics.service.ts` re-export）；`metrics-overview.ts` — Overview 采样上下文 + 11 个指标组纯函数与 `aggregateOverview` 编排（2026-10-17 纯平移，既有 metrics.service 测试锁定口径）
 - `metrics.types.ts` — D16 类型契约（`OverviewMetrics` 等指标接口，经 `metrics.service.ts` re-export）；#703 起 `EvidenceMetrics` 增加代码 WU `mergeDivergence/doneWithoutReceipt` 快照计数；#707 起 `EffectMetrics` 从 WU 只读快照聚合 Effect 状态、Receipt outcome、恢复核查与 `duplicatesPrevented` 去重次数，经 `/monitoring/overview` 暴露
 - `current-wu-context.ts` — #318 共享出口：当前 WU 聚合上下文（快照 + pmo 归属链 + channelId）
 - `monitor.service.ts` — Monitor 门面（5min 轮询健康监控 + 渐进告警）
@@ -67,3 +67,4 @@
 - **worktree GC 唯一入口 = `monitor-system-probes.gcStaleWorktrees`（#409）**：Ops 版 cleanupWorktrees 及其 hourly 挂载已删；#571 起 frontend dist 检查委托 utils/frontend-dist.ts（npm 形态缺 dist = 包损坏 critical abort，auto-build 仅 monorepo dev 形态保留）
 - preflight 其余同步 exec（vite build/cloudflared nohup spawn）为启动一次性路径，#374 方案未列，保留
 - **merge receipt 一致性监控（#703，2026-11-08）**：`aggregateEvidence` 对 `CODE_TYPES` 快照增加 `mergeDivergence`（done 但 receipt 非接受、merged 缺 commit、legacy `mergedAt/mergeCommit` 与 receipt 值或 merged=false 冲突、done 且 `mergeConflict`）与 `doneWithoutReceipt`（legacy done 无 receipt）；只判 metadata/receipt 自相矛盾，不调用 Git、不探测真实 drift。两个计数字段与 monitoring contract 同步为必填。
+- **#714 上下文对照**：`/efficiency.contextComparison` 从 `workunit:execution_step` 按 full/delta 聚合呈现/重复 token、溢出、新会话恢复、恢复后人类输入（人工重述代理）与步/完成成功率。两组均有样本且 delta 两项成功率均不低于 full 时 `qualityNotRegressed=true`、`rolloutEligible=true`；只提供人工扩量证据，不自动改 `STUDIO_INCREMENTAL_CONTEXT`。

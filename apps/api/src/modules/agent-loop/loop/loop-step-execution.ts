@@ -19,6 +19,7 @@ import {
   type PromptComposerDeps,
 } from '../prompt-composer.js';
 import { runStepRetry, resetUnestablishedSessionBookkeeping } from '../step-retry-policy.js';
+import { isContextOverflowError } from '../context-overflow.js';
 import { appendTranscriptStep, transcriptPath, transcriptStepRef } from '../../transcripts/index.js';
 import type { StepDeps } from './loop-deps.js';
 import { logger } from '@dommaker/studio-shared/node';
@@ -74,11 +75,13 @@ export async function executeAgentStep(
   } = input;
   const { step } = deps;
   const { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds } = composed;
+  let activeComposed = composed;
   let assignmentId = input.assignmentId;
 
   // 本步最终实际会话形态（续用降级重试后会被改写：换新号 + resumed=false）
   let effectiveSessionId: string | null = resumeSessionId ?? newSessionId;
   let sessionResumed = resumeSessionId !== null;
+  let recoveredFrom: 'full' | 'delta' | undefined;
   const executionId = `${wu.id}-${Date.now()}`;
   // 本步步号（与 recordResult 的 stepCount+1 同口径）——Layer A 执行步事件与 Layer B 步内流式共用
   const stepNo = (metadata.stepCount ?? 0) + 1;
@@ -154,7 +157,7 @@ export async function executeAgentStep(
       channelId: wu.channelId,
       assignmentId,
       executionId: task.executionId,
-      injectedTokens: estimateTokens(knowledgeContext),
+      injectedTokens: estimateTokens(activeComposed.knowledgeContext),
       executionTokens: real ? real.inputTokens + real.outputTokens : null,
       // D16/B6: 缓存命中与真实账单数据源（CLI 回报 usage 时才有；未回报则缺省不编造）
       ...(real ? {
@@ -194,6 +197,9 @@ export async function executeAgentStep(
       // #639: 失败步同样落 CLI 真实会话号（流内有才带，不编造）
       ...(failedCliSessionId ? { cliSessionId: failedCliSessionId } : {}),
       sessionResumed,
+      context: activeComposed.context,
+      contextOverflow: isContextOverflowError(detail),
+      recoveredFrom,
       step: stepNo,
       action,
       events: failedRaw && failedRaw.trim().length > 0 ? parseStreamEvents(failedRaw) : [],
@@ -243,10 +249,18 @@ export async function executeAgentStep(
         { wu, metadata, provider: taskProvider, task, firstResult: result, detail, sessionsUsed, resumeSessionId, metadataUpdates, traceId },
         {
           execute: (t) => step.executor.execute(t),
-          recomposePrompt: async ({ isNewSession }) => (await composeStepPrompt(
-            { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession },
-            composeDeps,
-          )).prompt,
+          recomposePrompt: async ({ isNewSession }) => {
+            // #714：保留导致替换的溢出样本；恢复结果再以 recoveredFrom 归因到来源模式。
+            if (isContextOverflowError(detail)) await emitFailedStep('failed', detail, result);
+            recoveredFrom = composed.context.mode;
+            // 两种重试都已替换真实 CLI session，禁止携带旧游标；prompt 与稳定前缀一起换新。
+            activeComposed = await composeStepPrompt(
+              { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession },
+              composeDeps,
+            );
+            task.parameters!.knowledgeContext = activeComposed.knowledgeContext || undefined;
+            return activeComposed.prompt;
+          },
           recordTokenEvent,
           recordFailureOutcome: (d) => deps.recordOutcomeEvent(wu, false, d, 'execution_failed', injectedKnowledgeIds),
           emitFailedStep,
@@ -354,6 +368,8 @@ export async function executeAgentStep(
       ...(stepCliSessionId ? { cliSessionId: stepCliSessionId } : {}),
       // #94: 本步最终实际的续用形态（续用降级重试后 = false）
       sessionResumed,
+      context: activeComposed.context,
+      recoveredFrom,
       step: stepNo,
       action: stepResult.action,
       // #453: 复用上方统一解析的 stepEvents（与 tool:call 落盘共享同一份解析产物）
@@ -415,6 +431,8 @@ export async function executeAgentStep(
       assignmentId,
       transcriptRecorded,
       stepRecord,
+      contextCursor: activeComposed.contextCursor,
+      context: activeComposed.context,
       metadataUpdates,
       channelVersion,
     };

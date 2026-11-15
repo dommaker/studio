@@ -76,6 +76,7 @@ export type {
   AssignmentProgress,
   AssignmentEvidence,
   AssignmentRecord,
+  PresentedContextCursor,
   StepAcProgress,
   StepCommandRecord,
   StepVerificationRecord,

@@ -96,6 +96,18 @@ export const executionStepEventSchema = z.object({
   cliSessionId: z.string().optional(),
   /** #94: 本步会话续用(true)/新建(false) 标记 */
   sessionResumed: z.boolean().optional(),
+  /** #714：full/delta 对照度量；不携带 prompt 正文。 */
+  context: z.object({
+    mode: z.enum(['full', 'delta']),
+    presentedTokens: z.number(),
+    repeatedTokens: z.number(),
+    humanInputs: z.number(),
+    recovery: z.boolean(),
+  }).optional(),
+  /** #714：由现有溢出分类器判定，供 full/delta 对照，不改变 errorType 语义。 */
+  contextOverflow: z.boolean().optional(),
+  /** #714：替换前实际使用的上下文模式，恢复指标归因到来源组。 */
+  recoveredFrom: z.enum(['full', 'delta']).optional(),
   /** 1 基步号 */
   step: z.number(),
   action: z.string().optional(),

@@ -140,6 +140,9 @@ export interface AssignmentEvidence {
   at: string;
 }
 
+/** #714：已呈现 prompt 段的内容 revision；真实 CLI session 身份由所属 Assignment 绑定。 */
+export type PresentedContextCursor = Record<string, string>;
+
 /** WU 的一次执行轮次；历史保存在 WU 事件流中，不放进开放 metadata。 */
 export interface AssignmentRecord {
   id: string;
@@ -156,6 +159,8 @@ export interface AssignmentRecord {
   provider?: string;
   sessionId?: string;
   cliSessionId?: string;
+  /** #714：最后成功呈现的段 revision；仅允许同 cliSessionId 的 linked Assignment 继承。 */
+  presentedContext?: PresentedContextCursor;
   worktreePath?: string;
   worktreeBranch?: string;
   lastError?: string;

@@ -220,12 +220,40 @@ export interface SectionTrimMetrics {
   source: 'events' | 'insufficient-data';
 }
 
-/** #120：/monitoring/efficiency —— 输入缓存命中率 + 段 trim 率 */
+export interface ContextModeMetrics {
+  steps: number;
+  presentedTokens: number;
+  repeatedTokens: number;
+  repeatedTokenPct: number;
+  overflows: number;
+  recoveryAttempts: number;
+  recoverySucceeded: number;
+  /** 恢复会话中携带的人类输入数，是「人工重述」的可观测代理口径。 */
+  humanInputsAfterRecovery: number;
+  succeededSteps: number;
+  completedSteps: number;
+  successRatePct: number | null;
+  completionRatePct: number | null;
+}
+
+export interface ContextComparisonMetrics {
+  description: string;
+  windowDays: number;
+  full: ContextModeMetrics;
+  delta: ContextModeMetrics;
+  /** 两组均有样本，且 delta 步成功率与完成成功率均不低于 full 时才为 true。 */
+  qualityNotRegressed: boolean | null;
+  rolloutEligible: boolean;
+  source: 'events' | 'insufficient-data';
+}
+
+/** #120/#714：/monitoring/efficiency —— 缓存、段 trim 与 full/delta 对照。 */
 export interface EfficiencyMetrics {
   windowDays: number;
   generatedAt: string;
   cacheHitRate: CacheHitRateMetrics;
   sectionTrim: SectionTrimMetrics;
+  contextComparison: ContextComparisonMetrics;
 }
 
 /** #707：Effect/Receipt 当前快照指标；撤销不计恢复核查。 */

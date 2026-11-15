@@ -407,12 +407,40 @@ export const sectionTrimMetricsSchema = z.object({
 });
 export type SectionTrimMetrics = z.infer<typeof sectionTrimMetricsSchema>;
 
+export const contextModeMetricsSchema = z.object({
+  steps: z.number(),
+  presentedTokens: z.number(),
+  repeatedTokens: z.number(),
+  repeatedTokenPct: z.number(),
+  overflows: z.number(),
+  recoveryAttempts: z.number(),
+  recoverySucceeded: z.number(),
+  humanInputsAfterRecovery: z.number(),
+  succeededSteps: z.number(),
+  completedSteps: z.number(),
+  successRatePct: z.number().nullable(),
+  completionRatePct: z.number().nullable(),
+});
+export type ContextModeMetrics = z.infer<typeof contextModeMetricsSchema>;
+
+export const contextComparisonMetricsSchema = z.object({
+  description: z.string(),
+  windowDays: z.number(),
+  full: contextModeMetricsSchema,
+  delta: contextModeMetricsSchema,
+  qualityNotRegressed: z.boolean().nullable(),
+  rolloutEligible: z.boolean(),
+  source: metricsSourceSchema,
+});
+export type ContextComparisonMetrics = z.infer<typeof contextComparisonMetricsSchema>;
+
 /** GET /efficiency 响应 data */
 export const efficiencyMetricsSchema = z.object({
   windowDays: z.number(),
   generatedAt: z.string(),
   cacheHitRate: cacheHitRateMetricsSchema,
   sectionTrim: sectionTrimMetricsSchema,
+  contextComparison: contextComparisonMetricsSchema,
 });
 export type EfficiencyMetrics = z.infer<typeof efficiencyMetricsSchema>;
 
