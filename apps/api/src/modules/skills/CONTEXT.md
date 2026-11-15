@@ -4,7 +4,7 @@
 
 skills 模块负责技能（Skill）的完整生命周期管理，包括基于文件的技能元数据存储（SkillStore）、技能目录扫描与加载（manifest-loader）、基于描述的技能匹配（skill-selector）、从 WorkUnit 执行中提取可复用模式（skill-extraction.service）以及对应的 REST API 路由（routes.ts）。提案审批生命周期（存取/发卡/approve/reject）自 #354 起归 review-proposal 正本，本模块只保留 adapter（review-adapter.ts）。所有数据存储已从 Prisma 迁移至文件系统。
 
-**HTTP 端点面（P4.3，2026-10-17）**：/api/v1/skills 面只剩 3 条有消费方的端点——GET /（scripts/perf/bench.ts perf 基线脚本）、GET /manifest（前端 RoleSkillsModal skill 多选数据源）、POST /:id/retract/decide（前端 useChannelCardActions）。其余 16 条孤儿端点随批删除（纯死代码面，不改运行时行为）：routes.ts 10 条（/discover、/stats、GET /:id、POST /、PATCH /:id、DELETE /:id、/:id/publish、/:id/deprecate、/:id/restore、/:id/usage）+ 原 skill-proposal-routes.ts 4 条（proposals 列表/scan/extract/retract，整文件删除）+ 原 skill-demotion-routes.ts 3 条（demotion-proposals 列表/approve/reject，整文件删除）。被删端点背后的 service 入口全部保留：skill 创建走 distill → submitSkillProposal 直调（distill-landings.ts），usage 事件由 mcp/skill.tools.ts 与 skill-loader 直写，promoteSkill / SkillExtractionService / skill-demotion 聚合扫描（scanSkillDemotions 由 bootstrap/bridges.ts 直调）均无 HTTP 消费方后保留在 service 层；demotion 端点上 `?scan=true` 手动触发器随端点消失属预期（扫描入口在 bootstrap 侧）。防遮蔽回归测试 skill-stats-route.test.ts 与 demotion 路由测试随端点删除。
+**HTTP 端点面（P4.3，2026-10-17）**：/api/v1/skills 面只剩 3 条有消费方的端点——GET /（scripts/perf/bench.ts perf 基线脚本）、GET /manifest（前端 RoleSkillsModal skill 多选数据源）、POST /:id/retract/decide（前端 useChannelCardActions）。其余 16 条孤儿端点随批删除（纯死代码面，不改运行时行为）：routes.ts 10 条（/discover、/stats、GET /:id、POST /、PATCH /:id、DELETE /:id、/:id/publish、/:id/deprecate、/:id/restore、/:id/usage）+ 原 skill-proposal-routes.ts 4 条（proposals 列表/scan/extract/retract，整文件删除）+ 原 skill-demotion-routes.ts 3 条（demotion-proposals 列表/approve/reject，整文件删除）。被删端点背后的 service 入口全部保留：skill 创建走 distill → submitSkillProposal 直调（distill-landings.ts），usage 事件由 mcp/skill.tools.ts 与 skill-loader 直写，SkillExtractionService / skill-demotion 聚合扫描（scanSkillDemotions 由 bootstrap/bridges.ts 直调）均无 HTTP 消费方后保留在 service 层；promoteSkill 自 #717 由 review-adapter 审批链直调；demotion 端点上 `?scan=true` 手动触发器随端点消失属预期（扫描入口在 bootstrap 侧）。防遮蔽回归测试 skill-stats-route.test.ts 与 demotion 路由测试随端点删除。
 
 ### 词汇表
 
@@ -18,7 +18,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
 | loadManifest, SkillEntry | manifest-loader.ts | 扫描技能目录，读取 SKILL.md frontmatter（name/description/agentTypes/status/triggers/consumers）构建技能条目；status 显式非 published 跳过 |
 | generateManifest | manifest-generator.ts | 从 frontmatter 重新生成 SKILLS_DIR/MANIFEST.md（GENERATED 文件，best-effort 不 throw）；skill-store 写 SKILL.md 后自动调用 |
-| registerSkillReviewAdapter, getSkillReviewAdapter, submitSkillProposal, repostSkillProposal, SkillReviewProposal | review-adapter.ts | #354：提案审批 adapter（kind='skill'），接线 review-proposal 正本；卡片渲染 + onApprove；#716 起 repost 认养 pending 或重发 card-failed，供蒸馏恢复按原 proposal 续跑 |
+| registerSkillReviewAdapter, getSkillReviewAdapter, submitSkillProposal, repostSkillProposal, recoverSkillPublications, SkillReviewProposal | review-adapter.ts | #354：提案审批 adapter（kind='skill'），接线 review-proposal 正本；#716 repost 认养 pending 或重发 card-failed；#717 onApprove 先落 approved 意图，再生成完整 SKILL.md 并 promoteSkill 到 published，失败保持 pending；启动恢复只续跑带 approvalProposalId 的原提案 |
 | router | routes.ts | P4.3 后剩 3 条端点：GET /（列表分页）、GET /manifest（#462 角色编辑 skill 多选数据源）、POST /:id/retract/decide（#278 撤回裁决），挂载至 /api/v1/skills |
 | SkillExtractionService 类, ExtractedSkillProposal | skill-extraction.service.ts | 从 WorkUnit 中提取可复用模式并生成提案（saveProposal 经 submitSkillProposal 发卡）；P4.3 后无 HTTP 消费方（原 proposals 路由已删），service 与 skill-extraction-events 测试保留 |
 | selectSkills | skill-selector.ts | 三层策略技能匹配：声明 triggers 时匹配 triggers（替代长 description），否则匹配 description（排除 NOT-for）；consumers 含 loop 的 skill 不参与 |
@@ -54,6 +54,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 - 所有数据存储已从 Prisma 迁移至文件系统（D-005），无数据库依赖
 - **fs 直写保留理由（P2-e 登记）**：SkillStore（`skills-index.json`）与 DemotionProposalStore（`data/skills/demotion-proposals.json`）是模块自持同步 store（契约 §8/§2① 登记条目，布局冻结）；同步 API 全链路调用方未异步化，不改写为 FileStore 域方法。SKILL.md 读写/`_deprecated` 目录移动是 markdown/目录形态，FileStore 不管；路径均经 `studioPath()`/`SKILLS_DIR` env。
 - SKILL.md 文件采用 frontmatter 格式，存放于 `~/.studio/skills/` 目录；技能索引存于 `~/.studio/skills-index.json`；提案存取自 #354 起归 review-proposal 正本，落 `~/.studio/skill-proposals.jsonl`（append-only + 状态墓碑折叠，词表 pending|executed|rejected|failed|card-failed）。旧自持存储 `~/.studio/proposals.json` 随 proposal-store.ts 退役：历史文件不改写不迁移，其中存量 pending 提案不再进入待审列表
+- **审批发布（#717）**：Web `#系统` 的 `skill_review_request` 通用卡提供「通过并发布/拒绝」。approve 先把原 Skill 置为 `approved` 并在 metadata 写 `approvalProposalId`，再生成含 name/description/triggers/skillId 的文档并过 promote 门；已有同名文件必须带相同 skillId，缺失或不匹配 fail-closed，防止冒认其他产物。只有磁盘 `published` 后才由正本把 proposal 落 `executed`。质量门/写盘失败返回 aborted、保持 pending；启动恢复只处理 approvalProposalId 与 pending proposal 匹配的记录，经 approveProposal 幂等补发布和 executed，不新建 Skill/proposal。
 - `loadManifest()` 使用内存缓存，变更需重启进程或重新调用清除缓存
 - 路由文件导出 open/write 双 Router 实例，由 route-registry 挂在同一挂载点 /api/v1/skills（open 读开放，write 挂 authNotGuest）
 - skill-selector 匹配时会排除 `NOT-for` 子句，避免排除项关键词触发误匹配

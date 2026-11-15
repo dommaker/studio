@@ -1,5 +1,5 @@
 /**
- * bootstrap/bridges 测试（P2-a）：13 项事件订阅按原 index.ts 顺序初始化；
+ * bootstrap/bridges 测试（P2-a）：14 项事件订阅按原 index.ts 顺序初始化；
  * 单项失败只 log，不阻断后续订阅。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -37,6 +37,11 @@ vi.mock('../../modules/pmo/spec-materialization.js', () => ({
 vi.mock('../../modules/role-memory/completion-extraction.js', () => ({
   initWuCompletionExtraction: () => calls.push('completion-extraction'),
 }));
+vi.mock('../../modules/skills/index.js', () => ({
+  recoverSkillPublications: async () => { calls.push('skill-publication-recovery'); },
+  initSkillUsageScan: () => calls.push('skill-usage-scan'),
+  initSessionPatternSuggest: () => calls.push('session-pattern-suggest'),
+}));
 vi.mock('../../modules/skills/skill-usage-scan.js', () => ({
   initSkillUsageScan: () => calls.push('skill-usage-scan'),
 }));
@@ -54,7 +59,7 @@ beforeEach(() => {
 });
 
 describe('initEventSubscriptions', () => {
-  it('按原 index.ts 顺序初始化全部 13 项订阅', async () => {
+  it('按原 index.ts 顺序初始化全部 14 项订阅', async () => {
     await initEventSubscriptions();
     expect(calls).toEqual([
       'knowledge-extraction-recovery',
@@ -67,6 +72,7 @@ describe('initEventSubscriptions', () => {
       'map-opening',
       'spec-materialization',
       'completion-extraction',
+      'skill-publication-recovery',
       'skill-usage-scan',
       'session-pattern-suggest',
       'distill-loop',

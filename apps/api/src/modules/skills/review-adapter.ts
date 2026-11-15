@@ -3,9 +3,9 @@
  *
  * ADR 2026-08-25 决策落地：
  * - 决策 2（业务方只做 adapter）：各拷贝间真正不同的只有「卡片内容」（renderSkillCard，
- *   extraction/distill 两种旧卡文案原样保留，cardData 形状不变 { proposalId, skillId }）
- *   与「审批后动作」（onApprove：skill→draft + 生成 SKILL.md，自 skill-extraction.reviewProposal
- *   原样搬入；reject 零副作用）；存取/发卡/approve/reject 生命周期全部归 review-proposal 正本。
+ *   extraction/distill 文案 + 通用审核卡展示字段）与「审批后动作」（#717：approved →
+ *   完整 SKILL.md → promoteSkill → published；reject 零副作用）；
+ *   存取/发卡/approve/reject 生命周期全部归 review-proposal 正本。
  * - 决策 4（通用端点）：专有 /api/v1/skills/proposals/:id/{approve,reject} 端点随本接线删除，
  *   审批走 /api/v1/review-proposals/skill/:id/{approve,reject,status}。
  *
@@ -15,13 +15,14 @@
  * 其中存量 pending 提案不再进入待审列表（新存储起算）。
  *
  * 装配收敛（P2.2）：register/get/submit 样板收进正本 createJsonlReviewAdapter 工厂，
- * 本文件只留域差异（两种旧卡渲染 + onApprove skill→draft + SKILL.md 生成）。
+ * 本文件只留域差异（卡片渲染 + 已审意图持久化 + SKILL.md 生成/发布/启动恢复）。
  */
 import fs from 'node:fs';
 import * as path from 'node:path';
 import { FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import {
+  approveProposal,
   createJsonlReviewAdapter,
   repostProposal,
   type ApproveOutcome,
@@ -29,6 +30,7 @@ import {
 } from '../review-proposal/index.js';
 import type { ReviewProposalBase } from '../review-proposal/index.js';
 import { skillStore } from './skill-store.js';
+import { promoteSkill } from './skill-promotion.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 /** skill 提案载荷（行形态：{ kind:'proposal', ... } 落 skill-proposals.jsonl） */
@@ -48,7 +50,7 @@ export interface SkillReviewProposal extends ReviewProposalBase {
 /**
  * 卡片渲染：两种旧卡文案原样保留（行为一致）。
  * extraction 卡：Category/Confidence/Source Goal 行；distill 卡：Source: 知识蒸馏 行。
- * cardData 形状不变 { proposalId, skillId }（CLI/前端零感知）。
+ * cardData 保留 proposalId/skillId，并携带通用审核卡所需的展示字段。
  */
 function renderSkillCard(p: SkillReviewProposal): { content: string; cardData: Record<string, unknown> } {
   const lines = [
@@ -62,48 +64,102 @@ function renderSkillCard(p: SkillReviewProposal): { content: string; cardData: R
   } else if (p.sourceGoalIds?.length) {
     lines.push(`Source Goal: ${p.sourceGoalIds.join(', ')}`);
   }
-  return { content: lines.join('\n'), cardData: { proposalId: p.id, skillId: p.skillId } };
+  return {
+    content: lines.join('\n'),
+    cardData: {
+      proposalId: p.id,
+      skillId: p.skillId,
+      name: p.name,
+      description: p.description,
+      category: p.category,
+      confidence: p.confidence,
+      sourceGoalIds: p.sourceGoalIds,
+      proposedBy: p.proposedBy,
+    },
+  };
 }
 
 /**
- * approve 后动作（自 skill-extraction.reviewProposal 的 approved 分支原样搬入）：
- * skill→draft + 生成 SKILL.md（已存在则跳过；生成失败非阻断，仅 warn）。
+ * approve 后动作：先持久化已审意图，再生成完整 SKILL.md 并过现有发布门。
+ * 任何失败都保持 proposal=pending，允许人工重试或启动恢复续跑。
  */
 async function executeSkillApproval(p: SkillReviewProposal): Promise<ApproveOutcome> {
-  const skill = skillStore.get(p.skillId);
-  skillStore.update(p.skillId, { status: 'draft' });
-
   try {
-    const skillName = skill?.name || p.skillId;
-    const metadata = skill?.metadata ? JSON.parse(skill.metadata) : {};
+    const skill = skillStore.get(p.skillId);
+    if (!skill) return { status: 'aborted', error: `skill-not-found:${p.skillId}` };
+    const metadata = skill.metadata ? JSON.parse(skill.metadata) : {};
+    const skillName = skill.name || p.skillId;
+    skillStore.update(p.skillId, {
+      status: 'approved',
+      metadata: JSON.stringify({ ...metadata, approvalProposalId: p.id }),
+    });
+
     const skillsRoot = process.env.SKILLS_DIR || studioPath('skills');
     const skillDir = path.join(skillsRoot, skillName);
     const skillFile = path.join(skillDir, 'SKILL.md');
     if (fs.existsSync(skillFile)) {
+      const existing = fs.readFileSync(skillFile, 'utf-8');
+      const identity = existing.match(/^skillId:\s*['"]?([^'"\n]+?)['"]?\s*$/m)?.[1];
+      if (identity !== p.skillId) {
+        return { status: 'aborted', error: `SKILL.md skillId mismatch: expected ${p.skillId}` };
+      }
       logger.info('[SkillReview] SKILL.md already exists, skipping', { skillName, path: skillFile });
     } else {
       fs.mkdirSync(skillDir, { recursive: true });
-      const pattern = metadata.pattern || `Skill: ${skillName}\n\nTBD -- manual refinement needed.`;
+      const pattern = metadata.pattern || skill.prompt || p.description;
+      const description = (skill.description || p.description || `Skill: ${skillName}`).replace(/\s+/g, ' ').trim();
+      const tags = Array.isArray(metadata.tags)
+        ? metadata.tags.filter((tag: unknown): tag is string => typeof tag === 'string' && tag.trim().length > 0)
+        : [];
+      const triggers = tags.length > 0 ? tags : [skillName];
       const frontmatter = [
         '---',
         `name: '${skillName}'`,
+        `description: ${JSON.stringify(description)}`,
+        `skillId: '${p.skillId}'`,
         'version: 1',
         `agentTypes: ['executor']`,
-        `status: 'draft'`,
+        `triggers: [${triggers.map((tag: string) => `'${tag}'`).join(', ')}]`,
+        'status: approved',
         '---',
       ].join('\n');
       fs.writeFileSync(skillFile, `${frontmatter}\n\n${pattern}`, 'utf-8');
       logger.info('[SkillReview] SKILL.md generated', { skillName, path: skillDir });
     }
+
+    const promoted = promoteSkill(skillName, { skillsDir: skillsRoot });
+    if (!promoted.ok) return { status: 'aborted', error: promoted.errors.join('; ') };
+    return { status: 'executed', data: { skillId: p.skillId, status: 'published' } };
   } catch (e) {
-    logger.warn('[SkillReview] SKILL.md generation failed (non-blocking)', { error: String(e) });
+    logger.warn('[SkillReview] publication failed; proposal remains pending', { error: String(e) });
+    return { status: 'aborted', error: String(e) };
   }
-  return { status: 'executed' };
+}
+
+/** 启动恢复已审未完成的发布；只有 approvalProposalId 能区分「待审」与「已审待发布」。 */
+export async function recoverSkillPublications(): Promise<void> {
+  const adapter = getSkillReviewAdapter();
+  const proposals = await adapter.store.listProposals();
+  for (const proposal of proposals) {
+    if (proposal.status !== 'pending') continue;
+    const skill = skillStore.get(proposal.skillId);
+    if (!skill) continue;
+    try {
+      const metadata = skill.metadata ? JSON.parse(skill.metadata) : {};
+      if (metadata.approvalProposalId !== proposal.id) continue;
+      await approveProposal('skill', proposal.id);
+    } catch (e) {
+      logger.warn('[SkillReview] publication recovery failed; proposal remains pending', {
+        proposalId: proposal.id,
+        error: String(e),
+      });
+    }
+  }
 }
 
 /**
  * skill adapter 装配（createJsonlReviewAdapter 工厂，P2.2）：kind/cardType/物化路径/
- * 卡渲染/onApprove（skill→draft + SKILL.md）= 本域差异面；register/get/submit 样板归
+ * 卡渲染/onApprove（approved → 完整 SKILL.md → published）= 本域差异面；register/get/submit 样板归
  * review-proposal 工厂。
  */
 const skillKit = createJsonlReviewAdapter<SkillReviewProposal>({

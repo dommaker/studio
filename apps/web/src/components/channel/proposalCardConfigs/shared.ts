@@ -8,7 +8,7 @@ export type ProposalReviewState = 'approved' | 'rejected' | 'executed' | 'failed
 export interface ProposalCardConfig {
   /** 消息 meta.cardType（渲染分发键） */
   cardType: string;
-  /** review-proposal 注册表 kind（6 类已全部接通通用端点，#351/#353/#355/#356） */
+  /** review-proposal 注册表 kind（8 类已全部接通通用端点） */
   kind: string;
   approveAction: string;
   rejectAction: string;

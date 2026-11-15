@@ -43,12 +43,13 @@ const CARD_TYPES = [
   'auditor_suggestion',
   'constraint_proposal',
   'evolution_proposal',
+  'skill_review_request',
 ];
 
 beforeEach(() => vi.clearAllMocks());
 
 describe('PROPOSAL_CARD_CONFIGS 完整性', () => {
-  it('恰好覆盖 7 类提案卡', () => {
+  it('恰好覆盖 8 类提案卡', () => {
     expect(Object.keys(PROPOSAL_CARD_CONFIGS).sort()).toEqual([...CARD_TYPES].sort());
   });
 
@@ -65,7 +66,7 @@ describe('PROPOSAL_CARD_CONFIGS 完整性', () => {
     expect(typeof c.renderContent).toBe('function');
   });
 
-  it('distill 家族 + memory/knowledge/auditor/constraint/evolution kind 对齐注册表（distill/gc #351，memory #353，knowledge #355，auditor #356，constraint ADR-0033 子项 7，evolution #623）', () => {
+  it('distill 家族 + memory/knowledge/auditor/constraint/evolution/skill kind 对齐注册表', () => {
     expect(PROPOSAL_CARD_CONFIGS.distill_proposal.kind).toBe('distill');
     expect(PROPOSAL_CARD_CONFIGS.gc_proposal.kind).toBe('gc');
     expect(PROPOSAL_CARD_CONFIGS.memory_proposal.kind).toBe('memory');
@@ -73,12 +74,13 @@ describe('PROPOSAL_CARD_CONFIGS 完整性', () => {
     expect(PROPOSAL_CARD_CONFIGS.auditor_suggestion.kind).toBe('auditor');
     expect(PROPOSAL_CARD_CONFIGS.constraint_proposal.kind).toBe('constraint');
     expect(PROPOSAL_CARD_CONFIGS.evolution_proposal.kind).toBe('evolution');
+    expect(PROPOSAL_CARD_CONFIGS.skill_review_request.kind).toBe('skill');
   });
 });
 
 describe('PROPOSAL_ACTION_INDEX', () => {
-  it('14 个 action 全部映射到配置与决策方向', () => {
-    expect(Object.keys(PROPOSAL_ACTION_INDEX)).toHaveLength(14);
+  it('16 个 action 全部映射到配置与决策方向', () => {
+    expect(Object.keys(PROPOSAL_ACTION_INDEX)).toHaveLength(16);
     for (const c of Object.values(PROPOSAL_CARD_CONFIGS)) {
       expect(PROPOSAL_ACTION_INDEX[c.approveAction]).toEqual({ config: c, decision: 'approve' });
       expect(PROPOSAL_ACTION_INDEX[c.rejectAction]).toEqual({ config: c, decision: 'reject' });

@@ -1,6 +1,6 @@
 // ReviewProposalCard — #352 人审提案卡合一壳（ADR 2026-08-25 决策 5）
 // 等价替换旧 4 卡组件测试（Distill/Gc/Memory/Knowledge；ConstraintAudit 已随 #620 拆除），逐用例对照见 #352 交付摘要。
-// 契约：5 个 cardType 共用本壳；action/终态文案/按钮文案/派生失败保持待审 逐字保持旧行为。
+// 契约：已注册 cardType 共用本壳；action/终态文案/按钮文案/派生失败保持待审。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ReviewProposalCard } from '../ReviewProposalCard';

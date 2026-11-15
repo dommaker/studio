@@ -62,6 +62,11 @@ const EVENT_SUBSCRIPTIONS: readonly SoftStep[] = [
     run: async () => (await import('../modules/role-memory/index.js')).initWuCompletionExtraction(),
   },
   {
+    // #717：恢复已审但未完成发布的 Skill；只认带 approvalProposalId 的原提案。
+    name: 'SkillPublicationRecovery',
+    run: async () => (await import('../modules/skills/index.js')).recoverSkillPublications(),
+  },
+  {
     // skill 度量地基票 B：WU done → transcript 后验扫描 skill 使用痕迹 → skill_used 事件（纯确定性零 LLM）
     name: 'SkillUsageScan',
     run: async () => (await import('../modules/skills/index.js')).initSkillUsageScan(),

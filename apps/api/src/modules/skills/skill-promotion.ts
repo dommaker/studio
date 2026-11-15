@@ -1,10 +1,10 @@
 /**
- * D11 skill promote 门禁（draft → published）。
+ * D11 skill promote 门禁（draft/approved → published）。
  *
- * 现状链路：提案 approve（#354 起经 review-proposal 正本 adapter onApprove，skills/review-adapter.ts）→ 磁盘 SKILL.md
- * frontmatter status=draft + 索引 status=draft；promote（routes POST /:id/publish）
- * 是进入匹配池的唯一闸门。匹配池（manifest-loader.loadManifest / skill-selector /
- * skill-loader.loadSkillFromDisk）只认磁盘 frontmatter：status 缺省或 published 才参与。
+ * 现状链路：提案 approve（#354 起经 review-proposal 正本 adapter onApprove，skills/review-adapter.ts）→
+ * 持久化 approved 意图 + 完整 SKILL.md → 本门禁 → published。匹配池
+ * （manifest-loader.loadManifest / skill-selector / skill-loader.loadSingle）
+ * 只认磁盘 frontmatter：status 缺省或 published 才参与。
  *
  * 门禁（任一不满足即拒绝，说明原因）：
  *   ① SKILL.md 实体存在（SKILLS_DIR/<name>/SKILL.md）
@@ -15,7 +15,7 @@
  *
  * 通过：frontmatter status → published（setSkillFrontmatterStatus，正文逐字节保留）
  *   + invalidateManifestCache（匹配池立即生效）
- *   + 索引（skills-index.json）同名 draft/testing 记录同步 published（best-effort）
+ *   + 索引（skills-index.json）同名 draft/testing/approved 记录同步 published（best-effort）
  */
 
 import * as fs from 'fs';
@@ -176,10 +176,10 @@ export function promoteSkill(skillName: string, opts?: { skillsDir?: string }): 
   setSkillFrontmatterStatus(skillName, 'published', dir);
   invalidateManifestCache();
 
-  // 索引同步（best-effort）：同名 draft/testing 记录 → published
+  // 索引同步（best-effort）：同名 draft/testing/approved 记录 → published
   try {
     for (const record of skillStore.list({ name: skillName })) {
-      if (record.status === 'draft' || record.status === 'testing') {
+      if (record.status === 'draft' || record.status === 'testing' || record.status === 'approved') {
         skillStore.update(record.id, { status: 'published' });
       }
     }
