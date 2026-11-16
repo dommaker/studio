@@ -373,11 +373,43 @@ export type EvolutionTargetType = 'iron-law' | 'guideline' | 'prompt-template' |
 /** stale：pending/approved 超期未审（TTL，#602 D2）惰性转 stale，不再阻塞同目标新提案 */
 export type EvolutionProposalStatus = 'pending' | 'approved' | 'rejected' | 'applied' | 'stale';
 
+export interface EvolutionMetricSnapshot {
+  sampleCount: number;
+  failureCount: number;
+  failureRate: number;
+}
+
+/** 生效后观察与裁决记录；备份位置只用于本提案的恢复，不是第二份配置真源。 */
+export interface EvolutionObservation {
+  targetPath: string;
+  backupPath: string | null;
+  targetRevision: string;
+  beforeContentHash: string | null;
+  afterContentHash: string;
+  startedAt: string;
+  endsAt: string;
+  windowHours: number;
+  beforeMetrics: EvolutionMetricSnapshot;
+  afterMetrics?: EvolutionMetricSnapshot;
+  decision?: 'keep' | 'rollback';
+  decidedAt?: string;
+  decisionReason?: string;
+  restoredAt?: string;
+  /** rollback 裁决已产生但恢复失败（如目标第三方漂移）时保留错误，不阻断其他提案。 */
+  rollbackError?: string;
+  knowledgeEntryIds?: string[];
+  profileSnapshots?: Array<{ id: string; persona?: string }>;
+}
+
 export interface EvolutionProposalData {
   id: string;                 // EP-<zero-padded seq>，如 EP-0042
   seq: number;                // 递增序号（flock 原子分配）
   targetType: EvolutionTargetType;
+  /** 显式选择的生效仓库；历史提案缺失时禁止生效，不回退进程工作目录。 */
+  targetRepo?: string;
   targetId: string;           // 约束 id | prompt templateId | role 名（.agents/roles/<name>.yaml）
+  /** role-preset 默认只改未来 profile 使用的预设；只有显式点名并经审批才更新既有档案。 */
+  targetProfileIds?: string[];
   action: 'add' | 'amend';    // add=新增条目（或 shadow 覆盖内置约束）；amend=修改既有条目
   /** 仅 iron-law/guideline：变更种类，收敛到 config.yml 装得下的唯二动作（M3.2，
    *  docs/plans/2026-09-flywheel-e1-remediation.md）——retire=退役（enabled:false +
@@ -401,6 +433,7 @@ export interface EvolutionProposalData {
   decidedBy?: string | null;  // 'channel' | 'api:<user>' 等
   decidedAt?: string | null;
   appliedAt?: string | null;
+  observation?: EvolutionObservation;
   rejectReason?: string | null;
   staledAt?: string | null;   // 超期未审转 stale 的时间（#602 D2）
 }

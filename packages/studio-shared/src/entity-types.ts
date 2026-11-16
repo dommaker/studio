@@ -15,6 +15,8 @@ export type {
   EvolutionProposalData,
   EvolutionProposalStatus,
   EvolutionTargetType,
+  EvolutionMetricSnapshot,
+  EvolutionObservation,
 } from './file-store/file-store-types';
 
 export type { Resolution, CreateResolutionInput } from './types/resolution';

@@ -61,12 +61,13 @@ export interface WindowSignals {
   outcomes: OutcomeEvent[];
 }
 
-/** 加载窗口期内的三类信号（文件缺失 → 空数组，绝不抛出）。 */
+/** 加载窗口期内的三类信号（文件缺失 → 空数组，绝不抛出）；untilMs 固定观察窗口右端。 */
 export async function loadWindowSignals(
   paths: EvolutionPaths,
   windowHours: number,
+  untilMs: number = Date.now(),
 ): Promise<WindowSignals> {
-  const sinceMs = Date.now() - windowHours * 3600_000;
+  const sinceMs = untilMs - windowHours * 3600_000;
 
   // #646：traces 读取走 harness 公共 API（readProjectTracesReport 自带缺失文件/坏行容错 → 空数组，
   // 兼容包装 readProjectTraces 已随 harness 3.0.0/ADR-0041 删除，改取 .traces），
@@ -76,7 +77,7 @@ export async function loadWindowSignals(
     traces = readProjectTracesReport(paths.repoRoot).traces;
   } catch { /* 容错口径：读取失败 = 零记录 */ }
   const constraintTraces = traces
-    .filter(t => t && typeof t.timestamp === 'number' && t.timestamp >= sinceMs && typeof t.constraintId === 'string');
+    .filter(t => t && typeof t.timestamp === 'number' && t.timestamp >= sinceMs && t.timestamp <= untilMs && typeof t.constraintId === 'string');
 
   // D18: tool:call 与 knowledge:outcome 同一统一事件文件；兼容 payload 嵌套与历史扁平形态
   // #329: 整个扫描对该文件只读一次（原 toolCalls/outcomes 各读一遍，缓存命中仍重复全量 parse+filter）
@@ -88,7 +89,7 @@ export async function loadWindowSignals(
     const p = parseStudioEventPayload(row) ?? {};
     const flat: Record<string, any> = { ...p, ...row };
     const ts = typeof flat.timestamp === 'number' ? flat.timestamp : getStudioEventTime(row);
-    if (!Number.isFinite(ts) || ts < sinceMs) continue;
+    if (!Number.isFinite(ts) || ts < sinceMs || ts > untilMs) continue;
     toolCalls.push({
       type: 'tool:call',
       tool: flat.tool,
@@ -102,7 +103,8 @@ export async function loadWindowSignals(
 
   const outcomeRows = eventRows
     .filter(r => r && typeof r.type === 'string' && r.type.startsWith('knowledge:outcome:')
-      && typeof r.createdAt === 'string' && new Date(r.createdAt).getTime() >= sinceMs);
+      && typeof r.createdAt === 'string' && new Date(r.createdAt).getTime() >= sinceMs
+      && new Date(r.createdAt).getTime() <= untilMs);
 
   const outcomes: OutcomeEvent[] = [];
   for (const row of outcomeRows) {

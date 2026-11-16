@@ -9,7 +9,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const registry = vi.hoisted(() => new Map<string, () => Promise<void>>());
 const spies = vi.hoisted(() => ({
   scanStaleAgentInstances: vi.fn(async () => ({ terminated: 2 })),
-  getEvolutionService: vi.fn(() => ({})),
+  runScan: vi.fn(async () => ({ created: [] })),
+  getEvolutionService: vi.fn(() => ({ runScan: spies.runScan })),
+  loadPmoBoundRepoPaths: vi.fn(async () => ['/repo-a', '/repo-b']),
   recoverWorktreeMerges: vi.fn(async () => ({ attempted: 0, failed: 0 })),
   recoverExternalReplies: vi.fn(async () => ({ attempted: 0, failed: 0 })),
   failOnRegister: { value: false },
@@ -26,6 +28,9 @@ vi.mock('../../modules/ops/index.js', () => ({
 }));
 vi.mock('../../modules/evolution/evolution.service.js', () => ({
   getEvolutionService: spies.getEvolutionService,
+}));
+vi.mock('../../modules/projects/index.js', () => ({
+  loadPmoBoundRepoPaths: spies.loadPmoBoundRepoPaths,
 }));
 vi.mock('../../modules/workunit/index.js', () => ({
   WorkUnitService: class {},
@@ -78,6 +83,13 @@ describe('registerScanHandlers', () => {
   it('evolution review-proposal adapter 随注册构造单例', async () => {
     await registerScanHandlers();
     expect(spies.getEvolutionService).toHaveBeenCalled();
+  });
+
+  it('evolution scan 逐个扫描 PMO 显式绑定的仓库', async () => {
+    await registerScanHandlers();
+    await registry.get('evolution-scan')!();
+    expect(spies.loadPmoBoundRepoPaths).toHaveBeenCalledOnce();
+    expect(spies.runScan.mock.calls).toEqual([['/repo-a'], ['/repo-b']]);
   });
 
   it('注册失败只 warn 不外抛（listen 后步骤失败不拒启，C 批）', async () => {

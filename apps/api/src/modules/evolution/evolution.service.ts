@@ -15,11 +15,12 @@
 import {
   eventBus,
   FileStore,
+  type EvolutionMetricSnapshot,
   type EvolutionProposalData,
   type EvolutionProposalFilter,
 } from '@dommaker/studio-shared';
 import { logger } from '@dommaker/studio-shared/node';
-import { applyProposal, type ApplyResult } from './applier.js';
+import { applyProposal, rollbackProposal, type ApplyResult } from './applier.js';
 import {
   EVOLUTION_PROPOSAL_TTL_MS,
   generateEvolutionProposals,
@@ -35,11 +36,29 @@ import {
 } from './constraint-adapter.js';
 import type { ReviewProposalAdapter } from '../review-proposal/index.js';
 import { sharedStore } from '../knowledge/index.js';
-import type { KnowledgeEntry } from '@dommaker/harness';
-import { resolveEvolutionPaths, type EvolutionPaths } from './signals.js';
+import type { KnowledgeEntry, KnowledgeStore } from '@dommaker/harness';
+import { loadWindowSignals, resolveEvolutionPaths, type EvolutionPaths } from './signals.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
 
+async function captureEvolutionMetrics(
+  proposal: EvolutionProposalData,
+  paths: EvolutionPaths,
+  windowHours: number,
+  untilMs: number = Date.now(),
+): Promise<EvolutionMetricSnapshot> {
+  const signals = await loadWindowSignals(paths, windowHours, untilMs);
+  // 约束 retire/disable 后自身 trace 消失，不能拿零 trace 当改善；与 prompt 一样看整体执行结果。
+  const failures = proposal.targetType === 'role-preset'
+    ? signals.toolCalls.filter(e => e.caller === proposal.targetId).map(e => e.success === false)
+    : signals.outcomes.map(o => !o.success);
+  const failureCount = failures.filter(Boolean).length;
+  return {
+    sampleCount: failures.length,
+    failureCount,
+    failureRate: failures.length > 0 ? failureCount / failures.length : 0,
+  };
+}
 
 export class EvolutionError extends Error {
   code: 'NOT_FOUND' | 'CONFLICT' | 'APPLY_FAILED';
@@ -55,6 +74,8 @@ export interface EvolutionServiceOptions {
   paths?: Partial<EvolutionPaths>;
   /** 信号窗口，默认 env EVOLUTION_WINDOW_HOURS || 24 */
   windowHours?: number;
+  /** 生效后观察窗口，默认 env EVOLUTION_OBSERVATION_WINDOW_HOURS || 24 */
+  observationWindowHours?: number;
   /** false 时 runScan 只生成提案不发审核卡（测试用） */
   postCard?: boolean;
   /**
@@ -62,6 +83,8 @@ export interface EvolutionServiceOptions {
    * 缺省 = 不扫（测试保持封闭）；生产单例 getEvolutionService 显式接 sharedStore。
    */
   constraintCandidates?: { listEntries: () => KnowledgeEntry[] };
+  /** 回退时归档关联知识；测试可注入封闭存储。 */
+  knowledgeStore?: Pick<KnowledgeStore, 'get' | 'update'>;
   /** constraint 提案存取目录（缺省 <studio>/data/evolution；测试注 tmp） */
   constraintDataDir?: string;
 }
@@ -70,8 +93,10 @@ export class EvolutionService {
   private fileStore: FileStore;
   private paths: EvolutionPaths;
   private windowHours: number;
+  private observationWindowHours: number;
   private postCard: boolean;
   private constraintCandidates?: { listEntries: () => KnowledgeEntry[] };
+  private knowledgeStore: Pick<KnowledgeStore, 'get' | 'update'>;
   /** review-proposal 正本 adapter（kind='evolution'，构造即注册，#623） */
   readonly reviewAdapter: ReviewProposalAdapter<EvolutionReviewProposal>;
   /** review-proposal 正本 adapter（kind='constraint'，构造即注册，ADR-0033 子项 7/8） */
@@ -81,8 +106,10 @@ export class EvolutionService {
     this.fileStore = options?.fileStore ?? getStore();
     this.paths = resolveEvolutionPaths(options?.paths);
     this.windowHours = options?.windowHours ?? (Number(process.env.EVOLUTION_WINDOW_HOURS) > 0 ? Number(process.env.EVOLUTION_WINDOW_HOURS) : 24);
+    this.observationWindowHours = options?.observationWindowHours ?? (Number(process.env.EVOLUTION_OBSERVATION_WINDOW_HOURS) > 0 ? Number(process.env.EVOLUTION_OBSERVATION_WINDOW_HOURS) : 24);
     this.postCard = options?.postCard !== false;
     this.constraintCandidates = options?.constraintCandidates;
+    this.knowledgeStore = options?.knowledgeStore ?? sharedStore;
     this.reviewAdapter = registerEvolutionReviewAdapter({ fileStore: this.fileStore, service: this });
     this.constraintAdapter = registerConstraintReviewAdapter({
       fileStore: this.fileStore,
@@ -102,12 +129,19 @@ export class EvolutionService {
     return this.fileStore.getEvolutionProposal(id);
   }
 
-  /** 跑一轮提案生成并把新提案发审核卡到 #系统（best-effort）。 */
-  async runScan(): Promise<GenerationResult & { posted: number; constraintScan?: ConstraintScanResult }> {
+  /** 跑一轮提案生成并把新提案发审核卡到 #系统（best-effort）。目标仓库必须显式选择。 */
+  async runScan(
+    repoRoot: string,
+    options?: { roleProfileTargets?: Readonly<Record<string, string[]>> },
+  ): Promise<GenerationResult & { posted: number; constraintScan?: ConstraintScanResult }> {
+    if (!repoRoot?.trim()) throw new Error('Evolution scan requires an explicit repoRoot');
+    await this.settleObservations();
+    const paths = resolveEvolutionPaths({ repoRoot, studioEventsFile: this.paths.studioEventsFile });
     const result = await generateEvolutionProposals({
       fileStore: this.fileStore,
-      paths: this.paths,
+      paths,
       windowHours: this.windowHours,
+      ...(options?.roleProfileTargets ? { roleProfileTargets: options.roleProfileTargets } : {}),
     });
     let posted = 0;
     if (this.postCard) {
@@ -126,7 +160,7 @@ export class EvolutionService {
         constraintScan = await scanConstraintCandidates({
           adapter: this.constraintAdapter,
           listEntries: this.constraintCandidates.listEntries,
-          repoRoot: this.paths.repoRoot,
+          repoRoot,
           postCard: this.postCard,
         });
       } catch (err) {
@@ -140,6 +174,62 @@ export class EvolutionService {
       });
     }
     return { ...result, posted, ...(constraintScan ? { constraintScan } : {}) };
+  }
+
+  /** 结算到期观察：后窗失败率不恶化则保留，否则恢复生效前内容并归档关联知识。 */
+  async settleObservations(): Promise<{ kept: string[]; rolledBack: string[] }> {
+    const kept: string[] = [];
+    const rolledBack: string[] = [];
+    const proposals = await this.fileStore.listEvolutionProposals({ status: 'applied' });
+    for (const proposal of proposals) {
+      const observation = proposal.observation;
+      if (!observation || observation.decision || Date.parse(observation.endsAt) > Date.now()) continue;
+      if (!proposal.targetRepo) throw new Error(`observed proposal has no targetRepo: ${proposal.id}`);
+      const paths = resolveEvolutionPaths({
+        repoRoot: proposal.targetRepo,
+        studioEventsFile: this.paths.studioEventsFile,
+      });
+      const afterMetrics = await captureEvolutionMetrics(proposal, paths, observation.windowHours, Date.parse(observation.endsAt));
+      const decision = afterMetrics.failureRate <= observation.beforeMetrics.failureRate ? 'keep' : 'rollback';
+      const decidedAt = new Date().toISOString();
+      const decisionReason = afterMetrics.sampleCount === 0
+        ? '观察窗口无新样本，未出现退化'
+        : `失败率 ${observation.beforeMetrics.failureRate} → ${afterMetrics.failureRate}`;
+      let restoredAt: string | undefined;
+      let rollbackError: string | undefined;
+      if (decision === 'rollback') {
+        try {
+          await rollbackProposal(proposal, paths, { fileStore: this.fileStore });
+          restoredAt = new Date().toISOString();
+          for (const entryId of observation.knowledgeEntryIds ?? []) {
+            const entry = this.knowledgeStore.get(entryId);
+            if (entry && entry.maturity !== 'archived') {
+              this.knowledgeStore.update(entryId, {
+                maturity: 'archived',
+                tags: [...new Set([...(entry.tags ?? []), 'evolution-rolled-back'])],
+              });
+            }
+          }
+        } catch (err) {
+          rollbackError = getErrorMessage(err);
+          logger.error('[Evolution] rollback failed', { id: proposal.id, error: rollbackError });
+        }
+      }
+      const updated = await this.fileStore.updateEvolutionProposal(proposal.id, {
+        observation: {
+          ...observation,
+          afterMetrics,
+          decision,
+          decidedAt,
+          decisionReason,
+          ...(restoredAt ? { restoredAt } : {}),
+          ...(rollbackError ? { rollbackError } : {}),
+        },
+      });
+      (decision === 'keep' ? kept : rolledBack).push(proposal.id);
+      try { eventBus.publish('evolution.observation_decided', { proposal: updated }); } catch { /* non-blocking */ }
+    }
+    return { kept, rolledBack };
   }
 
   /**
@@ -183,6 +273,9 @@ export class EvolutionService {
     if (existing.status === 'applied') {
       throw new EvolutionError('CONFLICT', `${id} is already applied`);
     }
+    if (!existing.targetRepo?.trim()) {
+      throw new EvolutionError('CONFLICT', `${id} 缺少显式 targetRepo，禁止回退 process.cwd() 生效`);
+    }
     let proposal = existing;
     if (proposal.status === 'pending') {
       proposal = await this.fileStore.updateEvolutionProposal(id, {
@@ -192,16 +285,35 @@ export class EvolutionService {
       });
     }
     // status === 'approved'：执行生效（含重试路径）
+    const targetPaths = resolveEvolutionPaths({
+      repoRoot: proposal.targetRepo!,
+      studioEventsFile: this.paths.studioEventsFile,
+    });
     let applyResult: ApplyResult;
     try {
-      applyResult = await applyProposal(proposal, this.paths);
+      applyResult = await applyProposal(proposal, targetPaths, { fileStore: this.fileStore });
     } catch (err) {
       logger.error('[Evolution] apply failed', { id, error: String(err) });
       throw new EvolutionError('APPLY_FAILED', `${id} approved but apply failed: ${getErrorMessage(err)}`);
     }
+    const startedAt = new Date();
+    const beforeMetrics = await captureEvolutionMetrics(proposal, targetPaths, this.observationWindowHours, startedAt.getTime());
     proposal = await this.fileStore.updateEvolutionProposal(id, {
       status: 'applied',
-      appliedAt: new Date().toISOString(),
+      appliedAt: startedAt.toISOString(),
+      observation: {
+        targetPath: applyResult.targetPath,
+        backupPath: applyResult.backupPath,
+        targetRevision: applyResult.targetRevision,
+        beforeContentHash: applyResult.beforeContentHash,
+        afterContentHash: applyResult.afterContentHash,
+        startedAt: startedAt.toISOString(),
+        endsAt: new Date(startedAt.getTime() + this.observationWindowHours * 3600_000).toISOString(),
+        windowHours: this.observationWindowHours,
+        beforeMetrics,
+        ...(proposal.constraintChange === 'retire' ? { knowledgeEntryIds: [`decision-constraint-retired-${proposal.targetId}`] } : {}),
+        ...(applyResult.profileSnapshots ? { profileSnapshots: applyResult.profileSnapshots } : {}),
+      },
     });
     try { eventBus.publish('evolution.applied', { proposal, apply: applyResult }); } catch { /* non-blocking */ }
     return proposal;

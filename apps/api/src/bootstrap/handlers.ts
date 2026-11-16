@@ -57,9 +57,13 @@ async function registerScanHandlersInner(): Promise<void> {
   const { getEvolutionService } = await import('../modules/evolution/index.js');
   getEvolutionService();
   registerExecuteHandler('evolution-scan', async () => {
-    const result = await getEvolutionService().runScan();
-    if (result.created.length > 0) {
-      logger.info(`[Evolution] Daily scan created ${result.created.length} proposal(s)`);
+    const { loadPmoBoundRepoPaths } = await import('../modules/projects/index.js');
+    const repoRoots = await loadPmoBoundRepoPaths();
+    for (const repoRoot of repoRoots) {
+      const result = await getEvolutionService().runScan(repoRoot);
+      if (result.created.length > 0) {
+        logger.info(`[Evolution] Daily scan created ${result.created.length} proposal(s)`, { repoRoot });
+      }
     }
   });
 }

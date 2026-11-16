@@ -133,6 +133,8 @@ function renderEvolutionCard(p: EvolutionReviewProposal): { content: string; car
     `## 🧬 约束进化提案 ${p.id} — 待审核`,
     '',
     `目标：${p.targetType} / ${p.targetId}（${p.action}${p.constraintChange ? ` / ${p.constraintChange}` : ''}）`,
+    `目标仓库：${p.targetRepo ?? '未指定（禁止生效）'}`,
+    ...(p.targetProfileIds?.length ? [`既有 AgentProfile：${p.targetProfileIds.join(', ')}`] : []),
     '',
     `当前：${truncate(p.currentText || '（空）', 160)}`,
     `提案：${truncate(p.proposedText, 160)}`,
@@ -146,7 +148,9 @@ function renderEvolutionCard(p: EvolutionReviewProposal): { content: string; car
     cardData: {
       proposalId: p.id,
       targetType: p.targetType,
+      targetRepo: p.targetRepo ?? null,
       targetId: p.targetId,
+      ...(p.targetProfileIds?.length ? { targetProfileIds: p.targetProfileIds } : {}),
       action: p.action,
       ...(p.constraintChange ? { constraintChange: p.constraintChange } : {}),
       source: p.source,

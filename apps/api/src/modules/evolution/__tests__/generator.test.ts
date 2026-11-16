@@ -163,6 +163,7 @@ describe('generateEvolutionProposals (E1)', () => {
     expect(result.created.length).toBe(1);
     const p = result.created[0];
     expect(p.targetType).toBe('prompt-template');
+    expect(p.targetRepo).toBe(tmpDir);
     expect(p.targetId).toBe('knowledge.rules-section');
     expect(p.action).toBe('amend');
     expect(p.source).toBe('heuristic:prompt-failure');

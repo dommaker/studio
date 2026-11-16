@@ -89,6 +89,8 @@ export type {
   EvolutionProposalStatus,
   EvolutionProposalData,
   EvolutionProposalFilter,
+  EvolutionMetricSnapshot,
+  EvolutionObservation,
 } from './file-store-types';
 export { formatRequirementId, formatEvolutionId } from './file-store-types';
 export { LockTimeoutError } from './file-store-base';

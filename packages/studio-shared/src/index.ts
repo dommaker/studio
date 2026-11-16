@@ -100,6 +100,8 @@ export type {
   EvolutionProposalStatus,
   EvolutionProposalFilter,
   EvolutionTargetType,
+  EvolutionMetricSnapshot,
+  EvolutionObservation,
 } from './file-store';
 
 // 导出 Stats 模块
