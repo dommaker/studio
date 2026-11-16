@@ -32,6 +32,7 @@ import {
   registerMemoryReviewAdapter,
   submitMemoryProposal,
 } from '../review-adapter.js';
+import { roleMemoryMaintenance } from '../maintenance.js';
 
 const TEST_ROOT = roleMemoryRoot();
 
@@ -199,6 +200,7 @@ describe('正本生命周期全链路（kind=memory，通用端点同款 service
     expect((await getProposalStatus('memory', entry.id))).toMatchObject({ ok: true, status: 'executed' });
     expect(await roleMemoryStore.readDraft(roleId)).toHaveLength(0);
     expect(await roleMemoryStore.readIndex(roleId)).toContain('full-flow');
+    await expect(roleMemoryMaintenance.getRun(roleId, `promote-${entry.id}`)).resolves.toMatchObject({ status: 'succeeded' });
 
     // 重复 approve → not-pending 闸（正本词表）
     const again = await approveProposal('memory', entry.id);

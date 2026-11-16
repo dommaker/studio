@@ -35,6 +35,11 @@ export async function recordOutcomeImpl(deps: KnowledgeServiceDeps, outcome: Exe
       source: outcome.agentType,
       payload: JSON.stringify({
         executionId: outcome.executionId,
+        workUnitId: outcome.workUnitId,
+        assignmentId: outcome.assignmentId,
+        stepRecordId: outcome.stepRecordId,
+        verification: outcome.verification,
+        final: outcome.final,
         agentType: outcome.agentType,
         success: outcome.success,
         details: outcome.details?.slice(0, 500),
@@ -46,14 +51,35 @@ export async function recordOutcomeImpl(deps: KnowledgeServiceDeps, outcome: Exe
     });
   } catch { /* non-blocking */ }
 
-  // Update referencedBy for consumed knowledge entries
+  // #718：最终消费事实与 outcome 同源落账，避免只靠注入共现推断效果。
+  if (outcome.final && outcome.assignmentId && outcome.consumedKnowledge.length > 0) {
+    try {
+      await getStore().appendJsonl(resolveStudioEventsFile(), {
+        type: 'knowledge:consumption',
+        source: `assignment:${outcome.assignmentId}`,
+        payload: JSON.stringify({
+          entryIds: outcome.consumedKnowledge,
+          count: outcome.consumedKnowledge.length,
+          workUnitId: outcome.workUnitId,
+          assignmentId: outcome.assignmentId,
+          stepRecordId: outcome.stepRecordId,
+          verification: outcome.verification,
+          final: true,
+        }),
+        createdAt: new Date().toISOString(),
+      });
+    } catch { /* non-blocking */ }
+  }
+
+  // Prefer the execution Assignment; legacy outcomes only have executionId.
+  const referenceId = outcome.assignmentId ?? outcome.executionId;
   for (const entryId of outcome.consumedKnowledge) {
     try {
       const entry = deps.store.get(entryId);
       if (entry) {
         entry.referencedBy = entry.referencedBy || [];
-        if (!entry.referencedBy.includes(outcome.executionId)) {
-          entry.referencedBy.push(outcome.executionId);
+        if (!entry.referencedBy.includes(referenceId)) {
+          entry.referencedBy.push(referenceId);
           deps.store.save(entry);
         }
       }

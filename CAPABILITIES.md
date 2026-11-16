@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-10-17
+> 最后更新: 2026-11-16
 
 ---
 
@@ -29,6 +29,17 @@
 | pmo | apps/api/src/modules/pmo/ | 🆕 AS-016: 获取当前季度 |
 | skills | apps/api/src/modules/skills/ | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
+| knowledge | packages/studio-contract/src/knowledge.ts | knowledge 域契约——正本字段以 apps/api/src/modules/knowledge/ 实测 wire 为准： |
+| exposure-policy | apps/api/src/bootstrap/exposure-policy.ts | exposure-policy |
+| knowledge | apps/api/src/bootstrap/knowledge.ts | knowledge |
+| project-read-sinks | apps/api/src/bootstrap/project-read-sinks.ts | project-read-sinks |
+| workunit-sinks | apps/api/src/bootstrap/workunit-sinks.ts | workunit-sinks |
+| loop-deps | apps/api/src/modules/agent-loop/loop/loop-deps.ts | loop-deps |
+| loop-observation-coordinator | apps/api/src/modules/agent-loop/loop/loop-observation-coordinator.ts | PERF-03：AgentLoop 调度专用单观察协调器。 |
+| notification-projection | apps/api/src/modules/notifications/notification-projection.ts | PERF-05 通知当前态投影：小 manifest + per-entry + per-recipient view。 |
+| overview-projection | apps/api/src/modules/ops/overview-projection.ts | PERF-05 overview 按日窗口投影。 |
+| maintenance | apps/api/src/modules/role-memory/maintenance.ts | #718 角色记忆维护运行记录：意图先于副作用，运行中状态可由启动恢复重放。 |
+| usage-scan | apps/api/src/modules/role-memory/usage-scan.ts | role-memory-usage-scan — transcript 后验真实使用扫描（#718）。 |
 | module-sinks | apps/api/src/bootstrap/module-sinks.ts | ── 模块 sink 装配（Phase 5 SCC 第一刀，2026-10-16）── |
 | loop-record-events | apps/api/src/modules/agent-loop/loop/loop-record-events.ts | loop-record-events |
 | loop-record-persistence | apps/api/src/modules/agent-loop/loop/loop-record-persistence.ts | loop-record-persistence |
@@ -46,7 +57,6 @@
 | studio-events-rotation | apps/api/src/bootstrap/studio-events-rotation.ts | #173（#60 决策 Q3b / spec 批次 C4）：事件保留轮转。 |
 | studio-log-rotation | apps/api/src/bootstrap/studio-log-rotation.ts | #213：泛化 jsonl 保留轮转 + 遗留日志一次性归档清理。 |
 | loop-claim | apps/api/src/modules/agent-loop/loop/loop-claim.ts | 认领段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
-| loop-host | apps/api/src/modules/agent-loop/loop/loop-host.ts | AgentLoop 段间宿主契约（#668 agent-loop.ts 按职责切深模块）。 |
 | loop-lifecycle | apps/api/src/modules/agent-loop/loop/loop-lifecycle.ts | 生命周期段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
 | loop-observe | apps/api/src/modules/agent-loop/loop/loop-observe.ts | 观察段（#668 自 agent-loop.ts 抽出，行为一字不改）： |
 | loop-record-result | apps/api/src/modules/agent-loop/loop/loop-record-result.ts | 结果记录段（#668 自 agent-loop.ts 抽出，行为一字不改）： |

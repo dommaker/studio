@@ -50,7 +50,7 @@ vi.mock('../../pmo/project.service.js', () => ({
 }));
 
 vi.mock('../../role-memory/role-memory.js', () => ({
-  roleMemoryStore: { readIndex: mockReadIndex },
+  roleMemoryStore: { readApplicableIndex: mockReadIndex },
 }));
 
 vi.mock('../../workunit/wu-messenger.js', () => ({

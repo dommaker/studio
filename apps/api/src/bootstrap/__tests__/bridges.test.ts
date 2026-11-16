@@ -34,8 +34,10 @@ vi.mock('../../modules/pmo/map-opening.js', () => ({
 vi.mock('../../modules/pmo/spec-materialization.js', () => ({
   initSpecMaterialization: () => calls.push('spec-materialization'),
 }));
-vi.mock('../../modules/role-memory/completion-extraction.js', () => ({
+vi.mock('../../modules/role-memory/index.js', () => ({
   initWuCompletionExtraction: () => calls.push('completion-extraction'),
+  roleMemoryMaintenance: { recoverPending: async () => { calls.push('role-memory-maintenance-recovery'); } },
+  initRoleMemoryUsageScan: () => calls.push('role-memory-usage-scan'),
 }));
 vi.mock('../../modules/skills/index.js', () => ({
   recoverSkillPublications: async () => { calls.push('skill-publication-recovery'); },
@@ -59,7 +61,7 @@ beforeEach(() => {
 });
 
 describe('initEventSubscriptions', () => {
-  it('按原 index.ts 顺序初始化全部 14 项订阅', async () => {
+  it('按原 index.ts 顺序初始化全部 16 项订阅', async () => {
     await initEventSubscriptions();
     expect(calls).toEqual([
       'knowledge-extraction-recovery',
@@ -72,6 +74,8 @@ describe('initEventSubscriptions', () => {
       'map-opening',
       'spec-materialization',
       'completion-extraction',
+      'role-memory-maintenance-recovery',
+      'role-memory-usage-scan',
       'skill-publication-recovery',
       'skill-usage-scan',
       'session-pattern-suggest',

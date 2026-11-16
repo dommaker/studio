@@ -17,11 +17,12 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { FileStore, eventBus } from '@dommaker/studio-shared';
+import { FileStore, eventBus, WorkUnitMetadataRepository, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../../workunit/workunit-review.js';
 import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 import { appendTranscriptStep, finalizeTranscriptAssignment, transcriptsDir } from '../../transcripts/transcript-archive.js';
 import { roleMemoryRoot, roleMemoryStore } from '../role-memory.js';
+import { roleMemoryMaintenance } from '../maintenance.js';
 import { resetDailyTokenBudgetState } from '../../agent-loop/daily-token-budget.js';
 
 const { mockRun, mockSubmit } = vi.hoisted(() => ({ mockRun: vi.fn(), mockSubmit: vi.fn() }));
@@ -43,7 +44,13 @@ vi.mock('../review-adapter.js', () => ({
   registerMemoryReviewAdapter: vi.fn(),
 }));
 
-import { WuCompletionExtractor, buildTranscriptText, normalizeDraftInput, MEMORY_EXTRACTION_SYSTEM_PROMPT } from '../completion-extraction.js';
+import {
+  WuCompletionExtractor,
+  buildCompletionLearningMetadata,
+  buildTranscriptText,
+  normalizeDraftInput,
+  MEMORY_EXTRACTION_SYSTEM_PROMPT,
+} from '../completion-extraction.js';
 
 // 仅在直接依赖测试消除 barrel 冷启动；生产加载顺序与 AC 的 3s 窗口均不变。
 beforeAll(async () => {
@@ -173,6 +180,115 @@ describe('buildTranscriptText / normalizeDraftInput（纯函数）', () => {
       .toEqual({ kind: 'execution-knowledge', title: 't', content: 'c', review: 'manual' });
     expect(normalizeDraftInput({ title: '', content: 'c' })).toBeNull();
     expect(normalizeDraftInput({ title: 't', content: '' })).toBeNull();
+  });
+});
+
+describe('buildCompletionLearningMetadata（#718）', () => {
+  it('从最终 snapshot 取当前 Assignment/StepRecord、repo 来源与最终结果', () => {
+    const snapshot = {
+      id: 'wu-learning',
+      type: 'task',
+      projectPath: '/workspace/project-path',
+      metadata: JSON.stringify({
+        worktreeBaseRepo: '/repo/base',
+        workspaceRoot: '/repo/worktree',
+        pmoId: 'PMO-1',
+        lastCommitHash: 'abc123',
+      }),
+      currentAssignmentId: 'assignment-final',
+      assignments: [
+        { id: 'assignment-old', status: 'succeeded' },
+        { id: 'assignment-final', status: 'succeeded' },
+      ],
+      stepRecords: [
+        { id: 'step-old', assignmentId: 'assignment-old' },
+        {
+          id: 'step-final',
+          assignmentId: 'assignment-final',
+          verification: { status: 'passed' },
+          transcriptRefs: ['transcript/final.jsonl'],
+          artifacts: ['evidence/final.txt'],
+        },
+      ],
+    } as WorkUnitSnapshot;
+
+    expect(buildCompletionLearningMetadata(snapshot, 'role-a')).toEqual({
+      scope: { kind: 'repo', id: '/repo/base' },
+      workUnitId: 'wu-learning',
+      assignmentId: 'assignment-final',
+      stepRecordId: 'step-final',
+      repo: '/repo/base',
+      commit: 'abc123',
+      transcriptRefs: ['transcript/final.jsonl'],
+      evidenceRefs: ['evidence/final.txt'],
+      extractionVersion: 'memory-1',
+      revision: 1,
+      outcome: { execution: 'succeeded', verification: 'passed', delivery: 'unmerged' },
+    });
+  });
+
+  it('scope 依次回退 project/role；缺 Assignment/StepRecord 不伪造 id 或 verification', () => {
+    const base = {
+      id: 'wu-fallback', type: 'decision', projectPath: null, status: 'done',
+    } as WorkUnitSnapshot;
+    expect(buildCompletionLearningMetadata({ ...base, metadata: JSON.stringify({ pmoId: 'PMO-9' }) }, 'role-a'))
+      .toMatchObject({
+        scope: { kind: 'project', id: 'PMO-9' },
+        assignmentId: undefined,
+        stepRecordId: undefined,
+        outcome: { execution: 'succeeded', verification: 'unknown', delivery: 'not-required' },
+      });
+    expect(buildCompletionLearningMetadata({ ...base, metadata: null }, 'role-a').scope)
+      .toEqual({ kind: 'role', id: 'role-a' });
+  });
+
+  it('auto 与 manual 草稿携带同一份最终执行 LearningMetadata', async () => {
+    const roleId = `role-${Date.now()}-learning`;
+    await createProfile(roleId);
+    const wu = await wuService.create({ type: 'task', scope: '带来源提取', status: 'done', assigneeId: roleId });
+    createdWuIds.push(wu.id);
+    const at = new Date().toISOString();
+    await new WorkUnitMetadataRepository(fileStore).mutateSnapshot(wu.id, current => ({
+      ...current,
+      currentAssignmentId: 'assignment-learning',
+      assignments: [{
+        id: 'assignment-learning', workUnitId: wu.id, attempt: 1, previousAssignmentId: null,
+        status: 'succeeded', reason: 'claim', createdAt: at, updatedAt: at,
+        tokenCount: 0, transcriptCount: 1, progress: [], evidence: [],
+      }],
+      stepRecords: [{
+        id: 'step-learning', workUnitId: wu.id, assignmentId: 'assignment-learning', step: 1,
+        action: 'complete', result: 'done', at,
+        verification: { status: 'passed', commands: ['pnpm test'], at },
+        nextStep: null, acProgress: [], modifiedFiles: [], commands: [], decisions: [],
+        artifacts: ['evidence.txt'], transcriptRefs: ['transcript.jsonl'],
+      }],
+    }));
+    await appendTranscriptStep({
+      workUnitId: wu.id, assignmentId: 'assignment-learning', step: 1, action: 'complete', rawOutput: 'LEARNING-RAW',
+    });
+    await finalizeTranscriptAssignment({ workUnitId: wu.id, assignmentId: 'assignment-learning', status: 'succeeded' });
+    mockRun.mockResolvedValue({
+      output: JSON.stringify({ entries: [
+        { kind: 'execution-knowledge', title: 'Auto Learning', content: 'auto', review: 'auto' },
+        { kind: 'preference', title: 'Manual Learning', content: 'manual', review: 'manual' },
+      ] }),
+      usage: undefined,
+    });
+
+    await extractor.maybeExtract(wu);
+
+    const auto = await roleMemoryStore.readTopic(roleId, 'auto-learning');
+    const manual = await roleMemoryStore.readDraft(roleId);
+    expect(auto?.learning).toMatchObject({
+      workUnitId: wu.id,
+      assignmentId: 'assignment-learning',
+      stepRecordId: 'step-learning',
+      extractionVersion: 'memory-1',
+      outcome: { execution: 'succeeded', verification: 'passed', delivery: 'unmerged' },
+    });
+    expect(manual).toHaveLength(1);
+    expect(manual[0].learning).toEqual(auto?.learning);
   });
 });
 
@@ -398,6 +514,9 @@ describe('两档路由（#101：auto→promote / manual→卡）', () => {
     expect(topic?.body).toContain('pnpm test:api');
     expect(await roleMemoryStore.readDraft(roleId)).toHaveLength(0);
     expect(mockSubmit).not.toHaveBeenCalled();
+    expect(await roleMemoryMaintenance.listRuns(roleId)).toEqual([
+      expect.objectContaining({ status: 'succeeded', operation: { type: 'promote', entryIds: [expect.any(String)] } }),
+    ]);
   });
 
   it('AC2-1: manual 条目发 memory_proposal 卡（不自动 promote），草稿留 pending', async () => {

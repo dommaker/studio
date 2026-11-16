@@ -102,6 +102,19 @@ export class ResultRecorder {
         delivery: CODE_WORKTREE_TYPES.has(wu.type) ? 'unmerged' as const : 'not-required' as const,
       };
       if (result.executionResult) {
+        void knowledgePorts.track.recordOutcome({
+          executionId: wu.id,
+          workUnitId: wu.id,
+          assignmentId: result.assignmentId,
+          stepRecordId: stepRecord?.id,
+          verification: outcome.verification,
+          final: true,
+          agentType: 'claude',
+          consumedKnowledge: result.consumedKnowledge ?? [],
+          success: result.executionResult.success && outcome.verification !== 'failed',
+          details: result.executionResult.outputText ?? '',
+          timestamp: new Date().toISOString(),
+        }).catch(err => logger.warn(`[AgentLoop] recordOutcome failed: ${getErrorMessage(err)}`));
         void knowledgePorts.produce.extractFromExecution({
           task: wu.scope ?? '',
           diff: result.executionResult.outputText ?? '',

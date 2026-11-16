@@ -1009,6 +1009,51 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
       expect(store.save).toHaveBeenCalledWith(entry);
     });
 
+    it('persists final execution lineage and links consumed entries to the assignment', async () => {
+      const entry = { id: 'entry-1', referencedBy: [] };
+      const { ks } = createKS({ entries: [entry] });
+      mockAppendJsonl.mockClear();
+
+      await ks.recordOutcome({
+        executionId: 'wu-1',
+        workUnitId: 'wu-1',
+        assignmentId: 'assignment-1',
+        stepRecordId: 'step-1',
+        verification: 'passed',
+        final: true,
+        agentType: 'executor',
+        consumedKnowledge: ['entry-1'],
+        success: true,
+        details: 'ok',
+        timestamp: new Date().toISOString(),
+      });
+
+      const event = mockAppendJsonl.mock.calls[0][1];
+      expect(JSON.parse(event.payload)).toMatchObject({
+        executionId: 'wu-1',
+        workUnitId: 'wu-1',
+        assignmentId: 'assignment-1',
+        stepRecordId: 'step-1',
+        verification: 'passed',
+        final: true,
+        agentType: 'executor',
+        consumedKnowledge: ['entry-1'],
+        success: true,
+      });
+      expect(entry.referencedBy).toEqual(['assignment-1']);
+      const consumption = mockAppendJsonl.mock.calls
+        .map(call => call[1])
+        .find(event => event.type === 'knowledge:consumption');
+      expect(JSON.parse(consumption.payload)).toMatchObject({
+        entryIds: ['entry-1'],
+        workUnitId: 'wu-1',
+        assignmentId: 'assignment-1',
+        stepRecordId: 'step-1',
+        verification: 'passed',
+        final: true,
+      });
+    });
+
     it('emits knowledge event', async () => {
       const { ks, eventEmitter } = createKS();
       await ks.recordOutcome({

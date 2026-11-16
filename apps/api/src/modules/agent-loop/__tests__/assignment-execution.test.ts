@@ -23,6 +23,7 @@ vi.mock('../../knowledge/index', () => {
 });
 
 import { AgentLoop } from '../agent-loop.js';
+import { knowledgePorts } from '../../knowledge/index.js';
 
 const role = {
   id: 'role-assignment', name: 'assignment-agent', description: 'assignment test', channels: '[]',
@@ -95,6 +96,57 @@ describe('AgentLoop Assignment 执行轮次', () => {
       nextStep: '继续验证',
     });
     expect(snapshot.stepRecords![0].transcriptRefs[0]).toContain(`#step=1`);
+  });
+
+  it('成功结果在 StepRecord 持久化后只记录一次 final outcome', async () => {
+    const recordOutcome = vi.mocked(knowledgePorts.track.recordOutcome);
+    recordOutcome.mockClear();
+    vi.mocked(knowledgePorts.consume.injectContext).mockResolvedValueOnce({
+      prompt: '## 系统约束\n- test rule',
+      injectedIds: ['rule-1'],
+    });
+    loop = createLoop(vi.fn().mockResolvedValue({
+      success: true,
+      outputText: 'ACTION: COMPLETE:完成',
+      rawOutput: '',
+      totalDurationMs: 1,
+    }));
+    const claimed = await createClaimed();
+    loop.ensureLease(claimed);
+
+    const result = await loop.agentStep({ workUnit: claimed });
+    expect(recordOutcome).not.toHaveBeenCalled();
+
+    await loop.recordResult({ workUnit: claimed }, result);
+    const snapshot = (await store.getIndex({ id: claimed.id }))[0];
+    expect(recordOutcome).toHaveBeenCalledTimes(1);
+    expect(recordOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      executionId: claimed.id,
+      workUnitId: claimed.id,
+      assignmentId: result.assignmentId,
+      stepRecordId: snapshot.stepRecords![0].id,
+      verification: 'not-run',
+      final: true,
+      success: true,
+      consumedKnowledge: ['rule-1'],
+    }));
+  });
+
+  it('执行异常保留非 final failure，outcome 写失败不阻断结果', async () => {
+    const recordOutcome = vi.mocked(knowledgePorts.track.recordOutcome);
+    recordOutcome.mockClear().mockRejectedValueOnce(new Error('outcome unavailable'));
+    loop = createLoop(vi.fn().mockResolvedValue({ success: false, error: 'temporary failure' }));
+    const claimed = await createClaimed();
+    loop.ensureLease(claimed);
+
+    await expect(loop.agentStep({ workUnit: claimed })).resolves.toMatchObject({ action: 'failed' });
+    expect(recordOutcome).toHaveBeenCalledTimes(1);
+    expect(recordOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      executionId: claimed.id,
+      workUnitId: claimed.id,
+      success: false,
+      final: false,
+    }));
   });
 
   it('NEED_INPUT 回复 supersede 旧 waiting 并创建链接的 queued 轮次', async () => {

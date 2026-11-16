@@ -34,9 +34,19 @@ export async function getFlywheelMetricsImpl(deps: KnowledgeServiceDeps, opts?: 
     // 模块级纯函数（不依赖 this），保持 KnowledgeService 公共方法面不变
     const outcomeMetrics = await computeOutcomeMetrics(opts);
 
-    return { quality, hitRate: outcomeMetrics.hitRate, improvement: outcomeMetrics.improvement, freshness, timestamp, source: outcomeMetrics.source };
+    return { quality, freshness, timestamp, ...outcomeMetrics };
   } catch {
-    return { quality: 0, hitRate: 0, improvement: 0, freshness: 0, timestamp, source: 'insufficient-data' };
+    return {
+      quality: 0,
+      hitRate: 0,
+      improvement: 0,
+      withKnowledge: { total: 0, successes: 0, successRate: 0 },
+      withoutKnowledge: { total: 0, successes: 0, successRate: 0 },
+      retrievalQuality: [],
+      freshness: 0,
+      timestamp,
+      source: 'insufficient-data',
+    };
   }
 }
 

@@ -20,11 +20,9 @@
  * topic 正文走 writeDoc seam（写后失效缓存，与读路径闭环）；MEMORY.md 索引保留裸 fs 写
  * ——无 frontmatter，writeDoc 会强加空 fence 改变形态（详见 rebuildIndex 注释）。
  *
- * 容量上限 + GC：超限只提醒（checkCapacity 返回结构化 signal），不落新人罪（不拒绝写入）、
- * 不自动删。GC 最简 = 超限提醒人合并 topic / 淘汰草稿。
- * 与 KnowledgeSync「零值 trend 止血 + GC」的合并：#88 中该子项属 #83（知识飞轮 GC，
- * spec Out of Scope），本仓库无明确实现锚点（grep「零值」无命中），故本票只留
- * checkCapacity 作为未来 GC 可消费的 hook，不深入改 KnowledgeSync。见 apps/api/src/modules/role-memory/CONTEXT.md。
+ * 容量与生命周期（#718）：checkCapacity 只读；实际 promote/merge/archive/restore/capacity
+ * 统一经 maintenance.ts 的持久 run 执行和启动恢复。归档保留原文，readIndex/readTopic 仍可浏览；
+ * 自动注入走 readApplicableIndex，在预算前过滤 scope、stale/conflicting/superseded/archived。
  *
  * 路径：落盘经 studioPath()（读 STUDIO_HOME，dev/prod 隔离，禁硬编码 ~/.studio）。
  * 测试隔离与 shared log-path 同约定：VITEST/NODE_ENV=test 时改写 os.tmpdir()/
@@ -38,7 +36,36 @@ import { foldJsonlById, isTestEnv, testTmpRoot } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { getStore } from '../../core/store.js';
 
+/** #715 同构学习元模型；角色记忆自持类型，避免 role-memory→knowledge 环依赖。 */
+export type KnowledgeScope =
+  | { kind: 'global' }
+  | { kind: 'company' | 'project' | 'repo' | 'role'; id: string };
 
+export interface KnowledgeScopeContext {
+  companyId?: string;
+  projectId?: string;
+  repo?: string;
+  roleId?: string;
+}
+
+export interface LearningMetadata {
+  scope: KnowledgeScope;
+  workUnitId?: string;
+  assignmentId?: string;
+  stepRecordId?: string;
+  repo?: string;
+  commit?: string;
+  transcriptRefs?: string[];
+  evidenceRefs?: string[];
+  extractionVersion: string;
+  revision: number;
+  supersedes?: string;
+  outcome: {
+    execution: 'succeeded' | 'failed' | 'unknown';
+    verification: 'passed' | 'failed' | 'not-run' | 'unknown';
+    delivery: 'merged' | 'unmerged' | 'not-required' | 'unknown';
+  };
+}
 
 /** studioDir() 下的记忆根目录名（单层目录名） */
 export const ROLE_MEMORY_DIR = 'memory';
@@ -69,7 +96,7 @@ export function roleMemoryRoot(env: NodeJS.ProcessEnv = process.env): string {
 
 /** 角色 id 目录名 sanitize：拒路径穿越（.. / 分隔符 / 空），防 ../../ 越权 */
 export function sanitizeRoleId(roleId: string): string {
-  if (!roleId || roleId === '.' || roleId === '..' || /[\/\\]/.test(roleId)) {
+  if (!roleId || roleId === '.' || roleId === '..' || /[/\\]/.test(roleId)) {
     throw new Error(`Invalid roleId: ${JSON.stringify(roleId)}`);
   }
   return roleId;
@@ -77,7 +104,7 @@ export function sanitizeRoleId(roleId: string): string {
 
 /** topic slug sanitize：拒路径穿越（同 roleId 口径），slug 直接做文件名 */
 export function sanitizeTopicSlug(slug: string): string {
-  if (!slug || slug === '.' || slug === '..' || /[\/\\]/.test(slug)) {
+  if (!slug || slug === '.' || slug === '..' || /[/\\]/.test(slug)) {
     throw new Error(`Invalid topic slug: ${JSON.stringify(slug)}`);
   }
   return slug;
@@ -103,6 +130,8 @@ export interface MemoryDraftEntry {
   review: MemoryReview;
   /** 来源原料指针（#145 蒸馏产物分类落地：原料知识条目 id 清单；#99 提取链路不传） */
   sourceRefs?: string[];
+  /** #718：来源、适用范围、版本与最终结果；legacy 缺省表示未知 scope。 */
+  learning?: LearningMetadata;
   createdAt: string;
 }
 
@@ -192,7 +221,22 @@ export interface AppendDraftInput {
   review?: MemoryReview;
   /** 来源原料指针（#145 蒸馏落地用；缺省不带） */
   sourceRefs?: string[];
+  /** #718：来源、适用范围、版本与最终结果；legacy 缺省表示未知 scope。 */
+  learning?: LearningMetadata;
   createdAt?: string;
+}
+
+export type MemoryLifecycleStatus = 'active' | 'stale' | 'conflicting' | 'archived';
+
+export interface MemoryUsage {
+  workUnitId: string;
+  assignmentId: string;
+  stepRecordId?: string;
+  at: string;
+}
+
+export interface MemoryVerification extends MemoryUsage {
+  status: 'passed' | 'failed' | 'not-run' | 'unknown';
 }
 
 /** topic 文档（frontmatter 元数据 + 正文） */
@@ -202,6 +246,11 @@ export interface TopicDoc {
   summary: string;
   kind: MemoryKind | null;
   updatedAt: string;
+  learning?: LearningMetadata;
+  status?: MemoryLifecycleStatus;
+  lastUsage?: MemoryUsage;
+  lastVerification?: MemoryVerification;
+  supersededBy?: string;
   body: string;
 }
 
@@ -245,6 +294,23 @@ export interface DemoteResult {
 
 function isErrnoCode(err: unknown, code: string): boolean {
   return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === code;
+}
+
+function parseTopicMetadata<T>(value: unknown): T | undefined {
+  if (typeof value !== 'string') return value as T | undefined;
+  try { return JSON.parse(value) as T; } catch { return undefined; }
+}
+
+/** 与 knowledge 同一保守 scope 语义；类型复用但不引入跨域运行时环。 */
+function matchesMemoryScope(learning: LearningMetadata | undefined, context: KnowledgeScopeContext): boolean {
+  const scope = learning?.scope;
+  if (!scope) return false;
+  if (scope.kind === 'global') return true;
+  const current = scope.kind === 'company' ? context.companyId
+    : scope.kind === 'project' ? context.projectId
+      : scope.kind === 'repo' ? context.repo
+        : context.roleId;
+  return typeof current === 'string' && current === scope.id;
 }
 
 /** title → 文件名安全 slug（ASCII 归并；空/全非 ASCII → 'general'） */
@@ -310,6 +376,21 @@ export class RoleMemoryStore {
     return doc?.body ?? '';
   }
 
+  /** #718：自动注入索引；未知/不匹配 scope 的 legacy 仍可由 readIndex/readTopic 浏览。 */
+  async readApplicableIndex(roleId: string, scope: KnowledgeScopeContext): Promise<string> {
+    const rid = sanitizeRoleId(roleId);
+    const metas = await this.readTopicMetas(rid);
+    const applicable = metas.filter(topic =>
+      (!topic.status || topic.status === 'active') && !topic.supersededBy
+      && matchesMemoryScope(topic.learning, { ...scope, roleId: rid }));
+    if (applicable.length === 0) return '';
+    const lines = ['# Role Memory Index', '', '<!-- auto-generated: do not edit -->', ''];
+    for (const topic of applicable) {
+      lines.push(`- [${topic.slug}](topics/${topic.slug}.md) — ${topic.summary}`);
+    }
+    return `${lines.join('\n')}\n`;
+  }
+
   // ── 读 topic ──
 
   /**
@@ -330,6 +411,11 @@ export class RoleMemoryStore {
       summary: typeof meta.summary === 'string' ? meta.summary : '',
       kind: MEMORY_KINDS.has(String(meta.kind)) ? (meta.kind as MemoryKind) : null,
       updatedAt: typeof meta.updatedAt === 'string' ? meta.updatedAt : '',
+      learning: parseTopicMetadata<LearningMetadata>(meta.learning),
+      status: meta.status as MemoryLifecycleStatus | undefined,
+      lastUsage: parseTopicMetadata<MemoryUsage>(meta.lastUsage),
+      lastVerification: parseTopicMetadata<MemoryVerification>(meta.lastVerification),
+      supersededBy: typeof meta.supersededBy === 'string' ? meta.supersededBy : undefined,
       body: doc.body,
     };
   }
@@ -357,6 +443,10 @@ export class RoleMemoryStore {
     return docs;
   }
 
+  async listTopics(roleId: string): Promise<TopicDoc[]> {
+    return this.readTopicMetas(sanitizeRoleId(roleId));
+  }
+
   // ── 写草稿（append，供 #99 提取写 / #101 人审读）──
 
   /**
@@ -377,6 +467,7 @@ export class RoleMemoryStore {
       ...(input.topicSlug ? { topicSlug: sanitizeTopicSlug(input.topicSlug) } : {}),
       review: input.review === 'auto' ? 'auto' : 'manual',
       ...(input.sourceRefs && input.sourceRefs.length > 0 ? { sourceRefs: input.sourceRefs } : {}),
+      ...(input.learning ? { learning: input.learning } : {}),
       createdAt: input.createdAt ?? new Date().toISOString(),
     };
     await getStore().appendJsonl(this.draftPath(rid), entry);
@@ -398,6 +489,48 @@ export class RoleMemoryStore {
     return [...foldDraftRows(rows).values()]
       .filter(f => f.status === 'pending')
       .map(f => f.entry);
+  }
+
+  async setLifecycleStatus(roleId: string, slug: string, status: MemoryLifecycleStatus): Promise<void> {
+    await this.patchTopic(roleId, slug, meta => { meta.status = status; });
+  }
+
+  async supersedeTopic(roleId: string, slug: string, replacementSlug: string): Promise<void> {
+    const replacement = sanitizeTopicSlug(replacementSlug);
+    await this.patchTopic(roleId, slug, meta => { meta.supersededBy = replacement; });
+  }
+
+  private async patchTopic(roleId: string, slug: string, patch: (meta: Record<string, unknown>) => void): Promise<void> {
+    const rid = sanitizeRoleId(roleId);
+    const safeSlug = sanitizeTopicSlug(slug);
+    await this.withRoleLock(rid, async () => {
+      const doc = await getStore().readDoc(this.topicsDir(rid), safeSlug);
+      if (!doc) return;
+      patch(doc.meta);
+      doc.meta.updatedAt = new Date().toISOString();
+      await getStore().writeDoc(this.topicsDir(rid), safeSlug, doc.meta, doc.body);
+    });
+  }
+
+  /** #718：transcript 后验扫描确认真实使用后，回写同一 Assignment 的最后事实。 */
+  async recordUsage(
+    roleId: string,
+    slug: string,
+    usage: MemoryUsage & { verification?: MemoryVerification['status'] },
+  ): Promise<void> {
+    const rid = sanitizeRoleId(roleId);
+    const safeSlug = sanitizeTopicSlug(slug);
+    await this.withRoleLock(rid, async () => {
+      const doc = await getStore().readDoc(this.topicsDir(rid), safeSlug);
+      if (!doc) return;
+      const { verification, ...lastUsage } = usage;
+      doc.meta.lastUsage = JSON.stringify(lastUsage);
+      if (verification) {
+        doc.meta.lastVerification = JSON.stringify({ ...lastUsage, status: verification });
+      }
+      doc.meta.updatedAt = usage.at;
+      await getStore().writeDoc(this.topicsDir(rid), safeSlug, doc.meta, doc.body);
+    });
   }
 
   // ── promote 合并（单路径 + 同角色互斥）──
@@ -466,6 +599,43 @@ export class RoleMemoryStore {
     });
   }
 
+  /** #718：显式 topic 合并；源文件保留可浏览，重复恢复不重复段落。 */
+  async mergeTopics(roleId: string, targetSlug: string, sourceSlugs: string[]): Promise<void> {
+    const rid = sanitizeRoleId(roleId);
+    const target = sanitizeTopicSlug(targetSlug);
+    const sources = [...new Set(sourceSlugs.map(sanitizeTopicSlug))].filter(slug => slug !== target);
+    await this.withRoleLock(rid, async () => {
+      const targetDoc = await getStore().readDoc(this.topicsDir(rid), target);
+      if (!targetDoc) throw new Error(`Target topic not found: ${target}`);
+      const headings = new Set(targetDoc.body.split('\n').filter(line => line.startsWith('## ')));
+      const additions: string[] = [];
+      for (const source of sources) {
+        const sourceDoc = await getStore().readDoc(this.topicsDir(rid), source);
+        if (!sourceDoc) continue;
+        let remainder = sourceDoc.body;
+        for (const heading of sourceDoc.body.split('\n').filter(line => line.startsWith('## '))) {
+          if (headings.has(heading)) continue;
+          const start = remainder.indexOf(heading);
+          if (start < 0) continue;
+          const next = remainder.indexOf('\n## ', start + heading.length);
+          additions.push(remainder.slice(start, next < 0 ? undefined : next).trim());
+          headings.add(heading);
+          remainder = next < 0 ? '' : remainder.slice(next + 1);
+        }
+        sourceDoc.meta.status = 'archived';
+        sourceDoc.meta.supersededBy = target;
+        sourceDoc.meta.updatedAt = new Date().toISOString();
+        await getStore().writeDoc(this.topicsDir(rid), source, sourceDoc.meta, sourceDoc.body);
+      }
+      if (additions.length > 0) {
+        targetDoc.body = `${targetDoc.body}\n\n${additions.join('\n\n')}`;
+        targetDoc.meta.updatedAt = new Date().toISOString();
+        await getStore().writeDoc(this.topicsDir(rid), target, targetDoc.meta, targetDoc.body);
+      }
+      await this.rebuildIndex(rid);
+    });
+  }
+
   /**
    * 合并一组条目进指定 topic：读旧正文 → 追加段落 → 写回（frontmatter 保留首条元数据）。
    * 幂等：正文已含 `## 标题` 段落的条目跳过——promote 先写 topic 后落墓碑，墓碑追加
@@ -490,6 +660,8 @@ export class RoleMemoryStore {
     meta.title = meta.title ?? first.title;
     meta.summary = meta.summary ?? summarize(first);
     meta.kind = meta.kind ?? first.kind;
+    const learning = [...fresh].reverse().find(entry => entry.learning)?.learning;
+    if (learning) meta.learning = JSON.stringify(learning);
     meta.updatedAt = new Date().toISOString();
 
     const sections = fresh.map(e => `## ${e.title}\n\n${e.content}`).join('\n\n');
@@ -520,12 +692,12 @@ export class RoleMemoryStore {
   // ── 容量检查（超限提醒，不拒绝写入）──
 
   /**
-   * 容量检查：topic 数 / pending 草稿数超限 → overLimit + 结构化 violation（提醒人合并/淘汰）。
-   * 只读不写、不自动删（GC 最简）。此 signal 即未来 KnowledgeSync GC 的合并 hook（#83，暂未接）。
+   * 容量检查：未归档 topic 数 / pending 草稿数超限 → overLimit + 结构化 violation。
+   * 本方法只读；实际归档/合并由 RoleMemoryMaintenance 持久 run 执行。
    */
   async checkCapacity(roleId: string): Promise<CapacityCheck> {
     const rid = sanitizeRoleId(roleId);
-    const metas = await this.readTopicMetas(rid);
+    const metas = (await this.readTopicMetas(rid)).filter(topic => topic.status !== 'archived');
     const drafts = await this.readDraft(rid);
     const violations: CapacityViolation[] = [];
     if (metas.length > this.limits.maxTopics) {

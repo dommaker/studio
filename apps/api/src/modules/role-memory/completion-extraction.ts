@@ -13,18 +13,20 @@
  * 事件订阅只负责即时唤醒；持久 watermark + 启动续扫负责进程重启后的恢复。
  */
 
-import { eventBus, FileStore } from '@dommaker/studio-shared';
+import { eventBus, FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { consumeTranscript, reconcileTranscriptAssignments, type TranscriptEntry } from '../transcripts/index.js';
 import { roleMemoryStore } from './role-memory.js';
-import type { AppendDraftInput, MemoryDraftEntry } from './role-memory.js';
+import type { AppendDraftInput, LearningMetadata, MemoryDraftEntry } from './role-memory.js';
 import { registerMemoryReviewAdapter, submitMemoryProposal } from './review-adapter.js';
+import { roleMemoryMaintenance } from './maintenance.js';
 // P2-c 拆环：agents 引用（getSystemExecutor/StudioRoleNotConfiguredError/token 预算三件套）
 // 全部转函数内动态 import，role-memory→agents 静态边清零。
 import { getStore } from '../../core/store.js';
+import { CODE_WORKTREE_TYPES } from '../../core/wu-verification.js';
 import { logger } from '@dommaker/studio-shared/node';
 
 /**
@@ -44,7 +46,7 @@ export const MEMORY_EXTRACTION_SYSTEM_PROMPT = `你是角色记忆提取专家�
 - "manual"：规律 / 教训 / 偏好（需人工把关），走人审卡片。
 
 输出 JSON（不要 markdown 包裹）：
-{ "entries": [ { "kind": "execution-knowledge" | "preference", "title": "一句话概括", "content": "正文（execution-knowledge 写根因+责任+预防；preference 写约定原文）", "topicSlug": "可选，英文短横线 slug，缺省由 title 推导", "review": "\"auto\" | \"manual\"（缺省 manual）" } ] }
+{ "entries": [ { "kind": "execution-knowledge" | "preference", "title": "一句话概括", "content": "正文（execution-knowledge 写根因+责任+预防；preference 写约定原文）", "topicSlug": "可选，英文短横线 slug，缺省由 title 推导", "review": '"auto" | "manual"（缺省 manual）' } ] }
 
 只提取有复用价值、值得沉淀的；没有则返回空数组；最多 5 条。`;
 
@@ -93,6 +95,42 @@ export function normalizeDraftInput(raw: {
     content,
     review,
     ...(topicSlug ? { topicSlug } : {}),
+  };
+}
+
+export type CompletionLearningSnapshot = Pick<WorkUnitSnapshot, 'id' | 'type' | 'projectPath' | 'metadata'>
+  & Partial<Pick<WorkUnitSnapshot, 'currentAssignmentId' | 'assignments' | 'stepRecords'>>;
+
+/** 从 WU 完成后的持久快照推导角色记忆来源；缺失的执行事实保持 unknown/缺省。 */
+export function buildCompletionLearningMetadata(
+  snapshot: CompletionLearningSnapshot,
+  roleId: string,
+): LearningMetadata {
+  const metadata = parseWuMetadata(snapshot.metadata);
+  const assignments = snapshot.assignments ?? [];
+  const assignment = assignments.find(item => item.id === snapshot.currentAssignmentId) ?? assignments[assignments.length - 1];
+  const stepRecord = assignment
+    ? [...(snapshot.stepRecords ?? [])].reverse().find(item => item.assignmentId === assignment.id)
+    : undefined;
+  const repo = metadata.worktreeBaseRepo ?? metadata.workspaceRoot ?? snapshot.projectPath ?? undefined;
+  return {
+    scope: repo ? { kind: 'repo', id: repo }
+      : metadata.pmoId ? { kind: 'project', id: metadata.pmoId }
+        : { kind: 'role', id: roleId },
+    workUnitId: snapshot.id,
+    assignmentId: assignment?.id,
+    stepRecordId: stepRecord?.id,
+    repo,
+    commit: metadata.mergeCommit ?? metadata.lastCommitHash,
+    transcriptRefs: stepRecord?.transcriptRefs ?? [],
+    evidenceRefs: stepRecord?.artifacts ?? [],
+    extractionVersion: 'memory-1',
+    revision: 1,
+    outcome: {
+      execution: 'succeeded',
+      verification: stepRecord?.verification?.status ?? (stepRecord ? 'not-run' : 'unknown'),
+      delivery: CODE_WORKTREE_TYPES.has(snapshot.type) ? 'unmerged' : 'not-required',
+    },
   };
 }
 
@@ -195,6 +233,7 @@ export class WuCompletionExtractor {
     try {
       const snapshot = (await this.fileStore.getIndex({ id: wu.id }))[0];
       if (snapshot) await reconcileTranscriptAssignments(snapshot);
+      const learning = buildCompletionLearningMetadata(snapshot ?? wu, roleId);
       const result = await consumeTranscript(wu.id, 'role-memory', async entries => {
         const transcript = buildTranscriptText(entries);
         if (!transcript) {
@@ -222,12 +261,14 @@ export class WuCompletionExtractor {
         for (const raw of rawEntries) {
           const input = normalizeDraftInput(raw);
           if (!input) continue;
-          if (input.review === 'auto') auto.push(await roleMemoryStore.appendDraft(roleId, input));
-          else manualInputs.push(input);
+          const sourcedInput = { ...input, learning };
+          if (input.review === 'auto') auto.push(await roleMemoryStore.appendDraft(roleId, sourcedInput));
+          else manualInputs.push(sourcedInput);
         }
 
         if (auto.length > 0) {
-          await roleMemoryStore.promote(roleId, auto.map(e => e.id));
+          const entryIds = auto.map(e => e.id);
+          await roleMemoryMaintenance.execute(roleId, { type: 'promote', entryIds }, `promote-${[...entryIds].sort().join(',')}`);
         }
         const manual = manualInputs.length > 0
           ? await submitMemoryProposal(roleId, manualInputs, { workUnitId: wu.id, source: 'wu-completion' })

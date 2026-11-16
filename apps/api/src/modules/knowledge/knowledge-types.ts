@@ -104,6 +104,11 @@ export interface ConversationExtractionCtx extends Partial<LearningMetadata> {
 
 export interface ExecutionOutcome {
   executionId: string;
+  workUnitId?: string;
+  assignmentId?: string;
+  stepRecordId?: string;
+  verification?: 'passed' | 'failed' | 'not-run';
+  final?: boolean;
   agentType: string;
   consumedKnowledge: string[];
   success: boolean;

@@ -19,6 +19,7 @@ import * as path from 'node:path';
 import { FileStore } from '@dommaker/studio-shared';
 import { postReviewProposalCard } from '../review-proposal/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { roleMemoryMaintenance } from './maintenance.js';
 import {
   getReviewProposalAdapter,
   registerReviewProposalAdapter,
@@ -185,8 +186,12 @@ export function registerMemoryReviewAdapter(deps?: {
     renderCardContent: p => renderCard([toCardEntry(p)], { workUnitId: null, source: 'unknown' }),
     onApprove: async (p): Promise<ApproveOutcome> => {
       try {
-        const result = await roleMemoryStore.promote(p.roleId, [p.id]);
-        return { status: 'executed', data: { promoted: result.promoted, topicsUpdated: result.topicsUpdated } };
+        const run = await roleMemoryMaintenance.execute(
+          p.roleId,
+          { type: 'promote', entryIds: [p.id] },
+          `promote-${p.id}`,
+        );
+        return { status: 'executed', data: run.result };
       } catch (e) {
         return { status: 'failed', error: getErrorMessage(e) };
       }

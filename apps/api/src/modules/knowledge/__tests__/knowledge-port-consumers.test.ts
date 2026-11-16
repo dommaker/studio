@@ -6,7 +6,7 @@ const API_SRC = path.resolve(__dirname, '../../..');
 
 const consumers = [
   { file: 'modules/agent-loop/prompt-composer.ts', call: 'knowledgePorts.consume.injectContext' },
-  { file: 'modules/agent-loop/loop/loop-step.ts', call: 'knowledgePorts.produce.extractFromExecution' },
+  { file: 'modules/agent-loop/loop/loop-record-result.ts', call: 'knowledgePorts.produce.extractFromExecution' },
   { file: 'modules/agent-loop/loop/loop-step.ts', call: 'knowledgePorts.track.recordOutcome' },
   { file: 'modules/knowledge/review-adapter.ts', call: 'knowledgePorts.lifecycle.promote' },
   { file: 'modules/knowledge/review-adapter.ts', call: 'knowledgePorts.lifecycle.demote' },

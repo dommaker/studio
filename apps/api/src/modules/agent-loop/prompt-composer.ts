@@ -287,9 +287,19 @@ export async function composeStepPrompt(
     ? buildPmoMapSection(metadata, budget)
     : Promise.resolve({ section: '', tokens: 0, originalTokens: 0 }));
 
-  // #100: memory 段内容源 = 角色记忆索引常驻注入（per-role MEMORY.md 索引全文，依赖 #98 存储服务）
+  const projectId = includeSharedKnowledge
+    ? await resolvePmoProjectIdForWU(wu, deps.fileStore).catch(() => null)
+    : null;
+  const companyId = projectId
+    ? await projectReadPort().then(port => port.get(projectId)).then(project => project?.companyId).catch(() => null)
+    : null;
+  const repo = metadata.worktreeBaseRepo ?? metadata.workspaceRoot ?? wu.projectPath
+    ?? wu.mandate?.repositories[0]?.repo ?? undefined;
+  const learningScope = { roleId: deps.role.id, companyId: companyId ?? undefined, projectId: projectId ?? undefined, repo };
+
+  // #718: memory 与 knowledge 共用 scope；不适用记忆在 token 预算前排除。
   const memory = await runSection('memory', budget => includeSharedKnowledge
-    ? buildMemorySection(deps.role.id, budget)
+    ? buildMemorySection(deps.role.id, budget, learningScope)
     : Promise.resolve({ section: '', tokens: 0, originalTokens: 0 }));
 
   // GAP-5 + R1 反馈环: knowledge 段 —— injectContext 内部按 maxTokens（= 定额 + 池余量）截断，
@@ -297,16 +307,10 @@ export async function composeStepPrompt(
   let injectedKnowledgeIds: string[] = [];
   const knowledge = await runSection('knowledge', async budget => {
     if (!includeSharedKnowledge) return { section: '', tokens: 0, originalTokens: 0 };
-    const projectId = await resolvePmoProjectIdForWU(wu, deps.fileStore).catch(() => null);
-    const companyId = projectId
-      ? await projectReadPort().then(port => port.get(projectId)).then(project => project?.companyId).catch(() => null)
-      : null;
-    const repo = metadata.worktreeBaseRepo ?? metadata.workspaceRoot ?? wu.projectPath
-      ?? wu.mandate?.repositories[0]?.repo ?? undefined;
     const injected = await knowledgePorts.consume.injectContext(wu.type, {
       tags: [wu.type],
       maxTokens: budget,
-      scope: { roleId: deps.role.id, companyId: companyId ?? undefined, projectId: projectId ?? undefined, repo },
+      scope: learningScope,
     });
     injectedKnowledgeIds = injected.injectedIds ?? [];
     const keptTokens = injected.usage?.keptTokens ?? estimateTokens(injected.prompt);

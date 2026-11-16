@@ -53,7 +53,7 @@ data/
 - 用户配置：`config.env`、`providers.json`（provider 覆盖，深合并语义，`packages/studio-shared/src/providers.ts:242`；可选，用户创建）。
 - 认证与密钥：`users.json`、`sessions.json`（auth session 数组）、`.daemon/`（`jwt-secret`、`encryption-key`、`admin-token` 等，CLI 自举，`apps/api/src/cli/server.ts:39-61`）。
 - 索引与状态：`skills-index.json`、`mcp-permissions.json`、`projects.json`（CLI 工程注册清单，与 `projects/` 目录是两回事）、`active-project`（CLI 当前项目指针）。`session-checkpoint.json` 自 #716 起仅为退役 Git 伪会话摘要的 legacy 遗留，不再有活跃读写方。
-- 程序数据目录：`agents-registry/`、`auditor/`（daily-snapshots.jsonl append-only）、`data/` 见①、`distill/`（提案与 runs jsonl）、`knowledge/`（FileKnowledgeStore 唯一库 + resolution md）、`okr/`（含 kr-history.jsonl append-only）、`projects/`（PMO 项目逐文件 JSON）、`skills/`（每 skill 一子目录，hash 升级机制）、`snapshots/`（环境快照）、`transcripts/`（按 WU 会话原文；#712 起同一 JSONL 内 additive 记录 step/terminal/per-consumer watermark，旧无 kind 步骤兼容，不新增目录或 schema 版本）、`triggers/`、`workspaces/`（`{id}.json`，内嵌 runtimes）、`.analyst/`（CLI analyst 工作目录）。
+- 程序数据目录：`agents-registry/`、`auditor/`（daily-snapshots.jsonl append-only）、`data/` 见①、`distill/`（提案与 runs jsonl）、`knowledge/`（FileKnowledgeStore 唯一库 + resolution md）、`memory/<roleId>/`（角色记忆 MEMORY.md、topics/*.md、draft.jsonl；#718 增 maintenance.jsonl 持久维护 run，topic frontmatter 记录 learning/usage/verification/lifecycle，archive 保留原文可恢复）、`okr/`（含 kr-history.jsonl append-only）、`projects/`（PMO 项目逐文件 JSON）、`skills/`（每 skill 一子目录，hash 升级机制）、`snapshots/`（环境快照）、`transcripts/`（按 WU 会话原文；#712 起同一 JSONL 内 additive 记录 step/terminal/per-consumer watermark，旧无 kind 步骤兼容，不新增目录或 schema 版本）、`triggers/`、`workspaces/`（`{id}.json`，内嵌 runtimes）、`.analyst/`（CLI analyst 工作目录）。
 - 事件流：`mcp-audit-logs.jsonl`（append-only）。
 - 契约新增（本票冻结，实现票落地）：`harness-knowledge/`（KNOWLEDGE_DIR 归数据根，见 §8）、`tunnel-url`（TUNNEL_URL_FILE 归数据根，见 §8）、`data/manifest.json`（版本标记，见 §5）。
 
@@ -90,6 +90,7 @@ data/
 - **v4（PERF-05）**：幂等建立 `logs/projections/`（0700）；overview/notification 投影首次读取时懒生成，迁移不扫描历史。通知写路径与投影恢复共用 `notifications.jsonl.lock`；批量已读一次归属过滤、单句柄批量 append 后推进投影。
 - **v5（#704）**：幂等建立 `worktrees/.delivery-locks/`（0700）；同腿 Git 操作共用真实 common-dir + 分支键控的跨进程锁，锁目录与 owner/heartbeat 属可再生产物，迁移不扫描或备份历史锁。
 - **v6（#707）**：WU events/index/current 的既有快照新增可选 typed `effects` / `effectReceipts`，Effect 意图与 WU 领域状态继续共用 `commitSnapshot` 和 `workunits/lock`；旧事件缺省为空，迁移仅抬版本、不重写历史，也不新增数据目录。#708 将 Effect kind additive 扩为 `review-dispatch | merge`，merge/cleanup 继续复用该快照与 Receipt。#709 再扩为 `external-reply` 并增加可选 `payload`，固定外部回复正文与 messageId 供恢复认养。#716 再扩为 `knowledge-extraction`；`distill/runs.jsonl` 以同 id 追加状态行折叠，新增 triggered/running/succeeded/failed/retry-after 与重试/恢复清单字段，legacy executed/failed 原样兼容；均无新目录或迁移。
+- **v7（#718）**：`memory/<roleId>/maintenance.jsonl` 以同 id 追加 triggered/running/succeeded/failed 完整快照并读侧折叠；promote/merge/archive/restore/capacity 意图先于副作用，启动重放 triggered/running 并重试 failed（单 run 最多 3 次）。既有 MEMORY.md/topics/draft 不重写，maintenance 文件懒创建，迁移仅抬版本。
 
 ## 6. 网络面（回环纪律）
 

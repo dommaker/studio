@@ -13,19 +13,35 @@ import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
 // ── Measure types ──
 
-export interface FlywheelMetrics {
-  quality: number;
+export interface OutcomeGroupMetrics {
+  total: number;
+  successes: number;
+  successRate: number;
+}
+
+export interface RetrievalQualityMetric {
+  entryId: string;
+  exposures: number;
+  successes: number;
+  failures: number;
+  successRate: number;
+  negativeFeedback: number;
+}
+
+export interface OutcomeMetrics {
   hitRate: number;
   improvement: number;
+  withKnowledge: OutcomeGroupMetrics;
+  withoutKnowledge: OutcomeGroupMetrics;
+  retrievalQuality: RetrievalQualityMetric[];
+  /** 两组最终 outcome 都有数据时 improvement 才可计算。 */
+  source: 'events' | 'insufficient-data';
+}
+
+export interface FlywheelMetrics extends OutcomeMetrics {
+  quality: number;
   freshness: number;
   timestamp: string;
-  /**
-   * R1: 事件衍生指标（hitRate/improvement）的数据来源标记。
-   * 'events' = 滚动窗口内有 outcome 事件，指标为实算；
-   * 'insufficient-data' = 窗口内无 outcome 事件（或读取失败），hitRate/improvement 为 0 占位而非编造。
-   * quality/freshness 始终由 KnowledgeStore 实算，不受此标记影响。
-   */
-  source?: 'events' | 'insufficient-data';
 }
 
 export interface HealthReport {
@@ -173,9 +189,7 @@ export function computeAuditStorePartition(all: any[]): { entries: AuditReport['
   return { entries, topReferenced };
 }
 
-/**
- * trend：复用 outcome 成功率前后半窗口对比（与 getFlywheelMetrics.improvement 同一定义）。
- */
+/** 审计趋势：沿用 outcome 成功率前后半窗口对比，与飞轮的知识对照 improvement 相互独立。 */
 export function deriveOutcomeTrend(outcomes: Array<{ ts: number; success: boolean }>, windowDays: number): string {
   let trend = 'insufficient-data';
   if (outcomes.length > 0) {
@@ -244,23 +258,12 @@ export function unavailableAnalystAccuracyReport(): AccuracyReport {
 // ── 事件流扫描（studio-events.jsonl） ──
 
 /**
- * R1 反馈环度量 — 从 studio-events.jsonl 的 `knowledge:outcome:*` 事件实算。
- * （模块级纯函数，不依赖 KnowledgeService 实例，供 getFlywheelMetrics 调用。）
- *
- * 数据源：recordOutcome() 写入的事件
- *   { type: 'knowledge:outcome:success|failure', source, payload, createdAt }
- *   payload 为 JSON string：{ executionId, agentType, success, consumedKnowledge: string[], ... }
- *
- * 指标定义（刻意简单、诚实）：
- * - hitRate（0-100）：滚动窗口内，consumedKnowledge ≥ 1 条的任务（outcome）数 /
- *   窗口内有 outcome 记录的总任务数 × 100。衡量「执行任务时真的注入了知识」的比例。
- * - improvement（百分点，可为负）：窗口按时间中点对半切分，
- *   improvement = (后半窗口成功率 − 前半窗口成功率) × 100。
- *   任一半窗口无事件 → 趋势不可算，记 0（不编造）。
- * - 窗口默认 30 天（opts.windowDays 可覆盖）；opts.eventsFile 供测试注入 fixture。
- * - 窗口内无任何 outcome 事件 → hitRate/improvement = 0 且 source='insufficient-data'。
+ * 反馈环效果度量：final outcome 优先，legacy（无 final 字段）事件仍可读。
+ * 同一 Assignment 只保留一个结果，显式 final:false 是执行中信号，不进入最终对照。
+ * improvement = 有知识组最终成功率 − 无知识对照组最终成功率（百分点）；
+ * 两组都有数据才可计算。retrievalQuality 同样只由这些最终 outcome 实算。
  */
-export async function computeOutcomeMetrics(opts?: { eventsFile?: string; windowDays?: number }): Promise<{ hitRate: number; improvement: number; source: 'events' | 'insufficient-data' }> {
+export async function computeOutcomeMetrics(opts?: { eventsFile?: string; windowDays?: number }): Promise<OutcomeMetrics> {
   const windowDays = opts?.windowDays ?? 30;
   const eventsFile = opts?.eventsFile ?? resolveStudioEventsFile(); // #654：调用时惰性解析
   const now = Date.now();
@@ -274,8 +277,8 @@ export async function computeOutcomeMetrics(opts?: { eventsFile?: string; window
     rows = []; // 事件文件不存在/不可读 → 数据不足
   }
 
-  const outcomes: Array<{ ts: number; success: boolean; consumed: number }> = [];
-  for (const row of rows) {
+  const selected = new Map<string, { success: boolean; consumed: string[]; final: boolean }>();
+  for (const [index, row] of rows.entries()) {
     if (row?.type !== 'knowledge:outcome:success' && row?.type !== 'knowledge:outcome:failure') continue;
     const tsRaw = row.createdAt ?? row.timestamp;
     const ts = tsRaw ? new Date(tsRaw).getTime() : NaN;
@@ -287,29 +290,58 @@ export async function computeOutcomeMetrics(opts?: { eventsFile?: string; window
     } catch {
       continue; // payload 损坏的行不计入（与 readJsonl 跳过坏行一致，不编造 consumed=0）
     }
-    const consumed = Array.isArray(payload.consumedKnowledge) ? payload.consumedKnowledge.length : 0;
-    outcomes.push({ ts, success: row.type === 'knowledge:outcome:success', consumed });
+    if (payload.final === false) continue;
+    const final = payload.final === true;
+    const assignmentId = typeof payload.assignmentId === 'string' && payload.assignmentId ? payload.assignmentId : null;
+    const key = assignmentId ?? `legacy:${index}`;
+    if (selected.get(key)?.final && !final) continue;
+    const consumed = Array.isArray(payload.consumedKnowledge)
+      ? [...new Set<string>(payload.consumedKnowledge.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0))]
+      : [];
+    selected.set(key, {
+      success: row.type === 'knowledge:outcome:success' && payload.verification !== 'failed',
+      consumed,
+      final,
+    });
   }
 
-  if (outcomes.length === 0) {
-    return { hitRate: 0, improvement: 0, source: 'insufficient-data' };
+  const outcomes = [...selected.values()];
+  const summarize = (group: typeof outcomes): OutcomeGroupMetrics => {
+    const successes = group.filter(outcome => outcome.success).length;
+    return {
+      total: group.length,
+      successes,
+      successRate: group.length > 0 ? Math.round((successes / group.length) * 100) : 0,
+    };
+  };
+  const withOutcomes = outcomes.filter(outcome => outcome.consumed.length > 0);
+  const withoutOutcomes = outcomes.filter(outcome => outcome.consumed.length === 0);
+  const withKnowledge = summarize(withOutcomes);
+  const withoutKnowledge = summarize(withoutOutcomes);
+  const source = withKnowledge.total > 0 && withoutKnowledge.total > 0 ? 'events' : 'insufficient-data';
+  const improvement = source === 'events'
+    ? Math.round(((withKnowledge.successes / withKnowledge.total) - (withoutKnowledge.successes / withoutKnowledge.total)) * 100)
+    : 0;
+  const hitRate = outcomes.length > 0 ? Math.round((withKnowledge.total / outcomes.length) * 100) : 0;
+
+  const entries = new Map<string, { exposures: number; successes: number; failures: number }>();
+  for (const outcome of withOutcomes) {
+    for (const entryId of outcome.consumed) {
+      const metric = entries.get(entryId) ?? { exposures: 0, successes: 0, failures: 0 };
+      metric.exposures++;
+      if (outcome.success) metric.successes++;
+      else metric.failures++;
+      entries.set(entryId, metric);
+    }
   }
+  const retrievalQuality = [...entries].map(([entryId, metric]) => ({
+    entryId,
+    ...metric,
+    successRate: Math.round((metric.successes / metric.exposures) * 100),
+    negativeFeedback: metric.failures,
+  }));
 
-  const hits = outcomes.filter(o => o.consumed > 0).length;
-  const hitRate = Math.round((hits / outcomes.length) * 100);
-
-  // improvement: 时间中点切半，后半成功率 − 前半成功率（百分点）
-  const midpoint = windowStart + (now - windowStart) / 2;
-  const firstHalf = outcomes.filter(o => o.ts < midpoint);
-  const secondHalf = outcomes.filter(o => o.ts >= midpoint);
-  let improvement = 0;
-  if (firstHalf.length > 0 && secondHalf.length > 0) {
-    const sr1 = firstHalf.filter(o => o.success).length / firstHalf.length;
-    const sr2 = secondHalf.filter(o => o.success).length / secondHalf.length;
-    improvement = Math.round((sr2 - sr1) * 100);
-  }
-
-  return { hitRate, improvement, source: 'events' };
+  return { hitRate, improvement, withKnowledge, withoutKnowledge, retrievalQuality, source };
 }
 
 /**

@@ -296,7 +296,7 @@ describe('AgentLoop', () => {
   });
 
   describe('GAP-6: recordOutcome + extractFromExecution', () => {
-    it('calls recordOutcome and does not block', async () => {
+    it('defers successful recordOutcome until recordResult persists the StepRecord', async () => {
       mockExecuteLightweight.mockResolvedValue({
         success: true, outputText: 'ACTION: COMPLETE:done',
         logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
@@ -317,15 +317,12 @@ describe('AgentLoop', () => {
 
       const result = await agentLoop.agentStep(target);
 
-      // recordOutcome was called (verification works)
-      expect(mockRecordOutcome).toHaveBeenCalledWith(
-        expect.objectContaining({ success: true, agentType: 'claude' })
-      );
+      expect(mockRecordOutcome).not.toHaveBeenCalled();
       // StepResult is returned normally
       expect(result).toHaveProperty('action');
     });
 
-    it('R1: threads injectContext injectedIds into outcome records as consumedKnowledge', async () => {
+    it('R1: does not record injected knowledge before final outcome persistence', async () => {
       // mockInjectContext default: { prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] }
       mockExecuteLightweight.mockResolvedValue({
         success: true, outputText: 'ACTION: COMPLETE:done',
@@ -346,21 +343,13 @@ describe('AgentLoop', () => {
       };
 
       await agentLoop.agentStep(target);
-      // recordExecutionOutcome 是 fire-and-forget：extractFromExecution 在
-      // recordOutcome 之后的 microtask 链上，先让事件循环排空再断言
-      await new Promise(r => setImmediate(r));
 
-      // R1 反馈环: 注入的知识条目 id 必须贯穿到 outcome/extraction（不再硬编码 []）
       expect(mockInjectContext).toHaveBeenCalled();
-      expect(mockRecordOutcome).toHaveBeenCalledWith(
-        expect.objectContaining({ consumedKnowledge: ['rule-1'] })
-      );
-      expect(mockExtractFromExecution).toHaveBeenCalledWith(
-        expect.objectContaining({ consumedKnowledge: ['rule-1'] })
-      );
+      expect(mockRecordOutcome).not.toHaveBeenCalled();
+      expect(mockExtractFromExecution).not.toHaveBeenCalled();
     });
 
-    it('R1: reports empty consumedKnowledge when nothing was injected', async () => {
+    it('R1: does not record an empty outcome before final persistence', async () => {
       mockInjectContext.mockResolvedValueOnce({ prompt: '', injectedIds: [] });
       mockExecuteLightweight.mockResolvedValue({
         success: true, outputText: 'ACTION: PROGRESS:working',
@@ -382,15 +371,13 @@ describe('AgentLoop', () => {
 
       await agentLoop.agentStep(target);
 
-      expect(mockRecordOutcome).toHaveBeenCalledWith(
-        expect.objectContaining({ consumedKnowledge: [] })
-      );
+      expect(mockRecordOutcome).not.toHaveBeenCalled();
     });
 
     it('does not block when recordOutcome fails', async () => {
       mockRecordOutcome.mockRejectedValueOnce(new Error('DB timeout'));
       mockExecuteLightweight.mockResolvedValue({
-        success: true, outputText: 'ACTION: PROGRESS:working',
+        success: false, error: 'boom',
         logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
       });
 

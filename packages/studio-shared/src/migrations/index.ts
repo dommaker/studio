@@ -220,10 +220,18 @@ const v6EffectReceipts: Migration = {
   apply: async () => {},
 };
 
-/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
-export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections, v5DeliveryLegLocks, v6EffectReceipts];
+/** #718：角色记忆新增 per-role maintenance.jsonl；既有记忆无需重写，run 懒创建。 */
+const v7RoleMemoryMaintenance: Migration = {
+  version: 7,
+  name: 'v7-role-memory-maintenance',
+  isApplied: async (rootDir) => (await readSchemaVersion(rootDir)) >= 7,
+  apply: async () => {},
+};
 
-export const CURRENT_SCHEMA_VERSION = 6;
+/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
+export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections, v5DeliveryLegLocks, v6EffectReceipts, v7RoleMemoryMaintenance];
+
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export interface RunMigrationsOptions {
   /** 测试注入用；缺省 = MIGRATIONS */

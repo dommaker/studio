@@ -7,4 +7,6 @@
 export { initWuCompletionExtraction } from './completion-extraction.js';
 export { registerMemoryReviewAdapter, submitMemoryProposal, repostMemoryProposal } from './review-adapter.js';
 export { roleMemoryStore } from './role-memory.js';
+export { roleMemoryMaintenance } from './maintenance.js';
+export { initRoleMemoryUsageScan } from './usage-scan.js';
 export type { MemoryKind } from './role-memory.js';

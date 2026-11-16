@@ -151,6 +151,81 @@ describe('索引 / topic 读写', () => {
     await expect(store.readIndex(roleId)).resolves.toBe('');
     await expect(store.readTopic(roleId, 'testing')).resolves.toBeNull();
   });
+
+  it('#718: 自动注入只召回适用范围匹配的记忆，legacy 保留浏览但暂停注入', async () => {
+    const roleId = freshRoleId();
+    const learning = (repo: string) => ({
+      scope: { kind: 'repo' as const, id: repo },
+      workUnitId: 'WU-1',
+      assignmentId: 'assignment-1',
+      extractionVersion: 'memory-1',
+      revision: 1,
+      outcome: { execution: 'succeeded' as const, verification: 'passed' as const, delivery: 'merged' as const },
+    });
+    const applicable = await store.appendDraft(roleId, {
+      kind: 'execution-knowledge', title: 'Applicable', content: 'current repo', learning: learning('/repo/current'),
+    });
+    const otherRepo = await store.appendDraft(roleId, {
+      kind: 'execution-knowledge', title: 'Other repo', content: 'other repo', learning: learning('/repo/other'),
+    });
+    const legacy = await store.appendDraft(roleId, {
+      kind: 'execution-knowledge', title: 'Legacy', content: 'unknown scope',
+    });
+    await store.promote(roleId, [applicable.id, otherRepo.id, legacy.id]);
+
+    const injected = await store.readApplicableIndex(roleId, { repo: '/repo/current' });
+    expect(injected).toContain('[applicable]');
+    expect(injected).not.toContain('[other-repo]');
+    expect(injected).not.toContain('[legacy]');
+    expect(await store.readIndex(roleId)).toContain('[legacy]');
+  });
+
+  it('#718: 真实使用与最终验证回写 topic，重放只保留最后事实', async () => {
+    const roleId = freshRoleId();
+    const entry = await store.appendDraft(roleId, {
+      kind: 'execution-knowledge', title: 'Validated', content: 'verify after use',
+      learning: {
+        scope: { kind: 'global' }, extractionVersion: 'memory-1', revision: 1,
+        outcome: { execution: 'succeeded', verification: 'passed', delivery: 'not-required' },
+      },
+    });
+    await store.promote(roleId, [entry.id]);
+
+    const usage = {
+      workUnitId: 'WU-2', assignmentId: 'assignment-2',
+      at: '2026-11-16T00:00:00.000Z', verification: 'passed' as const,
+    };
+    await store.recordUsage(roleId, 'validated', usage);
+    await store.recordUsage(roleId, 'validated', usage);
+
+    expect(await store.readTopic(roleId, 'validated')).toMatchObject({
+      lastUsage: { workUnitId: 'WU-2', assignmentId: 'assignment-2', at: usage.at },
+      lastVerification: { status: 'passed', workUnitId: 'WU-2', assignmentId: 'assignment-2', at: usage.at },
+    });
+  });
+
+  it('#718: stale/conflicting/superseded 不自动召回，恢复 active 可再次召回', async () => {
+    const roleId = freshRoleId();
+    const entry = await store.appendDraft(roleId, {
+      kind: 'execution-knowledge', title: 'Lifecycle', content: 'lifecycle state',
+      learning: {
+        scope: { kind: 'global' }, extractionVersion: 'memory-1', revision: 1,
+        outcome: { execution: 'succeeded', verification: 'passed', delivery: 'not-required' },
+      },
+    });
+    await store.promote(roleId, [entry.id]);
+
+    await store.setLifecycleStatus(roleId, 'lifecycle', 'stale');
+    expect(await store.readApplicableIndex(roleId, {})).toBe('');
+    await store.setLifecycleStatus(roleId, 'lifecycle', 'active');
+    expect(await store.readApplicableIndex(roleId, {})).toContain('[lifecycle]');
+    await store.setLifecycleStatus(roleId, 'lifecycle', 'conflicting');
+    expect(await store.readApplicableIndex(roleId, {})).toBe('');
+    await store.setLifecycleStatus(roleId, 'lifecycle', 'active');
+    await store.supersedeTopic(roleId, 'lifecycle', 'replacement');
+    expect(await store.readApplicableIndex(roleId, {})).toBe('');
+    expect(await store.readTopic(roleId, 'lifecycle')).toMatchObject({ supersededBy: 'replacement' });
+  });
 });
 
 describe('promote 合并（单路径 + 同角色互斥）', () => {
@@ -252,6 +327,32 @@ describe('promote 合并（单路径 + 同角色互斥）', () => {
     }
     // 全部已 promote，无残留 pending
     await expect(store.readDraft(roleId)).resolves.toEqual([]);
+  });
+
+  it('#718: topic 合并幂等，源 topic 保留原文并标记 superseded/archived', async () => {
+    const roleId = freshRoleId();
+    const learning = {
+      scope: { kind: 'global' as const }, extractionVersion: 'memory-1', revision: 1,
+      outcome: { execution: 'succeeded' as const, verification: 'passed' as const, delivery: 'not-required' as const },
+    };
+    const target = await store.appendDraft(roleId, {
+      kind: 'execution-knowledge', title: 'Target section', content: 'target-body', topicSlug: 'target', learning,
+    });
+    const source = await store.appendDraft(roleId, {
+      kind: 'execution-knowledge', title: 'Source section', content: 'source-body', topicSlug: 'source', learning,
+    });
+    await store.promote(roleId, [target.id, source.id]);
+
+    await store.mergeTopics(roleId, 'target', ['source']);
+    await store.mergeTopics(roleId, 'target', ['source']);
+
+    const merged = await store.readTopic(roleId, 'target');
+    expect(merged?.body).toContain('target-body');
+    expect(merged?.body.split('## Source section')).toHaveLength(2);
+    expect(await store.readTopic(roleId, 'source')).toMatchObject({
+      body: expect.stringContaining('source-body'), status: 'archived', supersededBy: 'target',
+    });
+    expect(await store.readApplicableIndex(roleId, {})).not.toContain('[source]');
   });
 });
 

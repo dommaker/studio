@@ -62,6 +62,16 @@ const EVENT_SUBSCRIPTIONS: readonly SoftStep[] = [
     run: async () => (await import('../modules/role-memory/index.js')).initWuCompletionExtraction(),
   },
   {
+    // #718：恢复崩溃前已持久化的角色记忆维护 run。
+    name: 'RoleMemoryMaintenanceRecovery',
+    run: async () => (await import('../modules/role-memory/index.js')).roleMemoryMaintenance.recoverPending(),
+  },
+  {
+    // #718：WU done → transcript 后验扫描真实 topic 使用与最终验证。
+    name: 'RoleMemoryUsageScan',
+    run: async () => (await import('../modules/role-memory/index.js')).initRoleMemoryUsageScan(),
+  },
+  {
     // #717：恢复已审但未完成发布的 Skill；只认带 approvalProposalId 的原提案。
     name: 'SkillPublicationRecovery',
     run: async () => (await import('../modules/skills/index.js')).recoverSkillPublications(),

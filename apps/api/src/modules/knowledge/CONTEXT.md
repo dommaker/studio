@@ -27,13 +27,13 @@
 | `knowledge-ports` | `knowledge-ports.ts` | ARCH-06 六能力窄端口 Produce/Consume/Track/Lifecycle/Resolve/Measure；`knowledgePorts` 各口当前指向同一兼容 facade。真实消费链：prompt-composer=Consume，loop-step=Produce/Track，review-adapter=Lifecycle，triage=Produce/Resolve，auditor-rules=Measure；结构测试防止这些调用回退完整 facade |
 | `knowledge-produce` | `knowledge-produce.ts` | Produce 实现体（#669 刀2）：extractFromExecution/extractFromConversation/recordPattern/recordIncident/recordTrend/recordAnalystAccuracy 的模块级 impl（deps 显式传入） |
 | `knowledge-consume` | `knowledge-consume.ts` | Consume 实现体（#669 刀3）：injectContext/semanticSearch/search 族 impl + 注入/检索 helpers（STOP_WORDS/TYPE_WEIGHT/extractKeywords/stripFormat/注入闸门/injectPriority）+ INJECT_TOKEN_BUDGET / KNOWLEDGE_QUERY_GUIDANCE 常量正本（门面 re-export） |
-| `knowledge-track` | `knowledge-track.ts` | Track 实现体（#669 刀2）：recordConsumption/recordOutcome/recordSkillExecution impl |
+| `knowledge-track` | `knowledge-track.ts` | Track 实现体（#669 刀2）：recordConsumption/recordOutcome/recordSkillExecution impl；#718 outcome 与最终 consumption 均携带 WU/Assignment/StepRecord/final verification，referencedBy 优先关联 Assignment |
 | `knowledge-lifecycle` | `knowledge-lifecycle.ts` | Lifecycle 实现体（#669 刀2）：promote/demote/decay/merge/graduateConstraint impl |
 | `knowledge-measure` | `knowledge-measure.ts` | Measure 实现体（#669 刀2）：getFlywheelMetrics/getHealthReport/getAuditReport/getAnalystAccuracy/getStats impl（实算内核在 knowledge-metrics 纯函数） |
 | `conversation-extractor` | `producers/conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门；#716 起存储异常向上传播，不再冒充普通门禁拒绝。总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`（默认开） |
 | `KnowledgeExtractionEffects` | `knowledge-extraction-effects.ts` | #716：WU 完成后的知识提取持久 Effect/Receipt；从 committed transcript + 独立 watermark 恢复输入，queued+nextAttemptAt 即 retry-after，启动恢复未完成 Effect 并补扫 done WU；不再使用 `knowledgeExtractedAt` 触达哨兵冒充成功 |
 | `review-adapter` | `review-adapter.ts` | #355：knowledge 人审提案 adapter（kind='knowledge'），接线 review-proposal 正本——聚合卡渲染（knowledge_proposal 旧文案，cardData 旧形状 + proposalId）+ onApprove 逐条目 promote / onReject 逐条目 demote；存取物化 <dataDir>/knowledge-proposals.jsonl；ARCH-06 起由 bootstrap/knowledge.ts 显式注册，导入 KnowledgeService 无注册副作用；装配样板走正本 createJsonlReviewAdapter 工厂（P2.2） |
-| `knowledge-metrics` | `knowledge-metrics.ts` | R1/M1 事件流度量纯函数：computeOutcomeMetrics（hitRate/improvement）+ scanKnowledgeEvents（审计计数）（knowledge-service.ts 拆出） |
+| `knowledge-metrics` | `knowledge-metrics.ts` | R1/M1 事件流度量纯函数；#718 computeOutcomeMetrics 以 final Assignment outcome 计算有/无知识对照成功率差（可为负）+ per-entry retrievalQuality/negativeFeedback，两组都有数据才声明 improvement 可算；scanKnowledgeEvents 负责审计计数 |
 | `knowledgeRoutes` | `routes/routes.ts` | REST API 挂载门面（挂载同目录 3 个公共子路由 + internal，P4.2 起 files 子路由已删） |
 | `ImproverScheduler` | `improver-scheduler.service.ts` | 自文档化调度器（每小时刷新 stale CONTEXT.md + 生成架构文档） |
 

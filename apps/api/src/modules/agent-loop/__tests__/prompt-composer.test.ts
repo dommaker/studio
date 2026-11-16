@@ -56,7 +56,7 @@ vi.mock('../../pmo/project.service.js', () => ({
 }));
 
 vi.mock('../../role-memory/role-memory.js', () => ({
-  roleMemoryStore: { readIndex: mockReadIndex },
+  roleMemoryStore: { readApplicableIndex: mockReadIndex },
 }));
 
 vi.mock('../../workunit/wu-messenger.js', () => ({
@@ -1228,7 +1228,7 @@ describe('#100: 角色记忆索引常驻注入（memory 段 = per-role MEMORY.md
 
   afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
 
-  it('AC1/AC2: 索引存在 → memory 段注入 readIndex 全文（topic 路径 + 一句话摘要行原样保留）+ 段首协议行说明按需语义', async () => {
+  it('AC1/AC2 + #718: memory 段注入适用索引全文，并在预算前传当前 scope', async () => {
     const index = '# Role Memory Index\n\n- [auth-flow](topics/auth-flow.md) — OAuth 授权走 PKCE 且不回退账号密码\n- [build-cache](topics/build-cache.md) — pnpm 损坏时用 vitest/tsc-gate 直跑';
     mockReadIndex.mockResolvedValue(index);
 
@@ -1237,7 +1237,9 @@ describe('#100: 角色记忆索引常驻注入（memory 段 = per-role MEMORY.md
       deps(makeRole()),
     );
 
-    expect(mockReadIndex).toHaveBeenCalledWith('role-1');
+    expect(mockReadIndex).toHaveBeenCalledWith('role-1', {
+      roleId: 'role-1', companyId: undefined, projectId: undefined, repo: undefined,
+    });
     expect(knowledgeContext).toContain(MEMORY_HEADER);
     // 索引行（topic 路径 + 一句话摘要）原样保留，正文不注入
     expect(knowledgeContext).toContain('- [auth-flow](topics/auth-flow.md) — OAuth 授权走 PKCE 且不回退账号密码');

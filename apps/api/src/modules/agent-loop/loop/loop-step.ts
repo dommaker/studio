@@ -107,19 +107,21 @@ export class StepRunner {
     });
   }
 
-  /** outcome 事件即时落账；#715 起学习提取由 recordResult 在 StepRecord 持久化后统一触发。 */
+  /** 执行异常保留即时非 final failure；成功 outcome 由 recordResult 在 StepRecord 持久化后落账。 */
   private async recordExecutionOutcome(wu: WorkUnitData, result: ExecutionResult, consumedKnowledge: string[] = []): Promise<void> {
-    this.recordOutcomeEvent(wu, result.success, result.outputText ?? '', undefined, consumedKnowledge);
+    if (result.success) return;
+    this.recordOutcomeEvent(wu, false, result.outputText ?? '', undefined, consumedKnowledge);
   }
 
-  /** #90: knowledge:outcome 事件单一正本 —— success/failure 统一经此落盘，避免两套漂移。
-   *  errorType 仅失败步携带（success 时 undefined，JSON.stringify 丢弃）。fire-and-forget。 */
+  /** #90: knowledge:outcome 事件单一正本；此处仅承载执行阶段的非 final failure。 */
   private recordOutcomeEvent(wu: WorkUnitData, success: boolean, details: string, errorType: string | undefined, consumedKnowledge: string[]): void {
     void knowledgePorts.track.recordOutcome({
       executionId: wu.id,
+      workUnitId: wu.id,
       agentType: 'claude',
       consumedKnowledge,
       success,
+      final: false,
       details: details.slice(0, 500),
       errorType,
       timestamp: new Date().toISOString(),
