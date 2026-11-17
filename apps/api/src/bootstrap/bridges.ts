@@ -16,6 +16,14 @@ const EVENT_SUBSCRIPTIONS: readonly SoftStep[] = [
     },
   },
   {
+    // #722：整体评审拒绝/最终交付失败的知识结果 Effect 启动恢复。
+    name: 'KnowledgeOutcomeRecovery',
+    run: async () => {
+      const service = (await import('../modules/knowledge/index.js')).getKnowledgeOutcomeEffects(getStore());
+      await service.recoverPending();
+    },
+  },
+  {
     // AC-4.1: ReviewDispatcher subscribes to workunit.status_changed
     name: 'ReviewDispatcher',
     run: async () => (await import('../modules/agent-loop/index.js')).getReviewDispatcher().subscribeToEvents(),

@@ -262,7 +262,7 @@ export interface EffectRecord {
   id: string;
   workUnitId: string;
   kind: 'review-dispatch' | 'merge' | 'external-reply' | 'knowledge-extraction'
-    | 'pmo-review-dispatch' | 'pmo-review-result';
+    | 'pmo-review-dispatch' | 'pmo-review-result' | 'knowledge-outcome';
   idempotencyKey: string;
   /** #709：external-reply 等副作用的执行载荷；随意图一起持久化。 */
   payload?: Record<string, unknown>;

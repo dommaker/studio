@@ -92,6 +92,7 @@ data/
 - **v6（#707）**：WU events/index/current 的既有快照新增可选 typed `effects` / `effectReceipts`，Effect 意图与 WU 领域状态继续共用 `commitSnapshot` 和 `workunits/lock`；旧事件缺省为空，迁移仅抬版本、不重写历史，也不新增数据目录。#708 将 Effect kind additive 扩为 `review-dispatch | merge`，merge/cleanup 继续复用该快照与 Receipt。#709 再扩为 `external-reply` 并增加可选 `payload`，固定外部回复正文与 messageId 供恢复认养。#716 再扩为 `knowledge-extraction`；`distill/runs.jsonl` 以同 id 追加状态行折叠，新增 triggered/running/succeeded/failed/retry-after 与重试/恢复清单字段，legacy executed/failed 原样兼容；均无新目录或迁移。
 - **v7（#718）**：`memory/<roleId>/maintenance.jsonl` 以同 id 追加 triggered/running/succeeded/failed 完整快照并读侧折叠；promote/merge/archive/restore/capacity 意图先于副作用，启动重放 triggered/running 并重试 failed（单 run 最多 3 次）。既有 MEMORY.md/topics/draft 不重写，maintenance 文件懒创建，迁移仅抬版本。
 - **v8（#720）**：PMO 项目 JSON additive 增加整体评审开关与候选评审记录；WU Effect kind 增加 `pmo-review-dispatch | pmo-review-result`，候选派单/结果继续复用 events/index/current 的 Effect/Receipt 与恢复协议。既有项目和 WU 缺省不启用整体评审，不重写历史，不新增目录，迁移仅抬版本。
+- **v9（#722）**：WU Effect kind 增加 `knowledge-outcome`，payload 固定终局学习 eventId/kind/workUnitIds；知识条目仍在既有 `sourceReferences[].learning` 追加 outcome/revision，条目级 eventId 保证部分写入后的恢复幂等。既有 WU 与知识条目不重写，不新增目录，迁移仅抬版本。
 
 ## 6. 网络面（回环纪律）
 

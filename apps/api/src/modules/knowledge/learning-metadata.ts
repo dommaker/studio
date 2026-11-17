@@ -50,12 +50,18 @@ type LearningEntry = { sourceReferences?: unknown };
 
 export function getLearningMetadata(entry: LearningEntry): LearningMetadata | undefined {
   if (!Array.isArray(entry.sourceReferences)) return undefined;
-  // 合并/修订会追加新来源；最新学习结果优先，旧来源仍保留用于审计。
+  let latest: LearningMetadata | undefined;
+  let terminal: LearningMetadata | undefined;
+  // 合并/修订会追加新来源；最新 provenance/revision 优先，但终局失败不能被迟到的早期 WU 成功反转。
   for (const ref of [...entry.sourceReferences].reverse()) {
-    const learning = (ref as LearningSourceRef | null)?.learning;
-    if (learning && typeof learning === 'object') return learning;
+    const sourceRef = ref as LearningSourceRef | null;
+    const learning = sourceRef?.learning;
+    if (!learning || typeof learning !== 'object') continue;
+    latest ??= learning;
+    if (sourceRef?.outcomeEventId) terminal ??= learning;
+    if (latest && terminal) break;
   }
-  return undefined;
+  return latest && terminal ? { ...latest, outcome: terminal.outcome } : latest;
 }
 
 export function withLearningMetadata<T extends object>(

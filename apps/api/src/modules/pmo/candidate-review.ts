@@ -7,6 +7,7 @@ import { getStore } from '../../core/store.js';
 import { isSystemRole } from '../../core/system-role.js';
 import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
 import { EffectService, WorkUnitService, parseWuMetadata, type WorkUnitMetadata } from '../workunit/index.js';
+import type { TerminalLearningOutcomeInput } from '../knowledge/index.js';
 import { CODE_TYPES, matchWuToLeg, partitionSnapshotsByLeg, selectProjectSnapshots } from './evidence-summary.js';
 import { resolveDeliveries, type PmoCandidate, type PmoCandidateLeg, type PmoCandidateReview, type ProjectData, type UpdateProjectInput } from './model.js';
 import { projectService } from './project.service.js';
@@ -19,6 +20,7 @@ export interface CandidateReviewDeps {
   withRepo?: RepoCapability;
   getProject: (id: string) => Promise<ProjectData | null>;
   updateProject: (id: string, input: UpdateProjectInput) => Promise<ProjectData>;
+  recordLearningOutcome?: (anchorWorkUnitId: string, input: TerminalLearningOutcomeInput) => Promise<unknown>;
 }
 
 export interface CandidateReviewStatus {
@@ -252,6 +254,7 @@ export class CandidateReviewService {
     const status = verdict === 'pass' && independent ? 'approved'
       : verdict === 'reject' && independent ? 'rejected'
         : 'human-required';
+    const affectedSnapshots = status === 'rejected' ? await this.loadProjectSnapshots(projectId) : [];
     const repairWorkUnitIds = status === 'rejected'
       ? await this.createRepairWorkUnits(project, candidate, anchor, effect.payload?.issues, effect.payload?.summary)
       : [];
@@ -266,6 +269,19 @@ export class CandidateReviewService {
         updatedAt: new Date().toISOString(),
       },
     });
+    if (status === 'rejected') {
+      const input: TerminalLearningOutcomeInput = {
+        eventId: `pmo-review-rejected:${projectId}:${candidate.id}`,
+        kind: 'pmo-review-rejected',
+        workUnitIds: affectedSnapshots.map(snapshot => snapshot.id),
+      };
+      if (this.deps.recordLearningOutcome) {
+        await this.deps.recordLearningOutcome(anchorFor(project, affectedSnapshots).id, input);
+      } else {
+        const { getKnowledgeOutcomeEffects } = await import('../knowledge/index.js');
+        await getKnowledgeOutcomeEffects(this.fileStore).trigger(anchorFor(project, affectedSnapshots).id, input);
+      }
+    }
     return { status, ...(repairWorkUnitIds.length > 0 ? { repairWorkUnitIds } : {}), ...(independent ? {} : { selfReviewRejected: true }) };
   }
 

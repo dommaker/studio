@@ -10,6 +10,8 @@ export { startEvolutionScheduler, stopEvolutionScheduler } from './scheduling/ev
 export { checkDocumentFreshness } from './knowledge-design-doc.js';
 export { knowledgeService, knowledgePorts } from './knowledge-service.js';
 export { getKnowledgeExtractionEffects } from './knowledge-extraction-effects.js';
+export { getKnowledgeOutcomeEffects } from './knowledge-outcome-effects.js';
+export type { TerminalLearningOutcomeInput, TerminalLearningOutcomeKind } from './learning-outcomes.js';
 export type { AuditReport, FlywheelMetrics } from './knowledge-service.js';
 export type {
   KnowledgeConsumePort,

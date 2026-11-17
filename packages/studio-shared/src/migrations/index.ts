@@ -236,10 +236,18 @@ const v8PmoCandidateReview: Migration = {
   apply: async () => {},
 };
 
-/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
-export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections, v5DeliveryLegLocks, v6EffectReceipts, v7RoleMemoryMaintenance, v8PmoCandidateReview];
+/** #722：终局学习结果复用既有 WU Effect/Receipt；知识来源 revision additive，无需重写历史。 */
+const v9KnowledgeOutcomes: Migration = {
+  version: 9,
+  name: 'v9-knowledge-outcomes',
+  isApplied: async (rootDir) => (await readSchemaVersion(rootDir)) >= 9,
+  apply: async () => {},
+};
 
-export const CURRENT_SCHEMA_VERSION = 8;
+/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
+export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections, v5DeliveryLegLocks, v6EffectReceipts, v7RoleMemoryMaintenance, v8PmoCandidateReview, v9KnowledgeOutcomes];
+
+export const CURRENT_SCHEMA_VERSION = 9;
 
 export interface RunMigrationsOptions {
   /** 测试注入用；缺省 = MIGRATIONS */

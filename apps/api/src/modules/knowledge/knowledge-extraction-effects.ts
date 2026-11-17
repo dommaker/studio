@@ -56,6 +56,10 @@ export class KnowledgeExtractionEffects {
 
   private async run(workUnitId: string, effectId: string): Promise<void> {
     const executed = await this.effects.execute(workUnitId, effectId, ({ effect }) => this.perform(effect), { recovery: true });
+    if (executed?.status === 'succeeded') {
+      const { getKnowledgeOutcomeEffects } = await import('./knowledge-outcome-effects.js');
+      await getKnowledgeOutcomeEffects(this.fileStore).reconcileCompleted();
+    }
     if (executed?.status === 'queued') this.scheduleRetry(workUnitId, effectId, executed.nextAttemptAt);
   }
 

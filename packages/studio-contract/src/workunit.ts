@@ -87,7 +87,7 @@ export const mandateSchema = z.object({
 export const effectRecordSchema = z.object({
   id: z.string(),
   workUnitId: z.string(),
-  kind: z.enum(['review-dispatch', 'merge', 'external-reply', 'knowledge-extraction', 'pmo-review-dispatch', 'pmo-review-result']),
+  kind: z.enum(['review-dispatch', 'merge', 'external-reply', 'knowledge-extraction', 'pmo-review-dispatch', 'pmo-review-result', 'knowledge-outcome']),
   idempotencyKey: z.string(),
   payload: z.record(z.string(), z.unknown()).optional(),
   trigger: z.enum(['automatic', 'manual']),
