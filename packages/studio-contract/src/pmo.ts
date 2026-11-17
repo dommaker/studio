@@ -71,6 +71,31 @@ export type PmoMap = z.infer<typeof pmoMapSchema>;
 export const deliveryLegStatusSchema = z.enum(['pending', 'active', 'in_review', 'completed', 'delivered']);
 export type DeliveryLegStatus = z.infer<typeof deliveryLegStatusSchema>;
 
+export const pmoCandidateLegSchema = z.object({
+  gitRepo: z.string(),
+  branch: z.string(),
+  baseBranch: z.string(),
+  headCommit: z.string(),
+  evidenceRevision: z.string(),
+});
+
+export const pmoCandidateSchema = z.object({
+  id: z.string(),
+  legs: z.array(pmoCandidateLegSchema),
+  implementerIds: z.array(z.string()),
+});
+
+export const pmoCandidateReviewSchema = z.object({
+  candidate: pmoCandidateSchema,
+  status: z.enum(['pending', 'human-required', 'approved', 'rejected']),
+  reviewWorkUnitId: z.string().optional(),
+  reviewer: z.object({ id: z.string(), kind: z.enum(['agent', 'human']) }).optional(),
+  summary: z.string().optional(),
+  repairWorkUnitIds: z.array(z.string()).optional(),
+  updatedAt: z.string(),
+});
+export type PmoCandidateReview = z.infer<typeof pmoCandidateReviewSchema>;
+
 /** 交付腿（多腿交付按腿独立台账/合并/状态） */
 export const deliveryLegSchema = z.object({
   gitRepo: z.string().nullable(),
@@ -104,6 +129,7 @@ export const projectSchema = z.object({
   /** REQ 只读别名（REQ-XXXX），统一编号对象才有；存量 legacy 项目为 null/缺省 */
   reqAlias: z.string().nullable().optional(),
   deliveryPolicy: deliveryPolicySchema.optional(),
+  overallReviewRequired: z.boolean().optional(),
   /** 杂务 PMO（频道常青小活归集），isChore + channelId 联合标识 */
   isChore: z.boolean().optional(),
   channelId: z.string().nullable().optional(),
@@ -114,6 +140,7 @@ export const projectSchema = z.object({
   map: pmoMapSchema.nullable().optional(),
   /** 多交付腿（缺省 = 读取时由 gitRepo/gitBranch 合成单腿） */
   deliveries: z.array(deliveryLegSchema).optional(),
+  candidateReview: pmoCandidateReviewSchema.optional(),
 });
 export type Project = z.infer<typeof projectSchema>;
 
@@ -271,6 +298,11 @@ export const deliveryStatusSchema = z.object({
   channelId: z.string().nullable(),
   /** 逐腿台账（仅显式多腿项目输出；单腿为 undefined） */
   legs: z.array(legDeliveryStatusSchema).optional(),
+  overallReview: z.object({
+    candidateId: z.string(),
+    status: z.enum(['pending', 'human-required', 'approved', 'rejected']),
+    reviewWorkUnitId: z.string().nullable(),
+  }).optional(),
 });
 export type DeliveryStatus = z.infer<typeof deliveryStatusSchema>;
 
@@ -386,6 +418,7 @@ export const createProjectBodySchema = z.object({
   /** #114 T8：多工程入参（非空字符串数组；空数组 = 未传，走旧单选行为） */
   gitRepos: z.array(z.string()).optional(),
   deliveryPolicy: deliveryPolicySchema.optional(),
+  overallReviewRequired: z.boolean().optional(),
   requirementsDocId: z.string().optional(),
 });
 export type CreateProjectBody = z.infer<typeof createProjectBodySchema>;
@@ -408,6 +441,7 @@ export const updateProjectBodySchema = z.object({
   startedAt: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
   deliveryPolicy: deliveryPolicySchema.optional(),
+  overallReviewRequired: z.boolean().optional(),
   requirementsDocId: z.string().nullable().optional(),
   deliveredAt: z.string().nullable().optional(),
   deliveredBy: z.string().nullable().optional(),
@@ -418,6 +452,9 @@ export const updateProjectBodySchema = z.object({
   // #706：交付回执只能由 deliver/mark-delivered 的服务端命令写入。
   for (const key of ['deliveredAt', 'deliveredBy', 'deliverCommit'] as const) {
     if (key in body) ctx.addIssue({ code: 'custom', path: [key], message: `${key} 只能由交付命令写入` });
+  }
+  if ('candidateReview' in body) {
+    ctx.addIssue({ code: 'custom', path: ['candidateReview'], message: 'candidateReview 只能由整体评审命令写入' });
   }
 });
 export type UpdateProjectBody = z.infer<typeof updateProjectBodySchema>;
@@ -450,6 +487,14 @@ export const markDeliveredBodySchema = z.object({
   commit: z.string().trim().min(1),
 });
 export type MarkDeliveredBody = z.infer<typeof markDeliveredBodySchema>;
+
+/** #720：Operator 对当前确切候选提交人工整体评审；拒绝问题可指定修复腿。 */
+export const candidateReviewBodySchema = z.object({
+  verdict: z.enum(['pass', 'reject']),
+  summary: z.string().optional(),
+  issues: z.array(z.object({ message: z.string().min(1), leg: z.string().optional() })).optional(),
+});
+export type CandidateReviewBody = z.infer<typeof candidateReviewBodySchema>;
 
 /** OKR quarter 唯一运行时校验：service 与 HTTP schema 共用，含尾换行拒绝。 */
 export function isValidOkrQuarter(quarter: string): boolean {
@@ -491,6 +536,9 @@ export const deliverResultResponseSchema = dataBodySchema(deliverResultSchema);
 
 /** POST /project/:id/mark-delivered：`{ data: MarkDeliveredResult }`（原裸对象） */
 export const markDeliveredResultResponseSchema = dataBodySchema(markDeliveredResultSchema);
+
+/** POST /project/:id/candidate-review：`{ data: PmoCandidateReview }` */
+export const candidateReviewResultResponseSchema = dataBodySchema(pmoCandidateReviewSchema);
 
 /** POST /project/:id/publish：`{ data: PublishProjectResult }`（原裸对象） */
 export const publishProjectResultResponseSchema = dataBodySchema(publishProjectResultSchema);

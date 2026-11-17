@@ -109,7 +109,9 @@ export function selectProjectSnapshots(
   index: WorkUnitSnapshot[],
 ): WorkUnitSnapshot[] {
   const reqProjectById = buildReqProjectMap(requirements);
-  return index.filter(s => resolveWuProjectId(s, reqProjectById) === projectId);
+  return index.filter(s => resolveWuProjectId(s, reqProjectById) === projectId
+    // #720：整体评审是候选裁决，不是新的实现工作；保留血缘但不计入交付证据。
+    && !parseWuMetadata(s.metadata).pmoCandidateReview);
 }
 
 /** 逐快照过 deriveDisplayState 派生证据齐缺（唯一口径，禁止各自解释 attestations） */
@@ -173,7 +175,7 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
 // ============================================
 
 /**
- * 多腿分桶：WU 归首个命中的腿（数组序）；全部不命中 = 未分腿公共 WU（shared）。
+ * 多腿分桶：唯一命中才归腿；多命中（如同名分支歧义）或全部不命中 = 公共 WU（shared）。
  * 公共 WU 保守计入每条腿的台账与判定——证据缺口不允许从任何一条腿的交付闸逃逸。
  */
 export function partitionSnapshotsByLeg<T extends EvidenceWuInput>(
@@ -183,8 +185,8 @@ export function partitionSnapshotsByLeg<T extends EvidenceWuInput>(
   const perLeg: T[][] = legs.map(() => []);
   const shared: T[] = [];
   for (const s of snapshots) {
-    const idx = legs.findIndex(leg => matchWuToLeg(s.metadata, leg));
-    if (idx >= 0) perLeg[idx].push(s);
+    const matches = legs.flatMap((leg, index) => matchWuToLeg(s.metadata, leg) ? [index] : []);
+    if (matches.length === 1) perLeg[matches[0]].push(s);
     else shared.push(s);
   }
   return { perLeg, shared };

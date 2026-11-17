@@ -298,7 +298,7 @@ export interface WorkUnitMetadata {
   reviewReport?: {
     approved: boolean;
     reason?: string;
-    issues?: Array<{ severity: string; message: string }>;
+    issues?: Array<{ severity: string; message: string; leg?: string }>;
   };
   // PMO 分析接力（analysis-handoff）：analysis WU COMPLETE 时 agent-loop 解析 TASK: 行落档；
   // 人工确认（reviewPassed → done）后由 analysis-handoff 据此建未指派 task 子 WU 派工
@@ -345,6 +345,7 @@ export interface WorkUnitMetadata {
   traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
   // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
+  excludeAssignees?: string[]; // #720：整体评审禁止全部实现者认领；结果 Effect 再复核，不允许自评批准
   // 决策 14 认领前适任判断：被判不适任的角色名单（约束挂 WU 不挂角色身份，合规 ADR D2/决策 10）——
   // 写入方：agent-loop claim 前一次性 LLM 判断（agents/loop/claim-fitness.ts）；消费方：
   // observe 第 7 道过滤（含本 role.id 即不可见）+ 全员不适任转 blocked 判定

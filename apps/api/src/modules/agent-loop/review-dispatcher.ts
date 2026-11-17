@@ -58,8 +58,15 @@ export class ReviewDispatcher {
   constructor(
     private fileStore: FileStore,
     private workUnitService: WorkUnitService,
+    private pmoReview?: { recoverEffects(): Promise<unknown> },
   ) {
     this.effects = new EffectService(fileStore);
+  }
+
+  private async recoverPmoReviewEffects(): Promise<void> {
+    const service = this.pmoReview
+      ?? (await import('../pmo/index.js')).getCandidateReviewService(this.fileStore);
+    await service.recoverEffects();
   }
 
   /** 订阅只负责即时唤醒；启动恢复直接读取持久 Effect。幂等。 */
@@ -86,11 +93,17 @@ export class ReviewDispatcher {
         logger.warn('[ReviewDispatcher] handleParentInReview failed', { wuId: wu.id, error: String(err) });
       });
     }
-    // 路径 B：子 WU（type='review'）完成 -> 处理父 WU review 结果
+    // 路径 B：普通评审回写父 WU；#720 整体评审只走自己的持久结果 Effect。
     if (wu.status === 'done' && wu.type === 'review' && wu.parentId) {
-      await this.handleReviewChildDone(wu).catch(err =>
-        logger.warn('[ReviewDispatcher] handleReviewChildDone failed', { childId: wu.id, error: String(err) }),
-      );
+      if (parseWuMetadata(wu.metadata).pmoCandidateReview) {
+        await this.recoverPmoReviewEffects().catch(err =>
+          logger.warn('[ReviewDispatcher] PMO candidate result recovery failed', { childId: wu.id, error: String(err) }),
+        );
+      } else {
+        await this.handleReviewChildDone(wu).catch(err =>
+          logger.warn('[ReviewDispatcher] handleReviewChildDone failed', { childId: wu.id, error: String(err) }),
+        );
+      }
     }
   }
 
@@ -274,6 +287,7 @@ export class ReviewDispatcher {
         }
       }
     }
+    await this.recoverPmoReviewEffects();
     return result;
   }
 

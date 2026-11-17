@@ -21,7 +21,7 @@
 - `execution-cwd.ts` — 执行目录解析三规则，deps 注入纯函数。
 - `agent-loop.types.ts` — 类型契约：StepResult / StepContext（Target + 调用边界 instance 快照）/ Observations / Target / RuntimeInstanceRow。
 - `agent-loop-registry.ts` — profileId→running AgentLoop 注册表（profile 生命周期事件驱动挂载/卸载；#634 provider 变更重挂）
-- `agent-loop-parsers.ts` / `agent-loop-events.ts` / `agent-loop-guards.ts` — 输出解析+prompt 模板纯函数 / tokens/tool:call 落盘 / 测试 WU 守卫+excludeAssignee
+- `agent-loop-parsers.ts` / `agent-loop-events.ts` / `agent-loop-guards.ts` — 输出解析+prompt 模板纯函数 / tokens/tool:call 落盘 / 测试 WU 守卫+excludeAssignee(s)
 - `step-guards.ts`（#541 入口守卫链：B2 测试 WU / #585 需求+AC / C3 日预算 / #162 WU 预算 / #471 plan 额度）、`step-retry-policy.ts`（#543 重试策略：#94 续用丢失降级 + #96 上下文溢出收敛为 runStepRetry 一份）
 - `claim-fitness.ts`（认领前适任判断，决策 14；2026-09-25 起落 `agent:claim_fitness` 台账事件）
 - `daily-token-budget.ts`（每日 token 预算熔断，C3）、`delegate-branch.ts`（A2A DELEGATE 分支委派）
@@ -29,7 +29,7 @@
 - `wu-lease.ts` / `lease-heartbeat.ts`（WU 租约/fencing 追踪器 #209 / 心跳 30s）
 - `executor.ts`（Executor 接口，LocalExecutor 委托 agentRunner）、`execution-step-events.ts`（步级事件落盘+步内流式 SSE；#665 起 payload 类型与 studio-contract/sse-events.ts 同源——ExecutionStepEventPayload/ExecutionStreamChunk 是契约类型别名，改形状先改契约；#687 起 EXECUTION_STREAM_SSE_TYPE 常量正本亦收编契约（本文件 re-export 保持既有 import 路径），wire round-trip 行为校验见 events/__tests__/sse-payload-contract.test.ts）
 - `wu-verification.ts`（兼容 re-export；ARCH-02 起独立实现下沉 `core/wu-verification.ts`，AgentLoop 与 WorkUnit 共用；SEC-01 固定模板 + WU worktree provenance 不变）、`completion-gates.ts`（收口守卫链）、`completion-harvest.ts`（#542 per-WU-type COMPLETE 收割注册表）、`result-bookkeeping.ts`（#655 recordResult 簿记段）、`review-contract.ts`（verdict 语义单一来源）
-- `review-dispatcher.ts`（F4 review 派发；#707 起执行 WU 同事务持久化的 review-dispatch Effect，启动扫描恢复、按 effectId 认养已建子单、三次后永久失败；EventBus 只作即时唤醒；#708 起恢复与重试定时器按 kind 隔离，不消费 merge Effect）、`dispatch-reconciliation.ts`（派工/评审断链 5min 对账，P2-d 刀5 自 agents 根随迁——依赖 review-dispatcher + monitor-alerts，留 agents 会拉成 agents↔agent-loop 环）
+- `review-dispatcher.ts`（F4 review 派发；#707 起执行 WU 同事务持久化的 review-dispatch Effect，启动扫描恢复、按 effectId 认养已建子单、三次后永久失败；EventBus 只作即时唤醒；#708 起恢复与重试定时器按 kind 隔离，不消费 merge Effect；#720 整体评审子单跳过普通父 WU 回写，由 PMO 候选 Effect 恢复审批/拒绝结果）、`dispatch-reconciliation.ts`（派工/评审断链 5min 对账，P2-d 刀5 自 agents 根随迁——依赖 review-dispatcher + monitor-alerts，留 agents 会拉成 agents↔agent-loop 环）
 - `__tests__/` — 62 个测试文件（agents root __tests__ loop 系 48 + 原 loop/__tests__ 9 + #668 新增 2：execution-cwd 直测 / loop-segments 段接线钉线 + #671 新增 1：prompt-composer-snapshot 全九段产出快照钉线 + ARCH-05 新增 1：loop-deps 窄依赖契约 + PERF-03 新增 1：共享观察协调/规模读取回归；段行为由既有测试网兜底）
 
 ### 核心导出
@@ -52,7 +52,7 @@
 - **#700/#701 plan 收割、分腿与 review 血缘**：plan COMPLETE 使用 spec TASK codec 收割逐任务 LEG/AC/BLOCKEDBY 到 `analysisTaskDetails`；prompt 输出约定要求非空 TASK 显式携带三项，归属不明先 NEED_INPUT。ReviewDispatcher 的子 WU reqId 优先继承父 WU 一等列，metadata.reqId 仅作 legacy 回退。代码 WU 已声明 `pmoBranch` 时腿解析失败、或任何 PMO 建支失败，均返回 `worktree_creation_failed`，不退默认 base。
 - **step-guards 需求/AC 前置守卫（#585）**：仅实现类系统派生 WU 受检；豁免 = from-message/manual、metadata.triggerSource、requirementOverride=true；判定 = reqId + metadata.ac[] 缺一即 need_input 挂起；总开关 `STUDIO_REQUIREMENT_GUARD=false`（测试环境默认关）
 - **#706 Mandate 预算与恢复重验**：WU token 与 plan 步数预算优先读 `wu.mandate.budget`，metadata 仅兼容旧单；claim、beginStep、会话替换与 NEED_INPUT 回复恢复前经 WorkUnit `assertExecutionMandate` 检查策略版本、撤销和当前仓库/腿，失败不得创建新 Assignment 或启动 Executor。
-- **认领门槛**：纯显式三门槛（assigneeId 排他+excludeAssignee+blockedBy）+ 决策 14 适任判断；#579 总开关 `STUDIO_CLAIM_FITNESS=false`
+- **认领门槛**：纯显式三门槛（assigneeId 排他+excludeAssignee+blockedBy）+ 决策 14 适任判断；#720 `excludeAssignees` 在共享观察视图排除整体候选的全部实现者，结果 Effect 再按 reviewer profile 复核，绕过观察也不能自评通过；#579 总开关 `STUDIO_CLAIM_FITNESS=false`
 - **completion-gates 零同步子进程（#374 + SEC-04）**：全部走 `core/exec-async.ts` 的 execFileAsync。dirty/HEAD 在 recordResult 同一 `withDirectoryCapability` 回调内完成；rev-list/git log/analysis report 同样走通用 capability（服务端 WORKTREES_DIR 下 worktree 不受 PMO 允许根限制）。capability 创建失败向外抛出、危险替换 fail-closed；capability 内普通 Git 故障保持原 fail-open 口径。
 - **执行根目录（#481 + SEC-04/05）**：`resolveExecutionWorkspaceRoot` 唯一来源 = `metadata.workspaceRoot`；`wu.workspaceId` 无执行语义。worktree 创建/PMO 建支经统一 `withExecutionRepo` 持 repo fd；LocalExecutor 在 runner/CLI 全周期经 `withDirectoryCapability` 持最终工作目录 fd，返回的 worktree/logFile/outputFiles 恢复原路径，capability 不落 metadata。自动验证在 `assertTrustedWuWorktree` 后同样持 capability 完成 package.json 读取、模板选择与 `runHostCheck`，校验后替换 fail-closed 且零 spawn/零越界读取。SEC-05 起 capability 内的 provider CLI 另经 shared sandbox：目录 capability 负责宿主侧路径 provenance，`bwrap`+低权限身份+egress broker 负责不可信 CLI 步内边界，两层不互相替代。
 - **会话术语（#637/#639）**：档案会话号（metadata.sessionId）vs CLI 会话号（metadata.cliSessionId）；续用一律按 CLI 会话号 id 形态点名（无则新建；失效走 #94 降级 + #95 前序进展段交接）

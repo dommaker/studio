@@ -5,6 +5,7 @@
  * 公共面 = 生成时实际被模块外消费的符号；新增跨模块消费时在此补导出。
  */
 export { AnalysisHandoff, initAnalysisHandoff, PlanTaskLegError, validatePlanConfirm } from './analysis-handoff.js';
+export { getCandidateReviewService } from './candidate-review.js';
 export { initDecisionResolution } from './decision-resolution.js';
 export { CODE_TYPES, matchWuToLeg, selectProjectSnapshots } from './evidence-summary.js';
 export { initMapOpening, MAP_OPENING_FOG_MAX, parseMapOpening } from './map-opening.js';

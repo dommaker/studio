@@ -32,6 +32,7 @@ import { assertMandateAllows, hasUnsettledMergeEffect, parseWuMetadata } from '.
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
 import { withExecutionRepo } from '../../utils/execution-repo-policy.js';
+import { getCandidateReviewService, type CandidateReviewService } from './candidate-review.js';
 
 
 const GIT_OP_TIMEOUT_MS = 15_000;
@@ -84,6 +85,12 @@ export interface DeliveryStatus {
   channelId: string | null;
   /** #113 T7：逐腿台账（仅显式多腿项目输出；单腿为 undefined，回归硬要求） */
   legs?: LegDeliveryStatus[];
+  /** #720：仅显式启用整体评审的项目输出；批准只覆盖当前候选。 */
+  overallReview?: {
+    candidateId: string;
+    status: 'pending' | 'human-required' | 'approved' | 'rejected';
+    reviewWorkUnitId: string | null;
+  };
 }
 
 /** #113 T7：单腿台账（口径与项目级相同，按腿 WU 集独立汇总） */
@@ -115,6 +122,12 @@ export interface DeliveryDeps {
   withRepo?: <T>(repo: string, callback: (capabilityPath: string) => Promise<T>) => Promise<T>;
   /** 同腿 Git 临界区注入点；生产使用 common-dir + branch 跨进程锁。 */
   withLegLock?: <T>(repo: string, branch: string, callback: () => Promise<T>) => Promise<T>;
+  /** 整体评审注入点；生产使用 FileStore 持久 Effect 服务。 */
+  reviewGate?: Pick<CandidateReviewService, 'getReviewStatus' | 'ensureReview'>;
+}
+
+function resolveReviewGate(fileStore: FileStore | undefined, deps?: DeliveryDeps): NonNullable<DeliveryDeps['reviewGate']> {
+  return deps?.reviewGate ?? getCandidateReviewService(fileStore);
 }
 
 function mergePendingIds(snapshots: WorkUnitSnapshot[]): string[] {
@@ -194,6 +207,8 @@ interface DeliveryLedgerSnapshot {
   status: DeliveryStatus;
   project: ProjectData;
   snapshots: WorkUnitSnapshot[];
+  /** 原 WU/逐腿证据是否齐备；整体评审只在此基础上触发。 */
+  baseDeliverable: boolean;
 }
 
 /** PMO 台账：WU 汇总 + 证据齐缺（只读，无任何副作用）；多腿项目附逐腿台账 */
@@ -268,6 +283,28 @@ async function loadDeliveryStatus(
     }
   }
 
+  const baseDeliverable = deliverable;
+  let overallReview: DeliveryStatus['overallReview'];
+  if (project.overallReviewRequired) {
+    try {
+      const review = await resolveReviewGate(fileStore, deps).getReviewStatus(project, snapshots);
+      overallReview = {
+        candidateId: review.candidate.id,
+        status: review.status,
+        reviewWorkUnitId: review.reviewWorkUnitId ?? null,
+      };
+    } catch {
+      overallReview = { candidateId: '', status: 'pending', reviewWorkUnitId: null };
+      if (baseDeliverable) missing.push('整体评审候选读取失败');
+    }
+    if (baseDeliverable && overallReview.status !== 'approved') {
+      if (overallReview.status === 'human-required') missing.push('整体评审需人工确认');
+      else if (overallReview.status === 'rejected') missing.push('整体评审已拒绝，需完成修复并复审');
+      else if (!missing.includes('整体评审候选读取失败')) missing.push('整体评审尚未通过');
+    }
+    deliverable = baseDeliverable && overallReview.status === 'approved';
+  }
+
   return {
     status: {
       projectId: project.id,
@@ -299,9 +336,11 @@ async function loadDeliveryStatus(
       deliverCommit: project.deliverCommit ?? null,
       channelId: project.channelId ?? null,
       ...(legStatuses ? { legs: legStatuses } : {}),
+      ...(overallReview ? { overallReview } : {}),
     },
     project,
     snapshots,
+    baseDeliverable,
   };
 }
 
@@ -469,6 +508,12 @@ export async function deliverProject(
   if (initialPending.length > 0) {
     return { delivered: false, reason: 'merge-pending', detail: `同腿合并未决：${initialPending.join(', ')}` };
   }
+  if (status.overallReview && status.overallReview.status !== 'approved') {
+    if (initial.baseDeliverable) {
+      await resolveReviewGate(fileStore, deps).ensureReview(initial.project, initial.snapshots);
+    }
+    return { delivered: false, reason: 'not-ready', missing: status.missing, detail: '整体评审尚未批准当前候选' };
+  }
   if (!status.deliverable) {
     return { delivered: false, reason: 'not-ready', missing: status.missing };
   }
@@ -536,6 +581,10 @@ export async function deliverProject(
               gitRepo: leg.gitRepo, branch: leg.branch, status: latestLeg.status,
               deliveredAt: latestLeg.deliveredAt, deliverCommit: latestLeg.deliverCommit,
             };
+            return;
+          }
+          if (latest.status.overallReview && latest.status.overallReview.status !== 'approved') {
+            result = { gitRepo: leg.gitRepo, branch: leg.branch, delivered: false, reason: 'not-ready', detail: '整体评审候选已变化或尚未批准' };
             return;
           }
           if (!latestLeg.deliverable) {
@@ -655,12 +704,12 @@ export async function deliverProject(
 
 export type MarkDeliveredOutcome =
   | { marked: true; deliverCommit: string; deliveredAt: string }
-  | { marked: false; reason: 'not-found' | 'not-branch-only' | 'already-delivered' | 'merge-pending' | 'mandate-rejected'; detail?: string };
+  | { marked: false; reason: 'not-found' | 'not-branch-only' | 'already-delivered' | 'merge-pending' | 'mandate-rejected' | 'not-ready'; detail?: string };
 
 /**
  * branch-only 交付闭环：系统外合并发生后，人工把 commit 哈希落档。
- * 不设证据闸——人是系统外交付的权威；但同腿仍有持久 merge intent / 未结束验证时
- * 必须拒绝，避免人工回执覆盖系统内尚未落定的真实 Git 状态。多腿锁按身份排序获取。
+ * 未启用整体评审时不设 WU 证据闸——人是系统外交付的权威；#720 显式启用项目仍须当前候选 approved。
+ * 同腿有持久 merge intent / 未结束验证时必须拒绝，避免人工回执覆盖尚未落定的真实 Git 状态。多腿锁按身份排序获取。
  */
 export async function markProjectDelivered(
   projectId: string,
@@ -680,6 +729,12 @@ export async function markProjectDelivered(
   const initialPending = mergePendingIds(initial.snapshots);
   if (initialPending.length > 0) {
     return { marked: false, reason: 'merge-pending', detail: `同腿合并未决：${initialPending.join(', ')}` };
+  }
+  if (initial.status.overallReview && initial.status.overallReview.status !== 'approved') {
+    if (initial.baseDeliverable) {
+      await resolveReviewGate(fileStore, deps).ensureReview(initial.project, initial.snapshots);
+    }
+    return { marked: false, reason: 'not-ready', detail: '整体评审尚未批准当前候选' };
   }
   const mandateRejection = findProjectMandateRejection(initial.project, initial.snapshots, 'mark-delivered');
   if (mandateRejection) return { marked: false, reason: 'mandate-rejected', detail: mandateRejection };
@@ -704,6 +759,9 @@ export async function markProjectDelivered(
     const pending = mergePendingIds(latest.snapshots);
     if (pending.length > 0) {
       return { marked: false, reason: 'merge-pending', detail: `同腿合并未决：${pending.join(', ')}` };
+    }
+    if (latest.status.overallReview && latest.status.overallReview.status !== 'approved') {
+      return { marked: false, reason: 'not-ready', detail: '整体评审候选已变化或尚未批准' };
     }
     const rejection = findProjectMandateRejection(latest.project, latest.snapshots, 'mark-delivered');
     if (rejection) return { marked: false, reason: 'mandate-rejected', detail: rejection };

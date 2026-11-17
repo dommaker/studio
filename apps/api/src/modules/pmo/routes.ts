@@ -21,6 +21,8 @@ import {
   publishProjectBodySchema,
   parsePmoCommandBodySchema,
   markDeliveredBodySchema,
+  candidateReviewBodySchema,
+  candidateReviewResultResponseSchema,
   createOkrBodySchema,
   updateOkrBodySchema,
   projectListResponseSchema,
@@ -41,6 +43,7 @@ import {
 import { getOkrService, type UpdateOKRInput } from './okr.service.js';
 import { projectService, parsePmoNumberFromCommand, type UpdateProjectInput } from './project.service.js';
 import { getDeliveryStatus, deliverProject, markProjectDelivered } from './delivery.js';
+import { getCandidateReviewService } from './candidate-review.js';
 import { type AuthRequest } from '../../middleware/auth.js';
 import { apiCache, CACHE_CONFIG, clearCache } from '../../middleware/api-cache.js';
 import { defineRoute, HttpError, requireHuman } from '../../core/http.js';
@@ -136,6 +139,7 @@ writeRoutes.post('/project', defineRoute(
       gitRepo: body.gitRepo,
       gitRepos: body.gitRepos,
       deliveryPolicy: body.deliveryPolicy,
+      overallReviewRequired: body.overallReviewRequired,
       requirementsDocId: body.requirementsDocId,
     });
   },
@@ -226,6 +230,20 @@ writeRoutes.post('/project/:id/mark-delivered', requireHuman(DELIVERY_HUMAN_ONLY
       },
     });
     return undefined;
+  },
+));
+
+/** #720：无独立 Agent reviewer 时，由 Operator 对当前候选提交人工整体评审。 */
+writeRoutes.post('/project/:id/candidate-review', requireHuman(DELIVERY_HUMAN_ONLY_MESSAGE), defineRoute(
+  { params: projectIdParamsSchema, body: candidateReviewBodySchema, response: candidateReviewResultResponseSchema },
+  async (req, _res, { params, body }) => {
+    const user = (req as AuthRequest).user;
+    const exists = await projectService.get(params.id);
+    if (!exists) throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Project not found');
+    await getCandidateReviewService().submitHumanReview(params.id, user?.id ?? 'unknown', body);
+    const review = (await projectService.get(params.id))?.candidateReview;
+    if (!review) throw new Error('整体评审结果未落档');
+    return review;
   },
 ));
 

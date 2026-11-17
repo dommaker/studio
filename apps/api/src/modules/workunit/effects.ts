@@ -8,6 +8,7 @@ import {
 } from '@dommaker/studio-shared';
 import { assertMandateActive } from './mandate.js';
 import { MANUAL_GATE_TYPES } from './workunit.types.js';
+import { parseWuMetadata } from './wu-metadata.js';
 
 export const EFFECT_MAX_ATTEMPTS = 3;
 export const EFFECT_RETRY_DELAY_MS = 30_000;
@@ -83,6 +84,35 @@ export function withReviewDispatchIntent(
   }
   const idempotencyKey = `review-dispatch:${updated.id}:${updated.updatedAt}`;
   const effect = newEffect(updated.id, 'review-dispatch', idempotencyKey, 'automatic', updated.updatedAt);
+  return {
+    ...updated,
+    effects: [...(updated.effects ?? []).filter(item => item.idempotencyKey !== idempotencyKey), effect],
+  };
+}
+
+/** 整体评审完成与结果 Effect 同事务提交；EventBus 只负责即时唤醒。 */
+export function withPmoReviewResultIntent(
+  current: WorkUnitSnapshot,
+  updated: WorkUnitSnapshot,
+): WorkUnitSnapshot {
+  if (current.status === 'done' || updated.status !== 'done') return updated;
+  const metadata = parseWuMetadata(updated.metadata);
+  const candidateReview = metadata.pmoCandidateReview;
+  if (typeof candidateReview !== 'object' || candidateReview === null || Array.isArray(candidateReview)) return updated;
+  const { projectId, candidate } = candidateReview as { projectId?: unknown; candidate?: unknown };
+  if (typeof projectId !== 'string' || typeof candidate !== 'object' || candidate === null) return updated;
+  const report = metadata.reviewReport;
+  const approved = typeof report?.approved === 'boolean' ? report.approved : null;
+  const reviewerId = updated.assigneeRoleId ?? updated.assigneeId;
+  const idempotencyKey = `pmo-review-result:${updated.id}`;
+  const effect = newEffect(updated.id, 'pmo-review-result', idempotencyKey, 'automatic', updated.updatedAt, {
+    projectId,
+    candidate,
+    verdict: approved === null ? 'needs-info' : approved ? 'pass' : 'reject',
+    ...(typeof report?.reason === 'string' ? { summary: report.reason } : {}),
+    ...(Array.isArray(report?.issues) ? { issues: report.issues } : {}),
+    reviewer: { id: reviewerId ?? '', kind: 'agent' },
+  });
   return {
     ...updated,
     effects: [...(updated.effects ?? []).filter(item => item.idempotencyKey !== idempotencyKey), effect],

@@ -22,14 +22,17 @@ export function isTestLikeWorkUnit(wu: { scope: string }, metadata: WorkUnitMeta
   return TEST_SCOPE_PATTERN.test(wu.scope ?? '');
 }
 
-/** F4（reviewer 解锚，决策 5）：安全解析 WU metadata.excludeAssignee ——
- *  评审 WU 禁止认领的 profile id；缺失/损坏/非字符串一律 null（不排除） */
-export function parseExcludeAssignee(metadata: unknown): string | null {
+/** F4 + #720：普通评审排除单个实现者，整体评审排除全部实现者。 */
+export function parseExcludeAssignees(metadata: unknown): string[] {
   try {
     const m = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
-    const v = (m as { excludeAssignee?: unknown } | null)?.excludeAssignee;
-    return typeof v === 'string' && v ? v : null;
+    const record = m as { excludeAssignee?: unknown; excludeAssignees?: unknown } | null;
+    const single = typeof record?.excludeAssignee === 'string' && record.excludeAssignee
+      ? [record.excludeAssignee] : [];
+    const multiple = Array.isArray(record?.excludeAssignees)
+      ? record.excludeAssignees.filter((value): value is string => typeof value === 'string' && value.length > 0) : [];
+    return [...new Set([...single, ...multiple])];
   } catch {
-    return null;
+    return [];
   }
 }

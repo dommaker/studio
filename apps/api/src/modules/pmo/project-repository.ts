@@ -93,6 +93,7 @@ export const projectRepository = {
       const now = new Date().toISOString();
       const seq = parsePmoSeq(pmoNumber);
       const reqAlias = seq !== null ? `REQ-${String(seq).padStart(4, '0')}` : null;
+      const repos = (input.gitRepos ?? []).map(r => r.trim()).filter(Boolean);
       const project: ProjectData = {
         id,
         pmoNumber,
@@ -114,10 +115,10 @@ export const projectRepository = {
         updatedAt: now,
         reqAlias,
         deliveryPolicy: input.deliveryPolicy ?? 'branch-only',
+        overallReviewRequired: input.overallReviewRequired ?? repos.length > 1,
         ...(input.isChore ? { isChore: true, channelId: input.channelId ?? null } : {}),
       };
 
-      const repos = (input.gitRepos ?? []).map(r => r.trim()).filter(Boolean);
       if (repos.length > 0) {
         project.gitRepo = repos[0];
         project.deliveries = repos.map(repo => ({ gitRepo: repo, branch: project.gitBranch, status: 'pending' }));

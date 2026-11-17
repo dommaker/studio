@@ -12,7 +12,7 @@ import {
   type WorkUnitSnapshot,
 } from '@dommaker/studio-shared';
 import { buildStatusById, hasUnfinishedDeps, snapshotToData } from '../../workunit/index.js';
-import { parseExcludeAssignee } from '../agent-loop-guards.js';
+import { parseExcludeAssignees } from '../agent-loop-guards.js';
 import { isRoleUnfit } from '../claim-fitness.js';
 import type { WorkUnitData } from '../../workunit/index.js';
 
@@ -112,7 +112,7 @@ export class LoopObservationCoordinator {
         const members = shared.channelMembers.get(s.channelId);
         if (members && !members.includes(role.id)) return false;
       }
-      if (parseExcludeAssignee(s.metadata) === role.id) return false;
+      if (parseExcludeAssignees(s.metadata).includes(role.id)) return false;
       if (isRoleUnfit(s.metadata, role.id)) return false;
       return true;
     }).slice(0, 5).map(toWorkUnitData);

@@ -360,6 +360,7 @@ function normalizeReviewIssues(raw: unknown): Array<{ severity: string; message:
     .map(i => ({
       severity: typeof i.severity === 'string' ? i.severity : 'info',
       message: typeof i.message === 'string' ? i.message : JSON.stringify(i),
+      ...(typeof i.leg === 'string' && i.leg ? { leg: i.leg } : {}),
     }))
     .filter(i => i.message.length > 0);
   return issues.length > 0 ? issues : undefined;

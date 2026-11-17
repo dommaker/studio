@@ -228,10 +228,18 @@ const v7RoleMemoryMaintenance: Migration = {
   apply: async () => {},
 };
 
-/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
-export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections, v5DeliveryLegLocks, v6EffectReceipts, v7RoleMemoryMaintenance];
+/** #720：PMO 整体评审派单/结果复用既有 WU Effect/Receipt；项目候选字段 additive。 */
+const v8PmoCandidateReview: Migration = {
+  version: 8,
+  name: 'v8-pmo-candidate-review',
+  isApplied: async (rootDir) => (await readSchemaVersion(rootDir)) >= 8,
+  apply: async () => {},
+};
 
-export const CURRENT_SCHEMA_VERSION = 7;
+/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
+export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections, v5DeliveryLegLocks, v6EffectReceipts, v7RoleMemoryMaintenance, v8PmoCandidateReview];
+
+export const CURRENT_SCHEMA_VERSION = 8;
 
 export interface RunMigrationsOptions {
   /** 测试注入用；缺省 = MIGRATIONS */

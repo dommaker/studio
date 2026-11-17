@@ -13,6 +13,8 @@ export interface CreateProjectInput {
   gitRepos?: string[];
   requirementsDocId?: string;
   deliveryPolicy?: DeliveryPolicy;
+  /** 新多腿项目默认 true；存量/单腿缺省 false，显式配置优先。 */
+  overallReviewRequired?: boolean;
   isChore?: boolean;
   channelId?: string | null;
 }
@@ -30,11 +32,15 @@ export interface UpdateProjectInput {
   startedAt?: string | null;
   completedAt?: string | null;
   deliveryPolicy?: DeliveryPolicy;
+  /** 新多腿项目默认 true；存量/单腿缺省 false，显式配置优先。 */
+  overallReviewRequired?: boolean;
   requirementsDocId?: string | null;
   deliveredAt?: string | null;
   deliveredBy?: string | null;
   deliverCommit?: string | null;
   map?: PmoMap | null;
+  /** 整体评审结果只能经候选评审命令写入。 */
+  candidateReview?: PmoCandidateReview;
   deliveries?: DeliveryLeg[];
 }
 
@@ -70,6 +76,31 @@ export interface PmoMap {
   fog: FogItem[];
   specSpawnedAt?: string;
   specWuId?: string | null;
+}
+
+export interface PmoCandidateLeg {
+  gitRepo: string;
+  branch: string;
+  baseBranch: string;
+  headCommit: string;
+  evidenceRevision: string;
+}
+
+export interface PmoCandidate {
+  id: string;
+  legs: PmoCandidateLeg[];
+  /** 整体评审不得由任一实现者完成；结果 Effect 用同一清单复核认领人。 */
+  implementerIds: string[];
+}
+
+export interface PmoCandidateReview {
+  candidate: PmoCandidate;
+  status: 'pending' | 'human-required' | 'approved' | 'rejected';
+  reviewWorkUnitId?: string;
+  reviewer?: { id: string; kind: 'agent' | 'human' };
+  summary?: string;
+  repairWorkUnitIds?: string[];
+  updatedAt: string;
 }
 
 export interface DeliveryLeg {
@@ -127,12 +158,16 @@ export interface ProjectData {
   updatedAt: string;
   reqAlias?: string | null;
   deliveryPolicy?: DeliveryPolicy;
+  /** 新多腿项目默认 true；存量/单腿缺省 false，显式配置优先。 */
+  overallReviewRequired?: boolean;
   isChore?: boolean;
   channelId?: string | null;
   deliveredAt?: string | null;
   deliveredBy?: string | null;
   deliverCommit?: string | null;
   map?: PmoMap | null;
+  /** 整体评审结果只能经候选评审命令写入。 */
+  candidateReview?: PmoCandidateReview;
   deliveries?: DeliveryLeg[];
 }
 
