@@ -444,6 +444,7 @@ export async function mergeWorktreeBranchOnReviewPass(
           sourceBranch: branch,
           targetBranch: mergeContext.targetBranch,
           scopeSummary,
+          gitCommonDir: `${baseRepo}/.git`,
         });
         await recordMergeResolution(wuService, wu.id, audit);
         if (!resolved) {
@@ -636,8 +637,9 @@ async function resolveConflictSceneWithLlm(args: {
   sourceBranch: string;
   targetBranch: string;
   scopeSummary: string;
+  gitCommonDir: string;
 }): Promise<{ audit: MergeResolutionAudit; resolved: boolean }> {
-  const { wu, meta, scene, conflictFiles, mergeArgs, mergeCwd, sourceBranch, targetBranch, scopeSummary } = args;
+  const { wu, meta, scene, conflictFiles, mergeArgs, mergeCwd, sourceBranch, targetBranch, scopeSummary, gitCommonDir } = args;
   const startMs = Date.now();
   const base = {
     attemptedAt: new Date().toISOString(),
@@ -664,7 +666,7 @@ async function resolveConflictSceneWithLlm(args: {
   try {
     const result = await (await workUnitPort('execution')).run(
       buildMergeConflictPrompt({ scene, conflictFiles, sourceBranch, targetBranch, scopeSummary, verifyCommands, verifySource }),
-      { systemPrompt: skill.prompt, cwd: scene.cwd, eventSource: 'merge-conflict-resolution' },
+      { systemPrompt: skill.prompt, cwd: scene.cwd, gitCommonDir, eventSource: 'merge-conflict-resolution' },
     );
     output = result.output;
     durationMs = result.durationMs;

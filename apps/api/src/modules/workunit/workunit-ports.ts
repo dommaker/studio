@@ -89,7 +89,7 @@ export interface WorkUnitReviewPort {
 }
 
 export interface WorkUnitExecutionPort {
-  run(prompt: string, options: { systemPrompt: string; cwd: string; eventSource: 'merge-conflict-resolution' }): Promise<{ output: string; durationMs: number }>;
+  run(prompt: string, options: { systemPrompt: string; cwd: string; gitCommonDir?: string; eventSource: 'merge-conflict-resolution' }): Promise<{ output: string; durationMs: number }>;
 }
 
 export interface WorkUnitReadPort {

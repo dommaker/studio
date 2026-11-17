@@ -109,6 +109,9 @@ export async function executeAgentStep(
       transcriptPath: transcriptPath(wu.id),
       agentProfileId: step.role.id,
       ...(workspaceRoot ? { workspaceRoot } : {}),
+      ...(metadataUpdates.worktreeBaseRepo ?? metadata.worktreeBaseRepo
+        ? { worktreeBaseRepo: metadataUpdates.worktreeBaseRepo ?? metadata.worktreeBaseRepo }
+        : {}),
       extraEnv: {
         STUDIO_WORKUNIT_ID: wu.id,
         STUDIO_CHANNEL_ID: wu.channelId ?? '',

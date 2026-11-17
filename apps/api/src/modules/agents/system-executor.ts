@@ -25,6 +25,8 @@ export interface SystemExecutorOptions {
   systemPrompt?: string;
   /** 执行目录（review 等 worktree 场景需要） */
   cwd?: string;
+  /** linked worktree 场景下服务端已校验的母仓 .git */
+  gitCommonDir?: string;
   /** CLI --allowedTools 参数（通过 env 传递） */
   allowedTools?: string;
   /** 超时（默认 30_000） */
@@ -125,6 +127,7 @@ export class SystemExecutor {
     const sandbox = await prepareAgentSandbox({
       command: cmd,
       worktree: cwd,
+      gitCommonDir: opts.gitCommonDir,
       provider: providerId,
       executionId: crypto.randomUUID(),
       ttlMs: effectiveTimeoutMs + 5 * 60_000,

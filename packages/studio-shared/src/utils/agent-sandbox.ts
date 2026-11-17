@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import { spawn } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
 import { createRequire } from 'node:module';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { issueAgentServiceIdentity, revokeAgentServiceIdentity } from './agent-identity';
 import { resolveProviderDefinition } from '../providers';
 
@@ -16,6 +17,8 @@ export interface AgentEgressRule {
 export interface AgentSandboxOptions {
   command: string;
   worktree: string;
+  /** 服务端已校验的 linked-worktree 母仓 .git；无此凭证时 linked worktree fail-closed。 */
+  gitCommonDir?: string;
   provider: string;
   executionId: string;
   env: NodeJS.ProcessEnv;
@@ -106,26 +109,24 @@ interface PermissionSnapshot {
   mode: number;
 }
 
-/**
- * Temporarily grant only gid 65534 write access. Pre-existing ownership/mode is
- * restored on every exit; Agent-created files deliberately remain owned by gid 65534.
- */
-function prepareWorktreePermissions(worktree: string): () => void {
-  const snapshots: PermissionSnapshot[] = [];
-  const restore = (): void => {
-    const errors: unknown[] = [];
-    for (const original of snapshots.reverse()) {
-      try {
-        const current = fs.lstatSync(original.target);
-        if (current.isSymbolicLink()) continue;
-        fs.chownSync(original.target, original.uid, original.gid);
-        fs.chmodSync(original.target, original.mode);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') errors.push(error);
-      }
+function restorePermissionSnapshots(snapshots: PermissionSnapshot[]): void {
+  const errors: unknown[] = [];
+  for (const original of [...snapshots].reverse()) {
+    try {
+      const current = fs.lstatSync(original.target);
+      if (current.isSymbolicLink()) continue;
+      fs.chownSync(original.target, original.uid, original.gid);
+      fs.chmodSync(original.target, original.mode);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') errors.push(error);
     }
-    if (errors.length) throw new AggregateError(errors, 'failed to restore Agent worktree permissions');
-  };
+  }
+  if (errors.length) throw new AggregateError(errors, 'failed to restore Agent worktree permissions');
+}
+
+/** Temporarily grant only gid 65534 write access. */
+function prepareWorktreePermissions(worktree: string, snapshots: PermissionSnapshot[] = []): () => void {
+  const restore = (): void => restorePermissionSnapshots(snapshots);
   const walk = (target: string): void => {
     const stat = fs.lstatSync(target);
     if (stat.isSymbolicLink()) return;
@@ -149,6 +150,109 @@ function prepareWorktreePermissions(worktree: string): () => void {
   return restore;
 }
 
+interface SharedPermissionState {
+  owners: Record<string, number>;
+  snapshots: PermissionSnapshot[];
+}
+
+function pidAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+function permissionControlDir(commonDir: string): string {
+  const key = createHash('sha256').update(commonDir).digest('hex');
+  // bwrap 的 /tmp 是独立 tmpfs；宿主控制目录对 Agent 不可见，快照不能被篡改。
+  return path.join(os.tmpdir(), 'studio-agent-permissions', key);
+}
+
+async function withCommonPermissionLock(commonDir: string, callback: () => Promise<void> | void): Promise<void> {
+  const controlDir = permissionControlDir(commonDir);
+  fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(controlDir, 0o700);
+  // 内核释放锁，不存在 stale-owner 回收竞态；短临界区只保护引用计数和权限快照。
+  const child = spawn('/usr/bin/flock', [path.join(controlDir, 'lock'), '-c', 'printf locked; cat'], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr.on('data', chunk => { stderr += String(chunk); });
+  await new Promise<void>((resolve, reject) => {
+    child.once('error', reject);
+    child.stdout.once('data', () => resolve());
+    child.once('exit', code => reject(new Error(`flock exited ${code}: ${stderr}`)));
+  });
+  try {
+    await callback();
+  } finally {
+    child.stdin.end();
+    await new Promise<void>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', code => code === 0 ? resolve() : reject(new Error(`flock release failed ${code}: ${stderr}`)));
+    });
+  }
+}
+
+function sharedPermissionStatePath(commonDir: string): string {
+  return path.join(permissionControlDir(commonDir), 'state.json');
+}
+
+function readSharedPermissionState(commonDir: string): SharedPermissionState {
+  try {
+    return JSON.parse(fs.readFileSync(sharedPermissionStatePath(commonDir), 'utf8')) as SharedPermissionState;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { owners: {}, snapshots: [] };
+    throw error;
+  }
+}
+
+function writeSharedPermissionState(commonDir: string, state: SharedPermissionState): void {
+  const file = sharedPermissionStatePath(commonDir);
+  const temporary = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(state), { mode: 0o600 });
+  fs.renameSync(temporary, file);
+}
+
+/** Cross-process reference counting keeps a shared Git common dir writable until the last handle exits. */
+async function acquireSharedGitPermissions(commonDir: string): Promise<() => Promise<void>> {
+  const state = readSharedPermissionState(commonDir);
+  let changed = false;
+  try {
+    await withCommonPermissionLock(commonDir, () => {
+      Object.assign(state, readSharedPermissionState(commonDir));
+      for (const [pid, count] of Object.entries(state.owners)) {
+        if (!pidAlive(Number(pid)) || count <= 0) delete state.owners[pid];
+      }
+      if (Object.keys(state.owners).length === 0) {
+        if (state.snapshots.length) restorePermissionSnapshots(state.snapshots);
+        state.snapshots = [];
+        prepareWorktreePermissions(commonDir, state.snapshots);
+        changed = true;
+      }
+      state.owners[process.pid] = (state.owners[process.pid] ?? 0) + 1;
+      writeSharedPermissionState(commonDir, state);
+    });
+  } catch (error) {
+    if (changed) restorePermissionSnapshots(state.snapshots);
+    throw error;
+  }
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    await withCommonPermissionLock(commonDir, () => {
+      const state = readSharedPermissionState(commonDir);
+      const count = state.owners[process.pid] ?? 0;
+      if (count <= 1) delete state.owners[process.pid];
+      else state.owners[process.pid] = count - 1;
+      if (Object.keys(state.owners).length === 0) {
+        restorePermissionSnapshots(state.snapshots);
+        fs.rmSync(sharedPermissionStatePath(commonDir), { force: true });
+      } else {
+        writeSharedPermissionState(commonDir, state);
+      }
+    });
+  };
+}
+
 function assertSupported(opts: AgentSandboxOptions): string {
   if ((opts.platform ?? process.platform) !== 'linux') {
     throw new Error(`unsupported Agent sandbox platform: ${opts.platform ?? process.platform}; refusing unsandboxed spawn`);
@@ -161,6 +265,45 @@ function assertSupported(opts: AgentSandboxOptions): string {
     throw new Error(`unsafe Agent worktree: ${worktree}`);
   }
   return worktree;
+}
+
+function resolveLinkedGitCommonDir(worktree: string, trustedCommonDir?: string): string | null {
+  const pointer = path.join(worktree, '.git');
+  if (!fs.existsSync(pointer) || !fs.lstatSync(pointer).isFile()) return null;
+  const match = fs.readFileSync(pointer, 'utf8').match(/^gitdir:\s*(.+)$/m);
+  if (!match) throw new Error(`unsafe Agent worktree git pointer: ${pointer}`);
+  const gitDir = fs.realpathSync(path.resolve(worktree, match[1].trim()));
+  const commonDir = path.dirname(path.dirname(gitDir));
+  // 只接受 Git 标准 linked-worktree 布局，拒绝被改写成任意宿主目录的 pointer。
+  if (path.basename(path.dirname(gitDir)) !== 'worktrees'
+    || path.basename(gitDir) !== path.basename(worktree)
+    || path.basename(commonDir) !== '.git') {
+    throw new Error(`unsafe Agent worktree git common dir: ${gitDir}`);
+  }
+  if (!trustedCommonDir) throw new Error('linked worktree requires a trusted git common dir');
+  const resolved = fs.realpathSync(commonDir);
+  if (resolved !== fs.realpathSync(trustedCommonDir)) {
+    throw new Error(`untrusted Agent worktree git common dir: ${resolved}`);
+  }
+  return resolved;
+}
+
+async function prepareSandboxPermissions(worktree: string, gitCommonDir: string | null): Promise<() => Promise<void>> {
+  const restoreWorktree = prepareWorktreePermissions(worktree);
+  if (!gitCommonDir) return async () => restoreWorktree();
+  let releaseCommon: (() => Promise<void>) | undefined;
+  try {
+    releaseCommon = await acquireSharedGitPermissions(gitCommonDir);
+  } catch (error) {
+    restoreWorktree();
+    throw error;
+  }
+  return async () => {
+    let failure: unknown;
+    try { await releaseCommon(); } catch (error) { failure = error; }
+    try { restoreWorktree(); } catch (error) { failure ??= error; }
+    if (failure) throw failure;
+  };
 }
 
 function findExecutable(binary: string, pathEnv: string | undefined): string | null {
@@ -401,9 +544,10 @@ async function availablePort(): Promise<number> {
 
 export async function prepareAgentSandbox(opts: AgentSandboxOptions): Promise<AgentSandboxHandle> {
   const worktree = assertSupported(opts);
+  const gitCommonDir = resolveLinkedGitCommonDir(worktree, opts.gitCommonDir);
   const sandboxHome = path.join(worktree, '.daemon', 'home');
   fs.mkdirSync(sandboxHome, { recursive: true });
-  const restorePermissions = prepareWorktreePermissions(worktree);
+  const restorePermissions = await prepareSandboxPermissions(worktree, gitCommonDir);
   let identity: ReturnType<typeof issueAgentServiceIdentity> | undefined;
   let broker: Broker | undefined;
   try {
@@ -435,6 +579,14 @@ export async function prepareAgentSandbox(opts: AgentSandboxOptions): Promise<Ag
     no_proxy: '',
     NODE_USE_ENV_PROXY: '1',
     NODE_NO_WARNINGS: '1',
+    // 仅信任宿主已校验并显式挂载的工作区/common-dir，避免 root-owned Git 拒绝低权限 Agent。
+    GIT_CONFIG_COUNT: gitCommonDir ? '2' : '1',
+    GIT_CONFIG_KEY_0: 'safe.directory',
+    GIT_CONFIG_VALUE_0: worktree,
+    ...(gitCommonDir ? {
+      GIT_CONFIG_KEY_1: 'safe.directory',
+      GIT_CONFIG_VALUE_1: gitCommonDir,
+    } : {}),
   };
   const args: string[] = [
     '--unshare-net', '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-cgroup-try',
@@ -446,9 +598,11 @@ export async function prepareAgentSandbox(opts: AgentSandboxOptions): Promise<Ag
     '--ro-bind-try', '/lib', '/lib', '--ro-bind-try', '/lib64', '/lib64',
     '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--chmod', '1777', '/tmp',
     '--dir', '/run', '--bind', broker.socketPath, '/run/studio-agent-egress.sock',
+    ...(gitCommonDir ? ['--bind', gitCommonDir, gitCommonDir] : []),
     '--bind', worktree, worktree, '--chdir', worktree,
   ];
   addParentAccess(args, worktree);
+  if (gitCommonDir) addParentAccess(args, gitCommonDir);
   addExecutableMounts(args, opts.provider, opts.env.PATH, worktree);
   addHarnessMounts(args, worktree);
   addCredentialMounts(args, opts.provider, os.homedir(), sandboxHome);
@@ -472,7 +626,7 @@ export async function prepareAgentSandbox(opts: AgentSandboxOptions): Promise<Ag
       revokeAgentServiceIdentity(identity!.token);
       let failure: unknown;
       try { await broker!.close(); } catch (error) { failure = error; }
-      try { restorePermissions(); } catch (error) { failure ??= error; }
+      try { await restorePermissions(); } catch (error) { failure ??= error; }
       if (failure) throw failure;
     },
   };
@@ -481,7 +635,7 @@ export async function prepareAgentSandbox(opts: AgentSandboxOptions): Promise<Ag
     if (broker) {
       try { await broker.close(); } catch { /* preserve initialization failure */ }
     }
-    try { restorePermissions(); } catch { /* preserve initialization failure */ }
+    try { await restorePermissions(); } catch { /* preserve initialization failure */ }
     throw error;
   }
 }

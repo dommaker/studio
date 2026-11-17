@@ -67,7 +67,8 @@ FOG: <待决问题>
     authorization: {
       requestedBy: input.requestedBy ?? { id: 'system', type: 'System' },
       source: { kind: 'channel', channelId: input.channelId, messageId: message.id },
-      repositories: legs.flatMap(leg => leg.gitRepo ? [{ repo: leg.gitRepo, leg: leg.branch }] : []),
+      // plan 跨全部仓库调研，没有单一执行腿；派生实现 WU 再收紧到各自具体腿。
+      repositories: legs.flatMap(leg => leg.gitRepo ? [{ repo: leg.gitRepo, leg: null }] : []),
     },
     metadata: {
       pmoId: project.id,

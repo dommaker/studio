@@ -27,6 +27,8 @@
 // AlertChannelPoster 注册口 + 装配注入），notifications 出簇边清零退出 SCC（20→19）。
 // 2026-10-16 Phase 5 第一刀 #3：review-proposal→channels 同手法（card.ts 的
 // ChannelCardPoster 注册口 + 装配注入，动态 import 临时招退役），退出 SCC（19→18）。
+// 2026-11 #722：pmo 整体评审/交付失败经 knowledge-outcome Effect 回写学习结果，
+// 类型经 knowledge barrel 引用、运行时动态 import，纳入既有簇内边冻结。
 const HUB_SCC = [
   'agent-auditor', 'agent-knowledge', 'agent-loop', 'agents',
   'audit-logs', 'channels', 'evolution', 'harness', 'knowledge',
@@ -51,7 +53,7 @@ const HUB_EDGES = [
   'mcp->harness', 'mcp->knowledge', 'mcp->pmo', 'mcp->skills',
   'ops->agent-knowledge', 'ops->agents', 'ops->channels', 'ops->knowledge',
   'ops->mcp', 'ops->pmo', 'ops->triage',
-  'pmo->agents', 'pmo->channels', 'pmo->ops',
+  'pmo->agents', 'pmo->channels', 'pmo->knowledge', 'pmo->ops',
   'role-memory->agent-loop', 'role-memory->agents',
   'skills->agents', 'skills->channels',
   'triage->knowledge', 'triggers->audit-logs',

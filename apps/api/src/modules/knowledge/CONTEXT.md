@@ -28,7 +28,7 @@
 | `knowledge-produce` | `knowledge-produce.ts` | Produce 实现体（#669 刀2）：extractFromExecution/extractFromConversation/recordPattern/recordIncident/recordTrend/recordAnalystAccuracy 的模块级 impl（deps 显式传入） |
 | `knowledge-consume` | `knowledge-consume.ts` | Consume 实现体（#669 刀3）：injectContext/semanticSearch/search 族 impl + 注入/检索 helpers（STOP_WORDS/TYPE_WEIGHT/extractKeywords/stripFormat/注入闸门/injectPriority）+ INJECT_TOKEN_BUDGET / KNOWLEDGE_QUERY_GUIDANCE 常量正本（门面 re-export） |
 | `knowledge-track` | `knowledge-track.ts` | Track 实现体（#669 刀2）：recordConsumption/recordOutcome/recordSkillExecution impl；#718 outcome 与最终 consumption 均携带 WU/Assignment/StepRecord/final verification，referencedBy 优先关联 Assignment |
-| `knowledge-lifecycle` | `knowledge-lifecycle.ts` | Lifecycle 实现体（#669 刀2）：promote/demote/decay/merge/graduateConstraint impl |
+| `knowledge-lifecycle` | `knowledge-lifecycle.ts` | Lifecycle 实现体（#669 刀2）：promote/demote/decay/merge/graduateConstraint impl；#723 起 draft 人审 promote 为 verified 时清除 `low_quality` 待审标记，避免审批后仍被浏览与注入过滤 |
 | `knowledge-measure` | `knowledge-measure.ts` | Measure 实现体（#669 刀2）：getFlywheelMetrics/getHealthReport/getAuditReport/getAnalystAccuracy/getStats impl（实算内核在 knowledge-metrics 纯函数） |
 | `conversation-extractor` | `producers/conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门；#716 起存储异常向上传播，不再冒充普通门禁拒绝。总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`（默认开） |
 | `KnowledgeExtractionEffects` | `knowledge-extraction-effects.ts` | #716：WU 完成后的知识提取持久 Effect/Receipt；从 committed transcript + 独立 watermark 恢复输入，queued+nextAttemptAt 即 retry-after，启动恢复未完成 Effect 并补扫 done WU；不再使用 `knowledgeExtractedAt` 触达哨兵冒充成功；#722 提取成功后对账终局 outcome，补标失败后才首次提取的条目 |

@@ -34,7 +34,10 @@ export function issueMandate(input: {
   const requestedBy = input.parentMandate?.requestedBy ?? input.authorization?.requestedBy ?? SYSTEM_PRINCIPAL;
   const at = (input.now ?? new Date()).toISOString();
   const repo = input.metadata.workspaceRoot;
-  const repositories = repo ? [{ repo, leg: input.metadata.pmoBranch ?? input.metadata.worktreeBaseBranch ?? null }] : [];
+  // 普通新 WU 认领时尚无执行腿，未来 baseBranch 只约束合并目标，不提前冒充当前腿。
+  const leg = input.metadata.pmoBranch
+    ?? (input.parentMandate ? input.metadata.worktreeBaseBranch ?? null : null);
+  const repositories = repo ? [{ repo, leg }] : [];
   const tokens = input.metadata.tokenBudget === undefined && input.parentMandate
     ? input.parentMandate.budget.tokens : finiteBudget(input.metadata.tokenBudget);
   const planSteps = input.metadata.planStepAllowance === undefined && input.parentMandate

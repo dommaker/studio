@@ -62,6 +62,9 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       worktreesDir: config.worktreesDir,
       repoDir: config.repoDir,
     });
+    // capability 的 /proc/<pid>/fd 路径在 bwrap 新 PID namespace 内不可见；
+    // 外层仍持有目录 fd，这里固定其真实路径供 prompt、CLI 命令和 sandbox 使用。
+    worktree = fsSync.realpathSync(worktree);
   } catch (error) {
     const errorMessage = getErrorMessage(error);
     return { success: false, worktree: '', outputFiles: [], error: errorMessage, logFile: '', sessionCount: 0 };
@@ -129,6 +132,9 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       sandbox = await prepareAgentSandbox({
         command: cmd,
         worktree,
+        ...(typeof task.parameters?.worktreeBaseRepo === 'string'
+          ? { gitCommonDir: path.join(task.parameters.worktreeBaseRepo, '.git') }
+          : {}),
         provider,
         executionId: task.executionId,
         env: buildSessionEnv({ task, role: agentRole as 'analyst' | 'executor', withWorkUnitEnv: true, worktree }),

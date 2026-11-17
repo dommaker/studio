@@ -20,7 +20,13 @@ export async function promoteImpl(deps: KnowledgeServiceDeps, entryId: string): 
   // #715：draft 可先经人审成为 verified；proven 必须另有成功验证与交付结果。
   if (target === 'proven' && !isProvenEligible(entry)) return;
   if (target) {
-    deps.store.update(entryId, { maturity: target });
+    deps.store.update(entryId, {
+      maturity: target,
+      // draft 的 low_quality 是机器待审标记；人审通过后不得继续阻断浏览与注入。
+      ...(target === 'verified' && (entry.tags ?? []).includes('low_quality')
+        ? { tags: (entry.tags ?? []).filter(tag => tag !== 'low_quality') }
+        : {}),
+    });
     publishKnowledgeEntryChanged('promoted', { entryId, entryType: entry.type, title: entry.title });
   }
 }
