@@ -527,9 +527,23 @@ describe('markProjectDelivered（#469 branch-only 人工落档）', () => {
     expect(r).toMatchObject({ marked: true });
   });
 
-  it('branch-only 未交付 → 写 deliveredAt/deliveredBy/deliverCommit + 频道播报', async () => {
+  it('#721 证据不齐 → 与 auto-merge 一样 not-ready，不能人工落档绕过', async () => {
+    const deps = makeDeps({
+      project: project({ deliveryPolicy: 'branch-only' }),
+      snapshots: [wu({ metadataObj: {} })],
+    });
+    const r = await markProjectDelivered('proj-1', 'Alice', COMMIT, undefined, deps);
+    expect(r).toMatchObject({ marked: false, reason: 'not-ready' });
+    expect(r.detail).toContain('缺自动验证');
+    expect(deps.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('branch-only 未交付且证据齐 → 写 deliveredAt/deliveredBy/deliverCommit + 频道播报', async () => {
     const tmpStore = new FileStore(fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'pmo-mark-delivered-')));
-    const deps = makeDeps({ project: project({ deliveryPolicy: 'branch-only', channelId: 'ch-9' }) });
+    const deps = makeDeps({
+      project: project({ deliveryPolicy: 'branch-only', channelId: 'ch-9' }),
+      snapshots: [wu({ metadataObj: fullEvidence })],
+    });
     const r = await markProjectDelivered('proj-1', 'Bob', COMMIT, tmpStore, deps);
 
     expect(r).toMatchObject({ marked: true, deliverCommit: COMMIT });

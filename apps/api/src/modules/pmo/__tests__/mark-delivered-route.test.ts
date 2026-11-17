@@ -70,6 +70,14 @@ describe('POST /pmo/project/:id/mark-delivered（#469）', () => {
     }));
   });
 
+  it('#721 多腿 leg=分支名透传 service；单腿缺省仍走原调用形状', async () => {
+    await invoke({ commit: 'c0ffee', leg: 'PMO-11-a' });
+    expect(mockMark).toHaveBeenCalledWith('p1', expect.any(String), 'c0ffee', undefined, undefined, 'PMO-11-a');
+
+    await invoke({ commit: 'c0ffee' });
+    expect(mockMark).toHaveBeenLastCalledWith('p1', expect.any(String), 'c0ffee');
+  });
+
   it('not-found → 404；not-branch-only / already-delivered → 409（code 大写下划线）', async () => {
     mockMark.mockResolvedValueOnce({ marked: false, reason: 'not-found' });
     expect((await invoke({ commit: 'c0ffee' })).status).toHaveBeenCalledWith(404);

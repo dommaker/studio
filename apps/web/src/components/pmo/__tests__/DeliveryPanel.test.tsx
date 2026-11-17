@@ -410,4 +410,35 @@ describe('DeliveryPanel', () => {
     await waitFor(() => expect(mockToastError).toHaveBeenCalledWith('已于 2026-09-01 落档'));
     expect(onRefresh).not.toHaveBeenCalled();
   });
+
+  it('#721 多腿逐行展示回执与操作人，未交付腿独立提交 commit', async () => {
+    mockMarkDelivered.mockResolvedValue({ data: { data: { delivered: true, deliverCommit: 'bbbbbbb2', deliveredAt: '2026-11-17T00:00:00Z' } } });
+    const legWu = { total: 1, finished: 1, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } };
+    renderPanel({
+      ...branchOnlyDelivery,
+      legs: [
+        {
+          gitRepo: '/repo/a', branch: 'PMO-11-a', status: 'delivered',
+          deliveredAt: '2026-11-16T00:00:00Z', deliveredBy: 'Alice', deliverCommit: 'aaaaaaa1',
+          wu: legWu, evidence: baseDelivery.evidence, deliverable: true, missing: [], gaps: [], tokens: 0,
+        },
+        {
+          gitRepo: '/repo/b', branch: 'PMO-11-b', status: 'completed',
+          deliveredAt: null, deliveredBy: null, deliverCommit: null,
+          wu: legWu, evidence: baseDelivery.evidence, deliverable: true, missing: [], gaps: [], tokens: 0,
+        },
+      ],
+    });
+
+    expect(screen.getByText('PMO-11-a')).toBeTruthy();
+    expect(screen.getByText(/Alice/)).toBeTruthy();
+    expect(screen.getByText(/aaaaaaa/)).toBeTruthy();
+    expect(screen.getByText('PMO-11-b')).toBeTruthy();
+    expect(screen.getAllByLabelText('合并 commit 哈希')).toHaveLength(1);
+
+    fireEvent.change(screen.getByLabelText('合并 commit 哈希'), { target: { value: 'bbbbbbb2' } });
+    fireEvent.click(screen.getByRole('button', { name: '标记已交付' }));
+
+    await waitFor(() => expect(mockMarkDelivered).toHaveBeenCalledWith('p1', 'bbbbbbb2', 'PMO-11-b'));
+  });
 });

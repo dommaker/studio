@@ -61,6 +61,8 @@ describe('projectApi（PMO 项目管理，GEN-005）', () => {
     expect(mockPost).toHaveBeenCalledWith('/pmo/project/p-1/deliver');
     projectApi.markDelivered('p-1', 'abc123');
     expect(mockPost).toHaveBeenCalledWith('/pmo/project/p-1/mark-delivered', { commit: 'abc123' });
+    projectApi.markDelivered('p-1', 'def456', 'PMO-11-a');
+    expect(mockPost).toHaveBeenCalledWith('/pmo/project/p-1/mark-delivered', { commit: 'def456', leg: 'PMO-11-a' });
   });
 });
 

@@ -168,7 +168,7 @@ describe('deliveryStatusSchema', () => {
     const full: DeliveryStatus = {
       ...deliveryRow,
       legs: [{
-        gitRepo: '/r', branch: 'PMO-1', status: 'completed', deliveredAt: null, deliverCommit: null,
+        gitRepo: '/r', branch: 'PMO-1', status: 'completed', deliveredAt: null, deliveredBy: 'operator-1', deliverCommit: null,
         wu: deliveryRow.wu, evidence: deliveryRow.evidence, deliverable: true, missing: [], gaps: [], tokens: 1,
       }],
     };
@@ -263,6 +263,8 @@ describe('请求 schema', () => {
     expect(publishProjectBodySchema.safeParse({}).success).toBe(false);
     expect(parsePmoCommandBodySchema.safeParse({ command: '' }).success).toBe(false);
     expect(markDeliveredBodySchema.parse({ commit: '  c0ffee  ' }).commit).toBe('c0ffee');
+    expect(markDeliveredBodySchema.parse({ commit: 'c0ffee', leg: 'PMO-11-a' })).toEqual({ commit: 'c0ffee', leg: 'PMO-11-a' });
+    expect(markDeliveredBodySchema.safeParse({ commit: 'c0ffee', leg: 'bad branch' }).success).toBe(false);
     expect(markDeliveredBodySchema.safeParse({ commit: '   ' }).success).toBe(false);
     expect(markDeliveredBodySchema.safeParse({ commit: 123 }).success).toBe(false);
   });

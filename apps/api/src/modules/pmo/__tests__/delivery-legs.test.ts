@@ -218,8 +218,8 @@ describe('deliverProject 多腿 auto-merge（#113 T7）', () => {
     expect(deps.updateProject).toHaveBeenCalledWith('proj-1', expect.objectContaining({
       deliveredBy: 'Alice',
       deliveries: [
-        expect.objectContaining({ branch: 'PMO-11-a', status: 'delivered', deliverCommit: 'aaaa' }),
-        expect.objectContaining({ branch: 'PMO-11-b', status: 'delivered', deliverCommit: 'bbbb' }),
+        expect.objectContaining({ branch: 'PMO-11-a', status: 'delivered', deliveredBy: 'Alice', deliverCommit: 'aaaa' }),
+        expect.objectContaining({ branch: 'PMO-11-b', status: 'delivered', deliveredBy: 'Alice', deliverCommit: 'bbbb' }),
       ],
     }));
   });
@@ -357,6 +357,84 @@ describe('deliverProject 多腿 auto-merge（#113 T7）', () => {
   });
 });
 
+describe('#721 branch-only 逐腿人工交付', () => {
+  const readyA = () => wu({ metadataObj: { workspaceRoot: '/repo/a', ...fullEvidence } });
+  const readyB = () => wu({ metadataObj: { workspaceRoot: '/repo/b', ...fullEvidence } });
+
+  it('逐腿记录 commit 与操作人；首腿后保持部分交付，全部必需腿落档后才写项目级回执', async () => {
+    let current = project({ deliveryPolicy: 'branch-only', deliveries: TWO_LEGS });
+    const tmpStore = new FileStore(fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'pmo-branch-only-legs-')));
+    const deps = makeDeps({ project: current, snapshots: [readyA(), readyB()] });
+    deps.getProject = async () => current;
+    deps.updateProject = vi.fn(async (_id: string, patch: Record<string, unknown>) => {
+      current = { ...current, ...patch } as ProjectData;
+      return current;
+    });
+
+    const first = await markProjectDelivered('proj-1', 'Alice', 'external-a', tmpStore, deps, 'PMO-11-a');
+
+    expect(first).toMatchObject({ marked: true, deliverCommit: 'external-a' });
+    expect(current.deliveredAt).toBeUndefined();
+    expect(current.deliveries).toEqual([
+      expect.objectContaining({ branch: 'PMO-11-a', status: 'delivered', deliveredBy: 'Alice', deliverCommit: 'external-a' }),
+      expect.objectContaining({ branch: 'PMO-11-b', status: 'pending' }),
+    ]);
+    expect(current.deliveries![1].deliverCommit).toBeUndefined();
+    const partial = await getDeliveryStatus('proj-1', tmpStore, deps);
+    expect(partial!.deliveredAt).toBeNull();
+    expect(partial!.legs![0]).toMatchObject({ status: 'delivered', deliveredBy: 'Alice', deliverCommit: 'external-a' });
+    expect(partial!.legs![1]).toMatchObject({ status: 'pending', deliveredAt: null, deliveredBy: null, deliverCommit: null });
+
+    const second = await markProjectDelivered('proj-1', 'Bob', 'external-b', tmpStore, deps, 'PMO-11-b');
+
+    expect(second).toMatchObject({ marked: true, deliverCommit: 'external-b' });
+    expect(current.deliveries).toEqual([
+      expect.objectContaining({ branch: 'PMO-11-a', deliveredBy: 'Alice', deliverCommit: 'external-a' }),
+      expect.objectContaining({ branch: 'PMO-11-b', status: 'delivered', deliveredBy: 'Bob', deliverCommit: 'external-b' }),
+    ]);
+    expect(current).toMatchObject({ deliveredBy: 'Bob', deliverCommit: 'external-b' });
+    expect(typeof current.deliveredAt).toBe('string');
+  });
+
+  it('不同腿并发落档不丢失回执，项目完全交付只播报一次', async () => {
+    let current = project({ deliveryPolicy: 'branch-only', channelId: 'ch-concurrent', deliveries: TWO_LEGS });
+    const tmpStore = new FileStore(fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'pmo-branch-only-concurrent-')));
+    const deps = makeDeps({ project: current, snapshots: [readyA(), readyB()] });
+    deps.getProject = async () => current;
+    const lockTails = new Map<string, Promise<void>>();
+    deps.withLegLock = async <T>(repo: string, branch: string, callback: () => Promise<T>): Promise<T> => {
+      const key = `${repo}\0${branch}`;
+      const previous = lockTails.get(key) ?? Promise.resolve();
+      let release!: () => void;
+      const next = new Promise<void>(resolve => { release = resolve; });
+      lockTails.set(key, previous.then(() => next));
+      await previous;
+      try {
+        return await callback();
+      } finally {
+        release();
+      }
+    };
+    deps.updateProject = vi.fn(async (_id: string, patch: Record<string, unknown>) => {
+      current = { ...current, ...patch } as ProjectData;
+      return current;
+    });
+
+    const outcomes = await Promise.all([
+      markProjectDelivered('proj-1', 'Alice', 'external-a', tmpStore, deps, 'PMO-11-a'),
+      markProjectDelivered('proj-1', 'Bob', 'external-b', tmpStore, deps, 'PMO-11-b'),
+    ]);
+
+    expect(outcomes.every(outcome => outcome.marked)).toBe(true);
+    expect(current.deliveries).toEqual([
+      expect.objectContaining({ branch: 'PMO-11-a', status: 'delivered', deliverCommit: 'external-a' }),
+      expect.objectContaining({ branch: 'PMO-11-b', status: 'delivered', deliverCommit: 'external-b' }),
+    ]);
+    expect(current.deliveredAt).toBeTruthy();
+    expect(await tmpStore.queryMessages('ch-concurrent', {})).toHaveLength(1);
+  });
+});
+
 describe('#720 整体评审最终交付门禁', () => {
   const readyA = () => wu({ metadataObj: { workspaceRoot: '/repo/a', ...fullEvidence } });
   const readyB = () => wu({ metadataObj: { workspaceRoot: '/repo/b', ...fullEvidence } });
@@ -407,7 +485,7 @@ describe('#720 整体评审最终交付门禁', () => {
       reviewGate,
     };
 
-    const outcome = await markProjectDelivered('proj-1', 'Alice', 'external-commit', undefined, deps);
+    const outcome = await markProjectDelivered('proj-1', 'Alice', 'external-commit', undefined, deps, 'PMO-11-a');
 
     expect(outcome).toMatchObject({ marked: false, reason: 'not-ready' });
     expect(reviewGate.ensureReview).toHaveBeenCalledOnce();
