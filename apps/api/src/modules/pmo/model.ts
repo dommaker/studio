@@ -108,6 +108,7 @@ export interface DeliveryLeg {
   branch: string | null;
   status: DeliveryLegStatus;
   deliveredAt?: string | null;
+  deliveredBy?: string | null;
   deliverCommit?: string | null;
 }
 

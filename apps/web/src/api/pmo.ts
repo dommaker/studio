@@ -89,9 +89,9 @@ export const projectApi = {
   // 🆕 PMO-b: 交付合并（human-only；branch-only 返回 409 BRANCH_ONLY）
   deliver: (id: string) => api.post<{ data: DeliverResult }>(`/pmo/project/${id}/deliver`),
 
-  // #469: branch-only 标记已交付（系统外合并后人工落档 commit 哈希，写 deliveredAt/By/Commit）
-  markDelivered: (id: string, commit: string) =>
-    api.post<{ data: MarkDeliveredResult }>(`/pmo/project/${id}/mark-delivered`, { commit }),
+  // branch-only 标记已交付；#721 多腿传 leg=分支名，逐腿写 deliveredAt/By/Commit
+  markDelivered: (id: string, commit: string, leg?: string) =>
+    api.post<{ data: MarkDeliveredResult }>(`/pmo/project/${id}/mark-delivered`, { commit, ...(leg ? { leg } : {}) }),
 
 };
 

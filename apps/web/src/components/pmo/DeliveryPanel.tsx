@@ -110,8 +110,8 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
     }
   };
 
-  // #469: branch-only 标记已交付（系统外合并后人工落档 commit 哈希）
-  const [markCommit, setMarkCommit] = useState('');
+  // branch-only 人工落档：单腿用空 key；多腿按分支各持一份 commit 输入
+  const [markCommits, setMarkCommits] = useState<Record<string, string>>({});
   const [marking, setMarking] = useState(false);
 
   // 🆕 PMO-b: 交付合并（409 时展示缺口/冲突清单）
@@ -144,15 +144,18 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
     }
   };
 
-  // #469: branch-only 人工落档——填合并 commit 哈希，写 deliveredAt/By/Commit（后端幂等拒绝重复落档）
-  const handleMarkDelivered = async () => {
-    const commit = markCommit.trim();
+  // 填系统外交付 commit/receipt；后端按腿幂等拒绝重复落档
+  const handleMarkDelivered = async (leg?: string) => {
+    const key = leg ?? '';
+    const commit = (markCommits[key] ?? '').trim();
     if (!commit) return;
     setMarking(true);
     try {
-      const res = await projectApi.markDelivered(projectId, commit);
+      const res = leg
+        ? await projectApi.markDelivered(projectId, commit, leg)
+        : await projectApi.markDelivered(projectId, commit);
       toast.success(`已标记交付${res.data?.data?.deliverCommit ? ` (${String(res.data.data.deliverCommit).slice(0, 7)})` : ''}`);
-      setMarkCommit('');
+      setMarkCommits(prev => ({ ...prev, [key]: '' }));
       await onRefresh();
     } catch (err) {
       const errData = (err as { response?: { data?: { error?: { message?: string } } } } | null)
@@ -269,7 +272,47 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         </div>
       )}
 
-      {/* 交付动作：auto-merge 给按钮；branch-only 给说明 */}
+      {/* #721：多腿 branch-only 逐腿展示部分交付，并分别落外部 commit/receipt */}
+      {delivery.policy === 'branch-only' && delivery.legs && (
+        <div className="space-y-2 mb-2">
+          {delivery.legs.map(leg => (
+            <div key={`${leg.gitRepo ?? ''}:${leg.branch ?? ''}`} className="text-xs u-surface-2 rounded p-2">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="u-text font-medium">{leg.branch ?? leg.gitRepo ?? '未命名腿'}</span>
+                <span className={leg.deliveredAt ? 'u-ok' : 'u-text-3'}>
+                  {leg.deliveredAt ? '已交付' : leg.wu.total === 0 ? '无需落档' : '待交付'}
+                </span>
+              </div>
+              {leg.deliveredAt ? (
+                <div className="u-ok">
+                  {formatFullTime(leg.deliveredAt)}
+                  {leg.deliveredBy && ` · ${leg.deliveredBy}`}
+                  {leg.deliverCommit && ` · ${leg.deliverCommit.slice(0, 7)}`}
+                </div>
+              ) : leg.branch && leg.wu.total > 0 ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    aria-label="合并 commit 哈希"
+                    className="input flex-1"
+                    placeholder="系统外已交付？填 commit/receipt 落档"
+                    value={markCommits[leg.branch] ?? ''}
+                    onChange={e => setMarkCommits(prev => ({ ...prev, [leg.branch!]: e.target.value }))}
+                  />
+                  <button
+                    onClick={() => handleMarkDelivered(leg.branch!)}
+                    disabled={marking || !(markCommits[leg.branch] ?? '').trim()}
+                    className="btn btn-sm u-ok-dim u-ok u-hover-bg"
+                  >
+                    {marking ? '落档中...' : '标记已交付'}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 交付动作：auto-merge 给按钮；单腿 branch-only 保留原落档表单 */}
       {delivery.policy === 'auto-merge' ? (
         <div>
           <button
@@ -299,9 +342,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
           )}
         </div>
       ) : (
-        // branch-only：未交付时给「标记已交付」人工落档（#469：系统外合并后回填 commit，
-        // 台账不再永停「✓ 可交付」）；证据齐时再附手动合并提示（证据未齐时缺口行动清单就是指引）
-        !delivery.deliveredAt && (
+        !delivery.deliveredAt && !delivery.legs && (
           <div className="text-xs u-text-3">
             {delivery.deliverable && (
               <div className="mb-1">证据已齐:请合并分支 {delivery.branch} 并走下游发布链路</div>
@@ -311,12 +352,12 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
                 aria-label="合并 commit 哈希"
                 className="input flex-1"
                 placeholder="系统外已合并？填 commit 哈希落档"
-                value={markCommit}
-                onChange={e => setMarkCommit(e.target.value)}
+                value={markCommits[''] ?? ''}
+                onChange={e => setMarkCommits(prev => ({ ...prev, '': e.target.value }))}
               />
               <button
-                onClick={handleMarkDelivered}
-                disabled={marking || !markCommit.trim()}
+                onClick={() => handleMarkDelivered()}
+                disabled={marking || !(markCommits[''] ?? '').trim()}
                 className="btn btn-sm u-ok-dim u-ok u-hover-bg"
               >
                 {marking ? '落档中...' : '标记已交付'}

@@ -102,6 +102,7 @@ export const deliveryLegSchema = z.object({
   branch: gitBranchSchema.nullable(),
   status: deliveryLegStatusSchema,
   deliveredAt: z.string().nullable().optional(),
+  deliveredBy: z.string().nullable().optional(),
   deliverCommit: z.string().nullable().optional(),
 });
 export type DeliveryLeg = z.infer<typeof deliveryLegSchema>;
@@ -265,6 +266,7 @@ export const legDeliveryStatusSchema = z.object({
   branch: z.string().nullable(),
   status: deliveryLegStatusSchema,
   deliveredAt: z.string().nullable(),
+  deliveredBy: z.string().nullable(),
   deliverCommit: z.string().nullable(),
   wu: deliveryWuSummarySchema,
   evidence: deliveryEvidenceSchema,
@@ -479,12 +481,14 @@ export const parsePmoCommandBodySchema = z.object({
 export type ParsePmoCommandBody = z.infer<typeof parsePmoCommandBodySchema>;
 
 /**
- * POST /project/:id/mark-delivered（#469：branch-only 人工落档；commit trim 后非空）。
+ * POST /project/:id/mark-delivered（branch-only 人工落档；commit trim 后非空）。
+ * #721 多腿用可选 leg=分支名选择回执归属；单腿省略保持兼容。
  * human-only 守卫（requireHuman）挂在 defineRoute 之前读原始 body.authorType，
  * schema 不需要保留该键。
  */
 export const markDeliveredBodySchema = z.object({
   commit: z.string().trim().min(1),
+  leg: gitBranchSchema.optional(),
 });
 export type MarkDeliveredBody = z.infer<typeof markDeliveredBodySchema>;
 

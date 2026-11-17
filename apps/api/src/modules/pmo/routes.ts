@@ -207,15 +207,17 @@ writeRoutes.post('/project/:id/deliver', requireHuman(DELIVERY_HUMAN_ONLY_MESSAG
 
 /**
  * POST /api/v1/pmo/project/:id/mark-delivered
- * #469：branch-only 人工落档（human-only）——系统外合并后把 commit 哈希写进台账
- * （deliveredAt/deliveredBy/deliverCommit），交付闭环在系统内留痕。commit 必填（400）；
- * auto-merge 项目 / 已落档 → 409。
+ * branch-only 人工落档（human-only）——系统外交付后把 commit/receipt 写进对应腿台账
+ * （deliveredAt/deliveredBy/deliverCommit）。commit 必填（400）；多腿另传 leg=分支名；
+ * auto-merge 项目 / 已落档 / 证据或整体评审未通过 → 409。
  */
 writeRoutes.post('/project/:id/mark-delivered', requireHuman(DELIVERY_HUMAN_ONLY_MESSAGE), defineRoute(
   { params: projectIdParamsSchema, body: markDeliveredBodySchema, response: markDeliveredResultResponseSchema },
   async (req, res, { params, body }) => {
     const user = (req as AuthRequest).user;
-    const outcome = await markProjectDelivered(params.id, user?.id ?? 'unknown', body.commit);
+    const outcome = body.leg
+      ? await markProjectDelivered(params.id, user?.id ?? 'unknown', body.commit, undefined, undefined, body.leg)
+      : await markProjectDelivered(params.id, user?.id ?? 'unknown', body.commit);
     // 注：本包 tsconfig 未开 strict，可辨识联合须用 === 字面量比较收窄（deliver 路由同款）
     if (outcome.marked === true) {
       return { delivered: true as const, deliverCommit: outcome.deliverCommit, deliveredAt: outcome.deliveredAt };
