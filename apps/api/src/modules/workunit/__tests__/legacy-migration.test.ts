@@ -240,7 +240,7 @@ describe('历史完成代码 WU 的真实 Git 对账', () => {
     expect(repairs[0]).toMatchObject({ type: 'bug', status: 'unassigned', reqId: 'REQ-0002' });
     expect(repairs[0].mandate).toMatchObject({
       requestedBy: { id: 'system', type: 'System' },
-      repositories: [{ repo, leg: 'main' }],
+      repositories: [{ repo, leg: null }],
     });
     expect(summarizeEvidence([historical, repairs[0]!])).toMatchObject({ deliverable: false, inFlight: 1 });
     expect(summarizeEvidence([historical]).mergeMissing).toEqual([historical.id]);

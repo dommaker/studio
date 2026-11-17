@@ -22,7 +22,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, createWriteStream } from 'node:fs';
+import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, createWriteStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:net';
@@ -157,17 +157,22 @@ async function bootApi(): Promise<void> {
   apiLogPath = path.join(tmpdir(), `mvp-e2e-api-${process.pid}-${Date.now()}.log`);
   apiLogStream = createWriteStream(apiLogPath);
 
-  // F4 override: 注册 e2e-fake provider（deep-merge 到内置 registry 之上）
+  // F4 override: 注册 e2e-fake provider（deep-merge 到内置 registry 之上）。
+  // 二进制放在临时 PATH 内，sandbox 才能发现并挂载它；仓内 fixture 原路径不可见。
+  const fakeBin = path.join(tmpRoot, 'bin', 'e2e-fake');
+  mkdirSync(path.dirname(fakeBin), { recursive: true });
+  copyFileSync(FAKE_CLI, fakeBin);
+  chmodSync(fakeBin, 0o755);
   writeFileSync(path.join(studioDir, 'providers.json'), JSON.stringify({
     providers: {
       'e2e-fake': {
         displayName: 'E2E Fake CLI',
-        binaries: ['node'],
+        binaries: ['e2e-fake'],
         versionArgs: ['--version'],
         healthProbeArgs: ['--version'],
         scanDefault: false,
         spawn: {
-          baseArgs: [FAKE_CLI],
+          baseArgs: [],
           defaultOutputFormat: 'stream-json',
           sessionIdFlag: '--session',
           promptViaStdin: true,
@@ -181,6 +186,9 @@ async function bootApi(): Promise<void> {
   execFileSync('git', ['config', 'user.email', 'e2e@studio.local'], { cwd: repoDir });
   execFileSync('git', ['config', 'user.name', 'E2E'], { cwd: repoDir });
   writeFileSync(path.join(repoDir, 'README.md'), '# e2e workspace\n');
+  writeFileSync(path.join(repoDir, '.gitignore'), [
+    '.agent.log', '.claude/', '.codex/', '.daemon/', '.harness/', '.kimi-code/', 'CLAUDE.md', '',
+  ].join('\n'));
   execFileSync('git', ['add', '.'], { cwd: repoDir });
   execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: repoDir });
 
@@ -192,15 +200,19 @@ async function bootApi(): Promise<void> {
     env: {
       ...process.env,
       HOME: homeDir,
+      STUDIO_HOME: studioDir,
       PORT: String(port),
       NODE_ENV: 'test',
       STUDIO_AUTH: 'none',
+      STUDIO_AGENT_LOOP_ENABLED: 'true',
       STUDIO_CONFIG_DIR: studioDir,
+      PATH: `${path.join(tmpRoot, 'bin')}:${process.env.PATH}`,
       WORKTREES_DIR: path.join(tmpRoot, 'worktrees'),
       EVENTS_DIR: path.join(tmpRoot, 'events'),
       KNOWLEDGE_DIR: path.join(tmpRoot, 'knowledge'),
       REPO_DIR: repoDir,
       VPS_WORKSPACE_ROOT: repoDir,
+      PMO_GIT_REPO_ROOTS: tmpRoot,
       CLOUDFLARED_ENABLED: 'false',
       // P8：本套件契约是「无真实 LLM」——关掉 WU 完成后的会话知识提取
       // （否则经 studio 角色 provider 起真实 CLI 挂到超时，残留进程还向 tmp HOME
@@ -301,16 +313,16 @@ describe('一期验收：MVP 闭环 e2e（fake provider）', () => {
 
   it('(b) 创建并激活 kimi/claude 双 profile（provider=e2e-fake）→ loop 动态挂载', async () => {
     for (const name of ['kimi', 'claude'] as const) {
-      const profile = await apiJson<any>('/agent-profiles', postJson({
+      const profile = await apiJson<{ data: any }>('/agent-profiles', postJson({
         name,
         description: 'task executor (e2e)',
         provider: 'e2e-fake',
         status: 'active',
         channels: [channelId],
       }));
-      expect(profile.id).toBeTruthy();
-      expect(profile.status).toBe('active');
-      profiles[name] = profile;
+      expect(profile.data.id).toBeTruthy();
+      expect(profile.data.status).toBe('active');
+      profiles[name] = profile.data;
     }
 
     // F1/F2：mount 是异步的（health probe → loop start）。probe 失败会写 lastError。

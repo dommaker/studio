@@ -202,7 +202,8 @@ describe('#106 全链路 e2e 留存段：三工程 PMO 建项 + 单腿回归', (
       console.error(`[e2e] api log kept at ${apiLogPath}`);
     }
     if (tmpRoot && !process.env.E2E_KEEP_TMP) {
-      rmSync(tmpRoot, { recursive: true, force: true });
+      await sleep(500);
+      rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
     } else if (tmpRoot) {
       console.log(`[e2e] E2E_KEEP_TMP set — keeping ${tmpRoot}`);
     }

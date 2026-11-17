@@ -45,7 +45,125 @@ if (process.argv.includes('--version')) {
 let prompt = '';
 process.stdin.setEncoding('utf-8');
 process.stdin.on('data', (chunk) => { prompt += chunk; });
+
+function streamResult(result, sessionId, isError = false) {
+  if (sessionId && !isError) {
+    process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId }) + '\n');
+  }
+  process.stdout.write(JSON.stringify({
+    type: 'result',
+    subtype: isError ? 'error' : 'success',
+    is_error: isError,
+    result,
+    session_id: sessionId,
+  }) + '\n');
+}
+
+function commitMultiRepoImplementation(task) {
+  writeFileSync(
+    join(process.cwd(), 'hello.js'),
+    `export function hello(name) {\n  return \`hello, \${name}\`;\n}\n`,
+  );
+  writeFileSync(
+    join(process.cwd(), 'hello.test.js'),
+    "import assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { hello } from './hello.js';\ntest('hello', () => assert.equal(hello('Studio'), 'hello, Studio'));\n",
+  );
+  execFileSync('git', ['add', 'hello.js', 'hello.test.js'], { cwd: process.cwd(), stdio: 'pipe' });
+  execFileSync('git', [
+    '-c', 'user.email=e2e-fake@studio.local', '-c', 'user.name=e2e-fake',
+    'commit', '-q', '-m', `e2e fake: implement ${task}`,
+  ], { cwd: process.cwd(), stdio: 'pipe' });
+}
+
+/** #723 专用协议；不匹配时返回 false，保留上方 MVP fake 的原始行为。 */
+function runMultiRepoFlow() {
+  const isMultiRepo = prompt.includes('E2E_MULTI_REPO') || prompt.includes('E2E_TASK_A') || prompt.includes('E2E_TASK_B');
+  const isKnowledgeExtraction = prompt.includes('你是知识提取专家');
+  if (!isMultiRepo && !isKnowledgeExtraction) return false;
+
+  if (isKnowledgeExtraction) {
+    const title = prompt.includes('E2E_IMPL_A') || prompt.includes('请确认继续实现 A')
+      ? 'E2E_IMPL_A_KNOWLEDGE'
+      : prompt.includes('E2E_PLAN_COMPLETE')
+        ? 'E2E_PLAN_KNOWLEDGE'
+        : null;
+    if (title === 'E2E_IMPL_A_KNOWLEDGE') execFileSync('sleep', ['8']);
+    process.stdout.write(JSON.stringify({
+      entries: title ? [{
+        type: 'guideline',
+        title,
+        content: '问题：多仓需求如果把全部实现派到第一仓，会在错误仓库产生提交并丢失交付证据。根因：规划任务没有显式绑定交付腿，后续派生只能猜测仓库。处理：逐任务记录仓库、腿分支和验收标准，确认后再派生实现 WU；每个实现 WU 从对应腿分支建立独立 worktree，只提交本任务文件并运行测试。评审通过后先合并到对应集成腿，再核对 merge receipt 和目标分支验证结果，不能把 agent 自报完成当作交付完成。最后由整体评审核对跨仓接口与证据，按腿分别记录交付 commit；任何一步失败都保留实际 Git 状态，重启后先对账再恢复，避免重复消息、重复评审或重复合并。',
+        tags: ['e2e', 'multi-repo'],
+      }] : [],
+    }) + '\n');
+    return true;
+  }
+
+  if (prompt.includes('整体评审') && prompt.includes('REVIEW_RESULT')) {
+    streamResult('ACTION: COMPLETE: E2E_OVERALL_PASS\nREVIEW_RESULT: {"verdict":"pass","summary":"E2E_OVERALL_PASS","issues":[]}', `cli-overall-${Date.now()}`);
+    return true;
+  }
+
+  if (prompt.includes('REVIEW_RESULT')) {
+    streamResult('ACTION: COMPLETE: E2E_REVIEW_PASS\nREVIEW_RESULT: {"verdict":"pass","summary":"E2E_REVIEW_PASS","issues":[]}', `cli-review-${Date.now()}`);
+    return true;
+  }
+
+  if (prompt.includes('规划需求 PMO-')) {
+    const sessionId = process.argv.includes('--session')
+      ? process.argv[process.argv.indexOf('--session') + 1]
+      : `cli-plan-${Date.now()}`;
+    if (!prompt.includes('## 人类新回复')) {
+      streamResult('ACTION: NEED_INPUT: 请确认按两个指定仓库分别实施。', sessionId);
+      return true;
+    }
+    const legs = [...prompt.matchAll(/^- LEG: (.+?) \| DELIVERY BRANCH: (.+)$/gm)];
+    if (legs.length !== 2) {
+      streamResult('ACTION: NEED_INPUT: 规划输入缺少两个明确交付腿。', sessionId);
+      return true;
+    }
+    const tasks = legs.map((leg, index) => {
+      const task = index === 0 ? 'A' : 'B';
+      return `TASK: E2E_TASK_${task} 实现 ${task} | LEG: ${leg[1]} | AC: ${task} 实现及测试通过 | BLOCKEDBY: none`;
+    });
+    streamResult(`${tasks.join('\n')}\nACTION: COMPLETE: E2E_PLAN_COMPLETE`, sessionId);
+    return true;
+  }
+
+  const task = prompt.includes('E2E_TASK_A') ? 'A' : prompt.includes('E2E_TASK_B') ? 'B' : null;
+  if (!task) return false;
+  const hasHumanReply = prompt.includes('## 人类新回复');
+  const resumedSession = process.argv.includes('--session')
+    ? process.argv[process.argv.indexOf('--session') + 1]
+    : null;
+  if (!hasHumanReply) {
+    streamResult(`ACTION: NEED_INPUT: 请确认继续实现 ${task}。`, resumedSession ?? `cli-task-${task}-${Date.now()}`);
+    return true;
+  }
+
+  if (task === 'A' && resumedSession) {
+    streamResult(`Session not found: ${resumedSession}`, resumedSession, true);
+    return true;
+  }
+
+  try {
+    commitMultiRepoImplementation(task);
+  } catch { /* 重试时提交已存在；完成守卫会核查真实 Git 状态。 */ }
+  const sessionId = `cli-task-${task}-replacement-${Date.now()}`;
+  const commonDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+    cwd: process.cwd(), encoding: 'utf-8',
+  }).trim();
+  const knowledgeSeen = prompt.includes('E2E_PLAN_KNOWLEDGE');
+  const recoverySeen = prompt.includes('## 恢复包');
+  streamResult(
+    `ACTION: COMPLETE: E2E_IMPL_${task} cwd=${process.cwd()} commonDir=${commonDir} cli=${sessionId} PLAN_KB_SEEN=${knowledgeSeen} RECOVERY_SEEN=${recoverySeen}`,
+    sessionId,
+  );
+  return true;
+}
+
 process.stdin.on('end', () => {
+  if (runMultiRepoFlow()) return;
   const hasHumanReply = prompt.includes('## 人类新回复');
 
   if (hasHumanReply) {

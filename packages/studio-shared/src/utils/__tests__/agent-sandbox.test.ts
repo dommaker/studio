@@ -5,6 +5,8 @@ import path from 'node:path';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
+import { execFileSync, spawn } from 'node:child_process';
 import { execSh } from '../process-io';
 import { prepareAgentSandbox, type AgentSandboxHandle } from '../agent-sandbox';
 import { activeAgentServiceIdentityCountForTesting, clearAgentServiceIdentitiesForTesting } from '../agent-identity';
@@ -13,6 +15,17 @@ const hasLinuxSandbox = process.platform === 'linux' && process.getuid?.() === 0
 
 function brokerDirectories(): string[] {
   return fs.readdirSync(os.tmpdir()).filter(entry => entry.startsWith('studio-agent-broker-')).sort();
+}
+
+function runNodeScript(script: string, args: string[] = []): Promise<void> {
+  const tsx = path.resolve(__dirname, '../../../../..', 'node_modules/tsx/dist/cli.mjs');
+  const child = spawn(process.execPath, [tsx, script, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stderr = '';
+  child.stderr.on('data', chunk => { stderr += String(chunk); });
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', code => code === 0 ? resolve() : reject(new Error(`sandbox competitor exited ${code}: ${stderr}`)));
+  });
 }
 
 describe('Linux Agent runner boundary', () => {
@@ -143,6 +156,82 @@ describe('Linux Agent runner boundary', () => {
     }
     expect(fs.statSync(path.join(worktree, 'new-file')).gid).toBe(65534);
   });
+
+  it.skipIf(!hasLinuxSandbox)('mounts a linked worktree common dir and permits scoped Git commits', async () => {
+    const repo = path.join(root, 'repo');
+    const commonDir = path.join(repo, '.git');
+    fs.mkdirSync(repo);
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+    execFileSync('git', ['config', 'user.email', 'e2e@studio.local'], { cwd: repo });
+    execFileSync('git', ['config', 'user.name', 'E2E'], { cwd: repo });
+    fs.writeFileSync(path.join(repo, 'README.md'), 'sandbox\n');
+    execFileSync('git', ['add', 'README.md'], { cwd: repo });
+    execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: repo });
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'task', worktree, 'main'], { cwd: repo });
+    const originalMode = fs.statSync(commonDir).mode & 0o7777;
+
+    handle = await prepareAgentSandbox({
+      command: "git status --short && git -c user.email=e2e@studio.local -c user.name=E2E commit --allow-empty -q -m sandbox",
+      worktree, gitCommonDir: commonDir, provider: 'claude', executionId: 'exec-linked-worktree-sec05', env: { PATH: process.env.PATH }, egress: [],
+    });
+    const other = await prepareAgentSandbox({
+      command: 'true', worktree, gitCommonDir: commonDir, provider: 'claude', executionId: 'exec-linked-worktree-other', env: { PATH: process.env.PATH }, egress: [],
+    });
+    await expect(execSh(handle.command, {
+      cwd: worktree, env: handle.env, inheritProcessEnv: false, timeoutMs: 10_000,
+    })).resolves.toBeDefined();
+    expect(execFileSync('git', ['log', '-1', '--format=%s'], { cwd: worktree, encoding: 'utf-8' }).trim()).toBe('sandbox');
+
+    await handle.dispose();
+    expect(fs.statSync(commonDir).mode & 0o7777).not.toBe(originalMode);
+    await other.dispose();
+    expect(fs.statSync(commonDir).mode & 0o7777).toBe(originalMode);
+
+    const rogue = path.join(root, 'rogue', '.git', 'worktrees', 'worktree');
+    fs.mkdirSync(rogue, { recursive: true });
+    fs.writeFileSync(path.join(worktree, '.git'), `gitdir: ${rogue}\n`);
+    await expect(prepareAgentSandbox({
+      command: 'true', worktree, gitCommonDir: commonDir, provider: 'claude', executionId: 'exec-untrusted-common',
+      env: { PATH: process.env.PATH }, egress: [],
+    })).rejects.toThrow(/common dir/);
+  });
+
+  it.skipIf(!hasLinuxSandbox)('serializes permission snapshots across independent processes', async () => {
+    const repo = path.join(root, 'repo');
+    const commonDir = path.join(repo, '.git');
+    fs.mkdirSync(repo);
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+    execFileSync('git', ['config', 'user.email', 'e2e@studio.local'], { cwd: repo });
+    execFileSync('git', ['config', 'user.name', 'E2E'], { cwd: repo });
+    fs.writeFileSync(path.join(repo, 'README.md'), 'sandbox\n');
+    execFileSync('git', ['add', 'README.md'], { cwd: repo });
+    execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: repo });
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'task', worktree, 'main'], { cwd: repo });
+    const originalMode = fs.statSync(commonDir).mode & 0o7777;
+    const implementation = path.resolve(__dirname, '../agent-sandbox.ts');
+    const competitor = path.join(root, 'competitor.mjs');
+    fs.writeFileSync(competitor, `
+      import { prepareAgentSandbox } from ${JSON.stringify(implementation)};
+      const [worktree, gitCommonDir, executionId] = process.argv.slice(2);
+      const handle = await prepareAgentSandbox({
+        command: 'true', worktree, gitCommonDir, provider: 'claude', executionId,
+        env: { PATH: process.env.PATH }, egress: [],
+      });
+      await new Promise(resolve => setTimeout(resolve, 150));
+      await handle.dispose();
+    `);
+    const controlDir = path.join(os.tmpdir(), 'studio-agent-permissions', createHash('sha256').update(commonDir).digest('hex'));
+    const staleLock = path.join(controlDir, 'lock');
+    fs.mkdirSync(staleLock, { recursive: true });
+    fs.writeFileSync(path.join(staleLock, 'owner.json'), JSON.stringify({ pid: 999_999_999 }));
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(staleLock, old, old);
+    await Promise.all([
+      runNodeScript(competitor, [worktree, commonDir, 'exec-process-a']),
+      runNodeScript(competitor, [worktree, commonDir, 'exec-process-b']),
+    ]);
+    expect(fs.statSync(commonDir).mode & 0o7777).toBe(originalMode);
+  }, 20_000);
 
   it.skipIf(!hasLinuxSandbox)('executes the real provider-hooks harness shim inside the sandbox', async () => {
     const require = createRequire(import.meta.url);

@@ -578,6 +578,18 @@ describe('KnowledgeService Phase 1B: Lifecycle', () => {
       expect(store.update).toHaveBeenCalledWith('e1', expect.objectContaining({ maturity: 'verified' }));
     });
 
+    it('draft 人审通过时清除 low_quality 待审标记，允许浏览与注入', async () => {
+      const entries = [
+        { id: 'e1', title: 'Test', content: 'A'.repeat(60), tags: ['pattern', 'low_quality'], maturity: 'draft', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.update = vi.fn().mockReturnValue(entries[0]);
+
+      await ks.promote('e1');
+
+      expect(store.update).toHaveBeenCalledWith('e1', { maturity: 'verified', tags: ['pattern'] });
+    });
+
     it('promotes verified → proven only with verified successful delivery', async () => {
       const entries = [
         {

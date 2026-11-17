@@ -96,6 +96,7 @@ describe('executeLightweightSession', () => {
   }
 
   function findSpawnCall(): [string, {
+    cwd?: string;
     env?: Record<string, string | undefined>;
     timeoutMs?: number;
     killProcessGroup?: boolean;
@@ -130,6 +131,25 @@ describe('executeLightweightSession', () => {
     // prompt 落盘（含 knowledgeContext 增强位置）
     expect(fs.existsSync(path.join(wsRoot, '.daemon', 'prompt.md'))).toBe(true);
     expect(state.runningProcesses.size).toBe(0);
+  });
+
+  test('capability/链接工作区在构造 CLI 命令前解析为真实路径', async () => {
+    const alias = path.join(os.tmpdir(), `lw-workspace-alias-${process.pid}-${Date.now()}`);
+    fs.symlinkSync(wsRoot, alias, 'dir');
+    try {
+      const result = await executeLightweightSession(state, makeTask({
+        parameters: { workspaceRoot: alias, workUnitId: 'wu-lw-1' },
+      }));
+
+      expect(result.success).toBe(true);
+      expect(result.worktree).toBe(wsRoot);
+      const [cmd, opts] = findSpawnCall();
+      expect(cmd).not.toContain(alias);
+      expect(opts.cwd).toBe(wsRoot);
+      expect(mockPrepareAgentSandbox).toHaveBeenCalledWith(expect.objectContaining({ worktree: wsRoot }));
+    } finally {
+      fs.rmSync(alias, { force: true });
+    }
   });
 
   test('timeoutMs：task.timeoutMs 覆盖优先，缺省回退扁平默认 30min', async () => {

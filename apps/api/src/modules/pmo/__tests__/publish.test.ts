@@ -168,6 +168,27 @@ describe('AC-5: PMO Publish API', () => {
     }));
   });
 
+  it('多仓 plan 使用仓库级 Mandate，允许派生 WU 再收紧到具体腿', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({
+      gitRepo: '/repo-a',
+      deliveries: [
+        { gitRepo: '/repo-a', branch: 'PMO-1-a', status: 'pending' },
+        { gitRepo: '/repo-b', branch: 'PMO-1-b', status: 'pending' },
+      ],
+    }));
+
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    expect(mockWuCreate).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: expect.objectContaining({
+        repositories: [
+          { repo: '/repo-a', leg: null },
+          { repo: '/repo-b', leg: null },
+        ],
+      }),
+    }));
+  });
+
   it('#177：可选 assigneeId 落 plan WU（留空 = 不带该字段，回池涌现）', async () => {
     await publishProject({ projectId: 'proj-1', channelId: 'ch-1', assigneeId: 'profile-7' });
     expect(mockWuCreate).toHaveBeenCalledWith(

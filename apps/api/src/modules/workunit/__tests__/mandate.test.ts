@@ -62,6 +62,18 @@ describe('WorkUnit Mandate 授权', () => {
     expect((await service.getById(created.id))?.mandate).toEqual(created.mandate);
   });
 
+  it('普通新 WU 在认领前按仓库授权，不把未来 baseBranch 当成当前腿', async () => {
+    const created = await service.create({
+      scope: '普通实现任务',
+      status: 'unassigned',
+      metadata: { workspaceRoot: '/repo/studio', worktreeBaseBranch: 'main' },
+      authorization: { requestedBy: operator, source: { kind: 'api' } },
+    });
+
+    expect(created.mandate?.repositories).toEqual([{ repo: '/repo/studio', leg: null }]);
+    await expect(service.claim(created.id, 'agent-1')).resolves.toMatchObject({ status: 'active' });
+  });
+
   it('派生 WU 继承原请求人与范围，显式越仓会被拒绝', async () => {
     const parent = await service.create({
       scope: '父任务',
