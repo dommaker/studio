@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,6 +14,7 @@ let root: string;
 let store: FileStore;
 let service: WorkUnitService;
 let projects: Map<string, ProjectData>;
+let recordLearningOutcome: ReturnType<typeof vi.fn>;
 
 const profiles: AgentProfileData[] = ['implementer-a', 'implementer-b', 'reviewer'].map(id => ({
   id, name: id, description: id, channels: '[]', status: 'active', provider: 'claude',
@@ -64,6 +65,7 @@ function candidateService(): CandidateReviewService {
       projects.set(id, updated);
       return updated;
     },
+    recordLearningOutcome,
   });
 }
 
@@ -72,6 +74,7 @@ beforeEach(async () => {
   store = new FileStore(path.join(root, 'data'));
   service = new WorkUnitService(store);
   projects = new Map();
+  recordLearningOutcome = vi.fn().mockResolvedValue(undefined);
   for (const profile of profiles) await store.createProfile(profile);
   await store.createChannel({
     id: 'ch-1', name: '#test', type: 'rnd', defaultWorkspaceId: null, defaultPath: null,
@@ -198,7 +201,7 @@ describe('PMO 候选整体评审（#720）', () => {
       { gitRepo: a.repo, branch: 'PMO-1' }, { gitRepo: b.repo, branch: 'PMO-1' },
     ]);
     projects.set(current.id, current);
-    await service.create({
+    const anchor = await service.create({
       type: 'plan', scope: '规划', status: 'done', channelId: 'ch-1', reqId: 'REQ-0001',
       metadata: { pmoId: current.id },
       authorization: {
@@ -206,11 +209,13 @@ describe('PMO 候选整体评审（#720）', () => {
         repositories: [a.repo, b.repo].map(repo => ({ repo, leg: 'PMO-1' })),
       },
     });
+    const implementationIds: string[] = [];
     for (const repo of [a.repo, b.repo]) {
-      await service.create({
+      const implementation = await service.create({
         type: 'task', scope: '实现', status: 'done', channelId: 'ch-1', reqId: 'REQ-0001', assigneeId: 'implementer-a',
         metadata: { pmoId: current.id, workspaceRoot: repo, pmoBranch: 'PMO-1' },
       });
+      implementationIds.push(implementation.id);
     }
     const reviewService = candidateService();
     const first = await reviewService.ensureReview(current, await store.getIndex());
@@ -220,6 +225,12 @@ describe('PMO 候选整体评审（#720）', () => {
     });
 
     expect(rejected.status).toBe('rejected');
+    expect(recordLearningOutcome).toHaveBeenCalledWith(anchor.id, {
+      eventId: `pmo-review-rejected:${current.id}:${first.candidate.id}`,
+      kind: 'pmo-review-rejected',
+      workUnitIds: expect.arrayContaining([anchor.id, ...implementationIds]),
+    });
+    expect(recordLearningOutcome.mock.calls[0][1].workUnitIds).toHaveLength(3);
     const repairs = (await store.getIndex()).filter(wu => parseWuMetadata(wu.metadata).pmoCandidateRepair);
     expect(repairs).toHaveLength(2);
     expect(repairs.map(wu => parseWuMetadata(wu.metadata).workspaceRoot).sort()).toEqual([a.repo, b.repo].sort());

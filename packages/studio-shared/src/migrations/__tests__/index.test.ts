@@ -67,11 +67,11 @@ describe('数据区默认迁移链', () => {
     const root = mkRoot();
     const result = await runMigrations(root);
     expect(result.fromVersion).toBe(0);
-    expect(result.toVersion).toBe(8);
-    expect(result.applied).toEqual(['v1-empty-manifest', 'v2-webhook-replay-ledger', 'v3-workunit-current-projection', 'v4-read-model-projections', 'v5-delivery-leg-locks', 'v6-effect-receipts', 'v7-role-memory-maintenance', 'v8-pmo-candidate-review']);
-    expect(readManifest(root).schemaVersion).toBe(8);
-    expect(CURRENT_SCHEMA_VERSION).toBe(8);
-    expect(MIGRATIONS).toHaveLength(8);
+    expect(result.toVersion).toBe(9);
+    expect(result.applied).toEqual(['v1-empty-manifest', 'v2-webhook-replay-ledger', 'v3-workunit-current-projection', 'v4-read-model-projections', 'v5-delivery-leg-locks', 'v6-effect-receipts', 'v7-role-memory-maintenance', 'v8-pmo-candidate-review', 'v9-knowledge-outcomes']);
+    expect(readManifest(root).schemaVersion).toBe(9);
+    expect(CURRENT_SCHEMA_VERSION).toBe(9);
+    expect(MIGRATIONS).toHaveLength(9);
     const ledger = path.join(root, 'data', 'webhook-replays.json');
     expect(JSON.parse(fs.readFileSync(ledger, 'utf8'))).toEqual({ version: 1, entries: {} });
     expect(fs.statSync(ledger).mode & 0o777).toBe(0o600);
@@ -90,8 +90,8 @@ describe('数据区默认迁移链', () => {
     expect(second.applied).toEqual([]);
     expect(second.skipped).toEqual([]);
     expect(second.backupPaths).toEqual([]);
-    expect(second.fromVersion).toBe(8);
-    expect(second.toVersion).toBe(8);
+    expect(second.fromVersion).toBe(9);
+    expect(second.toVersion).toBe(9);
     expect(fs.readFileSync(manifestPath(root), 'utf-8')).toBe(before);
     expect(rootEntries(root)).toEqual(entriesBefore);
   });
@@ -115,9 +115,9 @@ describe('数据区默认迁移链', () => {
 });
 
 describe('失败拒启 + 备份（契约 §5 四性质）', () => {
-  const failingV8: Migration = {
-    version: 9,
-    name: 'v9-boom',
+  const failingV10: Migration = {
+    version: 10,
+    name: 'v10-boom',
     isApplied: () => false,
     apply: async () => {
       throw new Error('boom');
@@ -143,9 +143,9 @@ describe('失败拒启 + 备份（契约 §5 四性质）', () => {
     seedV1Area(root);
     await runMigrations(root);
 
-    const err = await runMigrations(root, { migrations: [...MIGRATIONS, failingV8] }).catch((e) => e);
+    const err = await runMigrations(root, { migrations: [...MIGRATIONS, failingV10] }).catch((e) => e);
     expect(err).toBeInstanceOf(MigrationError);
-    expect(err.message).toContain('v9-boom');
+    expect(err.message).toContain('v10-boom');
     expect(err.message).toContain('boom');
     expect(err.message).toContain('回滚');
     expect(err.backupPaths.length).toBeGreaterThan(0);
@@ -154,7 +154,7 @@ describe('失败拒启 + 备份（契约 §5 四性质）', () => {
       expect(err.message).toContain(p);
     }
     // 不留半迁移态：manifest 仍是当前版本
-    expect(readManifest(root).schemaVersion).toBe(8);
+    expect(readManifest(root).schemaVersion).toBe(9);
   });
 
   it('备份范围：只备 data/ 与根级 JSON/jsonl；logs/、worktrees/、既有 .bak-* 不备', async () => {
@@ -193,44 +193,44 @@ describe('幂等 / 可重入', () => {
     await runMigrations(root);
 
     let applyCalls = 0;
-    const markerV8: Migration = {
-      version: 9,
-      name: 'v9-marker',
-      isApplied: (rootDir) => fs.existsSync(path.join(rootDir, 'data', 'v9-marker')),
+    const markerV10: Migration = {
+      version: 10,
+      name: 'v10-marker',
+      isApplied: (rootDir) => fs.existsSync(path.join(rootDir, 'data', 'v10-marker')),
       apply: async (rootDir) => {
         applyCalls++;
-        fs.writeFileSync(path.join(rootDir, 'data', 'v9-marker'), '1');
+        fs.writeFileSync(path.join(rootDir, 'data', 'v10-marker'), '1');
       },
     };
 
-    // 模拟中断现场：v9 的 apply 效果已落盘，manifest 仍是 v7
-    fs.writeFileSync(path.join(root, 'data', 'v9-marker'), '1');
+    // 模拟中断现场：v10 的 apply 效果已落盘，manifest 仍是当前版本
+    fs.writeFileSync(path.join(root, 'data', 'v10-marker'), '1');
 
-    const result = await runMigrations(root, { migrations: [...MIGRATIONS, markerV8] });
+    const result = await runMigrations(root, { migrations: [...MIGRATIONS, markerV10] });
     expect(applyCalls).toBe(0); // 探针命中，不重复执行
-    expect(result.skipped).toEqual(['v9-marker']);
+    expect(result.skipped).toEqual(['v10-marker']);
     expect(result.applied).toEqual([]);
-    expect(readManifest(root).schemaVersion).toBe(9);
+    expect(readManifest(root).schemaVersion).toBe(10);
   });
 
   it('正常执行新迁移：apply 恰执行一次，重复运行整体 no-op', async () => {
     const root = mkRoot();
     let applyCalls = 0;
-    const markerV8: Migration = {
-      version: 9,
-      name: 'v9-marker',
-      isApplied: (rootDir) => fs.existsSync(path.join(rootDir, 'data', 'v9-marker')),
+    const markerV10: Migration = {
+      version: 10,
+      name: 'v10-marker',
+      isApplied: (rootDir) => fs.existsSync(path.join(rootDir, 'data', 'v10-marker')),
       apply: async (rootDir) => {
         applyCalls++;
-        fs.writeFileSync(path.join(rootDir, 'data', 'v9-marker'), '1');
+        fs.writeFileSync(path.join(rootDir, 'data', 'v10-marker'), '1');
       },
     };
-    const chain = [...MIGRATIONS, markerV8];
+    const chain = [...MIGRATIONS, markerV10];
 
     const first = await runMigrations(root, { migrations: chain });
-    expect(first.applied).toEqual(['v1-empty-manifest', 'v2-webhook-replay-ledger', 'v3-workunit-current-projection', 'v4-read-model-projections', 'v5-delivery-leg-locks', 'v6-effect-receipts', 'v7-role-memory-maintenance', 'v8-pmo-candidate-review', 'v9-marker']);
+    expect(first.applied).toEqual(['v1-empty-manifest', 'v2-webhook-replay-ledger', 'v3-workunit-current-projection', 'v4-read-model-projections', 'v5-delivery-leg-locks', 'v6-effect-receipts', 'v7-role-memory-maintenance', 'v8-pmo-candidate-review', 'v9-knowledge-outcomes', 'v10-marker']);
     expect(applyCalls).toBe(1);
-    expect(readManifest(root).schemaVersion).toBe(9);
+    expect(readManifest(root).schemaVersion).toBe(10);
 
     const second = await runMigrations(root, { migrations: chain });
     expect(second.applied).toEqual([]);

@@ -6,12 +6,17 @@ import { FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../../workunit/index.js';
 import { appendTranscriptStep, finalizeTranscriptAssignment, transcriptPath } from '../../transcripts/index.js';
 
-const { mockExtractFromConversation } = vi.hoisted(() => ({
+const { mockExtractFromConversation, mockReconcileCompleted } = vi.hoisted(() => ({
   mockExtractFromConversation: vi.fn().mockResolvedValue(undefined),
+  mockReconcileCompleted: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../knowledge-service', () => ({
   knowledgePorts: { produce: { extractFromConversation: mockExtractFromConversation } },
+}));
+
+vi.mock('../knowledge-outcome-effects', () => ({
+  getKnowledgeOutcomeEffects: () => ({ reconcileCompleted: mockReconcileCompleted }),
 }));
 
 import { KnowledgeExtractionEffects, knowledgeExtractionIdempotencyKey } from '../knowledge-extraction-effects';
@@ -62,6 +67,7 @@ describe('KnowledgeExtractionEffects', () => {
     ], expect.objectContaining({ workUnitId: wu.id, assignmentId: 'assignment-1' }));
     const snapshot = (await fileStore.getIndex({ id: wu.id }))[0];
     expect(snapshot?.effects?.find(effect => effect.idempotencyKey === knowledgeExtractionIdempotencyKey(wu.id, 'assignment-1'))?.status).toBe('succeeded');
+    expect(mockReconcileCompleted).toHaveBeenCalled();
     fs.rmSync(transcriptPath(wu.id), { force: true });
   });
 

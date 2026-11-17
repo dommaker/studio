@@ -11,6 +11,7 @@ vi.mock('../../modules/agent-loop/index.js', () => ({
 }));
 vi.mock('../../modules/knowledge/index.js', () => ({
   getKnowledgeExtractionEffects: () => ({ recoverPending: async () => { calls.push('knowledge-extraction-recovery'); } }),
+  getKnowledgeOutcomeEffects: () => ({ recoverPending: async () => { calls.push('knowledge-outcome-recovery'); } }),
 }));
 vi.mock('../../modules/events/workunit-events-bridge.js', () => ({
   initWorkunitEventsBridge: () => calls.push('workunit-events-bridge'),
@@ -61,10 +62,11 @@ beforeEach(() => {
 });
 
 describe('initEventSubscriptions', () => {
-  it('按原 index.ts 顺序初始化全部 16 项订阅', async () => {
+  it('按原 index.ts 顺序初始化全部 17 项订阅', async () => {
     await initEventSubscriptions();
     expect(calls).toEqual([
       'knowledge-extraction-recovery',
+      'knowledge-outcome-recovery',
       'review-dispatcher',
       'workunit-events-bridge',
       'lock-events-bridge',

@@ -98,6 +98,7 @@ function makeDeps(input: {
     sumTokens: input.sumTokens ?? (async () => 0),
     withRepo: async <T>(repo: string, callback: (capabilityPath: string) => Promise<T>): Promise<T> => callback(repo),
     withLegLock: async <T>(_repo: string, _branch: string, callback: () => Promise<T>): Promise<T> => callback(),
+    recordLearningOutcome: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -296,11 +297,25 @@ describe('deliverProject（PMO-b 交付守卫）', () => {
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
-  it('auto-merge 缺证据 → not-ready 硬拒（附缺口）', async () => {
+  it('auto-merge 缺证据 → not-ready 硬拒（附缺口），不误报交付失败', async () => {
     const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge' }), snapshots: [wu({ metadataObj: {} })] });
     const r = await deliverProject('proj-1', 'Alice', undefined, deps);
     expect(r).toMatchObject({ delivered: false, reason: 'not-ready' });
     expect(mockExecSh).not.toHaveBeenCalled();
+    expect(deps.recordLearningOutcome).not.toHaveBeenCalled();
+  });
+
+  it('auto-merge 缺仓库 → no-repo 并回写受影响工作', async () => {
+    const ready = readyWu();
+    const deps = makeDeps({
+      project: project({ deliveryPolicy: 'auto-merge', gitRepo: null }),
+      snapshots: [ready],
+    });
+    const r = await deliverProject('proj-1', 'Alice', undefined, deps);
+    expect(r).toMatchObject({ delivered: false, reason: 'no-repo' });
+    expect(deps.recordLearningOutcome).toHaveBeenCalledWith(ready.id, expect.objectContaining({
+      kind: 'delivery-failed', workUnitIds: [ready.id],
+    }));
   });
 
   it('代码 WU Mandate 撤销 → 交付交回授权，零 Git/台账写入', async () => {
@@ -435,9 +450,34 @@ describe('deliverProject（PMO-b 交付守卫）', () => {
       if (cmd.includes('diff-filter=U')) return { stdout: 'a.ts\nb.ts\n', stderr: '' };
       return { stdout: '', stderr: '' };
     });
-    const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge' }), snapshots: [readyWu()] });
+    const ready = readyWu();
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge' }), snapshots: [ready] });
     const r = await deliverProject('proj-1', 'Alice', undefined, deps);
     expect(r).toMatchObject({ delivered: false, reason: 'conflict', conflictFiles: ['a.ts', 'b.ts'] });
+    expect(deps.recordLearningOutcome).toHaveBeenCalledWith(ready.id, {
+      eventId: expect.stringContaining('delivery-failed:proj-1:conflict:PMO-11:'),
+      kind: 'delivery-failed',
+      workUnitIds: [ready.id],
+    });
+  });
+
+  it('同 WU 集合的新候选 head 再次冲突时使用不同失败事件身份', async () => {
+    let sourceHead = 'a'.repeat(40);
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('abbrev-ref')) return { stdout: 'master\n', stderr: '' };
+      if (cmd.includes('rev-parse --verify')) return { stdout: `${sourceHead}\n`, stderr: '' };
+      if (cmd.includes('merge --no-ff')) throw new Error('CONFLICT (content): Merge conflict in a.ts');
+      return { stdout: '', stderr: '' };
+    });
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge' }), snapshots: [readyWu()] });
+
+    await deliverProject('proj-1', 'Alice', undefined, deps);
+    sourceHead = 'b'.repeat(40);
+    await deliverProject('proj-1', 'Alice', undefined, deps);
+
+    const eventIds = deps.recordLearningOutcome.mock.calls.map(call => call[1].eventId);
+    expect(eventIds).toHaveLength(2);
+    expect(eventIds[0]).not.toBe(eventIds[1]);
   });
 
   it('#469：deliver 成功 → 频道播报（pmoNumber + commit 短哈希 + 腿数 + 操作人），meta 带 pmoId/atHuman', async () => {

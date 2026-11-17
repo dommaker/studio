@@ -101,6 +101,7 @@ function makeDeps(input: {
     sumTokens: async () => 0,
     withRepo: async <T>(repo: string, callback: (capabilityPath: string) => Promise<T>): Promise<T> => callback(repo),
     withLegLock: async <T>(_repo: string, _branch: string, callback: () => Promise<T>): Promise<T> => callback(),
+    recordLearningOutcome: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -250,7 +251,10 @@ describe('deliverProject 多腿 auto-merge（#113 T7）', () => {
       if (cmd.includes('rev-parse HEAD')) return { stdout: 'aaaa\n', stderr: '' };
       return { stdout: '', stderr: '' };
     });
-    const deps = makeDeps({ project: autoProject(), snapshots: [readyA(), readyB()] });
+    const a = readyA();
+    const b = readyB();
+    const shared = wu({ metadataObj: { ...fullEvidence } });
+    const deps = makeDeps({ project: autoProject(), snapshots: [a, b, shared] });
     const r = await deliverProject('proj-1', 'Alice', undefined, deps);
 
     expect(r.delivered).toBe(false);
@@ -259,6 +263,12 @@ describe('deliverProject 多腿 auto-merge（#113 T7）', () => {
       expect.objectContaining({ branch: 'PMO-11-a', delivered: true, deliverCommit: 'aaaa' }),
       expect.objectContaining({ branch: 'PMO-11-b', delivered: false, reason: 'conflict', conflictFiles: ['b.ts'] }),
     ]);
+    expect(deps.recordLearningOutcome).toHaveBeenCalledTimes(1);
+    expect(deps.recordLearningOutcome).toHaveBeenCalledWith(b.id, {
+      eventId: expect.stringContaining('delivery-failed:proj-1:conflict:PMO-11-b:'),
+      kind: 'delivery-failed',
+      workUnitIds: [b.id, shared.id],
+    });
     // 成功的腿独立落档 delivered，失败的腿保持原状态；项目级 deliveredAt 不写
     const patch = deps.updateProject.mock.calls[0][1] as Record<string, unknown>;
     expect(patch.deliveries).toEqual([
@@ -334,7 +344,7 @@ describe('deliverProject 多腿 auto-merge（#113 T7）', () => {
       let calls = 0;
       mockExecSh.mockImplementation(async (cmd: string, opts: { cwd: string }) => {
         calls += 1;
-        if (calls === 4) {
+        if (calls === 5) {
           fs.renameSync(repoB, originalB);
           fs.symlinkSync(outside, repoB);
           fs.writeFileSync(path.join(opts.cwd, 'capability-marker'), 'safe');
