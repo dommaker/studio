@@ -261,6 +261,24 @@ describe('ProjectService — FileStore 迁移', () => {
       // 兼容字段：gitRepo 取首工程（归属链 workspaceRoot 等单仓库消费方不受影响）
       expect(result.gitRepo).toBe('/repos/app');
       expect(result.gitBranch).toBe('PMO-1');
+      expect(result.overallReviewRequired).toBe(true);
+    });
+
+    it('#720：新多腿默认整体评审，单腿与显式关闭保持旧策略', async () => {
+      mockReadDir.mockResolvedValue([]);
+      mockReadJson.mockResolvedValue(null);
+
+      const single = await projectService.create({ title: '单腿', gitRepos: ['/repos/app'] });
+      const disabled = await projectService.create({
+        title: '多腿关闭', gitRepos: ['/repos/app', '/repos/lib'], overallReviewRequired: false,
+      });
+      const enabled = await projectService.create({
+        title: '单腿开启', gitRepo: '/repos/app', overallReviewRequired: true,
+      });
+
+      expect(single.overallReviewRequired).toBe(false);
+      expect(disabled.overallReviewRequired).toBe(false);
+      expect(enabled.overallReviewRequired).toBe(true);
     });
 
     it('#114：gitRepos 单工程 → 同样落一条显式腿；显式 gitBranch 覆盖全腿分支名', async () => {

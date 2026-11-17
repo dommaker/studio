@@ -34,6 +34,7 @@ import {
   publishProjectBodySchema,
   parsePmoCommandBodySchema,
   markDeliveredBodySchema,
+  candidateReviewBodySchema,
   createOkrBodySchema,
   updateOkrBodySchema,
   projectListResponseSchema,
@@ -211,9 +212,18 @@ describe('请求 schema', () => {
     expect(updateProjectBodySchema.parse({ status: 'active', 任意键: 1 })).toEqual({ status: 'active', 任意键: 1 });
     expect(updateProjectBodySchema.safeParse({ progress: '60' }).success).toBe(false);
     expect(updateProjectBodySchema.parse({ map: null })).toEqual({ map: null });
-    for (const key of ['deliveredAt', 'deliveredBy', 'deliverCommit']) {
+    for (const key of ['deliveredAt', 'deliveredBy', 'deliverCommit', 'candidateReview']) {
       expect(updateProjectBodySchema.safeParse({ [key]: 'forged' }).success).toBe(false);
     }
+  });
+
+  it('#720 candidate review body：只允许 pass/reject，修复 issue 必须带明确 message', () => {
+    expect(candidateReviewBodySchema.parse({ verdict: 'pass' })).toEqual({ verdict: 'pass' });
+    expect(candidateReviewBodySchema.parse({
+      verdict: 'reject', issues: [{ message: '统一接口', leg: 'PMO-1-a' }],
+    })).toEqual({ verdict: 'reject', issues: [{ message: '统一接口', leg: 'PMO-1-a' }] });
+    expect(candidateReviewBodySchema.safeParse({ verdict: 'needs-info' }).success).toBe(false);
+    expect(candidateReviewBodySchema.safeParse({ verdict: 'reject', issues: [{ leg: 'PMO-1-a' }] }).success).toBe(false);
   });
 
   it('gitBranch：严格拒绝危险 ref 与 option injection，接受正常分支', () => {

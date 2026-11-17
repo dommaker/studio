@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { getDeliveryStatus, deliverProject } from '../delivery.js';
+import { getDeliveryStatus, deliverProject, markProjectDelivered } from '../delivery.js';
 import type { ProjectData } from '../project.service.js';
 
 const { mockExecSh, mockExecFile, mockGetDefaultBranch } = vi.hoisted(() => ({
@@ -354,5 +354,63 @@ describe('deliverProject 多腿 auto-merge（#113 T7）', () => {
       else process.env.PMO_GIT_REPO_ROOTS = oldRoots;
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('#720 整体评审最终交付门禁', () => {
+  const readyA = () => wu({ metadataObj: { workspaceRoot: '/repo/a', ...fullEvidence } });
+  const readyB = () => wu({ metadataObj: { workspaceRoot: '/repo/b', ...fullEvidence } });
+  const candidate = { id: 'candidate-1', legs: [], implementerIds: [] };
+
+  it('候选未批准时阻塞 auto-merge，批准后才允许逐腿交付', async () => {
+    let reviewStatus: 'pending' | 'approved' = 'pending';
+    const reviewGate = {
+      getReviewStatus: vi.fn(async () => ({ candidate, status: reviewStatus })),
+      ensureReview: vi.fn(async () => ({ candidate, status: reviewStatus })),
+    };
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('abbrev-ref')) return { stdout: 'master\n', stderr: '' };
+      if (cmd.includes('rev-parse HEAD')) return { stdout: 'aaaa\n', stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const deps = {
+      ...makeDeps({
+        project: project({ deliveryPolicy: 'auto-merge', overallReviewRequired: true, deliveries: TWO_LEGS }),
+        snapshots: [readyA(), readyB()],
+      }),
+      reviewGate,
+    };
+
+    const status = await getDeliveryStatus('proj-1', undefined, deps);
+    expect(status!.deliverable).toBe(false);
+    expect(status!.missing).toContain('整体评审尚未通过');
+    const blocked = await deliverProject('proj-1', 'Alice', undefined, deps);
+    expect(blocked).toMatchObject({ delivered: false, reason: 'not-ready' });
+    expect(reviewGate.ensureReview).toHaveBeenCalledOnce();
+    expect(mockExecSh).not.toHaveBeenCalled();
+
+    reviewStatus = 'approved';
+    const delivered = await deliverProject('proj-1', 'Alice', undefined, deps);
+    expect(delivered.delivered).toBe(true);
+  });
+
+  it('branch-only 人工落档同样拒绝未批准候选', async () => {
+    const reviewGate = {
+      getReviewStatus: vi.fn(async () => ({ candidate, status: 'pending' as const })),
+      ensureReview: vi.fn(async () => ({ candidate, status: 'pending' as const })),
+    };
+    const deps = {
+      ...makeDeps({
+        project: project({ deliveryPolicy: 'branch-only', overallReviewRequired: true, deliveries: TWO_LEGS }),
+        snapshots: [readyA(), readyB()],
+      }),
+      reviewGate,
+    };
+
+    const outcome = await markProjectDelivered('proj-1', 'Alice', 'external-commit', undefined, deps);
+
+    expect(outcome).toMatchObject({ marked: false, reason: 'not-ready' });
+    expect(reviewGate.ensureReview).toHaveBeenCalledOnce();
+    expect(deps.updateProject).not.toHaveBeenCalled();
   });
 });

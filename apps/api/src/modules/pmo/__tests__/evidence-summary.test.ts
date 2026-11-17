@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { parseWuMetaPmoId, selectProjectSnapshots, summarizeEvidence } from '../evidence-summary.js';
+import { parseWuMetaPmoId, partitionSnapshotsByLeg, selectProjectSnapshots, summarizeEvidence } from '../evidence-summary.js';
 
 let seq = 0;
 function wu(overrides: Partial<WorkUnitSnapshot> & { metadataObj?: Record<string, unknown> }): WorkUnitSnapshot {
@@ -78,9 +78,36 @@ describe('selectProjectSnapshots', () => {
     expect(selectProjectSnapshots('proj-1', reqs, [orphan]).map(x => x.id)).toEqual([orphan.id]);
   });
 
+  it('#720 整体评审 WU 保留 REQ/PMO 血缘但不计入实现证据', () => {
+    const implementation = wu({ metadataObj: fullEvidence });
+    const review = wu({
+      type: 'review', status: 'unassigned',
+      metadataObj: { pmoId: 'proj-1', pmoCandidateReview: { projectId: 'proj-1', candidate: { id: 'candidate-1' } } },
+    });
+    const selected = selectProjectSnapshots('proj-1', [{ id: 'REQ-1', projectId: 'proj-1' }], [implementation, review]);
+    expect(selected.map(item => item.id)).toEqual([implementation.id]);
+  });
+
   it('两种口径都无命中 → 空', () => {
     const other = wu({ reqId: 'REQ-9' });
     expect(selectProjectSnapshots('proj-1', [], [other])).toEqual([]);
+  });
+});
+
+describe('partitionSnapshotsByLeg', () => {
+  it('#720 多仓共用同名分支时优先按 repo 分腿，不把所有任务错归首腿', () => {
+    const a = wu({ metadataObj: { workspaceRoot: '/repo/a', pmoBranch: 'PMO-1' } });
+    const b = wu({ metadataObj: { workspaceRoot: '/repo/b', pmoBranch: 'PMO-1' } });
+    const shared = wu({ metadataObj: { pmoBranch: 'PMO-1' } });
+    const legs = [
+      { gitRepo: '/repo/a', branch: 'PMO-1', status: 'pending' as const },
+      { gitRepo: '/repo/b', branch: 'PMO-1', status: 'pending' as const },
+    ];
+
+    const partitioned = partitionSnapshotsByLeg(legs, [a, b, shared]);
+
+    expect(partitioned.perLeg.map(items => items.map(item => item.id))).toEqual([[a.id], [b.id]]);
+    expect(partitioned.shared.map(item => item.id)).toEqual([shared.id]);
   });
 });
 

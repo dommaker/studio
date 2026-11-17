@@ -217,6 +217,21 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
     expect(ids).toContain(selfReviewFallback.id);
   });
 
+  it('#720 整体评审 excludeAssignees 排除任一实现者，其他 reviewer 仍可见', async () => {
+    const excluded = await wuService.create({
+      scope: '多仓整体评审', channelId: MY_CHANNEL, type: 'review', status: 'unassigned', assigneeId: null,
+      metadata: { excludeAssignees: [SELF_ROLE_ID, 'implementer-b'] },
+    });
+    const independent = await wuService.create({
+      scope: '另一整体评审', channelId: MY_CHANNEL, type: 'review', status: 'unassigned', assigneeId: null,
+      metadata: { excludeAssignees: ['implementer-a', 'implementer-b'] },
+    });
+
+    const ids = (await observe()).unassigned.map(w => w.id);
+    expect(ids).not.toContain(excluded.id);
+    expect(ids).toContain(independent.id);
+  });
+
   it('(e) myActive 作用域：仅拾取 assigneeId === 本实例 id 的 active/blocked WorkUnit', async () => {
     const mine = await wuService.create({
       scope: '我的进行中任务', channelId: MY_CHANNEL, type: 'task',

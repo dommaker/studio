@@ -34,6 +34,11 @@ describe('harvestCompletionMetadata', () => {
         expected: { reviewReport: { approved: false, reason: '缺测试', issues: undefined } },
       },
       {
+        name: '#720 reject issue 保留交付腿，供修复 WU 精确分腿',
+        text: 'REVIEW_RESULT: {"verdict":"reject","issues":[{"severity":"error","message":"接口不一致","leg":"PMO-1-a"}]}',
+        expected: { reviewReport: { approved: false, reason: undefined, issues: [{ severity: 'error', message: '接口不一致', leg: 'PMO-1-a' }] } },
+      },
+      {
         name: '无 REVIEW_RESULT 且无 verdict 关键词 → 空（转人工，不误拒）',
         text: '随便一段没有结论的输出',
         expected: {},
