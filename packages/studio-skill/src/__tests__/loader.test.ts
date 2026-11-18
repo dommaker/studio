@@ -8,13 +8,18 @@ vi.hoisted(() => {
   process.env.SKILLS_DIR = '/tmp/test-home/.studio/skills';
 });
 
-vi.mock('fs', () => ({
-  default: {
-    existsSync: vi.fn().mockReturnValue(false),
-    readFileSync: vi.fn(),
-    readdirSync: vi.fn().mockReturnValue([]),
-  },
-}));
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    default: {
+      ...(actual as unknown as { default?: object }).default ?? actual,
+      existsSync: vi.fn().mockReturnValue(false),
+      readFileSync: vi.fn(),
+      readdirSync: vi.fn().mockReturnValue([]),
+    },
+  };
+});
 
 vi.mock('os', () => ({
   default: {

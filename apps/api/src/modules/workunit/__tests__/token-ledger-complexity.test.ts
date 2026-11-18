@@ -139,13 +139,15 @@ describe('PERF-01 token ledger 写侧复杂度', () => {
         const appendedThisWrite = fs.statSync(eventsFile).size - before;
         appendedBytes += appendedThisWrite;
         const readThisWrite = reads.bytes() - previousReadBytes;
-        expect(readThisWrite).toBeLessThanOrEqual(appendedThisWrite);
+        // appendJsonl 的端点完整性探测每写固定读 1 字节（崩溃半行补换行守卫，O(1) 常量）；
+        // 事件内容读取（direct-apply 校验）仍须不超过新增字节
+        expect(readThisWrite).toBeLessThanOrEqual(appendedThisWrite + 1);
         expect(reads.parsedLines()).toBe(0);
         previousReadBytes = reads.bytes();
       }
       histogram.disable();
       diagnostics(history, reads.bytes(), reads.parsedLines(), locks.waits, histogram);
-      expect(reads.bytes()).toBeLessThanOrEqual(appendedBytes);
+      expect(reads.bytes()).toBeLessThanOrEqual(appendedBytes + 100); // 同上：每写 1 字节端点探测
       expect(reads.parsedLines()).toBe(0);
     } finally {
       histogram.disable();

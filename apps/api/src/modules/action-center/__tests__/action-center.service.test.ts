@@ -215,7 +215,8 @@ describe('ActionCenterService（#468）', () => {
       expect(targetCalls()).toBe(2);
     });
 
-    it('PERF-07：waitingMessageCache 有界且完结清理，不影响全部 stateItems', async () => {
+    // 70 个 WU 建单 + 69 个 close + 两轮全量派生：本机 ~7s，5s 默认超时不够
+    it('PERF-07：waitingMessageCache 有界且完结清理，不影响全部 stateItems', { timeout: 30_000 }, async () => {
       const fileStore = new FileStore();
       const wuService = new WorkUnitService(fileStore);
       const service = new ActionCenterService(fileStore);

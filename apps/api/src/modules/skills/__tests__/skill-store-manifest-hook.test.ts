@@ -7,15 +7,17 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('fs', () => {
   const store = new Map<string, string>();
-  return {
+  const api = {
     existsSync: vi.fn((p: string) => store.has(p)),
     readFileSync: vi.fn((p: string) => store.get(p) || '[]'),
     writeFileSync: vi.fn((p: string, data: string) => { store.set(p, data); }),
     mkdirSync: vi.fn(),
     rmSync: vi.fn(),
+    constants: { O_RDONLY: 0, O_DIRECTORY: 0 },
     __store: store,
     __reset: () => store.clear(),
   };
+  return { ...api, default: api };
 });
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {

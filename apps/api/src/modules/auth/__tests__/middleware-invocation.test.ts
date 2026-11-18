@@ -66,7 +66,8 @@ describe('middleware-invocation', () => {
 
       // findSessionWithUser: sessions.json（数组）→ users.json（数组）
       mockReadJson.mockResolvedValueOnce([{ id: 's1', userId: 'u1', expiresAt: new Date(Date.now() + 86400000).toISOString() }]);
-      mockReadJson.mockResolvedValueOnce([{ id: 'u1', email: 'test@test.com', role: 'User' }]);
+      // requireAuth 只放行 Operator（role=Admin）Principal，legacy User 会话一律 revoked
+      mockReadJson.mockResolvedValueOnce([{ id: 'u1', email: 'test@test.com', role: 'Admin' }]);
 
       await middleware(req, res, next);
 
@@ -119,7 +120,7 @@ describe('middleware-invocation', () => {
         headers: { authorization: 'Bearer test-token' },
         socket: { remoteAddress: '127.0.0.1' },
         session: { id: 's1', userId: 'u1' },
-        user: { id: 'u1', role: 'Admin' },
+        user: { id: 'u1', role: 'Admin', actorType: 'Operator' },
       } as unknown as Request;
       const res = {
         status: vi.fn().mockReturnThis(),

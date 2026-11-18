@@ -139,8 +139,14 @@ describe('channel routes（#272）：创建默认工程 + current-pmo 端点', (
   let server: Server;
   let baseUrl: string;
 
+  const OLD_REPO_ROOTS = process.env.PMO_GIT_REPO_ROOTS;
+  const pickedRepo = path.join(tmpDir, 'repos', 'picked');
+
   beforeAll(async () => {
     fileStore = new FileStore(tmpDir);
+    // defaultPath 写入前经执行根策略校验（存在 + 在 PMO_GIT_REPO_ROOTS 内）
+    process.env.PMO_GIT_REPO_ROOTS = tmpDir;
+    fs.mkdirSync(pickedRepo, { recursive: true });
 
     const { channelReadRoutes, channelWriteRoutes, channelAttachmentRoutes } = await import('../channel.routes.js');
   const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
@@ -171,6 +177,8 @@ describe('channel routes（#272）：创建默认工程 + current-pmo 端点', (
 
   afterAll(async () => {
     await new Promise<void>(resolve => server.close(() => resolve()));
+    if (OLD_REPO_ROOTS === undefined) delete process.env.PMO_GIT_REPO_ROOTS;
+    else process.env.PMO_GIT_REPO_ROOTS = OLD_REPO_ROOTS;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -178,11 +186,11 @@ describe('channel routes（#272）：创建默认工程 + current-pmo 端点', (
     const withPath = await fetch(baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'ch-default-path', type: 'rnd', defaultPath: '/repo/picked' }),
+      body: JSON.stringify({ name: 'ch-default-path', type: 'rnd', defaultPath: pickedRepo }),
     });
     expect(withPath.status).toBe(201);
     const created = (await withPath.json()).data;
-    expect(created.defaultPath).toBe('/repo/picked');
+    expect(created.defaultPath).toBe(pickedRepo);
 
     const withoutPath = await fetch(baseUrl, {
       method: 'POST',

@@ -143,6 +143,11 @@ describe('pushConfirmationCards()', () => {
           listChannels: vi.fn(async () => [{ id: 'ch-sys', name: '#系统' }]),
           queryMessages: vi.fn(async () => messages),
           appendJsonl,
+          // NotificationService.create 经 withLock 串行写铃铛通知；通知投影同步面保留真实实现
+          withLock: async (_lockPath: string, fn: () => Promise<unknown>) => fn(),
+          readJsonUncached: vi.fn(async () => null),
+          readJsonl: vi.fn(async () => []),
+          writeJson: vi.fn(async () => {}),
         },
       };
     };
