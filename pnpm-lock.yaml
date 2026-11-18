@@ -18,8 +18,8 @@ importers:
   .:
     dependencies:
       '@dommaker/harness':
-        specifier: ^4.0.1
-        version: 4.0.1
+        specifier: ^4.0.2
+        version: 4.0.2
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -103,8 +103,8 @@ importers:
   apps/api:
     dependencies:
       '@dommaker/harness':
-        specifier: ^4.0.1
-        version: 4.0.1
+        specifier: ^4.0.2
+        version: 4.0.2
       '@dommaker/studio-agent':
         specifier: workspace:*
         version: link:../../packages/studio-agent
@@ -300,8 +300,8 @@ importers:
   packages/studio-agent:
     dependencies:
       '@dommaker/harness':
-        specifier: ^4.0.1
-        version: 4.0.1
+        specifier: ^4.0.2
+        version: 4.0.2
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -344,8 +344,8 @@ importers:
   packages/studio-shared:
     dependencies:
       '@dommaker/harness':
-        specifier: ^4.0.1
-        version: 4.0.1
+        specifier: ^4.0.2
+        version: 4.0.2
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -511,8 +511,8 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dommaker/harness@4.0.1':
-    resolution: {integrity: sha512-r23YgkoLt0nWwXmP6+1wi58PSqHNdHsKirsIjayHZNApYErFuKeG69y3DRSmBOF7aCx/q2x2RuNjuVq91mfsUg==}
+  '@dommaker/harness@4.0.2':
+    resolution: {integrity: sha512-TSdSLNkLLG/lKr4u35bnZPOjQetlpDNDHwDqS3jIJyrcvpkSTWXd/Xa1+Tq7hsbCDfu8HNDvMYgQ12SLwESwiQ==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -3263,7 +3263,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dommaker/harness@4.0.1':
+  '@dommaker/harness@4.0.2':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0
