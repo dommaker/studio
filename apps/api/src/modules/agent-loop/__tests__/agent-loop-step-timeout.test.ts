@@ -48,17 +48,6 @@ vi.mock('@dommaker/studio-agent', () => ({
   agentRunner: { executeLightweight: mockExecuteLightweight },
 }));
 
-vi.mock('../../workunit/workunit-review', () => ({
-  WorkUnitService: vi.fn().mockImplementation(function () {
-    return {
-      claim: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'active' }),
-      unclaim: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'unassigned' }),
-      transitionStatus: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'in_review' }),
-    };
-  }),
-  snapshotToData: (s: unknown) => s,
-}));
-
 vi.mock('../../triggers/trigger-registry', () => ({
   getTriggerScheduler: () => ({
     registerTrigger: vi.fn(),
@@ -78,12 +67,14 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 
 import * as agentLoopModule from '../agent-loop';
 import { AgentLoop } from '../agent-loop';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 import type { AgentTask } from '@dommaker/studio-agent';
 
 describe('#171 三层超时（#54 决议）', () => {
   let agentLoop: AgentLoop;
   let testDir: string;
   let fileStore: FileStore;
+  let wuService: WorkUnitService;
 
   const mockRole = {
     id: 'role-timeout',
@@ -95,16 +86,13 @@ describe('#171 三层超时（#54 决议）', () => {
     updatedAt: new Date(),
   };
 
-  function makeTarget() {
-    return {
-      workUnit: {
-        id: 'wu-timeout-1', title: '三层超时测试', scope: 'do work', type: 'task',
-        status: 'active', assigneeId: 'agent-1', parentId: null,
-        failureType: null, retryCount: 0, timeoutAt: null,
-        projectPath: null, metadata: null, claimedAt: null,
-        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-      },
-    };
+  // #705 起 agentStep 要求持久化快照（ExecutionJournal.beginStep 读 store 内记录）
+  async function makeTarget() {
+    const created = await wuService.create({
+      scope: 'do work', type: 'task', status: 'unassigned', assigneeId: 'agent-1',
+    });
+    const wu = await wuService.claim(created.id, 'agent-1');
+    return { workUnit: wu };
   }
 
   beforeEach(() => {
@@ -112,6 +100,7 @@ describe('#171 三层超时（#54 决议）', () => {
     mockExecSync.mockReturnValue('Claude Code CLI version 1.0.0');
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-timeout-'));
     fileStore = new FileStore(testDir);
+    wuService = new WorkUnitService(fileStore);
     mockExecuteLightweight.mockResolvedValue({
       success: true, outputText: 'ACTION: PROGRESS:working',
       logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
@@ -134,7 +123,7 @@ describe('#171 三层超时（#54 决议）', () => {
     agentLoop = new AgentLoop(mockRole, fileStore);
     await agentLoop.start();
 
-    const result = await agentLoop.agentStep(makeTarget());
+    const result = await agentLoop.agentStep(await makeTarget());
     expect(result).toBeDefined();
 
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
@@ -161,7 +150,8 @@ describe('#171 三层超时（#54 决议）', () => {
 
     agentLoop = new AgentLoop(mockRole, fileStore);
     await agentLoop.start();
-    await agentLoop.agentStep(makeTarget());
+    const target = await makeTarget();
+    await agentLoop.agentStep(target);
 
     const task = mockExecuteLightweight.mock.calls[0][0] as AgentTask;
     task.onSilenceWarn!(320_000);
@@ -180,7 +170,7 @@ describe('#171 三层超时（#54 决议）', () => {
     const evt = events.find((e) => e.type === 'workunit:step_silence');
     expect(evt).toBeDefined();
     const payload = typeof evt!.payload === 'string' ? JSON.parse(evt!.payload) : evt!.payload;
-    expect(payload.workUnitId).toBe('wu-timeout-1');
+    expect(payload.workUnitId).toBe(target.workUnit.id);
     expect(payload.silentMs).toBe(320_000);
   });
 });

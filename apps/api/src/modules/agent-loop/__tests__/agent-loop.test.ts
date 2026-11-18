@@ -26,12 +26,6 @@ vi.mock('child_process', () => ({ exec: mockExec,
 }));
 
 // vi.hoisted() ensures these are available when vi.mock factories run
-const { mockWuClaim, mockWuUnclaim, mockWuTransitionStatus } = vi.hoisted(() => ({
-  mockWuClaim: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'active' }),
-  mockWuUnclaim: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'unassigned' }),
-  mockWuTransitionStatus: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'in_review' }),
-}));
-
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
 }));
@@ -61,15 +55,6 @@ vi.mock('@dommaker/studio-agent', () => ({
   agentRunner: {
     executeLightweight: mockExecuteLightweight,
   },
-}));
-
-vi.mock('../../workunit/workunit-review', () => ({
-  WorkUnitService: vi.fn().mockImplementation(function () { return {
-    claim: mockWuClaim,
-    unclaim: mockWuUnclaim,
-    transitionStatus: mockWuTransitionStatus,
-  }; }),
-  snapshotToData: (s: unknown) => s,
 }));
 
 vi.mock('../../triggers/trigger-scheduler', () => ({
@@ -114,6 +99,7 @@ vi.mock('../../knowledge/knowledge-service', () => {
 });
 
 import { AgentLoop } from '../agent-loop';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 import { isProcessAlive } from '../agent-loop-parsers';
 import { writeToolCallEvents, resolveToolTraceFile } from '../agent-loop-events';
 
@@ -121,6 +107,7 @@ describe('AgentLoop', () => {
   let agentLoop: AgentLoop;
   let testDir: string;
   let fileStore: FileStore;
+  let wuService: WorkUnitService;
 
   const mockRole = {
     id: 'role-1',
@@ -139,6 +126,7 @@ describe('AgentLoop', () => {
     mockExec.mockImplementation(execSuccess);
     testDir = path.join(os.tmpdir(), `agent-loop-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
     fileStore = new FileStore(testDir);
+    wuService = new WorkUnitService(fileStore);
   });
 
   afterEach(async () => {
@@ -153,6 +141,16 @@ describe('AgentLoop', () => {
     }
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }, 5000);
+
+  // #705 起 agentStep 要求持久化快照（ExecutionJournal.beginStep 读 store 内记录）
+  async function persistTarget(metadata: Record<string, unknown> | null = null) {
+    const created = await wuService.create({
+      scope: 'test', type: 'task', status: 'unassigned', assigneeId: 'agent-1', channelId: 'ch-1',
+      metadata: metadata ?? undefined,
+    });
+    const claimed = await wuService.claim(created.id, 'agent-1');
+    return { workUnit: claimed };
+  }
 
   describe('start()', () => {
     it('creates RuntimeInstance with idle status', async () => {
@@ -224,15 +222,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await agentLoop.agentStep(target);
 
@@ -248,15 +238,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await agentLoop.agentStep(target);
 
@@ -279,15 +261,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await expect(
         agentLoop.agentStep(target)
@@ -305,15 +279,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       const result = await agentLoop.agentStep(target);
 
@@ -332,15 +298,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await agentLoop.agentStep(target);
 
@@ -359,15 +317,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await agentLoop.agentStep(target);
 
@@ -384,15 +334,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await expect(
         agentLoop.agentStep(target)
@@ -410,15 +352,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await agentLoop.agentStep(target);
 
@@ -438,15 +372,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(roleWithCodex, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await agentLoop.agentStep(target);
 
@@ -465,15 +391,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(roleWithNullProvider, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await agentLoop.agentStep(target);
 
@@ -490,15 +408,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await agentLoop.agentStep(target);
 
@@ -520,15 +430,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await agentLoop.agentStep(target);
 
@@ -557,15 +459,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       // First call: creates session, returns high tokens
       await agentLoop.agentStep(target);
@@ -599,15 +493,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await agentLoop.agentStep(target);
       await agentLoop.agentStep(target);
@@ -885,15 +771,7 @@ describe('AgentLoop', () => {
   describe('R2-fix: agentStep tool:call 接线（rawOutput 优先于 outputText）', () => {
     let prevStudioEventsFile: string | undefined;
 
-    const makeTarget = (metadata: Record<string, unknown> | null = null) => ({
-      workUnit: {
-        id: 'wu-r2-wiring', type: 'task', scope: 'test', channelId: 'ch-1',
-        status: 'active', assigneeId: 'agent-1', parentId: null,
-        failureType: null, retryCount: 0, timeoutAt: null,
-        projectPath: null, metadata: metadata ? JSON.stringify(metadata) : null, claimedAt: null,
-        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-      },
-    });
+    const makeTarget = (metadata: Record<string, unknown> | null = null) => persistTarget(metadata);
 
     const traceFile = () => path.join(testDir, 'studio-events.jsonl');
 
@@ -923,14 +801,15 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      await agentLoop.agentStep(makeTarget());
+      await agentLoop.agentStep(await makeTarget());
 
       expect(fs.existsSync(traceFile())).toBe(true);
-      const lines = fs.readFileSync(traceFile(), 'utf-8').trim().split('\n');
-      expect(lines.length).toBe(2);
+      // 同一事件文件还有 workunit:tokens 记账行（每次执行必写），只筛 tool:call
+      const events = fs.readFileSync(traceFile(), 'utf-8').trim().split('\n').map(l => JSON.parse(l));
+      const toolCalls = events.filter(e => e.type === 'tool:call');
+      expect(toolCalls.length).toBe(2);
 
-      const first = JSON.parse(lines[0]);
-      expect(first.type).toBe('tool:call');
+      const first = toolCalls[0];
       expect(first.source).toBe('agent-loop');
       const firstPayload = JSON.parse(first.payload);
       expect(firstPayload.tool).toBe('Read');
@@ -940,8 +819,7 @@ describe('AgentLoop', () => {
       expect(typeof firstPayload.timestamp).toBe('number');
       expect(typeof first.createdAt).toBe('string');
 
-      const second = JSON.parse(lines[1]);
-      expect(second.type).toBe('tool:call');
+      const second = toolCalls[1];
       expect(JSON.parse(second.payload).tool).toBe('Edit');
     });
 
@@ -954,25 +832,21 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      await agentLoop.agentStep(makeTarget());
+      await agentLoop.agentStep(await makeTarget());
 
-      // 0 条 tool:call → writeToolCallEvents 提前返回，不落盘
-      expect(fs.existsSync(traceFile())).toBe(false);
+      // 0 条 tool:call → writeToolCallEvents 提前返回；文件里只允许有 workunit:tokens 记账行
+      const toolCalls = fs.existsSync(traceFile())
+        ? fs.readFileSync(traceFile(), 'utf-8').trim().split('\n')
+          .map(l => JSON.parse(l)).filter(e => e.type === 'tool:call')
+        : [];
+      expect(toolCalls.length).toBe(0);
     });
   });
 
   describe('#453: 成功路径 stream-json 全量解析一次（3→1）', () => {
     let prevStudioEventsFile: string | undefined;
 
-    const makeTarget = () => ({
-      workUnit: {
-        id: 'wu-parse-once', type: 'task', scope: 'test', channelId: 'ch-1',
-        status: 'active', assigneeId: 'agent-1', parentId: null,
-        failureType: null, retryCount: 0, timeoutAt: null,
-        projectPath: null, metadata: null, claimedAt: null,
-        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-      },
-    });
+    const makeTarget = () => persistTarget();
 
     const traceFile = () => path.join(testDir, 'studio-events.jsonl');
 
@@ -1000,7 +874,7 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      await agentLoop.agentStep(makeTarget());
+      await agentLoop.agentStep(await makeTarget());
 
       // 验收核心：成功路径全量解析恰好 1 次（tool:call 与 execution_step 共享解析产物）
       expect(vi.mocked(parseStreamEvents).mock.calls.length).toBe(1);
@@ -1019,15 +893,7 @@ describe('AgentLoop', () => {
   });
 
   describe('wireup④: metadata._cumulativeTokens 累计写回', () => {
-    const makeTarget = (metadata: Record<string, unknown> | null = null) => ({
-      workUnit: {
-        id: 'wu-cumulative-tokens', type: 'task', scope: 'test', channelId: 'ch-1',
-        status: 'active', assigneeId: 'agent-1', parentId: null,
-        failureType: null, retryCount: 0, timeoutAt: null,
-        projectPath: null, metadata: metadata ? JSON.stringify(metadata) : null, claimedAt: null,
-        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-      },
-    });
+    const makeTarget = (metadata: Record<string, unknown> | null = null) => persistTarget(metadata);
 
     it('本次 executionTokens 累加到既有 _cumulativeTokens', async () => {
       mockExecuteLightweight.mockResolvedValue({
@@ -1039,7 +905,7 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      const result = await agentLoop.agentStep(makeTarget({ _cumulativeTokens: 70 }));
+      const result = await agentLoop.agentStep(await makeTarget({ _cumulativeTokens: 70 }));
       const { metadataUpdates } = result as { metadataUpdates?: Record<string, unknown> };
       expect(metadataUpdates).toBeDefined();
       expect(metadataUpdates!._cumulativeTokens).toBe(220);
@@ -1055,10 +921,10 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const withExisting = await agentLoop.agentStep(makeTarget({ _cumulativeTokens: 70 }));
+      const withExisting = await agentLoop.agentStep(await makeTarget({ _cumulativeTokens: 70 }));
       expect((withExisting as { metadataUpdates?: Record<string, unknown> }).metadataUpdates!._cumulativeTokens).toBe(70);
 
-      const fresh = await agentLoop.agentStep(makeTarget());
+      const fresh = await agentLoop.agentStep(await makeTarget());
       expect((fresh as { metadataUpdates?: Record<string, unknown> }).metadataUpdates!._cumulativeTokens).toBe(0);
     });
   });

@@ -69,7 +69,7 @@ describe('WuLeaseTracker.transitionIfHeld', () => {
     const { tracker, transitionStatus } = makeTracker([{ id: 'wu-1', assigneeId: 'inst-1', claimedAt: T1 }]);
     armLease(tracker, 'wu-1', T1);
     expect(await tracker.transitionIfHeld('wu-1', 'in_review')).toBe(true);
-    expect(transitionStatus).toHaveBeenCalledWith('wu-1', 'in_review');
+    expect(transitionStatus).toHaveBeenCalledWith('wu-1', 'in_review', undefined);
     tracker.stop();
   });
 

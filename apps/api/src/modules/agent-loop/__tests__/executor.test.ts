@@ -25,6 +25,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 }));
 
 import { AgentLoop } from '../agent-loop';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 import { LocalExecutor } from '../executor.js';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 
@@ -94,6 +95,7 @@ describe('LocalExecutor', () => {
 describe('AgentLoop agentStep via Executor interface', () => {
   let testDir: string;
   let fileStore: FileStore;
+  let wuService: WorkUnitService;
 
   const mockRole = {
     id: 'role-exec',
@@ -109,6 +111,7 @@ describe('AgentLoop agentStep via Executor interface', () => {
     vi.clearAllMocks();
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-executor-'));
     fileStore = new FileStore(testDir);
+    wuService = new WorkUnitService(fileStore);
   });
 
   afterEach(() => {
@@ -132,22 +135,20 @@ describe('AgentLoop agentStep via Executor interface', () => {
     await fileStore.createState(instance.id, instance);
     const agentLoop = new AgentLoop(mockRole, fileStore, { instance });
 
-    const target = {
-      workUnit: {
-        id: 'wu-exec-1', type: 'task', scope: 'test', channelId: 'ch-1',
-        status: 'active', assigneeId: 'instance-exec', parentId: null,
-        failureType: null, retryCount: 0, timeoutAt: null,
-        projectPath: null, metadata: JSON.stringify({ sessionId: 'sess-existing' }), claimedAt: null,
-        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-      },
-    };
+    // #705 起 agentStep 要求持久化快照（ExecutionJournal.beginStep 读 store 内记录）
+    const created = await wuService.create({
+      scope: 'test', type: 'task', status: 'unassigned', assigneeId: 'instance-exec', channelId: 'ch-1',
+      metadata: { sessionId: 'sess-existing' },
+    });
+    const wu = await wuService.claim(created.id, 'instance-exec');
+    const target = { workUnit: wu };
 
     const step = await agentLoop.agentStep(target);
 
     // 经 Executor 接口调用一次，task 为 agent-loop 构建的 AgentTask 形状
     expect(spy).toHaveBeenCalledTimes(1);
     const task = spy.mock.calls[0][0] as unknown as AgentTask;
-    expect(task).toMatchObject({ id: 'wu-exec-1', provider: 'claude' });
+    expect(task).toMatchObject({ id: wu.id, provider: 'claude' });
     // LocalExecutor 把同一 task 原样传给 agentRunner.executeLightweight
     expect(mockExecuteLightweight).toHaveBeenCalledWith(task);
     // 结果形状与旧路径一致（ExecutionResult.outputText → ACTION 解析）
