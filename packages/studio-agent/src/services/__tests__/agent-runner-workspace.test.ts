@@ -24,7 +24,18 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
-  return { ...actual, execSh: mockExecSh, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+  return {
+    ...actual,
+    execSh: mockExecSh,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    // 真沙箱 prepare 要求 root（CI runner 非 root）；本用例只验 workspace cwd 绑定，
+    // 沙箱旁路为直通：command/env 原样交给（已 mock 的）execSh
+    prepareAgentSandbox: vi.fn(async (opts: { command: string; env: NodeJS.ProcessEnv }) => ({
+      command: opts.command,
+      env: opts.env,
+      dispose: async () => {},
+    })),
+  };
 });
 
 vi.mock('@dommaker/studio-skill', () => ({

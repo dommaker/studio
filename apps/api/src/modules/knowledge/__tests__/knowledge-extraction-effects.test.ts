@@ -76,18 +76,20 @@ describe('KnowledgeExtractionEffects', () => {
     await appendTranscriptStep({ workUnitId: wu.id, assignmentId: 'assignment-retry', step: 1, rawOutput: '失败恢复原文' });
     await finalizeTranscriptAssignment({ workUnitId: wu.id, assignmentId: 'assignment-retry', status: 'succeeded' });
     mockExtractFromConversation.mockRejectedValueOnce(new Error('temporary model failure'));
-    const service = new KnowledgeExtractionEffects(fileStore, { retryDelayMs: 30 });
+    // 30ms 的重试窗口小于 waitFor 轮询间隔（竞态：快机器上直接跳到 succeeded）。
+    // 取 500ms 保证 retry-after 中间态可稳定观测，且显式放宽两段 waitFor 超时
+    const service = new KnowledgeExtractionEffects(fileStore, { retryDelayMs: 500 });
 
     await service.trigger(wu.id, 'assignment-retry', { workUnitId: wu.id, assignmentId: 'assignment-retry' });
     await vi.waitFor(async () => {
       const snapshot = (await fileStore.getIndex({ id: wu.id }))[0];
       const effect = snapshot?.effects?.find(item => item.kind === 'knowledge-extraction');
       expect(effect).toMatchObject({ status: 'queued', attempts: 1, nextAttemptAt: expect.any(String) });
-    });
+    }, { timeout: 5000, interval: 20 });
     await vi.waitFor(async () => {
       const snapshot = (await fileStore.getIndex({ id: wu.id }))[0];
       expect(snapshot?.effects?.find(item => item.kind === 'knowledge-extraction')?.status).toBe('succeeded');
-    });
+    }, { timeout: 5000, interval: 20 });
 
     const snapshot = (await fileStore.getIndex({ id: wu.id }))[0];
     const effect = snapshot?.effects?.find(item => item.kind === 'knowledge-extraction');
