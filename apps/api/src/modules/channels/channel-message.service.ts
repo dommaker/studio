@@ -1,7 +1,16 @@
 // ChannelMessage Service — centralized message creation + event publishing
 import { eventBus, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
+// #665（ADR 2026-08-24 落地）：channel.message_* SSE 负载与 studio-contract 同源——
+// 字段集取自契约 payload 类型；message 在进程内是 MessageRecord（createdAt: Date），
+// wire 上 JSON 序列化为 ISO string 后 = 契约 ChannelMessage（wire parity 见契约 __tests__）。
+import type { ChannelMessage, SseEventPayloadMap } from '@dommaker/studio-contract';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
+
+type SseChannelEventType = 'channel.message_sent' | 'channel.message_updated';
+type SseChannelData<K extends SseChannelEventType> =
+  Omit<SseEventPayloadMap[K], 'message'> & { message: MessageRecord };
 
 
 export interface MessageMeta {
@@ -30,6 +39,8 @@ export interface AgentMessageOptions {
   replyToId?: string;
   meta?: MessageMeta;
   workUnitId?: string; // AS-025 §5.16: 讨论空间关联
+  /** #709：持久 Effect 在提交前固定消息 id，供恢复核查去重。 */
+  messageId?: string;
 }
 
 export interface MessageRecord {
@@ -40,12 +51,17 @@ export interface MessageRecord {
   agentName: string | null;
   content: string;
   replyToId: string | null;
-  meta: unknown;
+  meta: MessageMeta;
   createdAt: Date;
 }
 
+/** MessageRecord → REST wire：meta 保持对象，createdAt 归一为 ISO 串。 */
+export function toChannelMessageWire(message: MessageRecord): ChannelMessage {
+  return { ...message, createdAt: message.createdAt.toISOString() };
+}
+
 /** 将 FileStore 的字符串时间转为 Date，解析 meta JSON */
-function shapeMessageData(data: ChannelMessageData): MessageRecord {
+export function shapeMessageData(data: ChannelMessageData): MessageRecord {
   return {
     id: data.id,
     channelId: data.channelId,
@@ -72,7 +88,7 @@ export class ChannelMessageService {
   }
 
   /** B2: 发布 SSE 事件到 events channel（供前端 EventSource 消费） */
-  private publishSSE(eventType: string, data: Record<string, unknown>) {
+  private publishSSE<K extends SseChannelEventType>(eventType: K, data: SseChannelData<K>) {
     // #324：直发 eventBus（同步 void，订阅侧各自 try/catch 兜底）
     eventBus.publish('events', {
       event_type: eventType,
@@ -130,7 +146,7 @@ export class ChannelMessageService {
 
     const now = new Date().toISOString();
     const msg: ChannelMessageData = {
-      id: uuidv4(),
+      id: options?.messageId ?? uuidv4(),
       channelId,
       authorType: 'agent',
       agentName,
@@ -321,4 +337,6 @@ export class ChannelMessageService {
   }
 }
 
-export const channelMessageService = new ChannelMessageService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getChannelMessageService = createLazyService(() => new ChannelMessageService());

@@ -4,7 +4,7 @@
  *
  * 归属口径（#402 逐 WU 并集，2026-08-31 起）：每个 WU 独立解析归属——
  * reqId 解析到已绑定项目的 REQ 则归该项目（显式业务关联权威），否则按创建期
- * 归因戳归属（metadata.pmoId ‖ deprecated legacy ownershipProjectId 同级，pmoId 优先——
+ * 归因戳归属（metadata.pmoId——
  * analysis 派生链的 task WU 无 reqId，仅戳溯源；parser 见 requirements/wu-pmo-attribution.ts）；
  * 两者皆无 = 未归属，不进任何项目台账。单 WU 只归一个项目（reqId 优先，不双计），
  * REQ 链命中不再丢弃同项目的戳归属 WU。
@@ -16,23 +16,19 @@
  *     review 子 WU 自身不再派评审，人工验收类的验收闸是人工确认（L3），diff-only
  *     契约对非代码产物恒 needs-info 转人工纯噪声。若不豁免，这些类型永远不可能
  *     deliverable（规则自相矛盾）。
- *   - l3 对所有已完成 WU 要求（验收权只在人）。
+ *   - l3 对所有已完成 WU 要求（验收权只在人）；
+ *   - 代码类 finished WU 另需完整 merge receipt 与目标验证 passed；无验证命令时仅 L3 可替代。
  */
 import { deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { parseWuPmoId } from '../requirements/index.js';
-import { parseWuMetadata } from '../workunit/index.js';
-import { MANUAL_GATE_TYPES } from '../workunit/index.js';
-import type { DeliveryLeg } from './project.service.js';
+import { hasCompleteMergeReceipt, MANUAL_GATE_TYPES, parseWuMetadata } from '../workunit/index.js';
+import type { DeliveryLeg } from './model.js';
+import { matchWuToLeg } from './project-read.js';
 
-/**
- * @deprecated 兼容别名（progress-rollup 及其测试沿用旧名）：parser 已迁至
- * requirements/wu-pmo-attribution.ts（零依赖叶子——本模块不能传递依赖
- * pmo-branch-resolver → project.service → workunit.service，会成循环）。
- * 2026-08 归因统一后口径放宽为 pmoId ‖ legacy ownershipProjectId 同级（pmoId 优先）。
- * P2-c：从直接赋值改为调用期转发——直接赋值在模块初始化期解引用跨模块绑定，
- * barrel 收口后 requirements↔pmo 环的初始化序下会拿到 undefined（TDZ 崩溃）。
- */
-export const parseWuMetaPmoId: typeof parseWuPmoId = (...args) => parseWuPmoId(...args);
+export { matchWuToLeg } from './project-read.js';
+
+/** @deprecated 兼容别名；正本在 requirements/wu-pmo-attribution.ts。ARCH-04 拆环后无需 TDZ 转发。 */
+export const parseWuMetaPmoId = parseWuPmoId;
 
 /**
  * 证据/归约口径消费的最小 WU 字段集（#410）：summarizeEvidence / partitionSnapshotsByLeg /
@@ -51,7 +47,7 @@ function l2ExemptTypes(): Set<string> {
   return (_l2ExemptTypes ??= new Set(['review', ...MANUAL_GATE_TYPES]));
 }
 
-/** 项目证据汇总（deliverable = 有 WU 且全部完成且三层证据齐） */
+/** 项目证据汇总（deliverable = 有 WU 且全部完成、三层证据齐、代码 receipt/目标验证可接受） */
 export interface EvidenceSummary {
   total: number;
   finished: number;
@@ -64,6 +60,10 @@ export interface EvidenceSummary {
   l2Missing: string[];
   /** 已完成但缺 L3 人工确认的 WU id */
   l3Missing: string[];
+  /** 代码 WU receipt 缺 merged/mergeCommit/targetBranch，或目标验证 failed/not-run/缺失 */
+  mergeMissing: string[];
+  /** merge receipt 无目标验证命令且缺 L3 人工确认的代码 WU id */
+  verificationUnavailable: string[];
   /** l2 中自评数（决策 5：评审独立性参考，不阻断交付） */
   selfReviewCount: number;
   deliverable: boolean;
@@ -109,7 +109,9 @@ export function selectProjectSnapshots(
   index: WorkUnitSnapshot[],
 ): WorkUnitSnapshot[] {
   const reqProjectById = buildReqProjectMap(requirements);
-  return index.filter(s => resolveWuProjectId(s, reqProjectById) === projectId);
+  return index.filter(s => resolveWuProjectId(s, reqProjectById) === projectId
+    // #720：整体评审是候选裁决，不是新的实现工作；保留血缘但不计入交付证据。
+    && !parseWuMetadata(s.metadata).pmoCandidateReview);
 }
 
 /** 逐快照过 deriveDisplayState 派生证据齐缺（唯一口径，禁止各自解释 attestations） */
@@ -119,6 +121,8 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
   const l1Missing: string[] = [];
   const l2Missing: string[] = [];
   const l3Missing: string[] = [];
+  const mergeMissing: string[] = [];
+  const verificationUnavailable: string[] = [];
   let selfReviewCount = 0;
 
   for (const s of snapshots) {
@@ -130,7 +134,16 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
     const d = deriveDisplayState({ status: s.status, metadata: s.metadata });
     if (!d.workFinished) continue;
     finished++;
-    if (CODE_TYPES.has(s.type) && !d.evidence.l1) l1Missing.push(s.id);
+    if (CODE_TYPES.has(s.type)) {
+      const receipt = parseWuMetadata(s.metadata).mergeReceipt;
+      const verification = receipt?.verification?.status;
+      if (!d.evidence.l1 && verification !== 'unavailable') l1Missing.push(s.id);
+      if (!hasCompleteMergeReceipt(s.metadata)) {
+        mergeMissing.push(s.id);
+      } else if (verification === 'unavailable' && !d.evidence.l3) {
+        verificationUnavailable.push(s.id);
+      }
+    }
     // review/analysis 豁免 L2：dispatcher 不派自动评审，验收闸是人工 L3
     if (!l2ExemptTypes().has(s.type) && !d.evidence.l2) l2Missing.push(s.id);
     if (!d.evidence.l3) l3Missing.push(s.id);
@@ -139,7 +152,8 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
 
   const inFlight = snapshots.length - finished;
   const deliverable = snapshots.length > 0 && inFlight === 0
-    && l1Missing.length === 0 && l2Missing.length === 0 && l3Missing.length === 0;
+    && l1Missing.length === 0 && l2Missing.length === 0 && l3Missing.length === 0
+    && mergeMissing.length === 0 && verificationUnavailable.length === 0;
 
   return {
     total: snapshots.length,
@@ -149,6 +163,8 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
     l1Missing,
     l2Missing,
     l3Missing,
+    mergeMissing,
+    verificationUnavailable,
     selfReviewCount,
     deliverable,
   };
@@ -159,24 +175,7 @@ export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary
 // ============================================
 
 /**
- * WU→腿归属判定（最小口径，创建期/运行期已有戳，不新增落档）：
- *   ① metadata.workspaceRoot === leg.gitRepo（publish/analysis-handoff 创建期落档的归属根）
- *   ② metadata.worktreeBaseRepo === leg.gitRepo（agent-loop worktree 落档的母仓库）
- *   ③ metadata.pmoBranch === leg.branch（agent-loop 首 step 落档的 PMO 集成分支）
- * 均要求两侧非空才比较；任一命中即归该腿。
- */
-export function matchWuToLeg(metadata: string | null | undefined, leg: DeliveryLeg): boolean {
-  const meta = parseWuMetadata(metadata);
-  if (leg.gitRepo) {
-    if (meta.workspaceRoot === leg.gitRepo) return true;
-    if (meta.worktreeBaseRepo === leg.gitRepo) return true;
-  }
-  if (leg.branch && meta.pmoBranch === leg.branch) return true;
-  return false;
-}
-
-/**
- * 多腿分桶：WU 归首个命中的腿（数组序）；全部不命中 = 未分腿公共 WU（shared）。
+ * 多腿分桶：唯一命中才归腿；多命中（如同名分支歧义）或全部不命中 = 公共 WU（shared）。
  * 公共 WU 保守计入每条腿的台账与判定——证据缺口不允许从任何一条腿的交付闸逃逸。
  */
 export function partitionSnapshotsByLeg<T extends EvidenceWuInput>(
@@ -186,8 +185,8 @@ export function partitionSnapshotsByLeg<T extends EvidenceWuInput>(
   const perLeg: T[][] = legs.map(() => []);
   const shared: T[] = [];
   for (const s of snapshots) {
-    const idx = legs.findIndex(leg => matchWuToLeg(s.metadata, leg));
-    if (idx >= 0) perLeg[idx].push(s);
+    const matches = legs.flatMap((leg, index) => matchWuToLeg(s.metadata, leg) ? [index] : []);
+    if (matches.length === 1) perLeg[matches[0]].push(s);
     else shared.push(s);
   }
   return { perLeg, shared };

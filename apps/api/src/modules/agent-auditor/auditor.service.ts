@@ -10,15 +10,16 @@
  *   - auditor-reports.ts       洞察与报告输出（会话行为趋势/7 日趋势/tier 成功率/#系统 推送）
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/index.js';
 import * as rules from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
 import * as execution from './auditor-execution.js';
 import * as reports from './auditor-reports.js';
+import { createLazyService } from '../../utils/services.js';
 import { registerAuditorReviewAdapter } from './review-adapter.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
 
@@ -276,7 +277,9 @@ export class AuditorService {
   }
 }
 
-export const auditorService = new AuditorService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getAuditorService = createLazyService(() => new AuditorService());
 
 // #356：模块加载即注册 auditor 提案 adapter（重启后存量 pending 提案可经通用端点审批）
 registerAuditorReviewAdapter();

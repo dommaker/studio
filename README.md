@@ -123,7 +123,7 @@ packages/
 | 文档 | 作用 |
 |------|------|
 | [docs/vision-2026.md](docs/vision-2026.md) | 定位与主干设计共识（宪法），含三期演进路线 |
-| [docs/plans/](docs/plans/) | 演进计划 |
+| [docs/plans/](docs/plans/) | 演进计划（活跃计划带 status frontmatter；历史计划在 [_archive/](docs/plans/_archive/)，见 [约定](docs/plans/README.md)） |
 | [docs/sdd/](docs/sdd/) | 变更规格（SDD），按变更立项 |
 | [CAPABILITIES.md](CAPABILITIES.md) | 能力清单（自动维护） |
 | [AGENTS.md](AGENTS.md) | agent 导读、治理契约与模块索引（机器维护生成段 + 手写 PRESERVE 段） |

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { ThemeToggleButton } from '../contexts/ThemeContext';
 import { MoreDropdown } from './MoreDropdown';
 import { NotificationBell } from './NotificationBell';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
 import { IconZap } from './ui/icons';
 
 interface TopNavProps {
@@ -13,8 +13,8 @@ interface TopNavProps {
 }
 
 export function TopNav({ onMenuClick, onOpenSearch }: TopNavProps) {
-  // 连接状态读取应用根部唯一的 SSE 连接（WebSocketProvider）
-  const { status } = useWebSocketContext();
+  // 连接状态读取应用根部唯一的 SSE 连接（SseProvider）
+  const { status } = useSseContext();
   const connected = status === 'connected';
 
   return (

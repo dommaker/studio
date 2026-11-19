@@ -16,9 +16,10 @@
  */
 import fs from 'node:fs';
 import * as path from 'node:path';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { postReviewProposalCard } from '../review-proposal/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { roleMemoryMaintenance } from './maintenance.js';
 import {
   getReviewProposalAdapter,
   registerReviewProposalAdapter,
@@ -42,7 +43,7 @@ import {
   type MemoryKind,
 } from './role-memory.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** kind → 人类可读标签（不暴露 execution-knowledge / preference 等内部分类词） */
 const KIND_LABELS: Record<MemoryKind, string> = {
@@ -185,8 +186,12 @@ export function registerMemoryReviewAdapter(deps?: {
     renderCardContent: p => renderCard([toCardEntry(p)], { workUnitId: null, source: 'unknown' }),
     onApprove: async (p): Promise<ApproveOutcome> => {
       try {
-        const result = await roleMemoryStore.promote(p.roleId, [p.id]);
-        return { status: 'executed', data: { promoted: result.promoted, topicsUpdated: result.topicsUpdated } };
+        const run = await roleMemoryMaintenance.execute(
+          p.roleId,
+          { type: 'promote', entryIds: [p.id] },
+          `promote-${p.id}`,
+        );
+        return { status: 'executed', data: run.result };
       } catch (e) {
         return { status: 'failed', error: getErrorMessage(e) };
       }
@@ -230,4 +235,25 @@ export async function submitMemoryProposal(
     });
   }
   return entries;
+}
+
+/** 恢复已落 draft 的 memory_proposal 卡；pending 直接认养，card-failed 复用原条目重发。 */
+export async function repostMemoryProposal(
+  entries: MemoryDraftEntry[],
+  ctx: { workUnitId?: string; source: string },
+): Promise<{ posted: boolean }> {
+  if (entries.length === 0) return { posted: true };
+  const adapter = getReviewProposalAdapter<MemoryDraftEntry>('memory') ?? registerMemoryReviewAdapter();
+  const records = await Promise.all(entries.map(entry => adapter.store.getProposal(entry.id)));
+  if (records.some(record => !record || !['pending', 'card-failed'].includes(record.status))) return { posted: false };
+  const targets = records.filter(record => record!.status === 'card-failed');
+  if (targets.length === 0) return { posted: true };
+
+  const { content, cardData } = renderCard(targets.map(record => toCardEntry(record!)), ctx);
+  const posted = await postReviewProposalCard(
+    { cardType: adapter.cardType, content, cardData, logTag: adapter.kind },
+    { fileStore: adapter.fileStore },
+  );
+  for (const target of targets) await adapter.store.appendStatus(target!.id, posted ? 'pending' : 'card-failed');
+  return { posted };
 }

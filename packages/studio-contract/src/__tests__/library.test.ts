@@ -1,14 +1,12 @@
 /**
- * library 域契约测试：LibraryListItem/LibraryDocDetail parity + query/响应壳边界。
- * 正本 = library.service.ts（LibraryListItem/LibraryDocDetail）+ library.routes.ts 实测 wire。
+ * library 域契约测试：kind 词表 + query/响应壳边界。
+ * schema 即正本；同名类型为 z.infer alias / import type 同源，由编译期断言锚定，无 parity 互验层。
  */
 
 import { describe, it, expect } from 'vitest';
 import {
   libraryKindSchema,
-  libraryListItemSchema,
   type LibraryListItem,
-  libraryDocDetailSchema,
   type LibraryDocDetail,
   listLibraryDocsQuerySchema,
   libraryListResponseSchema,
@@ -40,33 +38,6 @@ describe('libraryKindSchema', () => {
       expect(libraryKindSchema.parse(k)).toBe(k);
     }
     expect(() => libraryKindSchema.parse('wiki')).toThrow();
-  });
-});
-
-describe('手写 interface parity（z.infer 退化规避）', () => {
-  it('parity：LibraryListItem fixture 通过校验；必填字段删除即拒', () => {
-    expect(libraryListItemSchema.parse(listItemRow)).toEqual(listItemRow);
-    // status/tags 可缺省（普通文档无 frontmatter status）
-    const minimal: LibraryListItem = {
-      id: 'PMO-7:CONTEXT.md', title: 'CONTEXT.md', kind: 'context', legacy: false,
-      projectId: 'PMO-7', pmoNumber: 'PMO-7', path: 'CONTEXT.md', updatedAt: 't',
-    };
-    expect(libraryListItemSchema.parse(minimal)).toEqual(minimal);
-    expect(() => libraryListItemSchema.parse({ ...listItemRow, id: undefined })).toThrow();
-    expect(() => libraryListItemSchema.parse({ ...listItemRow, kind: undefined })).toThrow();
-    expect(() => libraryListItemSchema.parse({ ...listItemRow, legacy: undefined })).toThrow();
-    expect(() => libraryListItemSchema.parse({ ...listItemRow, updatedAt: undefined })).toThrow();
-  });
-
-  it('parity：LibraryDocDetail = ListItem + content；legacy 三段可空', () => {
-    expect(libraryDocDetailSchema.parse(docDetailRow)).toEqual(docDetailRow);
-    const legacy: LibraryDocDetail = {
-      id: 'PMO-7:legacy-sdd/old', title: 'old', kind: 'legacy', legacy: true,
-      projectId: 'PMO-7', pmoNumber: 'PMO-7', path: 'legacy-sdd/old', updatedAt: 't',
-      content: 'req body', requirement: 'req body', design: null, task: null,
-    };
-    expect(libraryDocDetailSchema.parse(legacy)).toEqual(legacy);
-    expect(() => libraryDocDetailSchema.parse({ ...docDetailRow, content: undefined })).toThrow();
   });
 });
 

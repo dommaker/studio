@@ -16,20 +16,18 @@
  * 词表 pending|executed|rejected|failed|card-failed。旧实现无自持提案存储（条目 maturity=draft
  * 即提案态，卡片直接引用条目 id），故无历史存储迁移问题；接线前发出的存量卡（cardData 无
  * proposalId）不再可审批——条目保持 draft 不注入，同 #354 存量口径。
+ *
+ * 装配收敛（P2.2）：register/get/submit 样板收进正本 createJsonlReviewAdapter 工厂，
+ * 本文件只留域差异（聚合卡渲染 + 逐条目 promote/demote）。
  */
-import { randomUUID } from 'node:crypto';
 import { FileStore } from '@dommaker/studio-shared';
-import { studioDir } from '@dommaker/studio-shared/studio-dir';
 import {
-  getReviewProposalAdapter,
-  registerReviewProposalAdapter,
+  createJsonlReviewAdapter,
   type ApproveOutcome,
   type ReviewProposalAdapter,
 } from '../review-proposal/index.js';
-import { submitProposal } from '../review-proposal/index.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import type { ReviewProposalBase, ReviewProposalRecord } from '../review-proposal/index.js';
-import { getStore } from '../../core/store.js';
 
 
 /** 提案卡条目（γ 轨道契约：cardData.entries=[{id,title,type}]） */
@@ -68,14 +66,14 @@ function renderKnowledgeCard(p: KnowledgeReviewProposal): { content: string; car
 /**
  * approve 后动作：逐条目 promote（draft→verified，参与注入）——
  * 自旧审核闭环（前端逐条目调 /knowledge-service/promote）原样搬入。
- * 动态 import 取 knowledgeService 单例（避免与 knowledge-service.ts 模块加载期循环依赖，
+ * 动态 import 取 knowledgePorts.lifecycle 窄口（避免与 knowledge-service.ts 模块加载期循环依赖，
  * 同 review-proposal/card.ts 动态 import channel-message.service 口径）。
  */
 async function executeKnowledgeApproval(p: ReviewProposalRecord<KnowledgeReviewProposal>): Promise<ApproveOutcome> {
   try {
-    const { knowledgeService } = await import('./knowledge-service.js');
+    const { knowledgePorts } = await import('./knowledge-service.js');
     for (const e of p.entries) {
-      await knowledgeService.promote(e.id);
+      await knowledgePorts.lifecycle.promote(e.id);
     }
     return { status: 'executed', data: { promoted: p.entries.length } };
   } catch (e) {
@@ -85,37 +83,40 @@ async function executeKnowledgeApproval(p: ReviewProposalRecord<KnowledgeReviewP
 
 /** reject 后动作：逐条目 demote（draft→archived，不再注入） */
 async function executeKnowledgeRejection(p: ReviewProposalRecord<KnowledgeReviewProposal>): Promise<void> {
-  const { knowledgeService } = await import('./knowledge-service.js');
+  const { knowledgePorts } = await import('./knowledge-service.js');
   for (const e of p.entries) {
-    await knowledgeService.demote(e.id);
+    await knowledgePorts.lifecycle.demote(e.id);
   }
 }
 
 /**
+ * knowledge adapter 装配（createJsonlReviewAdapter 工厂，P2.2）：kind/cardType/物化路径/
+ * 卡渲染/promote/demote 语义 = 本域差异面；register/get/submit 样板归 review-proposal 工厂。
+ */
+const knowledgeKit = createJsonlReviewAdapter<KnowledgeReviewProposal>({
+  kind: 'knowledge',
+  cardType: 'knowledge_proposal',
+  storeNamespace: 'knowledge-proposals',
+  renderCardContent: renderKnowledgeCard,
+  onApprove: executeKnowledgeApproval,
+  onReject: executeKnowledgeRejection,
+});
+
+/**
  * 注册 knowledge adapter（kind='knowledge'）。同 kind 重复注册后者生效（幂等）。
- * 运行时装配 = knowledge-service.ts 单例创建处（模块加载即注册，保证重启后存量
+ * 运行时装配 = bootstrap/knowledge.ts（ARCH-06 显式组合根，保证重启后存量
  * pending 提案可审批）；submitKnowledgeProposal 自助注册兜底（同 #353/#354 口径）。
  */
 export function registerKnowledgeReviewAdapter(deps?: {
   fileStore?: FileStore;
   dataDir?: string;
 }): ReviewProposalAdapter<KnowledgeReviewProposal> {
-  const fileStore = deps?.fileStore ?? getStore();
-  return registerReviewProposalAdapter<KnowledgeReviewProposal>({
-    kind: 'knowledge',
-    cardType: 'knowledge_proposal',
-    storeNamespace: 'knowledge-proposals',
-    dataDir: deps?.dataDir ?? studioDir(),
-    fileStore,
-    renderCardContent: renderKnowledgeCard,
-    onApprove: executeKnowledgeApproval,
-    onReject: executeKnowledgeRejection,
-  });
+  return knowledgeKit.register(deps);
 }
 
 /** 取 knowledge adapter（未注册则自助注册，幂等） */
 export function getKnowledgeReviewAdapter(): ReviewProposalAdapter<KnowledgeReviewProposal> {
-  return getReviewProposalAdapter<KnowledgeReviewProposal>('knowledge') ?? registerKnowledgeReviewAdapter();
+  return knowledgeKit.get();
 }
 
 /**
@@ -128,14 +129,5 @@ export async function submitKnowledgeProposal(
   ctx: { workUnitId?: string; source: string },
 ): Promise<{ proposalId: string; posted: boolean }> {
   if (entries.length === 0) return { proposalId: '', posted: false };
-  const adapter = getKnowledgeReviewAdapter();
-  const proposal: KnowledgeReviewProposal = {
-    id: randomUUID(),
-    createdAt: new Date().toISOString(),
-    entries,
-    workUnitId: ctx.workUnitId ?? null,
-    source: ctx.source,
-  };
-  const { posted } = await submitProposal(adapter, proposal);
-  return { proposalId: proposal.id, posted };
+  return knowledgeKit.submit({ entries, workUnitId: ctx.workUnitId ?? null, source: ctx.source });
 }

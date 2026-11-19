@@ -25,8 +25,13 @@ const {
   mockGitLog: { stdout: '' as string | Error },
 }));
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: mockLogger };
+});
+
 vi.mock('@dommaker/studio-shared', () => ({ resolveStudioLogFile: (f) => "/tmp/studio-test-dir/" + f, resolveStudioLogsDir: () => "/tmp/studio-test-dir", isTestEnv: () => true, testTmpRoot: () => "/tmp/studio-test-dir", stripTrailingSlashes: (s) => s, createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), FileStore: class {},
-  // P2-b：studio-notification 模块级单例经持有器取 store，wholesale mock 需补此出口
+  // wholesale mock 补出口：历史消费链（原 studio-notification 包单例）需要，#684 下沉后保留以防链上其余模块触碰
   getDefaultFileStore: () => ({}),
   logger: mockLogger,
 }));
@@ -35,7 +40,7 @@ vi.mock('../../agents/system-executor.js', () => ({
   getSystemExecutor: () => ({ runJson: mockRunJson }),
 }));
 
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(), sharedLifecycle: vi.fn(),
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedIngest: vi.fn(), sharedLifecycle: vi.fn(),
   sharedStore: { list: mockStoreList, get: mockStoreGet, update: mockStoreUpdate },
 }));
 

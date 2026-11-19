@@ -158,9 +158,3 @@ export async function queryProposalDecisionRows(
   await ensureAdaptersRegistered();
   return filterProposalDecisionRows(await collectProposalDecisionRows(), q);
 }
-
-/** 按 id 回查提案行（GET /:id 兜底用）；details 带提案全文（详情语义） */
-export async function getProposalDecisionRowById(id: string): Promise<ProposalDecisionRow | null> {
-  await ensureAdaptersRegistered();
-  return (await collectProposalDecisionRows({ full: true })).find(r => r.id === id) ?? null;
-}

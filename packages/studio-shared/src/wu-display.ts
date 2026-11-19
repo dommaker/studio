@@ -40,6 +40,21 @@ export const WU_STATUS_COLORS: Record<string, string> = {
   blocked: 'u-err-dim u-err',
 };
 
+/** 代码交付子状态 → 中文文案；与 WU 主状态并列展示，不新增看板列。 */
+export const WU_DELIVERY_LABELS: Record<string, string> = {
+  'merge-queued': '等待合并',
+  'merge-running': '合并与目标验证中',
+  'merged-with-failed-verification': '已合并，目标验证失败',
+  'verification-unavailable': '无目标验证命令，待人工确认',
+};
+
+export const WU_DELIVERY_COLORS: Record<string, string> = {
+  'merge-queued': 'u-surface-2 u-text-2',
+  'merge-running': 'u-accent-dim u-accent',
+  'merged-with-failed-verification': 'u-err-dim u-err',
+  'verification-unavailable': 'u-warn-dim u-warn',
+};
+
 /** WU 类型 → 中文文案 */
 export const WU_TYPE_LABELS: Record<string, string> = {
   task: '任务',

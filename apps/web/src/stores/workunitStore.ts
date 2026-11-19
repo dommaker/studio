@@ -1,23 +1,26 @@
 // WorkUnit Store — Agent Network §3.28c-1
 import { create } from 'zustand';
 import axios from 'axios';
-import { workunitApi, type PaginatedResponse, type WorkUnit } from '../api/workunit';
+import { workunitApi, type WorkUnit } from '../api/workunit';
 import { createFreshIdTracker } from '../utils/freshIds';
 import { errorMessage } from '../utils/errorMessage';
+import { KeyedCacheLifecycle } from './keyedCacheLifecycle';
+import { createFetchGate, type FetchGate } from './fetchDiscipline';
+
+export const WORKUNIT_DETAIL_CACHE_LIMIT = 64;
+export const WORKUNIT_DETAIL_INACTIVE_MS = 5 * 60 * 1000;
 
 /**
- * #405：未归属判定 —— 无 reqId 且归因戳（canonical pmoId ‖ legacy ownershipProjectId）
- * 解析为 null。与 #428 服务端 parseWuPmoId 同口径（applyWorkunitEvent 的 SSE 增量
+ * #405：未归属判定 —— 无 reqId 且归因戳（pmoId）解析为 null。
+ * 与 #428 服务端 parseWuPmoId 同口径（applyWorkunitEvent 的 SSE 增量
  * 匹配用；服务端过滤才是权威，本地判定只防增量事件混入）。
  */
 function isUnattributedWu(wu: WorkUnit): boolean {
   if (wu.reqId) return false;
   if (!wu.metadata) return true;
   try {
-    const meta = JSON.parse(wu.metadata) as { pmoId?: unknown; ownershipProjectId?: unknown };
-    const stamp = (typeof meta.pmoId === 'string' && meta.pmoId) ||
-      (typeof meta.ownershipProjectId === 'string' && meta.ownershipProjectId);
-    return !stamp;
+    const meta = JSON.parse(wu.metadata) as { pmoId?: unknown };
+    return !(typeof meta.pmoId === 'string' && meta.pmoId);
   } catch {
     return true; // 坏 JSON 按无戳处理（同服务端 parseWuPmoId 容错语义）
   }
@@ -64,7 +67,7 @@ interface WorkUnitState {
   /**
    * #318：SSE 负载驱动行更新（对齐批 3 模式，替代 eventTick 整页重拉）。
    * status_changed 直替已有行（insertIfMissing: false——未知行不插入，防跨页重复，
-   * 即使新进过滤集亦然：服务端过滤 + 分页下无法判定页内归属，取舍 c 见 CONTEXT.md 批 4）；
+   * 即使新进过滤集亦然：服务端过滤 + 分页下无法判定页内归属，取舍 c 见 apps/web/docs/CONTEXT.md 批 4）；
    * created 插头部（insertIfMissing: true）。与当前 status/type 过滤不符的行就地移除/不插入。
    * 取舍 a：total 本地 ±1 近似维护，页边界不追齐——本页无轮询兜底，自愈靠 SSE 重连 refetch
    * 与操作触发的 loadWorkUnits（docs/plans/2026-08-24-wu-events-payload-consumers.md）。
@@ -88,6 +91,8 @@ interface WorkUnitState {
   /** #549：WU 详情 REST 打底（drawer 打开/换 id 即拉，不做 TTL 门禁）；404 → notFound 友好态，
    *  其他错误 → error 文案（errorMessage 正本，服务端 error.message 优先） */
   loadWorkUnitDetail: (id: string) => Promise<void>;
+  /** 详情抽屉订阅：引用计数归零后进入有界非活跃 LRU。 */
+  subscribeDetail: (id: string) => () => void;
   /** #549：created 事件路由驱动——新行 id 进 fresh 集（per-id 2s 自清） */
   markWuFresh: (id: string) => void;
   /** #557：列表页挂载/卸载登记录在屏信号 */
@@ -95,6 +100,32 @@ interface WorkUnitState {
   /** 测试重置：detail/fresh 切片 + fresh tracker 计时器（防跨测悬挂） */
   __resetForTests: () => void;
 }
+
+const detailGates = new Map<string, FetchGate>();
+function detailGateOf(id: string): FetchGate {
+  let gate = detailGates.get(id);
+  if (!gate) {
+    gate = createFetchGate();
+    detailGates.set(id, gate);
+  }
+  return gate;
+}
+
+const detailLifecycle = new KeyedCacheLifecycle({
+  maxInactive: WORKUNIT_DETAIL_CACHE_LIMIT,
+  inactiveMs: WORKUNIT_DETAIL_INACTIVE_MS,
+  onEvict: (id) => {
+    detailGates.get(id)?.nextSeq();
+    detailGates.delete(id);
+    useWorkUnitStore.setState(st => {
+      const detailById = { ...st.detailById };
+      delete detailById[id];
+      return { detailById };
+    });
+  },
+});
+
+export const WORKUNIT_DETAIL_CACHE_STATS = () => detailLifecycle.stats();
 
 export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   workunits: [],
@@ -127,23 +158,24 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         page: params?.page ?? page,
         limit,
       });
-      const result = data as PaginatedResponse<WorkUnit>;
+      // 契约分页壳 PaginatedBody（{ data, pagination } 必填），无第二形态
+      const result = data;
       set({
-        workunits: result?.data ?? (result as unknown as WorkUnit[]) ?? [],
-        total: result?.pagination?.total ?? 0,
-        page: result?.pagination?.page ?? 1,
+        workunits: result.data,
+        total: result.pagination.total,
+        page: result.pagination.page,
         // #405：仅无 status/type/q 过滤时本次 total 才是未归属总数，可同步徽标；
         // 交集过滤下 total 是交集计数，不能覆盖徽标（徽标由 loadUnattributedCount 维护）
         ...(unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter) && !searchQuery
-          ? { unattributedTotal: result?.pagination?.total ?? 0 } : {}),
+          ? { unattributedTotal: result.pagination.total } : {}),
         // 全量总数徽标：仅无任何过滤时本次 total 才是全量，可同步 allTotal；
         // 过滤态下 total 是过滤计数，「总数」chip 不得随之变脸（过滤态由 loadAllCount 补齐）
         ...(!unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter) && !searchQuery
-          ? { allTotal: result?.pagination?.total ?? 0 } : {}),
+          ? { allTotal: result.pagination.total } : {}),
         loading: false,
       });
     } catch (e) {
-      set({ error: e?.message ?? 'Failed to load workunits', loading: false });
+      set({ error: (e instanceof Error ? e.message : undefined) ?? 'Failed to load workunits', loading: false });
     }
   },
 
@@ -161,18 +193,18 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         page: page + 1,
         limit,
       });
-      const result = data as PaginatedResponse<WorkUnit>;
-      const incoming = result?.data ?? [];
+      const result = data;
+      const incoming = result.data;
       // SSE created 插头部会让下一页与前页行重叠——按 id 去重再拼接
       const seen = new Set(get().workunits.map(w => w.id));
       set({
         workunits: [...get().workunits, ...incoming.filter(w => !seen.has(w.id))],
-        total: result?.pagination?.total ?? 0,
-        page: result?.pagination?.page ?? page + 1,
+        total: result.pagination.total,
+        page: result.pagination.page,
         loading: false,
       });
     } catch (e) {
-      set({ error: e?.message ?? 'Failed to load workunits', loading: false });
+      set({ error: (e instanceof Error ? e.message : undefined) ?? 'Failed to load workunits', loading: false });
     }
   },
 
@@ -256,8 +288,7 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   loadUnattributedCount: async () => {
     try {
       const { data } = await workunitApi.list({ attributed: false, page: 1, limit: 1 });
-      const result = data as PaginatedResponse<WorkUnit>;
-      set({ unattributedTotal: result?.pagination?.total ?? 0 });
+      set({ unattributedTotal: data.pagination.total });
     } catch {
       // best-effort：徽标留旧值（null = 不显示数字），下次加载/重连自愈
     }
@@ -266,18 +297,24 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   loadAllCount: async () => {
     try {
       const { data } = await workunitApi.list({ page: 1, limit: 1 });
-      const result = data as PaginatedResponse<WorkUnit>;
-      set({ allTotal: result?.pagination?.total ?? 0 });
+      set({ allTotal: data.pagination.total });
     } catch {
       // best-effort：徽标留旧值（null = chip 回退显示过滤态 total），下次加载/重连自愈
     }
   },
 
   loadWorkUnitDetail: async (id) => {
+    detailLifecycle.touch(id);
+    const incarnation = detailLifecycle.incarnation(id);
+    const gate = detailGateOf(id);
+    const seq = gate.nextSeq();
+    const isCurrent = () => gate.isLatest(seq) && detailLifecycle.incarnation(id) === incarnation;
     try {
       const { data: env } = await workunitApi.get(id);
+      if (!isCurrent()) return;
       set({ detailById: { ...get().detailById, [id]: { wu: env.data, notFound: false, error: null } } });
     } catch (e) {
+      if (!isCurrent()) return;
       // #241 口径：404 = 悬空 WU 单列友好态（无 error 文案）；其余错误走 errorMessage 正本
       const notFound = axios.isAxiosError(e) && e.response?.status === 404;
       set({
@@ -289,6 +326,8 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
     }
   },
 
+  subscribeDetail: (id) => detailLifecycle.acquire(id),
+
   markWuFresh: (id) => {
     freshTracker.mark(id);
   },
@@ -298,6 +337,8 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   },
 
   __resetForTests: () => {
+    detailLifecycle.dispose();
+    detailGates.clear();
     freshTracker.dispose();
     set({ detailById: {}, freshWuIds: new Set() });
   },

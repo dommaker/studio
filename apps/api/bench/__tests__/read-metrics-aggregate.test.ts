@@ -139,7 +139,7 @@ const workerSegments: WorkerResult = {
       segments: [
         seg('exec', 'git worktree prune', 20),
         seg('exec', 'npx harness update-user-model', 5),
-        seg('harness', 'KnowledgeLinter.run', 4),
+        seg('harness', 'KnowledgeIngest.ingestEntry', 4),
       ],
     },
   ],

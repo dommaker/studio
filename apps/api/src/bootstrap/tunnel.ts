@@ -2,9 +2,10 @@
 // P2-a：自 apps/api/src/index.ts 拆出。进程句柄收进模块态，stopTunnel 供优雅关闭调用。
 import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
-import { logger } from '@dommaker/studio-shared';
-import { tunnelUrlFile } from '../utils/runtime-paths.js';
-import { isCloudflaredEnabled } from '../utils/cloudflared.js';
+
+import { tunnelUrlFile } from './runtime-paths.js';
+import { isCloudflaredEnabled } from './cloudflared.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 let cloudflaredProc: ChildProcess | null = null;
 let lastTunnelUrl = '';
@@ -18,7 +19,7 @@ const notifyTunnelUrl = async (url: string) => {
   logger.info('='.repeat(70));
   // Discord 通知（复用 discordNotifier）
   try {
-    const { discordNotifier } = await import('../utils/discord-notifier.js');
+    const { discordNotifier } = await import('../modules/notifications/index.js');
     await discordNotifier.sendText(
       '🔗 Tunnel URL 已更新',
       `新的 Interactions Endpoint URL:\n\`\`\`\n${url}/api/v1/discord/interactions\n\`\`\`\n请到 Discord Developer Portal 更新。`

@@ -6,7 +6,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 const { mockListExecSteps, mockStreamChunks, sse } = vi.hoisted(() => ({
   mockListExecSteps: vi.fn(),
   mockStreamChunks: vi.fn(),
-  // SSE 注册口捕获：组件经 useWebSocketContext 订阅后，用例经 sse.handler 注入消息、sse.reconnect 模拟重连
+  // SSE 注册口捕获：组件经 useSseContext 订阅后，用例经 sse.handler 注入消息、sse.reconnect 模拟重连
   sse: {
     handler: null as null | ((msg: { event_type: string; data: unknown }) => void),
     reconnect: null as null | (() => void),
@@ -21,9 +21,9 @@ vi.mock('../../../api/workunit', async () => {
   };
 });
 
-// SSE 上下文 - 测试无 WebSocketProvider，捕获订阅回调供用例注入
-vi.mock('../../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({
+// SSE 上下文 - 测试无 SseProvider，捕获订阅回调供用例注入
+vi.mock('../../../api/sseHooks', () => ({
+  useSseContext: () => ({
     onEvent: (fn: (msg: { event_type: string; data: unknown }) => void) => {
       sse.handler = fn;
       return () => { sse.handler = null; };

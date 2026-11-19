@@ -2,9 +2,9 @@
  * MCP Tool Registry — dynamic registration, health, rate limiting
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { preferenceObserver } from '../knowledge/index.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 export type ToolRiskLevel = 'low' | 'medium' | 'high';
 
@@ -238,7 +238,7 @@ export class MCPToolRegistry {
       const s = this.stats.get(t.name);
       return {
         name: t.name,
-        enabled: t.enabled,
+        enabled: t.enabled ?? true,
         errorRate: s && s.totalCalls > 0 ? Math.round((s.errorCalls / s.totalCalls) * 100) : 0,
         lastCallAt: s?.lastCallAt,
       };

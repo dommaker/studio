@@ -23,6 +23,7 @@ vi.mock('../../api', () => ({
 vi.mock('../../hooks/useChannelEvents', () => ({
   useChannelMessages: () => ({
     messages: currentMessages,
+    change: currentChange,
     loading: false,
     error: null,
     hasMore: false,
@@ -34,8 +35,8 @@ vi.mock('../../hooks/useChannelEvents', () => ({
 
 vi.mock('../../api/workunit', () => ({ workunitApi: { list: mockListWorkunits } }));
 vi.mock('../../api/requirements', () => ({ requirementApi: { list: mockListReqs } }));
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }),
 }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => <div data-testid="channel-rail" /> }));
@@ -73,13 +74,14 @@ const iso = (offsetMin: number) => new Date(now + offsetMin * 60000).toISOString
 const msg = (id: string, offsetMin: number, over: Partial<ChannelMessage> = {}): ChannelMessage => ({
   id, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'dev-agent',
   content: `消息-${id}`, workUnitId: null, replyToId: null,
-  meta: '{}', createdAt: iso(offsetMin), ...over,
+  meta: {}, createdAt: iso(offsetMin), ...over,
 });
 
 const alert = (id: string, offsetMin: number): ChannelMessage =>
   msg(id, offsetMin, { agentName: 'Studio', content: `[WARNING] **[Monitor]** 告警-${id}` });
 
 let currentMessages: ChannelMessage[] = [];
+let currentChange: { kind: 'reset' } | { kind: 'append'; id: string } = { kind: 'reset' };
 
 const renderPage = () =>
   render(
@@ -99,6 +101,7 @@ describe('ChannelDetailPage — 消息级键盘导航（Phase 3 / AC5）', () =>
     vi.clearAllMocks();
     window.localStorage.clear();
     currentMessages = [msg('m1', 0), msg('m2', 1), msg('m3', 2)];
+    currentChange = { kind: 'reset' };
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
@@ -122,6 +125,26 @@ describe('ChannelDetailPage — 消息级键盘导航（Phase 3 / AC5）', () =>
     expect(focusedEl()?.getAttribute('data-message-id')).toBe('m3');
     key('k');
     expect(focusedEl()?.getAttribute('data-message-id')).toBe('m2');
+  });
+
+  it('稳定 items 上 append 后 revision 增长，新消息进入键盘导航', async () => {
+    const { rerender } = renderPage();
+    await waitFor(() => expect(screen.getByText('消息-m3')).toBeTruthy());
+    key('j');
+    key('j');
+    key('j');
+    expect(focusedEl()?.getAttribute('data-message-id')).toBe('m3');
+
+    currentMessages = [...currentMessages, msg('m4', 3)];
+    currentChange = { kind: 'append', id: 'm4' };
+    rerender(
+      <MemoryRouter initialEntries={['/channels/ch-1']}>
+        <Routes><Route path="/channels/:id" element={<ChannelDetailPage />} /></Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByText('消息-m4')).toBeTruthy());
+    key('j');
+    expect(focusedEl()?.getAttribute('data-message-id')).toBe('m4');
   });
 
   it('折叠的告警组整组跳过（焦点从组前直接到组后）', async () => {

@@ -4,7 +4,7 @@
  * Covers:
  * - POST /     — create StudioEvent (AC: type+source validation, payload stringify, error)
  * - GET  /     — query StudioEvents (type/since/limit filter, empty, error)
- * - POST /agent-events — batch ingest AgentEvent[] (validation, batch size, session:end trigger)
+ * （POST /agent-events 已随 P4.6 孤儿端点收缩删除）
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Router } from 'express';
@@ -18,7 +18,11 @@ import * as path from 'node:path';
  * STUDIO_EVENTS_FILE 指向 tmp 隔离文件，POST 系断言从磁盘行读取。
  */
 // ── Hoisted mocks ─────────────────────────────────────────────────────
-const mockGenerateSessionSummary = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } };
+});
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
@@ -27,10 +31,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
     logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
   };
 });
-
-vi.mock('../session-summary-generator.js', () => ({
-  generateSessionSummary: mockGenerateSessionSummary,
-}));
 
 // ── Imports after mocks ───────────────────────────────────────────────
 import { eventOpenRoutes, eventWriteRoutes } from '../event.routes.js';
@@ -403,139 +403,6 @@ describe('GET / (query events)', () => {
     process.env.STUDIO_EVENTS_FILE = tmpDir; // 目录：open 成功、read 抛 EISDIR
 
     const { res } = await invokeRoute(eventOpenRoutes, 'get', '/');
-
-    expect(res.status).toHaveBeenCalledWith(500);
-    // 错误壳统一：500 文案由固定串变为实际错误消息
-    expect(res.json.mock.calls[0][0].error.code).toBe('INTERNAL');
-  });
-});
-
-describe('POST /agent-events (batch ingest)', () => {
-  let tmpDir: string;
-  let eventsFile: string;
-
-  const writtenRows = async (): Promise<Array<Record<string, unknown>>> =>
-    (await fs.readFile(eventsFile, 'utf-8')).trim().split('\n').map((l) => JSON.parse(l));
-
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'event-routes-agent-'));
-    eventsFile = path.join(tmpDir, 'studio-events.jsonl');
-    process.env.STUDIO_EVENTS_FILE = eventsFile;
-  });
-
-  afterEach(async () => {
-    delete process.env.STUDIO_EVENTS_FILE;
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  });
-
-  const validEvents = () => [
-    { sessionId: 's1', agentId: 'agent-1', timestamp: Date.now(), type: 'session:start' },
-    { sessionId: 's1', agentId: 'agent-1', timestamp: Date.now(), type: 'tool:call', payload: { tool: 'Bash' } },
-  ];
-
-  it('ingests valid array, returns 201 with count', async () => {
-    const { res } = await invokeRoute(eventWriteRoutes, 'post', '/agent-events', {
-      body: validEvents(),
-    });
-
-    expect(res.status).toHaveBeenCalledWith(201);
-    expect(res.json).toHaveBeenCalledWith({ data: { ingested: 2 } });
-    const rows = await writtenRows();
-    expect(rows.map((r) => r.type)).toEqual(['session:start', 'tool:call']);
-  });
-
-  it('returns 400 when body is not array', async () => {
-    const { res } = await invokeRoute(eventWriteRoutes, 'post', '/agent-events', {
-      body: { not: 'array' },
-    });
-
-    expect(res.status).toHaveBeenCalledWith(400);
-    // 手写 guard 收进 zod：错误统一 `{ error: { code, message } }`，文案变 zod 格式
-    expect(res.json.mock.calls[0][0].error.code).toBe('BAD_REQUEST');
-  });
-
-  it('returns 400 when body is empty array', async () => {
-    const { res } = await invokeRoute(eventWriteRoutes, 'post', '/agent-events', {
-      body: [],
-    });
-
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json.mock.calls[0][0].error.code).toBe('BAD_REQUEST');
-  });
-
-  it('returns 400 when batch exceeds 500', async () => {
-    const many = Array.from({ length: 501 }, (_, i) => ({
-      sessionId: `s${i}`, agentId: 'a1', timestamp: Date.now(), type: 'ev',
-    }));
-
-    const { res } = await invokeRoute(eventWriteRoutes, 'post', '/agent-events', {
-      body: many,
-    });
-
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json.mock.calls[0][0].error.code).toBe('BAD_REQUEST');
-  });
-
-  it('validates required fields on each event', async () => {
-    const { res } = await invokeRoute(eventWriteRoutes, 'post', '/agent-events', {
-      body: [
-        { sessionId: 's1', agentId: 'a1', timestamp: Date.now() },       // missing type
-        { sessionId: 's1', timestamp: Date.now(), type: 't' },            // missing agentId
-        { agentId: 'a1', timestamp: Date.now(), type: 't' },              // missing sessionId
-        { sessionId: 's1', agentId: 'a1', type: 't' },                    // missing timestamp
-        { sessionId: 's1', agentId: 'a1', timestamp: 'bad', type: 't' },  // timestamp not number
-      ],
-    });
-
-    expect(res.status).toHaveBeenCalledWith(400);
-    // 「Validation failed + details[]」聚合错误体退役为 zod 首错格式（首条缺 type）
-    expect(res.json.mock.calls[0][0].error.code).toBe('BAD_REQUEST');
-    expect(res.json.mock.calls[0][0].error.message).toContain('type');
-  });
-
-  it('merges agent payload with sessionId', async () => {
-    const events = [
-      { sessionId: 's1', agentId: 'a1', timestamp: 1000, type: 'custom', payload: { foo: 'bar' } },
-    ];
-
-    await invokeRoute(eventWriteRoutes, 'post', '/agent-events', { body: events });
-
-    const rows = await writtenRows();
-    expect(rows[0].source).toBe('a1');
-    expect(String(rows[0].payload)).toContain('"sessionId":"s1"');
-    expect(String(rows[0].payload)).toContain('"foo":"bar"');
-  });
-
-  it('calls generateSessionSummary for session:end events', async () => {
-    const events = [
-      { sessionId: 's1', agentId: 'a1', timestamp: Date.now(), type: 'session:end' },
-    ];
-
-    await invokeRoute(eventWriteRoutes, 'post', '/agent-events', { body: events });
-
-    expect(mockGenerateSessionSummary).toHaveBeenCalledWith('s1');
-    expect(mockGenerateSessionSummary).toHaveBeenCalledTimes(1);
-  });
-
-  it('does NOT call generateSessionSummary for non-session-end events', async () => {
-    const events = [
-      { sessionId: 's1', agentId: 'a1', timestamp: Date.now(), type: 'tool:call' },
-    ];
-
-    await invokeRoute(eventWriteRoutes, 'post', '/agent-events', { body: events });
-
-    expect(mockGenerateSessionSummary).not.toHaveBeenCalled();
-  });
-
-  it('returns 500 when 写盘失败（事件路径指向普通文件，mkdir ENOTDIR）', async () => {
-    const blocker = path.join(tmpDir, 'blocker');
-    await fs.writeFile(blocker, 'not a dir');
-    process.env.STUDIO_EVENTS_FILE = path.join(blocker, 'events.jsonl');
-
-    const { res } = await invokeRoute(eventWriteRoutes, 'post', '/agent-events', {
-      body: validEvents(),
-    });
 
     expect(res.status).toHaveBeenCalledWith(500);
     // 错误壳统一：500 文案由固定串变为实际错误消息

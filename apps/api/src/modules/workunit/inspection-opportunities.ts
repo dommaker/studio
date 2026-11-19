@@ -10,8 +10,9 @@
  * metadata 更新 = read-modify-write（PUT 整体替换语义下唯一安全路径），写入前重读
  * 合并（#115 实测两哨兵互覆教训）。
  */
-import type { WorkUnitData } from './workunit.service.js';
-import { WorkUnitService, type InspectionOpportunity } from './workunit.service.js';
+import type { WorkUnitData } from './workunit-crud.js';
+import { WorkUnitService } from './workunit-review.js';
+import type { InspectionOpportunity } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
 
 async function resolvePendingOpportunity(

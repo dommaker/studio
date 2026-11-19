@@ -94,9 +94,14 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
     vi.clearAllMocks();
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-sse-'));
     fileStore = new FileStore(testDir);
-    loop = new AgentLoop(mockRole, fileStore);
+    loop = new AgentLoop(mockRole, fileStore, {
+      instance: {
+        id: 'inst-sse-1', roleId: mockRole.id, sessionId: null, status: 'idle',
+        currentWorkUnitId: null, startedAt: '2026-08-24T02:00:00Z', terminatedAt: null,
+        lastHeartbeat: null, metadata: null,
+      },
+    });
     publishSpy = vi.spyOn(eventBus, 'publish');
-    (loop as unknown as StatusSseCapable).instance = { id: 'inst-sse-1', startedAt: '2026-08-24T02:00:00Z' };
   });
 
   afterEach(() => {
@@ -105,7 +110,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
   });
 
   it('updateIdleState → 发一次 agent.instance.status_changed，信封形状正确', async () => {
-    await (loop as unknown as StatusSseCapable).updateIdleState();
+    await (loop).updateIdleState();
 
     const events = statusEvents(publishSpy);
     expect(events).toHaveLength(1);
@@ -130,7 +135,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
   });
 
   it('重复进入 idle（45s 节流心跳分支）不重复发布', async () => {
-    const capable = loop as unknown as StatusSseCapable;
+    const capable = loop;
     await capable.updateIdleState();
     await capable.updateIdleState();
     await capable.updateIdleState();
@@ -139,7 +144,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
   });
 
   it('idle→active→idle 状态变化各发一次；同状态连发去重', async () => {
-    const capable = loop as unknown as StatusSseCapable;
+    const capable = loop;
 
     await capable.updateIdleState();                            // idle（首发）
     await capable.publishInstanceStatus('active', 'wu-1');      // → active（变化，发）
@@ -153,7 +158,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
   });
 
   it('instance 未初始化时不发布（守卫）', async () => {
-    const noInstance = new AgentLoop(mockRole, fileStore) as unknown as StatusSseCapable;
+    const noInstance = new AgentLoop(mockRole, fileStore);
     await noInstance.publishInstanceStatus('idle', null);
 
     expect(statusEvents(publishSpy)).toHaveLength(0);
@@ -169,7 +174,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
       claimedAt: '2026-08-24T00:30:00Z', completedAt: null,
     });
 
-    await (loop as unknown as StatusSseCapable).publishInstanceStatus('active', 'wu-sse');
+    await (loop).publishInstanceStatus('active', 'wu-sse');
 
     const events = statusEvents(publishSpy);
     expect(events).toHaveLength(1);
@@ -195,7 +200,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
       claimedAt: null, completedAt: null,
     });
 
-    await (loop as unknown as StatusSseCapable).publishInstanceStatus('active', 'wu-notitle');
+    await (loop).publishInstanceStatus('active', 'wu-notitle');
 
     const events = statusEvents(publishSpy);
     expect(events[0].data.currentWorkUnit).toEqual({
@@ -205,7 +210,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
   });
 
   it('#312：悬空 currentWorkUnitId（WU 已不存在）→ currentWorkUnit/channelId null，裸 id 保留', async () => {
-    await (loop as unknown as StatusSseCapable).publishInstanceStatus('active', 'wu-ghost');
+    await (loop).publishInstanceStatus('active', 'wu-ghost');
 
     const events = statusEvents(publishSpy);
     expect(events).toHaveLength(1);
@@ -215,7 +220,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
   });
 
   it('#312：启动失败（error）路径也发 status_changed，带 lastError/lastErrorAt', async () => {
-    await (loop as unknown as StatusSseCapable).recordStartupFailure('health probe timeout');
+    await (loop).recordStartupFailure('health probe timeout');
 
     const events = statusEvents(publishSpy);
     expect(events).toHaveLength(1);
@@ -240,7 +245,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
       claimedAt: null, completedAt: null,
     });
 
-    await (loop as unknown as StatusSseCapable).publishInstanceStatus('active', 'wu-nopmo');
+    await (loop).publishInstanceStatus('active', 'wu-nopmo');
 
     const events = statusEvents(publishSpy);
     expect(events).toHaveLength(1);
@@ -249,7 +254,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
   });
 
   it('#318：error 路径负载同形状（含 startedAt/pmo 键）', async () => {
-    await (loop as unknown as StatusSseCapable).recordStartupFailure('boom');
+    await (loop).recordStartupFailure('boom');
 
     const evt = statusEvents(publishSpy)[0];
     expect(evt.data.startedAt).toBeTruthy();

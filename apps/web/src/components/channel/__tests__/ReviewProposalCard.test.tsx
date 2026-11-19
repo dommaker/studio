@@ -1,6 +1,6 @@
 // ReviewProposalCard — #352 人审提案卡合一壳（ADR 2026-08-25 决策 5）
 // 等价替换旧 4 卡组件测试（Distill/Gc/Memory/Knowledge；ConstraintAudit 已随 #620 拆除），逐用例对照见 #352 交付摘要。
-// 契约：5 个 cardType 共用本壳；action/终态文案/按钮文案/派生失败保持待审 逐字保持旧行为。
+// 契约：已注册 cardType 共用本壳；action/终态文案/按钮文案/派生失败保持待审。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ReviewProposalCard } from '../ReviewProposalCard';
@@ -32,12 +32,12 @@ const msg = (id: string, content: string, meta: Record<string, unknown>): Channe
   agentName: 'KK',
   content,
   replyToId: null,
-  meta: JSON.stringify(meta),
+  meta: meta,
   createdAt: new Date().toISOString(),
 });
 
 const renderCard = (message: ChannelMessage, onAction: ReturnType<typeof vi.fn>, metaOverride?: Record<string, unknown>) =>
-  render(<ReviewProposalCard message={message} meta={metaOverride ?? JSON.parse(message.meta!)} onAction={onAction} />);
+  render(<ReviewProposalCard message={message} meta={metaOverride ?? message.meta} onAction={onAction} />);
 
 // ---------- distill_proposal（原 DistillProposalCard 8 用例） ----------
 
@@ -177,7 +177,7 @@ describe('ReviewProposalCard — gc_proposal（原 GcProposalCard）', () => {
   });
 
   it('forced=true 时显示超容量强制说明', () => {
-    const meta = JSON.parse(gcMessage.meta!);
+    const meta = structuredClone(gcMessage.meta) as { cardData: Record<string, unknown> };
     meta.cardData.forced = true;
     meta.cardData.mainAreaCount = 203;
     renderCard(gcMessage, vi.fn(), meta);
@@ -326,7 +326,7 @@ describe('ReviewProposalCard — memory_proposal（原 MemoryProposalCard）', (
   });
 
   it('meta.status 已为 approved → 直接渲染已确认（无按钮）', () => {
-    const meta = { ...JSON.parse(memoryMessage.meta!), status: 'approved' };
+    const meta = { ...memoryMessage.meta, status: 'approved' };
     renderCard(memoryMessage, vi.fn(), meta);
     expect(screen.getByText(/已确认/)).toBeTruthy();
     expect(screen.queryByText('丢弃')).not.toBeTruthy();
@@ -433,7 +433,7 @@ describe('ReviewProposalCard — knowledge_proposal（原 KnowledgeProposalCard�
   });
 
   it('meta.status 已为 approved → 直接渲染已审核状态（无按钮）', () => {
-    const meta = { ...JSON.parse(knowledgeMessage.meta!), status: 'approved' };
+    const meta = { ...knowledgeMessage.meta, status: 'approved' };
     renderCard(knowledgeMessage, vi.fn(), meta);
     expect(screen.getByText(/已通过/)).toBeTruthy();
     expect(screen.queryByText('拒绝')).not.toBeTruthy();

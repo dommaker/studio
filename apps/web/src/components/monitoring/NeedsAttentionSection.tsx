@@ -4,10 +4,10 @@
 // #456：stuck/failure 计数改读 /monitoring/overview 扩段（服务端单源，消「拉全量客户端统计」的
 // 先截后滤漏单）；告警行明细仍前端翻页（triage 拍板：签名分组不挪服务端）。
 // 自含数据加载：告警与 overview 各自独立取数，任一部分失败只显示该部分「加载失败」，不影响页面其余区块。
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { eventsApi, type StudioEventItem } from '../../api/events';
-import { monitoringApi } from '../../api/monitoring';
+import { useMonitoringStore } from '../../stores/monitoringStore';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { formatAge } from '@dommaker/studio-shared/web';
 import { groupAlertsBySignature, type AlertGroup, type AlertItem } from './alertGrouping';
@@ -61,9 +61,18 @@ async function loadAlerts(since24: string): Promise<AlertItem[]> {
 export function NeedsAttentionSection({ onAlertClick }: { onAlertClick?: (group: AlertGroup) => void }) {
   // #350 useAsyncData 收一次性拉取样板：两部分独立取数，各自 data/error/loading，互不阻塞
   const alerts = useAsyncData(() => loadAlerts(new Date(Date.now() - 24 * HOUR).toISOString()), []);
-  // #456：stuck/failure 服务端单源（60s 服务端缓存；与 MonitoringPage 头部概览调用同端点）
-  // 契约驱动迁移（批次 5/7）：响应统一 `{ data }` 壳
-  const overview = useAsyncData(async () => (await monitoringApi.getOverview()).data.data, []);
+  // PERF-05：与 MonitoringPage 共享 overview 数据面，挂载并发只发一次请求。
+  const overviewData = useMonitoringStore(s => s.overview);
+  const overviewError = useMonitoringStore(s => s.overviewError);
+  const overviewLoadedAt = useMonitoringStore(s => s.overviewLoadedAt);
+  const overviewInflight = useMonitoringStore(s => s.overviewInflight);
+  const loadOverview = useMonitoringStore(s => s.loadOverview);
+  useEffect(() => { void loadOverview(); }, [loadOverview]);
+  const overview = {
+    data: overviewData,
+    error: overviewError?.message ?? null,
+    loading: overviewInflight !== null || (overviewLoadedAt === null && !overviewError),
+  };
   const [showAllGroups, setShowAllGroups] = useState(false);
 
   const stuck = overview.data?.stuck;

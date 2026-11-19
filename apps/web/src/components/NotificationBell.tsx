@@ -14,10 +14,13 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
+import { isSseEvent } from '../api/sseParser';
 import { useNotificationStore, type Notification, type StateItem } from '../stores/notificationStore';
 import { showBrowserNotification, requestBrowserNotificationPermission } from '../utils/browserNotification';
 import { toast } from '../utils/toast';
+// #665（ADR 2026-08-24 落地）：channel.message_sent / notification.created 负载与 studio-contract 同源，本地声明清零
+import type { ChannelMessageSentPayload } from '@dommaker/studio-contract';
 import { IconBell } from './ui/icons';
 import type { DrawerState } from './channel/WorkUnitDrawer';
 
@@ -26,19 +29,9 @@ const WorkUnitDrawer = lazy(() =>
   import('./channel/WorkUnitDrawer').then(m => ({ default: m.WorkUnitDrawer })),
 );
 
-/** channel.message_sent SSE payload（服务端 shapeMessageData 已把 meta 解析为对象） */
-interface ChannelMessageSentData {
-  channelId: string;
-  message: {
-    id: string;
-    agentName?: string | null;
-    content: string;
-    workUnitId?: string | null;
-    meta?: {
-      atHuman?: boolean;
-      pmoId?: string;
-    } | null;
-  };
+/** message.meta 的 atHuman 判定（契约 meta 为 record|string 双型，对象形态才读键） */
+function isAtHumanMeta(meta: ChannelMessageSentPayload['message']['meta'] | undefined): boolean {
+  return !!meta && typeof meta === 'object' && (meta as { atHuman?: unknown }).atHuman === true;
 }
 
 /** #517：SSE 触发面共享的 trailing 防抖窗口（#489 同款，对齐 SUGGESTIONS_RELOAD_DEBOUNCE_MS）——
@@ -56,7 +49,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   // D-2 项2：review/confirm 就地抽屉状态（本组件自挂 drawer 实例，全站任意页可开）
   const [drawer, setDrawer] = useState<DrawerState>(null);
-  const { onEvent, onReconnect } = useWebSocketContext();
+  const { onEvent, onReconnect } = useSseContext();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -124,17 +117,17 @@ export function NotificationBell() {
   // #517：重拉走共享防抖（scheduleLoad）；startFlash / showBrowserNotification 保持即时不防抖
   useEffect(() => {
     const unsub = onEvent((msg) => {
-      if (msg.event_type === 'channel.message_sent') {
-        const data = msg.data as ChannelMessageSentData | undefined;
-        if (data?.message?.meta?.atHuman) {
+      if (isSseEvent(msg, 'channel.message_sent')) {
+        const data = msg.data;
+        if (data?.message && isAtHumanMeta(data.message.meta)) {
           scheduleLoad();
           startFlash(data.message.agentName || 'Agent');
         }
       } else if (msg.event_type === 'workunit.status_changed') {
         scheduleLoad();
-      } else if (msg.event_type === 'notification.created') {
+      } else if (isSseEvent(msg, 'notification.created')) {
         // #523 人闸催办/认领滞留 tier1：铃铛重拉 + 浏览器原生通知（granted 才弹，零配置保底）
-        const data = msg.data as { title?: string; content?: string } | undefined;
+        const data = msg.data;
         scheduleLoad();
         if (data?.title) showBrowserNotification(data.title, data.content ?? '');
       }

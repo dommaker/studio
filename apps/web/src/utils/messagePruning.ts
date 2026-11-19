@@ -34,12 +34,14 @@ export function degradeMessage(m: ChannelMessage): ChannelMessage {
   const keep: Record<string, unknown> = {};
   if (typeof meta.status === 'string') keep.status = meta.status;
   if (typeof meta.cardType === 'string') keep.cardType = meta.cardType;
-  return {
-    ...m,
-    content: '',
-    meta: Object.keys(keep).length > 0 ? keep : undefined,
-    degraded: true,
-  };
+  const out: ChannelMessage = { ...m, content: '', degraded: true };
+  if (Object.keys(keep).length > 0) {
+    out.meta = keep;
+  } else {
+    // meta 大头剥除：契约类型必填（undefined 不可赋），运行态缺省由 parseMeta 容忍
+    Reflect.deleteProperty(out, 'meta');
+  }
+  return out;
 }
 
 export interface PrunePlan {
@@ -73,6 +75,15 @@ export function planPrune(
   const plan: PrunePlan = { degradeIds };
   if (firstFullIdx > 0 && anchorIdx < firstFullIdx + opts.hydrateDistance) {
     plan.hydrateBefore = messages[firstFullIdx].id;
+    return plan;
+  }
+  // cap 恢复窗口可能在全量前缀之间留下 degraded 间隙；以下一个全量消息为排他游标恢复。
+  const firstDegradedIdx = messages.findIndex(m => m.degraded);
+  if (firstDegradedIdx > 0) {
+    const nextFullIdx = messages.findIndex((m, i) => i > firstDegradedIdx && !m.degraded);
+    if (nextFullIdx > 0 && anchorIdx >= firstDegradedIdx && anchorIdx < nextFullIdx + opts.hydrateDistance) {
+      plan.hydrateBefore = messages[nextFullIdx].id;
+    }
   }
   return plan;
 }

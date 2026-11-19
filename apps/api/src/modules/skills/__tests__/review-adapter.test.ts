@@ -4,9 +4,8 @@
  * 契约（ADR 2026-08-25 决策 2/4）：
  *   - 提案存取/发卡/approve/reject/status 全归 review-proposal 正本（kind='skill'）；
  *     存储物化 <dataDir>/skill-proposals.jsonl（append-only），词表 pending|executed|rejected|failed|card-failed。
- *   - 业务方只保留「卡片内容」（renderSkillCard：extraction/distill 两种旧卡文案原样保留，
- *     cardData 形状不变 { proposalId, skillId }）与「审批后动作」（onApprove：skill→draft +
- *     生成 SKILL.md；reject 零副作用）。
+ *   - 业务方只保留卡片文案/展示字段与「审批后动作」（#717：approved → 完整 SKILL.md →
+ *     published；发布失败保持 pending，启动恢复复用原提案；reject 零副作用）。
  *   - 发卡失败落 card-failed 墓碑不抛（#101/#143 降级口径）。
  *
  * 新旧覆盖对照（删旧测前的映射，过 no_test_simplification 闸）：
@@ -22,25 +21,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const { mockCreateCardMessage, mockSkillGet, mockSkillUpdate } = vi.hoisted(() => ({
+const { mockCreateCardMessage, mockSkillGet, mockSkillList, mockSkillUpdate } = vi.hoisted(() => ({
   mockCreateCardMessage: vi.fn().mockResolvedValue({}),
   mockSkillGet: vi.fn(),
+  mockSkillList: vi.fn().mockReturnValue([]),
   mockSkillUpdate: vi.fn(),
-}));
-
-vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
 }));
 
 // skillStore 单例固定写 ~/.studio——mock 掉以隔离真实数据区
 vi.mock('../skill-store.js', () => ({
-  skillStore: { get: mockSkillGet, update: mockSkillUpdate },
+  skillStore: { get: mockSkillGet, list: mockSkillList, update: mockSkillUpdate },
 }));
 
 import { FileStore } from '@dommaker/studio-shared';
 import { clearReviewProposalAdapters } from '../../review-proposal/registry.js';
 import { approveProposal, rejectProposal, getProposalStatus } from '../../review-proposal/service.js';
-import { registerSkillReviewAdapter, submitSkillProposal } from '../review-adapter.js';
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
+import { recoverSkillPublications, registerSkillReviewAdapter, submitSkillProposal } from '../review-adapter.js';
 
 let tmpRoot: string;
 let dataDir: string;
@@ -58,6 +55,10 @@ beforeEach(() => {
   prevSkillsDir = process.env.SKILLS_DIR;
   process.env.SKILLS_DIR = skillsDir;
   fileStore = new FileStore();
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   // 发卡频道解析走 adapter.fileStore.listChannels——spy 控制 #系统 频道有无，其余 FileStore I/O 全真
   listChannelsSpy = vi.spyOn(fileStore, 'listChannels').mockResolvedValue([]);
   registerSkillReviewAdapter({ fileStore, dataDir });
@@ -70,7 +71,7 @@ afterEach(() => {
 });
 
 describe('submitSkillProposal — 建提案 + 发卡（行为同旧 skill_review_request 卡）', () => {
-  it('extraction 形态：提案落 pending + 卡片文案含 Category/Confidence/Source Goal，cardData 形状不变', async () => {
+  it('extraction 形态：提案落 pending + 卡片文案和通用审核卡展示字段完整', async () => {
     listChannelsSpy.mockResolvedValue([{ id: 'ch-sys', name: '#系统', type: 'system' }]);
 
     const { proposalId, posted } = await submitSkillProposal({
@@ -96,7 +97,10 @@ describe('submitSkillProposal — 建提案 + 发卡（行为同旧 skill_review
     expect(content).toContain('Category: testing');
     expect(content).toContain('Confidence: 70%');
     expect(content).toContain('Source Goal: g1, g2');
-    expect(cardData).toEqual({ proposalId, skillId: 'skill-1' });
+    expect(cardData).toMatchObject({
+      proposalId, skillId: 'skill-1', name: 'ci-fix', description: '修 CI 的套路',
+      category: 'testing', confidence: 0.7, sourceGoalIds: ['g1', 'g2'], proposedBy: 'system',
+    });
   });
 
   it('distill 形态：proposedBy=distill → Source: 知识蒸馏 行，无 Category/Confidence 行', async () => {
@@ -119,7 +123,10 @@ describe('submitSkillProposal — 建提案 + 发卡（行为同旧 skill_review
     expect(content).not.toContain('Category:');
     expect(content).not.toContain('Confidence:');
     expect(content).not.toContain('Source Goal:');
-    expect(cardData).toEqual({ proposalId, skillId: 'skill-2' });
+    expect(cardData).toMatchObject({
+      proposalId, skillId: 'skill-2', name: '迁移执行法',
+      description: 'Round 分解 → 转换 → 验证', sourceGoalIds: ['m1', 'm2', 'm3'], proposedBy: 'distill',
+    });
   });
 
   it('#系统 频道缺失 → posted=false，落 card-failed 墓碑不抛（提取链路不被通知阻断）', async () => {
@@ -145,25 +152,31 @@ describe('正本生命周期全链路（kind=skill，通用端点同款 service 
     });
   });
 
-  it('建提案 → approve → executed + skill→draft + SKILL.md 落盘（frontmatter 无 trigger，含 pattern）', async () => {
+  it('建提案 → approve → 完整 SKILL.md 发布，proposal 仅在 published 后 executed', async () => {
+    mockSkillList.mockReturnValue([{ id: 'skill-1', name: 'ci-fix', status: 'approved' }]);
     const { proposalId } = await submitSkillProposal({
       skillId: 'skill-1', name: 'ci-fix', description: 'd', category: 'testing',
       confidence: 0.7, sourceGoalIds: ['g1'], proposedBy: 'system',
     });
 
     const approved = await approveProposal('skill', proposalId);
-    expect(approved).toMatchObject({ kind: 'executed' });
+    expect(approved).toMatchObject({ kind: 'executed', data: { skillId: 'skill-1', status: 'published' } });
 
     expect((await getProposalStatus('skill', proposalId))).toMatchObject({ ok: true, status: 'executed' });
-    expect(mockSkillUpdate).toHaveBeenCalledWith('skill-1', { status: 'draft' });
+    expect(mockSkillUpdate).toHaveBeenCalledWith('skill-1', expect.objectContaining({
+      status: 'approved',
+      metadata: expect.stringContaining('"approvalProposalId"'),
+    }));
+    expect(mockSkillUpdate).toHaveBeenCalledWith('skill-1', { status: 'published' });
 
     const skillFile = path.join(skillsDir, 'ci-fix', 'SKILL.md');
     expect(fs.existsSync(skillFile)).toBe(true);
     const content = fs.readFileSync(skillFile, 'utf-8');
     expect(content).toContain("name: 'ci-fix'");
     expect(content).toContain('version: 1');
-    expect(content).toContain("status: 'draft'");
-    expect(content).not.toContain('trigger:');
+    expect(content).toContain("status: published");
+    expect(content).toContain('description:');
+    expect(content).toContain("triggers: ['ci-fix']");
     expect(content).toContain('Fix the CI issue by...');
 
     // 重复 approve → not-pending 闸（正本词表）
@@ -171,7 +184,7 @@ describe('正本生命周期全链路（kind=skill，通用端点同款 service 
     expect(again).toMatchObject({ kind: 'invalid', error: 'proposal-not-pending:executed' });
   });
 
-  it('SKILL.md 已存在 → 跳过写盘，仍 executed（同旧 reviewProposal 行为）', async () => {
+  it('既有 SKILL.md 质量门拒绝 → 不改写文件、不 executed，proposal 保持 pending 可重试', async () => {
     fs.mkdirSync(path.join(skillsDir, 'ci-fix'), { recursive: true });
     fs.writeFileSync(path.join(skillsDir, 'ci-fix', 'SKILL.md'), 'existing', 'utf-8');
 
@@ -180,8 +193,27 @@ describe('正本生命周期全链路（kind=skill，通用端点同款 service 
     });
     const approved = await approveProposal('skill', proposalId);
 
-    expect(approved).toMatchObject({ kind: 'executed' });
+    expect(approved).toMatchObject({ kind: 'aborted' });
+    expect((await getProposalStatus('skill', proposalId))).toMatchObject({ ok: true, status: 'pending' });
     expect(fs.readFileSync(path.join(skillsDir, 'ci-fix', 'SKILL.md'), 'utf-8')).toBe('existing');
+  });
+
+  it('同名文件属于其他 skillId → 即使质量门有效也拒绝发布，不冒认产物', async () => {
+    const foreign = [
+      '---', 'name: ci-fix', 'description: foreign', 'triggers: [ci]', 'skillId: another-skill',
+      'status: published', '---', '', 'foreign body',
+    ].join('\n');
+    fs.mkdirSync(path.join(skillsDir, 'ci-fix'), { recursive: true });
+    fs.writeFileSync(path.join(skillsDir, 'ci-fix', 'SKILL.md'), foreign, 'utf-8');
+
+    const { proposalId } = await submitSkillProposal({
+      skillId: 'skill-1', name: 'ci-fix', description: 'current', proposedBy: 'distill',
+    });
+    const approved = await approveProposal('skill', proposalId);
+
+    expect(approved).toMatchObject({ kind: 'aborted', error: expect.stringContaining('skillId') });
+    expect((await getProposalStatus('skill', proposalId))).toMatchObject({ ok: true, status: 'pending' });
+    expect(fs.readFileSync(path.join(skillsDir, 'ci-fix', 'SKILL.md'), 'utf-8')).toBe(foreign);
   });
 
   it('reject → rejected 墓碑，零副作用（不写 SKILL.md、不动 skill）', async () => {
@@ -201,5 +233,54 @@ describe('正本生命周期全链路（kind=skill，通用端点同款 service 
   it('查无提案 → proposal-not-found；status → unknown', async () => {
     expect(await approveProposal('skill', 'ghost')).toMatchObject({ kind: 'invalid', error: 'proposal-not-found' });
     expect((await getProposalStatus('skill', 'ghost'))).toMatchObject({ ok: true, status: 'unknown' });
+  });
+});
+
+describe('Skill 发布启动恢复', () => {
+  beforeEach(() => {
+    listChannelsSpy.mockResolvedValue([{ id: 'ch-sys', name: '#系统', type: 'system' }]);
+  });
+
+  it('已审但未落盘 → 复用原 Skill/proposal 补发布，重复恢复不新增记录', async () => {
+    const { proposalId } = await submitSkillProposal({
+      skillId: 'skill-1', name: 'ci-fix', description: 'd', proposedBy: 'distill',
+    });
+    mockSkillGet.mockReturnValue({
+      id: 'skill-1', name: 'ci-fix', description: 'd',
+      metadata: JSON.stringify({ pattern: 'Fix CI', approvalProposalId: proposalId }),
+    });
+    mockSkillList.mockReturnValue([{ id: 'skill-1', name: 'ci-fix', status: 'approved' }]);
+
+    await recoverSkillPublications();
+    await recoverSkillPublications();
+
+    expect((await getProposalStatus('skill', proposalId))).toMatchObject({ ok: true, status: 'executed' });
+    expect(mockCreateCardMessage).toHaveBeenCalledTimes(1);
+    const content = fs.readFileSync(path.join(skillsDir, 'ci-fix', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('status: published');
+    expect(content).toContain('Fix CI');
+  });
+
+  it('磁盘已 published 但 proposal 仍 pending → 补 executed 墓碑且正文逐字节不变', async () => {
+    const { proposalId } = await submitSkillProposal({
+      skillId: 'skill-1', name: 'ci-fix', description: 'd', proposedBy: 'distill',
+    });
+    mockSkillGet.mockReturnValue({
+      id: 'skill-1', name: 'ci-fix', description: 'd',
+      metadata: JSON.stringify({ pattern: 'Fix CI', approvalProposalId: proposalId }),
+    });
+    mockSkillList.mockReturnValue([{ id: 'skill-1', name: 'ci-fix', status: 'approved' }]);
+    const existing = [
+      '---', 'name: ci-fix', 'description: Fix CI', 'triggers: [ci]', 'skillId: skill-1',
+      'status: published', '---', '', 'already durable',
+    ].join('\n');
+    fs.mkdirSync(path.join(skillsDir, 'ci-fix'), { recursive: true });
+    fs.writeFileSync(path.join(skillsDir, 'ci-fix', 'SKILL.md'), existing, 'utf-8');
+
+    await recoverSkillPublications();
+
+    expect((await getProposalStatus('skill', proposalId))).toMatchObject({ ok: true, status: 'executed' });
+    expect(fs.readFileSync(path.join(skillsDir, 'ci-fix', 'SKILL.md'), 'utf-8')).toBe(existing);
+    expect(mockCreateCardMessage).toHaveBeenCalledTimes(1);
   });
 });

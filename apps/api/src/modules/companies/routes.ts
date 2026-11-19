@@ -16,26 +16,14 @@ import {
   updateCompanyBodySchema,
   ERROR_CODES,
   type Company,
+  companyListResponseSchema,
+  companyResponseSchema,
+  companySizeConfigResponseSchema,
+  companyHallStatsResponseSchema,
 } from '@dommaker/studio-contract';
-import { generateId } from '@dommaker/studio-shared';
-import * as path from 'path';
-import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
-
-
-const COMPANIES_DIR = studioPath('data', 'companies');
-const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
-
-function companyPath(id: string): string {
-  return path.join(COMPANIES_DIR, `${id}.json`);
-}
-
-async function listCompanies(): Promise<Company[]> {
-  // P2-e：目录清单走 FileStore listJsonInDir seam（ENOENT → []、损坏文件跳过，语义同原裸 readdir+readJson 循环）
-  return getStore().listJsonInDir<Company>(COMPANIES_DIR);
-}
+import { companyPath, createCompany, listCompanies } from './company-application.js';
 
 const router = Router();
 
@@ -46,42 +34,17 @@ const COMPANY_SIZE_CONFIG = {
   large: { name: '大型公司', roleLimit: 30 },
 };
 
-async function createCompany(name: string): Promise<Company> {
-  const id = generateId('company');
-  const now = new Date().toISOString();
-  const company: Company = { id, name, size: 'custom', createdAt: now, updatedAt: now };
-  await getStore().writeJson(companyPath(id), company);
-
-  // 🆕 AS-016: 自动创建默认 OKR
-  const { okrService } = await import('../pmo/index.js');
-  try {
-    await okrService.createDefaultOKR(company.id);
-  } catch (okrError) {
-    // OKR 创建失败不影响公司创建
-    const { logger } = await import('../../utils/logger.js');
-    logger.warn({ companyId: company.id, okrError }, 'Failed to create default OKR');
-  }
-  return company;
-}
-
 /**
  * GET /api/v1/companies
  * 获取公司列表；空库时自动创建默认公司（#434：设置页公司节删除后，创建兜底挪到服务端）
  */
-router.get('/', defineRoute({}, async () => {
-  let companies = await listCompanies();
-  if (companies.length === 0) {
-    companies = [await createCompany('我的工作空间')];
-  }
-  companies.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  return companies;
-}));
+router.get('/', defineRoute({ response: companyListResponseSchema }, async () => listCompanies()));
 
 /**
  * POST /api/v1/companies
  * 创建公司
  */
-router.post('/', defineRoute({ body: createCompanyBodySchema }, { status: 201 }, async (_req, _res, { body }) => {
+router.post('/', defineRoute({ body: createCompanyBodySchema, response: companyResponseSchema }, { status: 201 }, async (_req, _res, { body }) => {
   return createCompany(body.name);
 }));
 
@@ -89,7 +52,7 @@ router.post('/', defineRoute({ body: createCompanyBodySchema }, { status: 201 },
  * GET /api/v1/companies/sizes/config
  * 获取公司规模配置（须注册在 /:companyId 之前——'sizes' 单段会被 :companyId 吞掉，旧路由顺序如此）
  */
-router.get('/sizes/config', defineRoute({}, async () => {
+router.get('/sizes/config', defineRoute({ response: companySizeConfigResponseSchema }, async () => {
   return COMPANY_SIZE_CONFIG;
 }));
 
@@ -97,39 +60,24 @@ router.get('/sizes/config', defineRoute({}, async () => {
  * GET /api/v1/companies/:companyId/hall-stats
  * 获取公司大厅统计数据（聚合多 API 数据；须注册在 /:companyId 之前，旧路由顺序如此）
  */
-router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema }, async (_req, _res, { params }) => {
+router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema, response: companyHallStatsResponseSchema }, async (_req, _res, { params }) => {
   const { companyId } = params;
 
-  // 并行查询多个数据源
-  const [company, executions] = await Promise.all([
-    // 公司信息（FileStore）
-    getStore().readJson<Company>(companyPath(companyId)),
-    // 执行中的任务数
-    (async () => {
-      const execs = await getStore().readJsonl<{ status?: string }>(EXECUTIONS_JSONL);
-      return execs.filter((e) => e.status === 'running').length;
-    })(),
-  ]);
-
+  const company = await getStore().readJson<Company>(companyPath(companyId));
   if (!company) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Company ${companyId} not found`);
   }
 
-  // 今日完成任务数
-  const allExecs = await getStore().readJsonl<{ status?: string; endTime?: string }>(EXECUTIONS_JSONL);
-  const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
-  const todayCompletedTasks = allExecs.filter((e) =>
-    e.status === 'completed' && e.endTime && new Date(e.endTime) >= todayStart
-  ).length;
-
+  // executions.jsonl 数据源已随 executions 模块整删退役（全仓无写入方，越域深读已斩）；
+  // 任务计数占位 0，响应形状不变（web 无消费方；活口径应改由 workunit 域派生，留待后续票）
   return {
     company: {
       id: company.id,
       name: company.name,
       size: company.size,
     },
-    runningTasks: executions,
-    todayCompletedTasks,
+    runningTasks: 0,
+    todayCompletedTasks: 0,
   };
 }));
 
@@ -137,7 +85,7 @@ router.get('/:companyId/hall-stats', defineRoute({ params: companyIdParamsSchema
  * GET /api/v1/companies/:companyId
  * 获取公司详情
  */
-router.get('/:companyId', defineRoute({ params: companyIdParamsSchema }, async (_req, _res, { params }) => {
+router.get('/:companyId', defineRoute({ params: companyIdParamsSchema, response: companyResponseSchema }, async (_req, _res, { params }) => {
   const company = await getStore().readJson<Company>(companyPath(params.companyId));
   if (!company) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, `Company ${params.companyId} not found`);
@@ -150,7 +98,7 @@ router.get('/:companyId', defineRoute({ params: companyIdParamsSchema }, async (
  * 更新公司信息
  */
 router.patch('/:companyId', defineRoute(
-  { params: companyIdParamsSchema, body: updateCompanyBodySchema },
+  { params: companyIdParamsSchema, body: updateCompanyBodySchema, response: companyResponseSchema },
   async (_req, _res, { params, body }) => {
     const existing = await getStore().readJson<Company>(companyPath(params.companyId));
     if (!existing) {

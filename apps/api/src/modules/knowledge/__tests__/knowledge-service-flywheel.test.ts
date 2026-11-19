@@ -26,7 +26,6 @@ function createKS(entries: any[] = []) {
     store: store as any,
     lifecycle: { recordReference: vi.fn() } as any,
     ingest: { ingestEntry: vi.fn() } as any,
-    linter: { validateEntry: vi.fn(() => []) } as any,
     query: {} as any,
     eventEmitter: { emit: vi.fn() } as any,
   };
@@ -35,12 +34,18 @@ function createKS(entries: any[] = []) {
 
 // ── Fixture helpers（与 recordOutcome 写入形态一致）──
 
-function outcomeLine(success: boolean, consumedKnowledge: string[], createdAt: Date): string {
+function outcomeLine(
+  success: boolean,
+  consumedKnowledge: string[],
+  createdAt: Date,
+  lineage: { assignmentId?: string; final?: boolean; verification?: 'passed' | 'failed' | 'not-run' } = {},
+): string {
   return JSON.stringify({
     type: `knowledge:outcome:${success ? 'success' : 'failure'}`,
     source: 'claude',
     payload: JSON.stringify({
-      executionId: `exec-${Math.random().toString(36).slice(2, 8)}`,
+      executionId: lineage.assignmentId ?? `exec-${Math.random().toString(36).slice(2, 8)}`,
+      ...lineage,
       agentType: 'claude',
       success,
       consumedKnowledge,
@@ -85,15 +90,39 @@ describe('KnowledgeService R1: getFlywheelMetrics from outcome events', () => {
     });
   });
 
-  it('computes improvement = second-half success rate − first-half success rate (percentage points)', async () => {
+  it('compares final outcomes with and without knowledge and computes per-entry retrieval quality', async () => {
     const now = Date.now();
     const lines = [
-      // 前半窗口（15–30 天前）：1/4 成功 = 25%
+      outcomeLine(false, ['k-1'], new Date(now - 6 * 3600_000), { assignmentId: 'a-early', final: false }),
+      outcomeLine(false, ['k-1'], new Date(now - 5 * 3600_000), { assignmentId: 'a-1', final: false }),
+      outcomeLine(true, ['k-1', 'k-2'], new Date(now - 4 * 3600_000), { assignmentId: 'a-1', final: true, verification: 'passed' }),
+      outcomeLine(true, ['k-1'], new Date(now - 3 * 3600_000), { assignmentId: 'a-2', final: true, verification: 'failed' }),
+      outcomeLine(true, [], new Date(now - 2 * 3600_000), { assignmentId: 'a-3', final: true, verification: 'not-run' }),
+      outcomeLine(true, [], new Date(now - 1 * 3600_000), { assignmentId: 'a-4', final: true, verification: 'passed' }),
+    ];
+
+    await withTmpEvents(lines, async (eventsFile) => {
+      const { ks } = createKS([]);
+      const m = await ks.getFlywheelMetrics({ eventsFile });
+      expect(m.withKnowledge).toEqual({ total: 2, successes: 1, successRate: 50 });
+      expect(m.withoutKnowledge).toEqual({ total: 2, successes: 2, successRate: 100 });
+      expect(m.improvement).toBe(-50);
+      expect(m.hitRate).toBe(50);
+      expect(m.source).toBe('events');
+      expect(m.retrievalQuality).toEqual([
+        { entryId: 'k-1', exposures: 2, successes: 1, failures: 1, successRate: 50, negativeFeedback: 1 },
+        { entryId: 'k-2', exposures: 1, successes: 1, failures: 0, successRate: 100, negativeFeedback: 0 },
+      ]);
+    });
+  });
+
+  it('returns insufficient-data when only the without-knowledge control group has outcomes', async () => {
+    const now = Date.now();
+    const lines = [
       outcomeLine(true, [], new Date(now - 20 * DAYS)),
       outcomeLine(false, [], new Date(now - 21 * DAYS)),
       outcomeLine(false, [], new Date(now - 22 * DAYS)),
       outcomeLine(false, [], new Date(now - 23 * DAYS)),
-      // 后半窗口（0–15 天前）：3/3 成功 = 100%
       outcomeLine(true, [], new Date(now - 1 * DAYS)),
       outcomeLine(true, [], new Date(now - 2 * DAYS)),
       outcomeLine(true, [], new Date(now - 3 * DAYS)),
@@ -102,9 +131,10 @@ describe('KnowledgeService R1: getFlywheelMetrics from outcome events', () => {
     await withTmpEvents(lines, async (eventsFile) => {
       const { ks } = createKS([]);
       const m = await ks.getFlywheelMetrics({ eventsFile });
-      expect(m.improvement).toBe(75); // 100% − 25%
-      expect(m.hitRate).toBe(0);      // 全部 consumed 为空 — 诚实的 0，有事件所以 source='events'
-      expect(m.source).toBe('events');
+      expect(m.improvement).toBe(0);
+      expect(m.hitRate).toBe(0);
+      expect(m.withoutKnowledge).toEqual({ total: 7, successes: 4, successRate: 57 });
+      expect(m.source).toBe('insufficient-data');
     });
   });
 
@@ -141,7 +171,7 @@ describe('KnowledgeService R1: getFlywheelMetrics from outcome events', () => {
       const { ks } = createKS([]);
       const m = await ks.getFlywheelMetrics({ eventsFile });
       expect(m.hitRate).toBe(100); // 1/1 — 坏行被跳过而不是计为 miss
-      expect(m.source).toBe('events');
+      expect(m.source).toBe('insufficient-data'); // 只有有知识组，improvement 不可算
     });
   });
 });

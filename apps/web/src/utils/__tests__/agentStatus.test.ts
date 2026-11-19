@@ -4,7 +4,6 @@ import {
   deriveAgentStatus,
   resolveCardStatusKey,
   resolveDisplayStatus,
-  AGENT_STATUS_COLORS,
   CARD_STATUS_COLORS,
   CARD_TO_DISPLAY_STATUS,
   DISPLAY_STATUS_LABELS,
@@ -133,21 +132,20 @@ describe('matchesStatusFilter（4 态口径）', () => {
   });
 });
 
-describe('AGENT_STATUS_COLORS（§6.5 状态色单义）', () => {
+describe('CARD_STATUS_COLORS（§6.5 状态色单义）', () => {
   it('异常=橙（u-anomaly），与待评审黄解耦', () => {
-    expect(AGENT_STATUS_COLORS.error).toContain('u-anomaly');
-    expect(AGENT_STATUS_COLORS.in_review).toContain('u-warn');
-    expect(AGENT_STATUS_COLORS.error).not.toBe(AGENT_STATUS_COLORS.in_review);
+    expect(CARD_STATUS_COLORS.error).toContain('u-anomaly');
+    expect(CARD_STATUS_COLORS.in_review).toContain('u-warn');
+    expect(CARD_STATUS_COLORS.error).not.toBe(CARD_STATUS_COLORS.in_review);
   });
 
   it('已终止归灰（红只编码阻塞）', () => {
-    expect(AGENT_STATUS_COLORS.terminated).toBe(AGENT_STATUS_COLORS.idle);
-    expect(AGENT_STATUS_COLORS.terminated).not.toContain('u-err');
+    expect(CARD_STATUS_COLORS.terminated).toBe(CARD_STATUS_COLORS.idle);
+    expect(CARD_STATUS_COLORS.terminated).not.toContain('u-err');
   });
 
-  it('CARD_STATUS_COLORS：继承全部实例色 + disabled 归灰（#433）', () => {
-    expect(CARD_STATUS_COLORS.running).toBe(AGENT_STATUS_COLORS.running);
-    expect(CARD_STATUS_COLORS.disabled).toBe(AGENT_STATUS_COLORS.idle);
+  it('disabled 归灰（#433）', () => {
+    expect(CARD_STATUS_COLORS.disabled).toBe(CARD_STATUS_COLORS.idle);
   });
 });
 

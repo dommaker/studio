@@ -2,13 +2,14 @@
 
 ### 职责
 
-公司（Company）记录的 CRUD REST API，FileStore 文件存储（`~/.studio/data/companies/*.json`），不依赖数据库。PMO 的 OKR/项目均以 companyId 作为归属维度。创建公司时会自动调用 `okrService.createDefaultOKR` 生成默认 OKR。#434 起 `GET /` 空库时自动创建默认公司「我的工作空间」（原由 Settings 页兜底，该页公司节已删）。
+公司（Company）记录的 CRUD REST API，FileStore 文件存储（`~/.studio/data/companies/*.json`），不依赖数据库。PMO 的 OKR/项目均以 companyId 作为归属维度。创建公司时会自动调用 `getOkrService().createDefaultOKR` 生成默认 OKR。#434 起 `GET /` 空库时自动创建默认公司「我的工作空间」（原由 Settings 页兜底，该页公司节已删）。
 
 ### 核心导出
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| `default router` | `routes.ts` | Express 路由器：`GET /` 列表、`POST /` 创建、`GET /:companyId` 详情、`PATCH /:companyId` 更新、`GET /sizes/config` 规模配置、`GET /:companyId/hall-stats` 大厅统计 |
+| `default router` | `routes.ts` | Express 路由器：`GET /` 列表、`POST /` 创建、`GET /:companyId` 详情、`PATCH /:companyId` 更新、`GET /sizes/config` 规模配置、`GET /:companyId/hall-stats` 大厅统计；ARCH-06 仅将 GET list/POST create 收薄为输入、用例调用与响应，其他 CRUD 不在本票迁移范围 |
+| `createCompany` / `listCompanies` | `company-application.ts` | ARCH-06 应用用例：公司落盘 + best-effort 默认 OKR、空库默认公司与排序；`CompanyStorePort` 仅暴露语义 `list()/save(Company)`，生产 adapter 内封闭目录、companyPath 与 FileStore 原语；依赖可注入，脱 HTTP 直测覆盖 OKR 失败不阻断公司创建 |
 
 ### 依赖关系
 
@@ -26,4 +27,4 @@
 - **契约驱动迁移（2026-10 批次 2/7）**：全部端点走 core/http.ts defineRoute + `@dommaker/studio-contract` companies.ts schema——统一 envelope `{ data }`（list/hall-stats/sizes-config 原已带壳形状不变，get/create(201)/update 原裸对象统一进壳）；404 走 HttpError；500 兜底统一 INTERNAL（原各端点手写固定文案）；name 缺省原静默存 undefined，zod 收紧为 400。
 - 本模块在 008912d（db-removal）中被误删，导致前端 `/api/v1/companies` 404，后按 FileStore 版本恢复；与 Prisma 无任何关联。
 - `GET /sizes/config` 必须在 `GET /:companyId` 之后不会冲突：`/:companyId` 只匹配单段路径。
-- `hall-stats` 聚合 `~/.studio/logs/executions.jsonl` 的执行统计（测试环境隔离到 os.tmpdir()/studio-test-logs，见 utils/studio-log-path.ts），文件不存在时按 0 处理。
+- `hall-stats` 原聚合 `~/.studio/logs/executions.jsonl` 的执行统计；该数据源已随 executions 模块整删退役（全仓无写入方），`runningTasks`/`todayCompletedTasks` 占位 0、响应形状不变（web 无消费方）。

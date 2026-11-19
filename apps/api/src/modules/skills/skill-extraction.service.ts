@@ -7,13 +7,14 @@
  *
  * Migrated from Prisma Skill/SkillProposal to file-based stores (D-005).
  */
-import { logger, FileStore, writeStudioEvent } from '@dommaker/studio-shared';
+import { FileStore, writeStudioEvent } from '@dommaker/studio-shared';
 import { randomUUID } from 'crypto';
-// P2-c 拆环：getSystemExecutor 转函数内动态 import（skills→agents 静态边清零）
+import { getSystemExecutor } from '../agents/index.js';
 import { skillStore } from './skill-store.js';
 import { getSkillReviewAdapter, submitSkillProposal } from './review-adapter.js';
 import { getStore } from '../../core/store.js';
-
+import { createLazyService } from '../../utils/services.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface ExtractedSkillProposal {
   id: string;
@@ -194,7 +195,7 @@ export class SkillExtractionService {
 
       // Discord notification: Skill auto-publish
       try {
-        const { discordNotifier } = await import('../../utils/discord-notifier.js');
+        const { discordNotifier } = await import('../notifications/index.js');
         discordNotifier.sendText(
           'Skill auto-published',
           `**${proposal.name}** (${proposal.category})\nConfidence: ${(confidence * 100).toFixed(0)}%\nSource goals: ${proposal.sourceGoalIds.join(', ')}`
@@ -242,11 +243,13 @@ Similar successful executions: ${similar.map((s, i) => `\n${i + 1}. ${s.acs}`).j
 
 Output JSON: {"hasPattern": bool, "name": "pattern name", "description": "description", "category": "code_gen|testing|review|refactor|config|docs", "pattern": "injectable Agent prompt template", "confidence": 0.8}`;
 
-    const r = await (await import('../agents/index.js')).getSystemExecutor().runJson<{ hasPattern: boolean; name?: string; description?: string; category?: string; pattern?: string; confidence?: number }>(prompt, { systemPrompt: 'You are a Skill extraction analyst.', eventSource: 'skill-extraction' });
+    const r = await getSystemExecutor().runJson<{ hasPattern: boolean; name?: string; description?: string; category?: string; pattern?: string; confidence?: number }>(prompt, { systemPrompt: 'You are a Skill extraction analyst.', eventSource: 'skill-extraction' });
 
     if (!r.hasPattern || !r.name) return null;
     return { id: '', skillId: '', companyId, name: r.name, description: r.description || '', category: r.category || 'general', pattern: r.pattern || '', sourceGoalIds: [], confidence: r.confidence || 0.5, status: 'pending', createdAt: new Date() };
   }
 }
 
-export const skillExtractionService = new SkillExtractionService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getSkillExtractionService = createLazyService(() => new SkillExtractionService());

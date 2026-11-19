@@ -7,7 +7,6 @@ import { describe, it, expect, vi } from 'vitest';
 const spies = vi.hoisted(() => ({
   verifyConsumptionChain: vi.fn(async () => {}),
   ensureSeedResolutions: vi.fn(async () => {}),
-  summarize: vi.fn(),
   rotateStudioEvents: vi.fn(async () => {}),
   rotateStudioLogFiles: vi.fn(async () => {}),
   archiveLegacyStudioLogs: vi.fn(async () => {}),
@@ -15,7 +14,6 @@ const spies = vi.hoisted(() => ({
   fullScan: vi.fn(async () => {}),
   startPeriodicSnapshots: vi.fn(),
   coldStartAll: vi.fn(async () => {}),
-  migrateProfileChannelsToMembers: vi.fn(async () => {}),
   ensureLocalWorkspace: vi.fn(async () => {}),
 }));
 
@@ -25,18 +23,15 @@ vi.mock('../../modules/knowledge/index.js', () => ({
   verifyConsumptionChain: spies.verifyConsumptionChain,
   resolutionService: { ensureSeedResolutions: spies.ensureSeedResolutions },
   ruleScanner: { fullScan: spies.fullScan },
-  envSnapper: { startPeriodicSnapshots: spies.startPeriodicSnapshots },
-}));
-vi.mock('../../modules/agents/index.js', () => ({
-  sessionSummaryService: { summarize: spies.summarize },
+  getEnvSnapper: () => ({ startPeriodicSnapshots: spies.startPeriodicSnapshots }),
 }));
 vi.mock('../../modules/agent-knowledge/index.js', () => ({
-  knowledgeCurator: { coldStartAll: spies.coldStartAll },
+  getKnowledgeCurator: () => ({ coldStartAll: spies.coldStartAll }),
 }));
-vi.mock('../../utils/studio-events-rotation.js', () => ({
+vi.mock('../studio-events-rotation.js', () => ({
   rotateStudioEvents: spies.rotateStudioEvents,
 }));
-vi.mock('../../utils/studio-log-rotation.js', () => ({
+vi.mock('../studio-log-rotation.js', () => ({
   rotateStudioLogFiles: spies.rotateStudioLogFiles,
   archiveLegacyStudioLogs: spies.archiveLegacyStudioLogs,
 }));
@@ -44,14 +39,12 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   FileStore: class { archiveChannelMessages = spies.archiveChannelMessages; },
 }));
-vi.mock('../../modules/channels/index.js', () => ({
-  migrateProfileChannelsToMembers: spies.migrateProfileChannelsToMembers,
-}));
 vi.mock('../../modules/workspaces/index.js', () => ({
   ensureLocalWorkspace: spies.ensureLocalWorkspace,
 }));
 
 import { startWarmupTasks, startPostRoutesWarmup } from '../warmup.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 describe('warmup 冷启动任务挂载', () => {
   it('startWarmupTasks：同步返回，各异步任务被触达（fire-and-forget）', async () => {
@@ -63,9 +56,17 @@ describe('warmup 冷启动任务挂载', () => {
     await vi.waitFor(() => expect(spies.coldStartAll).toHaveBeenCalled());
   });
 
-  it('startPostRoutesWarmup：members 迁移 + 本地 workspace 注册被触达', async () => {
+  it('verifyConsumptionChain 失败有 warn 落日志（#686 修复静默吞异常）', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    spies.verifyConsumptionChain.mockRejectedValueOnce(new Error('boom'));
+    startWarmupTasks();
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(warn.mock.calls.some(([msg]) => String(msg).includes('ConsumptionChain'))).toBe(true);
+    warn.mockRestore();
+  });
+
+  it('startPostRoutesWarmup：本地 workspace 注册被触达', async () => {
     expect(() => startPostRoutesWarmup()).not.toThrow();
-    await vi.waitFor(() => expect(spies.migrateProfileChannelsToMembers).toHaveBeenCalled());
     await vi.waitFor(() => expect(spies.ensureLocalWorkspace).toHaveBeenCalled());
   });
 });

@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { workunitApi } from '../../api/workunit';
 import { fanOut } from '../../utils/fanOut';
-import { DEP_STATUS_LABEL, parseBlockedBy } from '../pmo/mapUtils';
+import { DEP_STATUS_LABEL, parseBlockedBy } from '../../utils/mapUtils';
 
 /** 了结口径（#109）：done/closed 终态才算了结；其余（含拉取失败）一律未了结 */
 const FINISHED = new Set(['done', 'closed']);

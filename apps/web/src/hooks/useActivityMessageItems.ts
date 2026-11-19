@@ -7,7 +7,7 @@ import {
   activityMessageItemsEqual,
   projectActivityMessages,
   type ChannelActivityItem,
-} from '../components/channel/activityRail';
+} from '../utils/activityRail';
 
 export function useActivityMessageItems(messages: ChannelMessage[]): ChannelActivityItem[] {
   const stableRef = useRef<ChannelActivityItem[]>([]);

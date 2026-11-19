@@ -4,8 +4,8 @@
  * （incident 发裸频道、sse.routes 只订 events，TriageBanner 实际收不到）。
  * severity 进 content 首行（前端横幅 critical 突破判定据此解析）；有 wuId 时带 WU 直链。
  */
-import { notificationService } from '@dommaker/studio-notification';
-import { logger } from '@dommaker/studio-shared';
+import { getNotificationService } from '../notifications/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface IncidentNotificationInfo {
   incidentId: string;
@@ -23,7 +23,7 @@ export async function persistIncidentNotification(
   info: IncidentNotificationInfo,
 ): Promise<void> {
   try {
-    await notificationService.createForAllUsers({
+    await getNotificationService().createForAllUsers({
       type: 'incident',
       title: kind === 'created' ? `Triage 事件 ${info.incidentId}` : `Triage 升级 ${info.incidentId}`,
       content: `severity: ${info.severity ?? 'critical'}\n${info.summary}`,

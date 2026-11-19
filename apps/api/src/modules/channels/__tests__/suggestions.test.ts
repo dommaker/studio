@@ -16,14 +16,15 @@ import * as os from 'node:os';
 import express from 'express';
 import type { Server } from 'node:http';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 import { ReviewDispatcher } from '../../agent-loop/review-dispatcher.js';
 import {
   deriveChannelSuggestions,
   SUGGESTION_TIMING,
   type ChannelSuggestion,
 } from '../suggestions.js';
-import { detectMention } from '../message-routing.js';
+import { detectMention } from '../mention-match.js';
 
 // #444 契约测试会真跑 dispatchReviewNow（自评兜底路径发频道系统消息）——
 // 按范式仅对发声出口（wu-messenger）做 importOriginal 间谍包装
@@ -193,6 +194,36 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
       kind: 'action',
       params: { wuId: parent.id, wuTitle: '登录功能' },
     }]);
+  });
+
+  it('merge queued/running 不出补派评审或等待评审建议', async () => {
+    const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
+    const parent = await createParent({ ageMin: graceMin + 5 });
+    await fileStore.updateMetadata(parent.id, latest => ({
+      ...latest,
+      mergeIntent: {
+        id: 'merge:1', state: 'running', requestedAt: new Date().toISOString(),
+        sourceBranch: 'task/wu-1', targetBranch: 'main',
+      },
+    }));
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions).toEqual([]);
+  });
+
+  it('verification unavailable 等人工确认时不建议补派评审', async () => {
+    const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
+    const parent = await createParent({ ageMin: graceMin + 5 });
+    await fileStore.updateMetadata(parent.id, latest => ({
+      ...latest,
+      mergeReceipt: {
+        id: 'merge:1', merged: true, mergeCommit: 'abc123', targetBranch: 'main',
+        verification: { status: 'unavailable', ran: [] },
+      },
+    }));
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions).toEqual([]);
   });
 
   it('双向覆盖反向：活跃 review 子单在途 → 不出补派动作片', async () => {

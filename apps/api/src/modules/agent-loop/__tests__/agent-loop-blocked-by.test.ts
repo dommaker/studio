@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -64,18 +65,19 @@ describe('M4 接单过滤（blockedBy 依赖门禁）', () => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-blocked-by-'));
     fileStore = new FileStore(testDir);
     wuService = new WorkUnitService(fileStore);
-    agentLoop = new AgentLoop(mockRole, fileStore);
-    (agentLoop as unknown as { instance: unknown }).instance = {
-      id: SELF_INSTANCE_ID,
-      roleId: SELF_ROLE_ID,
-      sessionId: null,
-      status: 'idle',
-      currentWorkUnitId: null,
-      startedAt: new Date().toISOString(),
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
-    };
+    agentLoop = new AgentLoop(mockRole, fileStore, {
+      instance: {
+        id: SELF_INSTANCE_ID,
+        roleId: SELF_ROLE_ID,
+        sessionId: null,
+        status: 'idle',
+        currentWorkUnitId: null,
+        startedAt: new Date().toISOString(),
+        terminatedAt: null,
+        lastHeartbeat: null,
+        metadata: null,
+      },
+    });
   });
 
   afterEach(() => {
@@ -83,7 +85,7 @@ describe('M4 接单过滤（blockedBy 依赖门禁）', () => {
   });
 
   function observe() {
-    return (agentLoop as unknown as ObserveCapable).observe();
+    return agentLoop.observe();
   }
 
   it('(a) 依赖未完成（active）→ 任务单不可见', async () => {

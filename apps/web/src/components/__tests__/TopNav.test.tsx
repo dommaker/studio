@@ -1,6 +1,6 @@
 /**
  * TopNav 连接状态 — 2026-08 旧 realtime 链路清理
- * 状态点读取 WebSocketProvider context（应用根部唯一 SSE 连接），不再由 App 传 wsStatus prop
+ * 状态点读取 SseProvider context（应用根部唯一 SSE 连接），不再由 App 传 wsStatus prop
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
@@ -9,8 +9,8 @@ import { ThemeProvider } from '../../contexts/ThemeContext';
 
 const { state } = vi.hoisted(() => ({ state: { status: 'disconnected' as string } }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({
     status: state.status,
     onEvent: () => () => {},
     onReconnect: () => () => {}, // NotificationBell 注册重连 refetch（#415）

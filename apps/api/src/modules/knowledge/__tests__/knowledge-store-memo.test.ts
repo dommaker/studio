@@ -2,8 +2,9 @@
  * MtimeMemoKnowledgeStore 测试（#343：知识库存储栈过缓存 seam 决策树）
  *
  * 语义基线：包装后对外行为 = 底层 FileKnowledgeStore 逐字节等价，
- * 差异只有性能（同指纹重复读不重扫磁盘）。正确性锚点：
- * - mtime+size 指纹校验 → 跨进程外部写（本进程外另一个 store 实例模拟）必被看见
+ * 差异只有性能（同 manifest generation 重复读不重扫磁盘）。正确性锚点：
+ * - 单点 index.json generation 校验 → 跨进程外部写（另一个 store 实例模拟）必被看见，
+ *   稳态多次/多类读取只做 O(1) manifest stat，不做 readdir/逐条目 stat
  * - 本进程写穿透（save/update/delete/rebuildIndex 后立即可读新值）
  * - 返回对象按次深克隆（调用方变更不得污染 memo，保持底层 store 每次
  *   返回全新对象的既有语义——recordOutcome 等调用方会原地改嵌套数组）
@@ -17,6 +18,15 @@ import { FileKnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeEntry } from '@dommaker/harness';
 import { setReadMetricsSink } from '@dommaker/studio-shared/read-metrics';
 import { MtimeMemoKnowledgeStore } from '../knowledge-store-memo.js';
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    readdirSync: vi.fn(actual.readdirSync),
+    statSync: vi.fn(actual.statSync),
+  };
+});
 
 function makeEntry(over: Partial<KnowledgeEntry> & { id: string }): KnowledgeEntry {
   return {
@@ -83,7 +93,30 @@ describe('MtimeMemoKnowledgeStore', () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
-  it('sees external cross-process writes via mtime/size fingerprint', () => {
+  it('steady-state reads validate only the manifest generation, independent of entry count', () => {
+    for (let i = 0; i < 40; i++) raw.save(makeEntry({ id: `bulk-${i}` }));
+    store.list({});
+    store.list({ tags: ['seed'] });
+    store.get('kb1');
+    store.readIndex();
+
+    const readdir = vi.mocked(fs.readdirSync);
+    const stat = vi.mocked(fs.statSync);
+    readdir.mockClear();
+    stat.mockClear();
+    for (let round = 0; round < 3; round++) {
+      store.list({});
+      store.list({ tags: ['seed'] });
+      store.get('kb1');
+      store.readIndex();
+    }
+
+    expect(readdir).not.toHaveBeenCalled();
+    expect(stat).toHaveBeenCalledTimes(12);
+    expect(stat.mock.calls.every(([file]) => file === path.join(dir, 'index.json'))).toBe(true);
+  });
+
+  it('sees external cross-process writes via manifest generation', () => {
     store.list({});
     other.update('kb1', { content: 'changed-external-longer-content' });
     const fresh = store.list({});

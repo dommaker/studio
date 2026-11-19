@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
 import { scanTimedOutWorkUnits, MAX_TIMEOUT_RELEASES } from '../timeout-release.js';
 import { resumeWaitingWorkUnit } from '../waiting-input.js';
 
@@ -29,9 +30,9 @@ function metaOf(wu: { metadata: string | null }): WorkUnitMetadata {
 }
 
 describe('B4: blockReason 落盘', () => {
-  it('markMergeConflict → blocked + merge-conflict 原因', async () => {
+  it('blockForMergeFailure → blocked + merge-conflict 原因', async () => {
     const wu = await wuService.create({ scope: '合并冲突任务', type: 'task', status: 'in_review' });
-    await wuService.markMergeConflict(wu.id, ['a.ts', 'b.ts']);
+    await wuService.blockForMergeFailure(wu.id, ['a.ts', 'b.ts']);
 
     const after = (await wuService.getById(wu.id))!;
     expect(after.status).toBe('blocked');
@@ -117,9 +118,9 @@ describe('#176（决策 #57 D4）：blockedAt 死信计时基准落档', () => {
     expect(Math.abs(Date.now() - new Date(meta.blockedAt!).getTime())).toBeLessThan(10_000);
   });
 
-  it('markMergeConflict → blocked 落 blockedAt', async () => {
+  it('blockForMergeFailure → blocked 落 blockedAt', async () => {
     const wu = await wuService.create({ scope: '合并冲突任务', type: 'task', status: 'in_review' });
-    await wuService.markMergeConflict(wu.id, ['a.ts']);
+    await wuService.blockForMergeFailure(wu.id, ['a.ts']);
 
     expect(typeof metaOf((await wuService.getById(wu.id))!).blockedAt).toBe('string');
   });

@@ -12,7 +12,8 @@
  *   提案是 `<dataDir>/evolution/EP-XXXX.json` 单提案文件 + flock 序号（Requirement 模式），
  *   故经 registry config.store 注入 EvolutionProposalStore 包现有 FileStore 读写，
  *   存量历史提案零迁移。
- * - EP 编号体系保留；admin API decide 路径（evolution.routes.ts）不动。
+ * - EP 编号体系保留；原 admin API decide 路径（evolution.routes.ts）已随 P4.4
+ *   孤儿端点批整体删除，审批唯一入口 = review-proposal 正本卡片。
  */
 import * as path from 'node:path';
 import {
@@ -132,6 +133,8 @@ function renderEvolutionCard(p: EvolutionReviewProposal): { content: string; car
     `## 🧬 约束进化提案 ${p.id} — 待审核`,
     '',
     `目标：${p.targetType} / ${p.targetId}（${p.action}${p.constraintChange ? ` / ${p.constraintChange}` : ''}）`,
+    `目标仓库：${p.targetRepo ?? '未指定（禁止生效）'}`,
+    ...(p.targetProfileIds?.length ? [`既有 AgentProfile：${p.targetProfileIds.join(', ')}`] : []),
     '',
     `当前：${truncate(p.currentText || '（空）', 160)}`,
     `提案：${truncate(p.proposedText, 160)}`,
@@ -145,7 +148,9 @@ function renderEvolutionCard(p: EvolutionReviewProposal): { content: string; car
     cardData: {
       proposalId: p.id,
       targetType: p.targetType,
+      targetRepo: p.targetRepo ?? null,
       targetId: p.targetId,
+      ...(p.targetProfileIds?.length ? { targetProfileIds: p.targetProfileIds } : {}),
       action: p.action,
       ...(p.constraintChange ? { constraintChange: p.constraintChange } : {}),
       source: p.source,

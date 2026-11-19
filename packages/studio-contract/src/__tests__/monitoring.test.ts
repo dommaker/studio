@@ -1,19 +1,16 @@
 /**
- * monitoring 域契约测试：六端点实体 parity + 响应壳 + windowDays query。
- * 正本 = apps/api/src/modules/monitoring/monitoring.service.ts +
+ * monitoring 域契约测试：实体 schema 行为（词表/可空/必填边界）+ 响应壳 + windowDays query。
+ * schema 即正本（手写 interface 已退役为 z.infer 同源 + 编译期锚定）；
+ * wire 参照 = apps/api/src/modules/ops/monitoring.service.ts +
  * current-wu-context.ts + metrics.types.ts。
  */
 
 import { describe, it, expect } from 'vitest';
 import {
-  agentCurrentWorkUnitSchema,
   type AgentCurrentWorkUnit,
-  agentPmoSummarySchema,
   type AgentPmoSummary,
   agentInfoSchema,
   type AgentInfo,
-  agentSummarySchema,
-  type AgentSummary,
   monitoringStatsSchema,
   type MonitoringStats,
   flywheelStatsSchema,
@@ -23,18 +20,10 @@ import {
   humanInterventionMetricsSchema,
   roleMetricsSchema,
   alertMetricsSchema,
-  stuckMetricsSchema,
-  type StuckMetrics,
   failure24hMetricsSchema,
-  type Failure24hMetrics,
   evidenceMetricsSchema,
-  type EvidenceMetrics,
-  overviewMetricsSchema,
-  stepCacheHitRateSchema,
   cacheHitRateMetricsSchema,
   type CacheHitRateMetrics,
-  sectionTrimMetricsSchema,
-  efficiencyMetricsSchema,
   type EfficiencyMetrics,
   monitoringWindowQuerySchema,
   agentSummaryResponseSchema,
@@ -64,62 +53,67 @@ const agent: AgentInfo = {
 };
 
 describe('agentInfoSchema / agentSummarySchema', () => {
-  it('parity：AgentInfo fixture 通过校验；可空三件套（lastError/lastErrorAt/channelId）null 合法', () => {
-    expect(agentCurrentWorkUnitSchema.parse(wu)).toEqual(wu);
-    expect(agentPmoSummarySchema.parse(pmo)).toEqual(pmo);
-    expect(agentInfoSchema.parse(agent)).toEqual(agent);
-    // 无当前 WU：currentWorkUnit/pmo/channelId 全 null
+  it('可空三件套（lastError/lastErrorAt/channelId）null 合法；无当前 WU 时 currentWorkUnit/pmo/channelId 全 null 合法', () => {
     const idle: AgentInfo = {
       ...agent, currentWorkUnitId: null, currentWorkUnit: null, pmo: null, channelId: null,
     };
     expect(agentInfoSchema.parse(idle)).toEqual(idle);
+  });
+
+  it('缺必填字段（roleId/startedAt）即拒', () => {
     expect(() => agentInfoSchema.parse({ ...agent, roleId: undefined })).toThrow();
     expect(() => agentInfoSchema.parse({ ...agent, startedAt: undefined })).toThrow();
   });
 
-  it('parity：AgentSummary fixture（agents + summary 计数）', () => {
-    const summary: AgentSummary = {
+  it('AgentSummary 响应壳 = { data: { agents, summary } }', () => {
+    const summary = {
       agents: [agent],
       summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 },
     };
-    expect(agentSummarySchema.parse(summary)).toEqual(summary);
     expect(agentSummaryResponseSchema.parse({ data: summary }).data.summary.active).toBe(1);
   });
 });
 
 describe('monitoringStatsSchema', () => {
-  it('parity：MonitoringStats fixture', () => {
-    const stats: MonitoringStats = {
-      workunits: { total: 5, unassigned: 2, active: 1, in_review: 1, done: 1, blocked: 0, closed: 0 },
-      agents: { total: 1, idle: 1, active: 0, terminated: 0 },
-      recent: { completedLast24h: 1, failedLast24h: 0 },
-    };
+  const stats: MonitoringStats = {
+    workunits: { total: 5, unassigned: 2, active: 1, in_review: 1, done: 1, blocked: 0, closed: 0 },
+    agents: { total: 1, idle: 1, active: 0, terminated: 0 },
+    recent: { completedLast24h: 1, failedLast24h: 0 },
+  };
+
+  it('接受三段聚合并保持形状；缺段即拒', () => {
     expect(monitoringStatsSchema.parse(stats)).toEqual(stats);
+    expect(() => monitoringStatsSchema.parse({ ...stats, workunits: undefined })).toThrow();
+    expect(() => monitoringStatsSchema.parse({ ...stats, recent: undefined })).toThrow();
   });
 });
 
 describe('flywheelStatsSchema / overheadStatsSchema', () => {
-  it('parity：FlywheelStats fixture（source 词表 events/insufficient-data）', () => {
-    const flywheel: FlywheelStats = {
-      quality: 0.8, hitRate: 42, improvement: 3, freshness: 0.9,
-      source: 'events', proposalsPendingReview: 2,
-      extraction: { count30d: 5, totalTokens30d: 12000 },
-      windowDays: 7, timestamp: '2026-07-27T00:00:00.000Z',
-    };
-    expect(flywheelStatsSchema.parse(flywheel)).toEqual(flywheel);
+  const flywheel: FlywheelStats = {
+    quality: 0.8, hitRate: 42, improvement: 3, freshness: 0.9,
+    source: 'events', proposalsPendingReview: 2,
+    extraction: { count30d: 5, totalTokens30d: 12000 },
+    windowDays: 7, timestamp: '2026-07-27T00:00:00.000Z',
+  };
+
+  const overhead: OverheadStats = {
+    windowDays: 30, executions: 10, workUnits: 4,
+    avgInjectedTokens: 500, injectedBudget: 927, injectedBudgetUsedPct: 54,
+    avgExecutionTokens: null, executionCoveragePct: 0,
+    avgOverheadRatio: null, overheadBudget: 0.2,
+    extractionTokens: 800, source: 'insufficient-data',
+    timestamp: '2026-07-27T00:00:00.000Z',
+  };
+
+  it('flywheel source 词表 = events/insufficient-data，非法值即拒', () => {
+    expect(flywheelStatsSchema.parse({ ...flywheel, source: 'insufficient-data' }).source).toBe('insufficient-data');
     expect(() => flywheelStatsSchema.parse({ ...flywheel, source: 'bogus' })).toThrow();
   });
 
-  it('parity：OverheadStats fixture（avgExecutionTokens/avgOverheadRatio null = 不编造）', () => {
-    const overhead: OverheadStats = {
-      windowDays: 30, executions: 10, workUnits: 4,
-      avgInjectedTokens: 500, injectedBudget: 927, injectedBudgetUsedPct: 54,
-      avgExecutionTokens: null, executionCoveragePct: 0,
-      avgOverheadRatio: null, overheadBudget: 0.2,
-      extractionTokens: 800, source: 'insufficient-data',
-      timestamp: '2026-07-27T00:00:00.000Z',
-    };
-    expect(overheadStatsSchema.parse(overhead)).toEqual(overhead);
+  it('overhead avgExecutionTokens/avgOverheadRatio null = 不编造（合法）；缺 avgExecutionTokens 即拒', () => {
+    const parsed = overheadStatsSchema.parse(overhead);
+    expect(parsed.avgExecutionTokens).toBeNull();
+    expect(parsed.avgOverheadRatio).toBeNull();
     expect(() => overheadStatsSchema.parse({ ...overhead, avgExecutionTokens: undefined })).toThrow();
   });
 });
@@ -168,29 +162,33 @@ describe('overviewMetricsSchema（D16 九组 + #456 + F6）', () => {
     failure24h: { description: 'd', n: 3, rate: 0.1, trend: 'up' },
     evidence: {
       description: 'd', engaged: 6, l1Approved: 5, l2Approved: 4, l3Approved: 3,
-      selfReviewCount: 1, needsHuman: 2, derivedMismatch: 0,
+      selfReviewCount: 1, needsHuman: 2,
+      mergeDivergence: 1, doneWithoutReceipt: 2, derivedMismatch: 0,
       derivedByColumn: { todo: 1, doing: 2 },
+    },
+    effects: {
+      description: 'd', byStatus: { queued: 1 }, receiptsByOutcome: { succeeded: 2 }, recoveryChecks: 1, duplicatesPrevented: 1,
+    },
+    knowledgePublishing: {
+      description: 'd', byState: { 'distill:failed': 1 }, failed: 1, retryAfter: 0, cardFailed: 0, staleRunning: 0,
+      items: [{ id: 'dr-1', kind: 'distill', state: 'failed', attempts: 3, updatedAt: '2026-07-27T00:00:00.000Z' }],
     },
     source: 'events',
   };
 
-  it('parity：完整 OverviewMetrics fixture 通过校验；前端消费六段嵌套必填', () => {
-    expect(overviewMetricsSchema.parse(overview)).toEqual(overview);
+  it('响应壳 = { data }；前端消费组必填字段缺失/非法值即拒', () => {
     expect(overviewMetricsResponseSchema.parse({ data: overview }).data.stuck.blocked).toBe(1);
-    // 前端消费组 parity（必填字段删除即拒）
+    expect(overviewMetricsResponseSchema.parse({ data: overview }).data.evidence.mergeDivergence).toBe(1);
+    expect(overviewMetricsResponseSchema.parse({ data: overview }).data.evidence.doneWithoutReceipt).toBe(2);
+    expect(overviewMetricsResponseSchema.parse({ data: overview }).data.knowledgePublishing.items[0].kind).toBe('distill');
+    expect(() => overviewMetricsResponseSchema.parse({ data: { ...overview, knowledgePublishing: undefined } })).toThrow();
     expect(() => humanInterventionMetricsSchema.parse({
       ...overview.humanIntervention, avgPerCompletedWu: undefined,
     })).toThrow();
     expect(() => roleMetricsSchema.parse({ description: 'd' })).toThrow();
     expect(() => alertMetricsSchema.parse({ ...overview.alerts, last24h: undefined })).toThrow();
-    const stuck: StuckMetrics = { description: 'd', blocked: 0, staleUnassigned: 0, stalledActive: 0 };
-    expect(stuckMetricsSchema.parse(stuck)).toEqual(stuck);
-    const failure: Failure24hMetrics = { description: 'd', n: 0, rate: null, trend: null };
-    expect(failure24hMetricsSchema.parse(failure)).toEqual(failure);
-    expect(() => failure24hMetricsSchema.parse({ ...failure, trend: 'bogus' })).toThrow();
-    const evidence: EvidenceMetrics = overview.evidence;
-    expect(evidenceMetricsSchema.parse(evidence)).toEqual(evidence);
-    expect(() => evidenceMetricsSchema.parse({ ...evidence, derivedByColumn: undefined })).toThrow();
+    expect(() => failure24hMetricsSchema.parse({ ...overview.failure24h, trend: 'bogus' })).toThrow();
+    expect(() => evidenceMetricsSchema.parse({ ...overview.evidence, derivedByColumn: undefined })).toThrow();
   });
 });
 
@@ -210,13 +208,16 @@ describe('efficiencyMetricsSchema（#120）', () => {
     source: 'events',
   };
 
-  it('parity：CacheHitRateMetrics fixture（hitRatePct null 合法）', () => {
-    expect(stepCacheHitRateSchema.parse(cacheHitRate.steps[0])).toEqual(cacheHitRate.steps[0]);
-    expect(cacheHitRateMetricsSchema.parse(cacheHitRate)).toEqual(cacheHitRate);
+  it('cacheHitRate 缺 byDay 即拒', () => {
     expect(() => cacheHitRateMetricsSchema.parse({ ...cacheHitRate, byDay: undefined })).toThrow();
   });
 
-  it('parity：EfficiencyMetrics fixture（cacheHitRate + sectionTrim 两段）', () => {
+  it('efficiency 响应壳 = { data: { cacheHitRate, sectionTrim, contextComparison } }', () => {
+    const contextMode = {
+      steps: 1, presentedTokens: 100, repeatedTokens: 20, repeatedTokenPct: 17,
+      overflows: 0, recoveryAttempts: 0, recoverySucceeded: 0, humanInputsAfterRecovery: 0,
+      succeededSteps: 1, completedSteps: 1, successRatePct: 100, completionRatePct: 100,
+    };
     const efficiency: EfficiencyMetrics = {
       windowDays: 7,
       generatedAt: '2026-07-27T00:00:00.000Z',
@@ -230,9 +231,11 @@ describe('efficiencyMetricsSchema（#120）', () => {
         totals: { trimEvents: 3, totalOriginalTokens: 1500, totalTrimmedTokens: 900 },
         source: 'events',
       },
+      contextComparison: {
+        description: 'd', windowDays: 7, full: contextMode, delta: contextMode,
+        qualityNotRegressed: true, rolloutEligible: true, source: 'events',
+      },
     };
-    expect(sectionTrimMetricsSchema.parse(efficiency.sectionTrim)).toEqual(efficiency.sectionTrim);
-    expect(efficiencyMetricsSchema.parse(efficiency)).toEqual(efficiency);
     expect(efficiencyMetricsResponseSchema.parse({ data: efficiency }).data.cacheHitRate.coveragePct).toBe(80);
   });
 });

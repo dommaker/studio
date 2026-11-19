@@ -13,12 +13,21 @@ const MOCK_WRONG_PW = `wrong-${Date.now()}`;
 
 // ── Mock FileStore ──
 const mockReadJson = vi.hoisted(() => vi.fn());
+const mockReadJsonUncached = vi.hoisted(() => vi.fn());
 const mockWriteJson = vi.hoisted(() => vi.fn());
+const mockWithLock = vi.hoisted(() => vi.fn());
+
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } };
+});
 
 vi.mock('@dommaker/studio-shared', () => ({
   FileStore: vi.fn().mockImplementation(function () { return {
     readJson: mockReadJson,
+    readJsonUncached: mockReadJsonUncached,
     writeJson: mockWriteJson,
+    withLock: mockWithLock,
   }; }),
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
@@ -42,14 +51,24 @@ let storeSessions: any[] = [];
 function setupStore(users: any[], sessions: any[]) {
   storeUsers = [...users];
   storeSessions = [...sessions];
-  mockReadJson.mockImplementation(async (path: string) => {
+  const read = async (path: string) => {
     if (path.includes('users.json')) return [...storeUsers];
     if (path.includes('sessions.json')) return [...storeSessions];
     return null;
-  });
+  };
+  mockReadJson.mockImplementation(read);
+  mockReadJsonUncached.mockImplementation(read);
   mockWriteJson.mockImplementation(async (path: string, data: any) => {
     if (path.includes('users.json')) { storeUsers = [...(data as any[])]; }
     if (path.includes('sessions.json')) { storeSessions = [...(data as any[])]; }
+  });
+  let lockTail = Promise.resolve();
+  mockWithLock.mockImplementation(async (_path: string, fn: () => Promise<unknown>) => {
+    const previous = lockTail;
+    let release!: () => void;
+    lockTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try { return await fn(); } finally { release(); }
   });
 }
 
@@ -132,14 +151,22 @@ describe('login', () => {
     const hash = hashPassword(TEST_PW);
     setupStore([{
       id: 'u1', email: TEST_EMAIL, passwordHash: hash, name: 'Test',
-      role: 'User', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      role: 'Admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }], []);
   });
-  it('returns token for valid credentials', async () => {
+  it('Admin 登录只返回约定凭证字段，Session 不重复携带 token', async () => {
     const result = await login({ email: TEST_EMAIL, password: TEST_PW });
     expect(result.user.email).toBe(TEST_EMAIL);
     expect(result.token).toBeTruthy();
     expect(result.refreshToken).toBeTruthy();
+    expect(result.session).not.toHaveProperty('token');
+    expect(result.session).not.toHaveProperty('refreshToken');
+    expect(result.user).not.toHaveProperty('passwordHash');
+  });
+  it('legacy User 即使密码正确也不能创建 Session', async () => {
+    setupStore([{ ...storeUsers[0], role: 'User' }], []);
+    await expect(login({ email: TEST_EMAIL, password: TEST_PW })).rejects.toThrow('邮箱或密码错误');
+    expect(storeSessions).toEqual([]);
   });
   it('throws for unknown email', async () => {
     await expect(login({ email: 'unknown@test.com', password: TEST_PW })).rejects.toThrow('邮箱或密码错误');
@@ -163,7 +190,7 @@ describe('logout', () => {
 
 describe('getCurrentUser', () => {
   it('returns user and session when session valid', async () => {
-    const user = { id: 'u1', email: TEST_EMAIL, name: 'Test', role: 'User' };
+    const user = { id: 'u1', email: TEST_EMAIL, name: 'Test', role: 'Admin' };
     setupStore([user], [{
       id: 's1', userId: 'u1', token: 't',
       expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
@@ -198,7 +225,7 @@ describe('cleanupExpiredSessions', () => {
 
 describe('sessions.json 写路径 prune 过期条目 (#525 P2-3)', () => {
   it('写操作后文件不含过期条目，未过期条目原样保留', async () => {
-    setupStore([], [
+    setupStore([{ id: 'u3', role: 'Admin' }], [
       { id: 's-expired-1', userId: 'u1', token: 't1', guestId: null, ipAddress: null, userAgent: null,
         expiresAt: new Date(Date.now() - 86400000).toISOString(), createdAt: new Date().toISOString(), refreshToken: null },
       { id: 's-expired-2', userId: 'u2', token: 't2', guestId: null, ipAddress: null, userAgent: null,
@@ -210,10 +237,12 @@ describe('sessions.json 写路径 prune 过期条目 (#525 P2-3)', () => {
     const ids = storeSessions.map((s) => s.id);
     expect(ids).not.toContain('s-expired-1');
     expect(ids).not.toContain('s-expired-2');
-    // 未过期条目原样保留
+    // 未过期条目保留；legacy 明文 refresh token 迁移为可轮换的 hash
     const kept = storeSessions.find((s) => s.id === 's-valid');
     expect(kept).toBeTruthy();
-    expect(kept.refreshToken).toBe('rt-valid');
+    expect(kept.refreshToken).toBeNull();
+    expect(kept.refreshTokenHash).toBeTruthy();
+    await expect(exchangeRefreshToken('rt-valid')).resolves.not.toBeNull();
     // 新会话写入成功
     expect(storeSessions.some((s) => s.guestId === 'g-prune')).toBe(true);
   });
@@ -237,18 +266,22 @@ describe('sessions.json 写路径 prune 过期条目 (#525 P2-3)', () => {
 });
 
 describe('generateRefreshToken + exchange + revoke', () => {
-  it('generateRefreshToken stores token in session record', async () => {
-    setupStore([], [{
+  it('generateRefreshToken binds the explicit session instead of the user latest session', async () => {
+    setupStore([{ id: 'u1', role: 'Admin' }], [{
       id: 's1', userId: 'u1', token: 't1',
       expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
+    }, {
+      id: 's2', userId: 'u1', token: 't2', refreshToken: 'rt-s2',
+      expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
     }]);
-    const refreshToken = await generateRefreshToken('u1');
+    const refreshToken = await generateRefreshToken('s1');
     expect(refreshToken).toBeTruthy();
-    expect(mockWriteJson).toHaveBeenCalled();
+    await expect(exchangeRefreshToken(refreshToken)).resolves.toMatchObject({ userId: 'u1' });
+    await expect(exchangeRefreshToken('rt-s2')).resolves.not.toBeNull();
   });
   it('exchangeRefreshToken returns new token pair', async () => {
     const oldRt = 'rt-old';
-    setupStore([], [{
+    setupStore([{ id: 'u1', role: 'Admin' }], [{
       id: 's1', userId: 'u1', token: 'access-token-old',
       expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
       refreshToken: oldRt,
@@ -259,6 +292,16 @@ describe('generateRefreshToken + exchange + revoke', () => {
     expect(result!.accessToken).toBeTruthy();
     expect(result!.refreshToken).toBeTruthy();
     expect(result!.refreshToken).not.toBe(oldRt);
+  });
+  it('legacy User refresh 失败且旧 Session 不被轮换或撤销', async () => {
+    const legacySession = {
+      id: 's-legacy', userId: 'u1', token: 'access-old', refreshToken: 'rt-legacy',
+      expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
+    };
+    setupStore([{ id: 'u1', role: 'User' }], [legacySession]);
+    const before = structuredClone(storeSessions);
+    await expect(exchangeRefreshToken('rt-legacy')).resolves.toBeNull();
+    expect(storeSessions).toEqual(before);
   });
   it('exchangeRefreshToken returns null for invalid token', async () => {
     const result = await exchangeRefreshToken('bad-token');
@@ -277,5 +320,122 @@ describe('generateRefreshToken + exchange + revoke', () => {
   it('revokeRefreshToken returns false for non-existent token', async () => {
     const result = await revokeRefreshToken('non-existent');
     expect(result).toBe(false);
+  });
+});
+
+describe('SEC-06 refresh lifecycle and atomic writes', () => {
+  const user = {
+    id: 'u1', email: TEST_EMAIL, passwordHash: null, name: 'Test', avatar: null,
+    role: 'Admin', emailVerified: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+  const session = (id: string, refreshToken: string, patch: Record<string, unknown> = {}) => ({
+    id, userId: 'u1', token: `access-${id}`, guestId: null, ipAddress: null, userAgent: null,
+    expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
+    refreshToken, familyId: `family-${id}`, ...patch,
+  });
+
+  it('rejects an absolutely expired legacy session without creating credentials', async () => {
+    setupStore([user], [session('s-old', 'rt-absolute', {
+      createdAt: new Date(Date.now() - 31 * 86400000).toISOString(),
+    })]);
+    const before = JSON.stringify(storeSessions);
+
+    await expect(exchangeRefreshToken('rt-absolute')).resolves.toBeNull();
+    expect(JSON.stringify(storeSessions)).toBe(before);
+    expect(mockWriteJson).not.toHaveBeenCalled();
+  });
+
+  it('rejects an idle-expired session without creating credentials', async () => {
+    setupStore([user], [session('s-idle', 'rt-idle', {
+      expiresAt: new Date(Date.now() - 1000).toISOString(),
+    })]);
+    const before = JSON.stringify(storeSessions);
+
+    await expect(exchangeRefreshToken('rt-idle')).resolves.toBeNull();
+    expect(JSON.stringify(storeSessions)).toBe(before);
+    expect(mockWriteJson).not.toHaveBeenCalled();
+  });
+
+  it('rejects a revoked session without creating credentials', async () => {
+    setupStore([user], [session('s-revoked', 'rt-revoked', { revokedAt: new Date().toISOString() })]);
+    const before = JSON.stringify(storeSessions);
+
+    await expect(exchangeRefreshToken('rt-revoked')).resolves.toBeNull();
+    expect(JSON.stringify(storeSessions)).toBe(before);
+    expect(mockWriteJson).not.toHaveBeenCalled();
+  });
+
+  it('rotates a concurrently reused token once and returns the same result', async () => {
+    setupStore([user], [session('s-race', 'rt-race')]);
+
+    const [first, second] = await Promise.all([
+      exchangeRefreshToken('rt-race'), exchangeRefreshToken('rt-race'),
+    ]);
+
+    expect(first).not.toBeNull();
+    expect(second).toEqual(first);
+    expect(storeSessions.filter((s) => s.userId === 'u1' && !s.revokedAt && new Date(s.expiresAt) > new Date())).toHaveLength(1);
+  });
+
+  it('invalidates the old access session and persists no plaintext refresh token', async () => {
+    setupStore([user], [session('s-access', 'rt-plaintext')]);
+
+    const result = await exchangeRefreshToken('rt-plaintext');
+
+    expect(result).not.toBeNull();
+    await expect(getCurrentUser('s-access')).resolves.toEqual({ user: null, session: null });
+    expect(storeSessions.some((s) => s.refreshToken === 'rt-plaintext' || s.refreshToken === result!.refreshToken)).toBe(false);
+  });
+
+  it('keeps concurrent sessions on independent families', async () => {
+    setupStore([user], [session('s-one', 'rt-one'), session('s-two', 'rt-two')]);
+
+    const first = await exchangeRefreshToken('rt-one');
+    const second = await exchangeRefreshToken('rt-two');
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(second!.refreshToken).not.toBe(first!.refreshToken);
+  });
+
+  it('logout revokes only the current family', async () => {
+    setupStore([user], [session('s-current', 'rt-current'), session('s-other', 'rt-other')]);
+
+    await logout('s-current', 'u1');
+
+    await expect(getCurrentUser('s-current')).resolves.toEqual({ user: null, session: null });
+    await expect(getCurrentUser('s-other')).resolves.toMatchObject({ user: { id: 'u1' } });
+    await expect(exchangeRefreshToken('rt-other')).resolves.not.toBeNull();
+  });
+
+  it('does not lose sessions during parallel logins', async () => {
+    setupStore([{ ...user, passwordHash: hashPassword(TEST_PW) }], []);
+
+    await Promise.all([
+      login({ email: TEST_EMAIL, password: TEST_PW }),
+      login({ email: TEST_EMAIL, password: TEST_PW }),
+    ]);
+
+    expect(storeSessions.filter((s) => s.userId === 'u1')).toHaveLength(2);
+  });
+
+  it('allows only one registration for a concurrently reused email', async () => {
+    const results = await Promise.allSettled([
+      register({ email: TEST_EMAIL, password: TEST_PW }),
+      register({ email: TEST_EMAIL, password: TEST_PW }),
+    ]);
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+    expect(storeUsers.filter((u) => u.email === TEST_EMAIL)).toHaveLength(1);
+  });
+
+  it('random invalid tokens have no revocation or write side effects', async () => {
+    setupStore([user], [session('s-valid', 'rt-valid')]);
+    const before = JSON.stringify(storeSessions);
+
+    await expect(exchangeRefreshToken('rt-random-invalid')).resolves.toBeNull();
+    expect(JSON.stringify(storeSessions)).toBe(before);
+    expect(mockWriteJson).not.toHaveBeenCalled();
   });
 });

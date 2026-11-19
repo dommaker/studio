@@ -10,8 +10,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 const { decisionSpy } = vi.hoisted(() => ({ decisionSpy: vi.fn() }));
 vi.mock('../../audit-logs/agent-decision.js', () => ({ recordAgentDecision: decisionSpy }));
@@ -53,12 +53,13 @@ describe('dispatch 决策埋点（#591）', () => {
     vi.clearAllMocks();
     fileStore = new FileStore(tmpDir);
     workUnitService = new WorkUnitService(fileStore);
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   it('@mention 精确命中 → dispatch 行（actor=被指名 profile，via=mention，traceId 透传）', async () => {
     const channelId = await createChannelWith();
     await createProfile('prof-dev', 'Dev');
+    await fileStore.updateChannel(channelId, { members: JSON.stringify(['prof-dev']) });
 
     const msg = await routeMessage(channelId, '@Dev 看下这个', undefined, { fs: fileStore, traceId: 'trace-d1' });
 

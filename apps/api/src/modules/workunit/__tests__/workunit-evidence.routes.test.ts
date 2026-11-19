@@ -12,7 +12,7 @@ const { mockVerifyManually } = vi.hoisted(() => ({
   mockVerifyManually: vi.fn(),
 }));
 
-vi.mock('../workunit.service.js', () => ({
+vi.mock('../workunit-review.js', () => ({
   WorkUnitService: class {
     verifyManually = mockVerifyManually;
   },
@@ -36,8 +36,17 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
-    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
+    // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）。
+    // 测试身份在认证后覆盖；不带 header 时保留本地 Operator（Local User/Admin）。
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), (req, _res, next) => {
+      const role = req.header('x-test-role');
+      if ((role === 'User' || role === 'Admin') && req.user) req.user.role = role;
+      next();
+    }, requireNotGuest(), (req, _res, next) => {
+      const actorType = req.header('x-test-principal');
+      if (actorType) (req as any).user = { id: `test-${actorType}`, actorType };
+      next();
+    }, workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });
@@ -55,9 +64,12 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
   });
 
   function post(path: string, init?: { body?: unknown; headers?: Record<string, string> }) {
+    const body = init?.body as { authorType?: unknown } | undefined;
+    const actorType = init?.headers?.['x-test-principal']
+      ?? (body?.authorType === 'agent' || init?.headers?.['x-author-type'] === 'agent' ? 'Agent' : undefined);
     return fetch(`${base}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...init?.headers },
+      headers: { 'Content-Type': 'application/json', ...init?.headers, ...(actorType ? { 'x-test-principal': actorType } : {}) },
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
   }
@@ -98,6 +110,14 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
     expect(json.error.code).toBe('NO_WORKTREE');
   });
 
+  it('verify：invalid-worktree → 409 INVALID_WORKTREE', async () => {
+    mockVerifyManually.mockResolvedValue({ kind: 'invalid-worktree' });
+    const res = await post('/wu-1/verify');
+    expect(res.status).toBe(409);
+    const json = await res.json() as { error: { code: string } };
+    expect(json.error.code).toBe('INVALID_WORKTREE');
+  });
+
   it('verify：no-commands → 422 { data: { verified:false, reason:no-commands, hint } }', async () => {
     mockVerifyManually.mockResolvedValue({ kind: 'no-commands' });
     const res = await post('/wu-1/verify');
@@ -105,7 +125,8 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
     const json = await res.json() as { data: { verified: boolean; reason: string; hint: string } };
     expect(json.data.verified).toBe(false);
     expect(json.data.reason).toBe('no-commands');
-    expect(json.data.hint).toContain('verifyCommands');
+    expect(json.data.hint).toContain('package.json');
+    expect(json.data.hint).not.toContain('verifyCommands');
   });
 
   it('verify：failed → 200 { data: { verified:false, failed:[{command,tail}] } }', async () => {
@@ -127,23 +148,29 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
     expect(json.data.report.commands).toEqual(['pnpm run test']);
   });
 
-  it('verify：body.commands 过滤透传（空白串剔除）+ by=登录用户名（STUDIO_AUTH=none → Local User）', async () => {
-    mockVerifyManually.mockResolvedValue({ kind: 'verified', report: {} });
-    const res = await post('/wu-1/verify', { body: { commands: ['./ci.sh', '  '] } });
-    expect(res.status).toBe(200);
-    expect(mockVerifyManually).toHaveBeenCalledWith('wu-1', {
-      by: 'Local User',
-      commands: ['./ci.sh'],
-    });
+  it('verify：User/Admin/本地 Operator 省略或伪造 authorType 均不能注入命令，验证执行零调用', async () => {
+    for (const attempt of [
+      { role: 'User', body: { commands: ['./ci.sh'] } },
+      { role: 'Admin', body: { commands: ['./ci.sh'] } },
+      { body: { commands: ['./ci.sh'] } },
+      { role: 'User', body: { commands: ['./ci.sh'], authorType: 'human' } },
+      { role: 'Admin', body: { commands: ['./ci.sh'], authorType: 'human' } },
+      { body: { commands: ['./ci.sh'], authorType: 'human' } },
+      { body: { commands: [] } },
+    ]) {
+      const res = await post('/wu-1/verify', {
+        body: attempt.body,
+        headers: attempt.role ? { 'x-test-role': attempt.role } : undefined,
+      });
+      expect(res.status).toBe(400);
+    }
+    // 所有请求都在 HTTP schema 处拒绝，不进入 service → runWuVerification → spawn。
+    expect(mockVerifyManually).not.toHaveBeenCalled();
   });
 
-  it('verify：body.commands 缺省/空数组 → 不传 commands 键（不落覆盖语义）', async () => {
+  it('verify：body.commands 缺省 → by=登录用户名（STUDIO_AUTH=none → Local User）', async () => {
     mockVerifyManually.mockResolvedValue({ kind: 'no-commands' });
     await post('/wu-1/verify');
-    expect(mockVerifyManually).toHaveBeenCalledWith('wu-1', { by: 'Local User' });
-
-    mockVerifyManually.mockClear();
-    await post('/wu-1/verify', { body: { commands: [] } });
     expect(mockVerifyManually).toHaveBeenCalledWith('wu-1', { by: 'Local User' });
   });
 

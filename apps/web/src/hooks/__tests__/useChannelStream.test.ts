@@ -39,7 +39,7 @@ const iso = (offsetMin: number) => new Date(now + offsetMin * 60000).toISOString
 const msg = (id: string, over: Partial<ChannelMessage> = {}): ChannelMessage => ({
   id, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm-agent',
   content: `内容 ${id}`, workUnitId: null, replyToId: null,
-  meta: '{}', createdAt: iso(0),
+  meta: {}, createdAt: iso(0),
   ...over,
 });
 
@@ -144,5 +144,29 @@ describe('useChannelStream（#531）', () => {
     act(() => hook.result.current.toggleThread('t-anchor'));
     const after = hook.result.current.items[0];
     expect(after.kind === 'thread' && after.expanded).toBe(false);
+  });
+
+  it('PERF-06：store append change 经组合层产出局部线程更新', () => {
+    const anchor = msg('t-anchor', { workUnitId: 'wu-1' });
+    const initialChange = { kind: 'reset' } as const;
+    const promotedQuestionIds = new Set<string>();
+    const isWaitingForInput = () => false;
+    mockUseStreamFollow.mockReturnValue(stubFollow);
+    const hook = renderHook(({ messages, change }) => useChannelStream({
+      channelId: 'ch-1', messages, change, loading: false,
+      loadMore: async () => false, syncPruning: () => {},
+      promotedQuestionIds, isWaitingForInput,
+    }), { initialProps: { messages: [anchor], change: initialChange as { kind: 'reset' } | { kind: 'append'; id: string } } });
+    const initialItems = hook.result.current.items;
+    const initialIndex = hook.result.current.messageToItemIndex;
+    const initialRevision = hook.result.current.streamRevision;
+    const reply = msg('t-reply', { replyToId: 't-anchor', createdAt: iso(1) });
+    hook.rerender({ messages: [anchor, reply], change: { kind: 'append', id: reply.id } });
+    const item = hook.result.current.items[0];
+    expect(item.kind === 'thread' && item.replyCount).toBe(1);
+    expect(item.kind === 'thread' && item.replies[0].kind === 'msg' && item.replies[0].message.id).toBe(reply.id);
+    expect(hook.result.current.items).toBe(initialItems);
+    expect(hook.result.current.messageToItemIndex).not.toBe(initialIndex);
+    expect(hook.result.current.streamRevision).toBeGreaterThan(initialRevision);
   });
 });

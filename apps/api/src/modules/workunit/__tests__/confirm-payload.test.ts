@@ -6,7 +6,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
 import { parseSpecTasks } from '../../pmo/spec-materialization.js';
 import { parseMapOpening } from '../../pmo/map-opening.js';
 import { resolveReviewConfirm } from '../confirm-payload.js';
@@ -75,18 +76,42 @@ describe('#463 resolveReviewConfirm（确认表单 → l3.summary 序列化）',
     expect(resolveReviewConfirm({ kind: 'analysis' })).toEqual({});
   });
 
-  it('#471 plan：与 analysis 同形（destination+fog → 目标：/待决：行；tasks → analysisTasks 覆写）', () => {
+  it('#701 plan：逐 TASK 对象保留人审后的 LEG/AC/依赖，并派生字符串任务清单', () => {
+    const r = resolveReviewConfirm({
+      kind: 'plan',
+      tasks: [
+        { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'], leg: '/repo/api', blockedBy: ['wu-1'] },
+        { title: '接通派工', ac: ['子单可认领'], leg: '/repo/web', blockedBy: [] },
+      ],
+    });
+    expect(r.analysisTasks).toEqual(['实现存储层', '接通派工']);
+    expect(r.analysisTaskDetails).toEqual([
+      { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'], leg: '/repo/api', blockedBy: ['wu-1'] },
+      { title: '接通派工', ac: ['子单可认领'], leg: '/repo/web', blockedBy: [] },
+    ]);
+  });
+
+  it('#701 plan：destination/fog 保持台账契约；缺失 LEG/AC/依赖的非空任务拒绝澄清', () => {
     const r = resolveReviewConfirm({
       kind: 'plan',
       destination: '三仓联动上线',
       fog: ['存储选型？'],
-      tasks: ['实现存储层'],
+      tasks: [],
     });
     expect(r.summary).toBe('目标：三仓联动上线\n待决：存储选型？');
-    expect(r.analysisTasks).toEqual(['实现存储层']);
-    // roundtrip：开图解析器吃回序列化产物（台账化后仍消费同一契约）
+    expect(r.analysisTasks).toEqual([]);
     expect(parseMapOpening(r.summary!)).toEqual({ destination: '三仓联动上线', fog: ['存储选型？'] });
     expect(resolveReviewConfirm({ kind: 'plan' })).toEqual({});
+    expect(() => resolveReviewConfirm({ kind: 'plan', tasks: ['实现存储层'] }))
+      .toThrow('LEG');
+    expect(() => resolveReviewConfirm({
+      kind: 'plan',
+      tasks: [{ title: '实现存储层', ac: [], leg: '/repo/api', blockedBy: [] }],
+    })).toThrow('AC');
+    expect(() => resolveReviewConfirm({
+      kind: 'plan',
+      tasks: [{ title: '实现存储层', ac: ['验收'], leg: '/repo/api' }],
+    })).toThrow('blockedBy');
   });
 });
 
@@ -120,6 +145,21 @@ describe('#463 reviewPassed options.analysisTasks（人审编辑后的 TASK 清�
     const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
     expect(meta.analysisTasks).toEqual(['人审改后的唯一任务']);
     expect(meta.attestations?.l3?.summary).toBe('待决：问题？');
+  });
+
+  it('#700：plan 确认把 analysisTaskDetails 一并落档，供派生子 WU 消费', async () => {
+    const wu = await wuService.create({
+      scope: '规划需求', type: 'plan', status: 'active',
+      metadata: { analysisTasks: ['agent 拆的'] },
+    });
+    await wuService.transitionStatus(wu.id, 'in_review');
+    await wuService.reviewPassed(wu.id, { by: 'human', kind: 'human-confirm' }, {
+      analysisTasks: ['人审后的任务'],
+      analysisTaskDetails: [{ title: '人审后的任务', ac: ['验收通过'], blockedBy: [] }],
+    });
+
+    const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
+    expect(meta.analysisTaskDetails).toEqual([{ title: '人审后的任务', ac: ['验收通过'], blockedBy: [] }]);
   });
 
   it('options.analysisTasks 缺省 → 不动 metadata.analysisTasks（兼容旧路径）', async () => {

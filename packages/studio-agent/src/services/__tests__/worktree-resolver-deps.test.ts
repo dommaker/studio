@@ -34,13 +34,11 @@ vi.mock('fs/promises', async (importOriginal) => {
   };
 });
 
-vi.mock('@dommaker/studio-shared/node', () => ({
-  execSh: mockExecSh,
-}));
+vi.mock('@dommaker/studio-shared/node', () => ({ execSh: mockExecSh, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
-  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+  return { ...actual };
 });
 
 import { ensureDeps } from '../worktree-resolver.js';

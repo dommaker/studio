@@ -2,7 +2,7 @@
 // plan(规划) / implement(执行) / review(评审) 各指名一个频道成员角色（存 profile id）；
 // 留空（自动认领）= 该阶段回池涌现（现状）。成本结构一目了然：贵模型角色放 plan，
 // 便宜模型角色放 implement，评审放第三家。
-// 数据面：候选 = 频道成员（members 空 = 全部 active，对齐成员面板口径）；路由值
+// 数据面：候选 = 显式频道成员（members 空 = 无候选，#699）；路由值
 // 面板展开时经 channelApi.get 拉取；保存走 channelApi.update（乐观选中 + 失败回滚 toast，
 // ChannelDefaultProjectSelect 同款模式）。
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -71,11 +71,11 @@ export const ChannelRoutingEditor: React.FC<ChannelRoutingEditorProps> = ({ chan
     return () => document.removeEventListener('mousedown', handleClick);
   }, [isOpen]);
 
-  // 候选 = 频道成员（active）；members 空 = 全部 active（「空 = 所有 Agent 可见」同口径）。
+  // 候选 = 显式频道成员（active）；members 空/未加载 = 无候选，不回退全部 active（#699）。
   // profiles 防御：页面测试/水合前 store 可能未就位（非数组按空列表降级）
   const allAgents = useMemo(() => activeAgentsOf(Array.isArray(profiles) ? profiles : []), [profiles]);
   const candidates = useMemo(
-    () => (memberIds && memberIds.length > 0 ? allAgents.filter((a) => memberIds.includes(a.id)) : allAgents),
+    () => (memberIds ? allAgents.filter((a) => memberIds.includes(a.id)) : []),
     [allAgents, memberIds],
   );
 

@@ -12,14 +12,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { logger } from '@dommaker/studio-shared';
+
 import type { FileStore } from '@dommaker/studio-shared';
-import { knowledgeService } from '../knowledge/index.js';
+import { knowledgePorts } from '../knowledge/index.js';
 import { skillStore } from '../skills/index.js';
 import { WorkUnitService } from '../workunit/index.js';
-import { resolveStudioEventsFile, getStudioEventTime } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile, getStudioEventTime } from '@dommaker/studio-shared';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readJsonl 全量读
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** D18 事件入口统一：事件文件 = ~/.studio/logs/studio-events.jsonl（测试期隔离）。保留函数名兼容既有调用方/测试。 */
 export function studioEventsJsonl(): string {
@@ -62,7 +63,7 @@ export function classifyError(errorMsg: string): string {
 export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Suggestion[]> {
   const suggestions: Suggestion[] = [];
   try {
-    const stats = knowledgeService.getStats();
+    const stats = knowledgePorts.measure.getStats();
     const total = stats.total || 0;
 
     // Circuit 1: 冷电路 — 知识总线为空
@@ -143,7 +144,7 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
 
     // Circuit 7: OKR 达成率 (B8 OKR 驱动闭环)
     try {
-      const { okrService } = await import('../pmo/index.js');
+      const { getOkrService } = await import('../pmo/index.js');
       // Read OKR files from ~/.studio/okr/
       const okrDir = studioPath('okr');
       const okrKeys = await fileStore.listDocs(okrDir);
@@ -159,7 +160,7 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
         for (const kr of krs) {
           if (!kr.metricType || !kr.target || kr.target <= 0) continue;
 
-          const ds = okrService ? 'ok' : 'empty'; // service exists
+          const ds = getOkrService() ? 'ok' : 'empty'; // service exists
           if (!ds) continue;
 
           // Query KR history for trend from ~/.studio/okr/kr-history.jsonl

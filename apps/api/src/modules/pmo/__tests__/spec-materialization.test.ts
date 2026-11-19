@@ -18,7 +18,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 import { projectService, PROJECT_STATUS, type ProjectData } from '../project.service.js';
 import { SpecMaterialization, parseSpecTasks, SPEC_TASKS_MAX } from '../spec-materialization.js';
 
@@ -60,6 +62,11 @@ async function createSpecWu(project: ProjectData, summary?: string): Promise<Wor
     scope: `成文 ${project.pmoNumber}`,
     status: 'in_review',
     channelId: 'chan-test',
+    authorization: {
+      requestedBy: { id: 'system', type: 'System' },
+      source: { kind: 'system' },
+      repositories: [{ repo: REPO_A, leg: null }, { repo: REPO_B, leg: null }],
+    },
     metadata: {
       pmoId: project.id,
       pmoNumber: project.pmoNumber,

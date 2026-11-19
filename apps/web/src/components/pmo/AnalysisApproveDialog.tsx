@@ -1,7 +1,7 @@
 // AnalysisApproveDialog — #463 起重写为结构化评审表单（原 #106 M7 魔法行 textarea 退役）。
 // 数据源 = agent COMPLETE 落档的结构化 metadata（buildAnalysisConfirmPrefill 产物）：
 //   左栏 FOG 待决清单（增删改；清空 = 非探路型不开图）+ 目标行；
-//   右栏 TASK 拆分预览（metadata.analysisTasks，行内编辑 + 勾选剔除——原盲盒开盒）。
+//   右栏 TASK 拆分预览（metadata.analysisTasks，行内编辑 + 勾选剔除；#701 plan 另按 analysisTaskDetails 编辑逐任务 LEG/AC/依赖）。
 // 三按钮（resolution 评论契约）：确认开图（fog 随 confirm 回传开图）/
 // 不开图直接派工（fog 不带，只派工）/ 打回补充（reviewRejected 预设理由）。
 // 确认回传 confirm={kind:confirmKind('analysis'|'plan'), destination, fog, tasks:勾选集}——后端序列化进
@@ -15,10 +15,10 @@
 import { useEffect, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
 import { ApproveDialogShell, Button, Select } from '../ui';
-import { resolveChannelResponders } from './channelResponders';
+import { resolveChannelResponders } from '../../utils/channelResponders';
 import { isSystemRole } from '../../utils/systemRole';
 import type { ReviewConfirmPayload } from '../../api/workunit';
-import type { AnalysisConfirmPrefill } from './mapUtils';
+import type { AnalysisConfirmPrefill } from '../../utils/mapUtils';
 
 interface AnalysisApproveDialogProps {
   /** 结构化预填（buildAnalysisConfirmPrefill 产物；全空 = agent 无产出，空手评或直接通过） */
@@ -40,13 +40,22 @@ export const ANALYSIS_REJECT_REASON = '打回补充：分析结论或任务拆�
 
 interface TaskRow {
   text: string;
+  leg: string;
+  ac: string;
+  blockedBy: string;
   included: boolean;
 }
 
 export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analysis', onConfirm, onReject, onCancel }: AnalysisApproveDialogProps) {
   const [destination, setDestination] = useState(prefill.destination);
   const [fog, setFog] = useState<string[]>(prefill.fog);
-  const [tasks, setTasks] = useState<TaskRow[]>(prefill.tasks.map(t => ({ text: t, included: true })));
+  const [tasks, setTasks] = useState<TaskRow[]>(prefill.tasks.map((text, index) => ({
+    text,
+    leg: prefill.taskDetails?.[index]?.leg ?? '',
+    ac: prefill.taskDetails?.[index]?.ac.join('；') ?? '',
+    blockedBy: prefill.taskDetails?.[index]?.blockedBy.join(', ') ?? '',
+    included: true,
+  })));
   // #177：默认执行角色候选（频道成员）；'' = 留空涌现
   const [assigneeId, setAssigneeId] = useState('');
   const [candidates, setCandidates] = useState<AgentProfile[]>([]);
@@ -58,14 +67,25 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
       .then(([chRes, agentsRes]) => {
         if (cancelled) return;
         const active = (agentsRes.data?.data || []).filter(p => p.status === 'active' && !isSystemRole(p));
-        setCandidates(resolveChannelResponders(chRes.data?.data, channelId, active));
+        setCandidates(resolveChannelResponders(chRes.data?.data, active));
       })
       .catch(() => { if (!cancelled) setCandidates([]); });
     return () => { cancelled = true; };
   }, [channelId]);
 
   const cleanFog = fog.map(s => s.trim()).filter(Boolean);
-  const includedTasks = tasks.filter(t => t.included && t.text.trim()).map(t => t.text.trim());
+  const includedTaskRows = tasks.filter(t => t.included && t.text.trim());
+  const includedTasks = includedTaskRows.map(t => t.text.trim());
+  const planTasks = includedTaskRows.map(task => ({
+    title: task.text.trim(),
+    ac: task.ac.split(/[；;\n]/).map(item => item.trim()).filter(Boolean),
+    leg: task.leg.trim(),
+    blockedBy: task.blockedBy.split(/[,，\n]/).map(item => item.trim()).filter(Boolean),
+  }));
+  const confirmPayload = (extra?: { destination?: string; fog?: string[] }) => {
+    if (confirmKind === 'analysis') return { kind: confirmKind, ...extra, tasks: includedTasks } as const;
+    return { kind: confirmKind, ...extra, tasks: planTasks } as const;
+  };
 
   return (
     <ApproveDialogShell
@@ -87,7 +107,7 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
             disabled={submitting}
             title="不开图：待决清单不进地图，仅按 TASK 拆分派工"
             onClick={() => void run(() => onConfirm(
-              { kind: confirmKind, tasks: includedTasks },
+              confirmPayload(),
               assigneeId || undefined,
             ))}
           >
@@ -97,12 +117,10 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
             variant="primary"
             loading={submitting}
             onClick={() => void run(() => onConfirm(
-              {
-                kind: confirmKind,
+              confirmPayload({
                 ...(destination.trim() ? { destination: destination.trim() } : {}),
                 fog: cleanFog,
-                tasks: includedTasks,
-              },
+              }),
               assigneeId || undefined,
             ))}
           >
@@ -171,6 +189,31 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
                 onChange={e => setTasks(prev => prev.map((x, k) => (k === i ? { ...x, text: e.target.value } : x)))}
                 aria-label={`派工任务 ${i + 1}`}
               />
+              {confirmKind === 'plan' && (
+                <>
+                  <input
+                    className="input w-full"
+                    placeholder="交付腿仓库路径（必填）"
+                    value={t.leg}
+                    onChange={e => setTasks(prev => prev.map((x, k) => (k === i ? { ...x, leg: e.target.value } : x)))}
+                    aria-label={`交付腿 ${i + 1}`}
+                  />
+                  <input
+                    className="input w-full"
+                    placeholder="验收标准（；分隔）"
+                    value={t.ac}
+                    onChange={e => setTasks(prev => prev.map((x, k) => (k === i ? { ...x, ac: e.target.value } : x)))}
+                    aria-label={`验收标准 ${i + 1}`}
+                  />
+                  <input
+                    className="input w-full"
+                    placeholder="依赖任务 id（逗号分隔，可空）"
+                    value={t.blockedBy}
+                    onChange={e => setTasks(prev => prev.map((x, k) => (k === i ? { ...x, blockedBy: e.target.value } : x)))}
+                    aria-label={`依赖任务 ${i + 1}`}
+                  />
+                </>
+              )}
             </div>
           ))}
         </div>

@@ -7,7 +7,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 const { mockExecSync, mockExecFile } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
@@ -17,7 +18,11 @@ const { mockExecSync, mockExecFile } = vi.hoisted(() => ({
 vi.mock('child_process', () => ({
   execSync: mockExecSync,
   execFile: mockExecFile,
-  exec: vi.fn(),
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  exec: vi.fn((cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  }),
 }));
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
@@ -78,6 +83,9 @@ describe('§10.5: 提交守卫', () => {
     });
     // 不 start()：recordResult/agentStep 不依赖运行中的 loop 实例
     agentLoop = new AgentLoop(mockRole, fileStore);
+    for (const name of ['fake-worktree', 'wt-dirty', 'proto-wt', 'shared-root', 'main-clean']) {
+      fs.mkdirSync(path.join(testDir, name), { recursive: true });
+    }
   });
 
   afterEach(() => {
@@ -94,7 +102,7 @@ describe('§10.5: 提交守卫', () => {
 
   /** 创建 active WorkUnit + anchor 消息；缺省带 metadata.workspaceRoot（守卫的 git cwd），noRoot 时不带 */
   async function setupWorkUnit(metadata?: WorkUnitMetadata, type = 'task', opts?: { noRoot?: boolean }) {
-    const merged = opts?.noRoot ? metadata : { workspaceRoot: '/tmp/fake-worktree', ...metadata };
+    const merged = opts?.noRoot ? metadata : { workspaceRoot: path.join(testDir, 'fake-worktree'), ...metadata };
     const wu = await wuService.create({
       scope: '实现登录功能', channelId, type,
       status: 'active', assigneeId: 'instance-1',
@@ -111,7 +119,7 @@ describe('§10.5: 提交守卫', () => {
 
   async function progress(wuId: string) {
     const wu = (await wuService.getById(wuId))!;
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'progress', summary: '继续中' },
     );
@@ -130,7 +138,7 @@ describe('§10.5: 提交守卫', () => {
   it('COMPLETE + 未提交改动 → 打回 progress（保持 active），提示写入 metadata 并注入下一轮 prompt', async () => {
     mockGit(' M src/a.ts\n', 'h1\n');
     const wu = await setupWorkUnit();
-    const loop = agentLoop as unknown as RecordResultCapable;
+    const loop = agentLoop;
 
     await loop.recordResult({ workUnit: wu }, { action: 'complete', summary: '做完了' });
 
@@ -157,20 +165,20 @@ describe('§10.5: 提交守卫', () => {
     // cwd 感知 mock：worktree 脏、主仓库干净 —— 修复前守卫查主仓库放行（假 complete）
     mockExecFile.mockImplementation((_cmd: string, args: string[], opts: { cwd?: string }, cb: ExecFileCb) => {
       if (args.includes('rev-parse')) return cb(null, 'h1\n', '');
-      return cb(null, opts?.cwd === '/tmp/wt-dirty' ? ' M README.md\n' : '', '');
+      return cb(null, opts?.cwd === path.join(testDir, 'wt-dirty') || String(opts?.cwd).startsWith('/proc/') ? ' M README.md\n' : '', '');
     });
     const wu = await setupWorkUnit(); // 持久化 metadata 无 worktreePath（首 step 未落库）
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       {
         action: 'complete',
         summary: '做完了',
         metadataUpdates: {
-          worktreePath: '/tmp/wt-dirty',
+          worktreePath: path.join(testDir, 'wt-dirty'),
           worktreeBranch: 'task/x',
           worktreeBaseBranch: 'master',
-          worktreeBaseRepo: '/tmp/main-clean',
+          worktreeBaseRepo: path.join(testDir, 'main-clean'),
         },
       },
     );
@@ -181,14 +189,14 @@ describe('§10.5: 提交守卫', () => {
     const meta: WorkUnitMetadata = JSON.parse(after.metadata!);
     expect(meta.commitGuardHint).toBe(COMMIT_HINT);
     // 本 step 的 worktree 落档仍正常写入
-    expect(meta.worktreePath).toBe('/tmp/wt-dirty');
+    expect(meta.worktreePath).toBe(path.join(testDir, 'wt-dirty'));
   });
 
   it('COMPLETE + 干净 worktree → 正常进入 in_review', async () => {
     mockGit('', 'h1\n');
     const wu = await setupWorkUnit();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '做完了' },
     );
@@ -202,18 +210,18 @@ describe('§10.5: 提交守卫', () => {
     // cwd 感知 mock：原型 worktree 脏、共享根干净 —— 修复前守卫查共享根放行（假 complete）
     mockExecFile.mockImplementation((_cmd: string, args: string[], opts: { cwd?: string }, cb: ExecFileCb) => {
       if (args.includes('rev-parse')) return cb(null, 'h1\n', '');
-      return cb(null, opts?.cwd === '/tmp/proto-wt' ? ' M proto.ts\n' : '', '');
+      return cb(null, opts?.cwd === path.join(testDir, 'proto-wt') || String(opts?.cwd).startsWith('/proc/') ? ' M proto.ts\n' : '', '');
     });
     const wu = await setupWorkUnit({
-      workspaceRoot: '/tmp/shared-root',
+      workspaceRoot: path.join(testDir, 'shared-root'),
       prototype: true,
-      worktreePath: '/tmp/proto-wt',
+      worktreePath: path.join(testDir, 'proto-wt'),
       worktreeBranch: `prototype/x`,
       worktreeBaseBranch: 'main',
-      worktreeBaseRepo: '/tmp/shared-root',
+      worktreeBaseRepo: path.join(testDir, 'shared-root'),
     }, 'analysis');
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '原型做完了' },
     );
@@ -227,15 +235,15 @@ describe('§10.5: 提交守卫', () => {
   it('#157（T6）：analysis 原型单 COMPLETE + 原型 worktree 干净 → 正常进入 in_review（不跑 L1 验证）', async () => {
     mockGit('', 'h1\n');
     const wu = await setupWorkUnit({
-      workspaceRoot: '/tmp/shared-root',
+      workspaceRoot: path.join(testDir, 'shared-root'),
       prototype: true,
-      worktreePath: '/tmp/proto-wt',
+      worktreePath: path.join(testDir, 'proto-wt'),
       worktreeBranch: `prototype/x`,
       worktreeBaseBranch: 'main',
-      worktreeBaseRepo: '/tmp/shared-root',
+      worktreeBaseRepo: path.join(testDir, 'shared-root'),
     }, 'analysis');
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '原型做完了' },
     );
@@ -254,7 +262,7 @@ describe('§10.5: 提交守卫', () => {
       cb(new Error('not a git repository'), '', ''));
     const wu = await setupWorkUnit();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '做完了' },
     );
@@ -265,7 +273,7 @@ describe('§10.5: 提交守卫', () => {
   it('metadata.workspaceRoot 缺失 → 静默跳过守卫，正常完成', async () => {
     const wu = await setupWorkUnit(undefined, 'task', { noRoot: true });
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '做完了' },
     );
@@ -336,5 +344,62 @@ describe('§10.5: 提交守卫', () => {
     expect(meta.lastCommitHash).toBe('h1');
     expect(meta.noCommitSteps).toBe(2);
     expect(await noticeCount(wu.id)).toBe(0);
+  });
+
+  it('recordResult 收口前 worktree 已替换为 symlink → fail-closed 且不读取越界内容', async () => {
+    const worktree = path.join(testDir, 'worktree-link');
+    const outside = path.join(testDir, 'outside');
+    fs.mkdirSync(outside);
+    const marker = path.join(outside, 'secret.txt');
+    fs.writeFileSync(marker, 'outside sentinel');
+    fs.symlinkSync(outside, worktree);
+    let outsideReads = 0;
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ExecFileCb) => {
+      outsideReads += 1;
+      fs.readFileSync(marker, 'utf8');
+      cb(null, '', '');
+    });
+    const wu = await setupWorkUnit({ workspaceRoot: worktree, worktreePath: worktree, worktreeBaseBranch: 'main', prototype: true }, 'analysis');
+
+    await expect((agentLoop).recordResult(
+      { workUnit: wu }, { action: 'complete', summary: '做完了' },
+    )).rejects.toThrow();
+    expect(outsideReads).toBe(0);
+    expect(fs.readFileSync(marker, 'utf8')).toBe('outside sentinel');
+    expect((await wuService.getById(wu.id))!.status).toBe('active');
+  });
+
+  it('recordResult 收口 Git 执行中替换 worktree → 后续读取固定 capability 不越界', async () => {
+    const worktree = path.join(testDir, 'worktree');
+    const original = path.join(testDir, 'worktree-original');
+    const outside = path.join(testDir, 'outside');
+    fs.mkdirSync(worktree);
+    fs.mkdirSync(outside);
+    const marker = path.join(outside, 'secret.txt');
+    fs.writeFileSync(marker, 'outside sentinel');
+    let replaced = false;
+    let outsideReads = 0;
+    mockExecFile.mockImplementation((_cmd: string, args: string[], opts: { cwd?: string }, cb: ExecFileCb) => {
+      if (!replaced) {
+        replaced = true;
+        fs.renameSync(worktree, original);
+        fs.symlinkSync(outside, worktree);
+      } else if (opts.cwd === worktree) {
+        outsideReads += 1;
+        fs.readFileSync(marker, 'utf8');
+      }
+      cb(null, args.includes('rev-parse') ? 'h1\n' : ' M dirty.ts\n', '');
+    });
+    const wu = await setupWorkUnit({ workspaceRoot: worktree, worktreePath: worktree, worktreeBaseBranch: 'main', prototype: true }, 'analysis');
+
+    await (agentLoop).recordResult(
+      { workUnit: wu }, { action: 'complete', summary: '做完了' },
+    );
+    expect(outsideReads).toBe(0);
+    expect(fs.readFileSync(marker, 'utf8')).toBe('outside sentinel');
+    for (const call of mockExecFile.mock.calls.slice(1)) {
+      expect(call[2].cwd).toMatch(new RegExp(`^/proc/${process.pid}/fd/\\d+$`));
+    }
+    expect((await wuService.getById(wu.id))!.status).toBe('active');
   });
 });

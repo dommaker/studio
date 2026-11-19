@@ -12,19 +12,7 @@ import { dataBodySchema } from './envelope.js';
 
 // ── 实体 ──
 
-/**
- * Company wire 形状（= CompanyRecord 全字段）。手写 interface（前端 pmoDataStore
- * 按必填消费 id/name/size；手抄版 createdAt/updatedAt 可缺省是漂移——后端恒返回）；
- * parity 测试见 __tests__/companies.test.ts。
- */
-export interface Company {
-  id: string;
-  name: string;
-  size: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
+/** Company wire 形状（= CompanyRecord 全字段） */
 export const companySchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -32,6 +20,7 @@ export const companySchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+export type Company = z.infer<typeof companySchema>;
 
 // ── 派生读形状 ──
 

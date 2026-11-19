@@ -18,12 +18,13 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger } from '@dommaker/studio-shared';
+
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
 import type { StepResult } from './agent-loop.types.js';
 import { RESUME_FAILURE_RE } from './session-resume.js';
 import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限（#95 由 2 放宽到 5）。
  *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；
@@ -85,6 +86,8 @@ export interface StepRetryDeps {
   emitFailedStep: (action: 'failed' | 'need_input', detail: string, res?: ExecutionResult) => void;
   /** 新会话号签发（默认 randomUUID；单测注入定值） */
   newSessionId?: () => string;
+  /** #705：实际换会话前持久化 Assignment 换代与新 executionId。 */
+  replaceSession?: (sessionId: string) => Promise<void>;
   /** 会话配额上限（默认 MAX_SESSIONS_PER_WU；单测可注入小值） */
   maxSessionsPerWu?: number;
 }
@@ -149,6 +152,7 @@ export async function runStepRetry(ctx: StepRetryCtx, deps: StepRetryDeps): Prom
   }
 
   const fallbackSessionId = (deps.newSessionId ?? randomUUID)();
+  await deps.replaceSession?.(fallbackSessionId);
   logger.warn(
     kind === 'session-resume-lost'
       ? `[AgentLoop] Resume target session lost for ${wu.id} — falling back to a new session`
@@ -178,7 +182,7 @@ export async function runStepRetry(ctx: StepRetryCtx, deps: StepRetryDeps): Prom
   if (retryResult.success === false) {
     const retryDetail = (retryResult.error ?? '未知错误').slice(0, 500);
     logger.error(`[AgentLoop] agentStep ${kind === 'session-resume-lost' ? 'fallback' : 'overflow'} retry failed for ${wu.id}: ${retryDetail}`, { traceId: ctx.traceId });
-    deps.recordTokenEvent(retryResult);
+    await deps.recordTokenEvent(retryResult);
     // 新会话未建立：sessionId/lastSessionResumed 回滚；sessionCount 保留计入（#95）；
     // 溢出的 sessionSummary 保留落盘供人工参考
     resetUnestablishedSessionBookkeeping(metadataUpdates);

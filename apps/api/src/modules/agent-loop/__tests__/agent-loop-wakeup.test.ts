@@ -6,13 +6,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 const { mockExecSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
 }));
 
-vi.mock('child_process', () => ({ exec: vi.fn(),
+vi.mock('child_process', () => ({
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  exec: vi.fn((cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  }),
   execSync: mockExecSync,
 }));
 
@@ -44,6 +49,7 @@ vi.mock('../../triggers/trigger-registry', () => ({
 }));
 
 import { AgentLoop } from '../agent-loop';
+import { LoopObserver } from '../loop/loop-observe';
 
 const mockRole = {
   id: 'role-wakeup',
@@ -102,9 +108,8 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     await vi.waitFor(() => {
       expect(indexSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
     }, { timeout: 3000, interval: 20 });
-    const seam = agentLoop as unknown as LoopSeam;
-    expect(seam.instance).toBeTruthy();
-    return seam.instance!.id;
+    expect(agentLoop.currentInstance).toBeTruthy();
+    return agentLoop.currentInstance!.id;
   }
 
   /** 建一个 blocked（挂起等人类回复）的 WU 挂到本实例——loop 保持空闲但 myActive 非空 */
@@ -122,7 +127,7 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     const handler = mockTriggerScheduler.registerExecuteHandler.mock.calls
       .find(c => c[0] === `agent-loop-${mockRole.id}-observe`)?.[1] as (() => Promise<void>) | undefined;
     expect(handler).toBeTruthy();
-    await (agentLoop as unknown as { observe(): Promise<unknown> }).observe();
+    await agentLoop.observe();
   }
 
   it('observe 回复检测只读 myActive 频道（#330 扫描裁剪；B5 起走增量水位线读口）', async () => {
@@ -160,8 +165,9 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     const wu = await createBlockedWu(instanceId, channelId);
     await refreshObserve(); // 刷新 lastActiveWuIds
 
-    const indexSpy = vi.spyOn(fileStore, 'getIndex');
-    const before = indexSpy.mock.calls.length;
+    // PERF-03 后同版本 observe 不再重读 index，唤醒探针改看 observe 本身。
+    const observeSpy = vi.spyOn(agentLoop, 'observe');
+    const before = observeSpy.mock.calls.length;
 
     eventBus.publish('channel.message_sent', {
       channelId,
@@ -170,7 +176,7 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
 
     // 空闲 sleep 是 15s——2s 内 observe 再跑即证明事件唤醒
     await vi.waitFor(() => {
-      expect(indexSpy.mock.calls.length).toBeGreaterThan(before);
+      expect(observeSpy.mock.calls.length).toBeGreaterThan(before);
     }, { timeout: 2000, interval: 20 });
   });
 
@@ -179,8 +185,8 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     const wu = await createBlockedWu(instanceId, channelId);
     await refreshObserve();
 
-    const indexSpy = vi.spyOn(fileStore, 'getIndex');
-    const before = indexSpy.mock.calls.length;
+    const observeSpy = vi.spyOn(agentLoop, 'observe');
+    const before = observeSpy.mock.calls.length;
 
     eventBus.publish('channel.message_sent', {
       channelId, message: { authorType: 'agent', workUnitId: wu.id },
@@ -190,7 +196,7 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     });
 
     await new Promise(resolve => setTimeout(resolve, 400));
-    expect(indexSpy.mock.calls.length).toBe(before);
+    expect(observeSpy.mock.calls.length).toBe(before);
   });
 
   // 2026-09-16 唤醒放宽（只放行不裁决）：归属不再用 lastActiveWuIds 派生缓存否决——
@@ -199,15 +205,15 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
   it('陌生 workUnitId 的人类消息同样唤醒（只放行不裁决）', async () => {
     await startAndWaitFirstObserve(); // 不建任何 WU——myActive 为空
 
-    const indexSpy = vi.spyOn(fileStore, 'getIndex');
-    const before = indexSpy.mock.calls.length;
+    const observeSpy = vi.spyOn(agentLoop, 'observe');
+    const before = observeSpy.mock.calls.length;
 
     eventBus.publish('channel.message_sent', {
       channelId, message: { authorType: 'human', workUnitId: 'wu-stranger' },
     });
 
     await vi.waitFor(() => {
-      expect(indexSpy.mock.calls.length).toBeGreaterThan(before);
+      expect(observeSpy.mock.calls.length).toBeGreaterThan(before);
     }, { timeout: 2000, interval: 20 });
   });
 
@@ -244,15 +250,9 @@ describe('#493: 新回复同毫秒边界 + 唤醒闩锁', () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  /** seam：私有成员访问（TS private 仅编译期） */
-  interface Seam493 {
-    alive: boolean;
-    pendingWake: boolean;
-    onChannelMessageSent(payload: { message?: { authorType?: string; workUnitId?: string | null } }): void;
-    idleSleep(ms: number): Promise<void>;
-    observe(): Promise<{ newReplies: { id: string }[] }>;
-  }
-  const seamOf = (loop: AgentLoop) => loop as unknown as Seam493;
+  const seamOf = () => new LoopObserver({
+    role: mockRole, fileStore, getInstance: () => null, isAlive: () => true,
+  });
 
   const humanMsg = (id: string, workUnitId: string, createdAt: string) => ({
     id, channelId, authorType: 'human' as const, agentName: null,
@@ -260,67 +260,58 @@ describe('#493: 新回复同毫秒边界 + 唤醒闩锁', () => {
   });
 
   it('同毫秒边界：msg.createdAt == wu.updatedAt 的回复被检为新回复（>=）', async () => {
-    const loop = new AgentLoop(mockRole, fileStore);
+    const seam = seamOf();
     const wu = await wuService.create({
       scope: '挂起等回复', channelId, type: 'task',
-      status: 'blocked', assigneeId: 'some-instance',
-      metadata: { waitingForInput: true },
+      status: 'blocked', assigneeId: 'some-instance', metadata: { waitingForInput: true },
     });
     const sameMs = wu.updatedAt.toISOString();
     const olderMs = new Date(wu.updatedAt.getTime() - 1).toISOString();
     await fileStore.appendMessage(channelId, humanMsg('m-same-ms', wu.id, sameMs));
     await fileStore.appendMessage(channelId, humanMsg('m-older', wu.id, olderMs));
 
-    const obs = await seamOf(loop).observe();
+    const obs = await seam.observe();
 
     expect(obs.newReplies.some(m => m.id === 'm-same-ms')).toBe(true);
     expect(obs.newReplies.some(m => m.id === 'm-older')).toBe(false);
   });
 
-  it('唤醒闩锁：事件到达时不在 idleSleep → 置闩，下一次 idleSleep 立即放行并消费', async () => {
-    const loop = new AgentLoop(mockRole, fileStore);
-    const seam = seamOf(loop);
-    seam.alive = true;
-
+  it('唤醒闩锁：事件到达时不在 idleSleep → 下一次 idleSleep 立即放行并消费', async () => {
+    const seam = seamOf();
     seam.onChannelMessageSent({ message: { authorType: 'human', workUnitId: 'wu-1' } });
-    expect(seam.pendingWake).toBe(true);
 
     const t0 = Date.now();
-    await seam.idleSleep(15_000); // 闩锁命中 → 不睡满 15s
+    await seam.idleSleep(15_000);
     expect(Date.now() - t0).toBeLessThan(1000);
-    expect(seam.pendingWake).toBe(false); // 已消费，不残留
+    await seam.idleSleep(40); // 闩锁已消费，下一次恢复普通等待
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(30);
   });
 
-  it('闩锁不误置：非 human / 无 workUnitId / 空负载不置闩', () => {
-    const loop = new AgentLoop(mockRole, fileStore);
-    const seam = seamOf(loop);
-    seam.alive = true;
-
+  it('闩锁不误置：非 human / 无 workUnitId / 空负载不提前放行', async () => {
+    const seam = seamOf();
     seam.onChannelMessageSent({ message: { authorType: 'agent', workUnitId: 'wu-1' } });
     seam.onChannelMessageSent({ message: { authorType: 'human', workUnitId: null } });
     seam.onChannelMessageSent({});
-    expect(seam.pendingWake).toBe(false);
+
+    const t0 = Date.now();
+    await seam.idleSleep(40);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(30);
   });
 
-  // 2026-09-16 唤醒放宽：陌生 workUnitId 也置闩（归属裁决归 observe，见 #330 段同名测试）
-  it('陌生 workUnitId 的人类消息置闩（只放行不裁决）', () => {
-    const loop = new AgentLoop(mockRole, fileStore);
-    const seam = seamOf(loop);
-    seam.alive = true;
-
+  it('陌生 workUnitId 的人类消息置闩（只放行不裁决）', async () => {
+    const seam = seamOf();
     seam.onChannelMessageSent({ message: { authorType: 'human', workUnitId: 'wu-stranger' } });
-    expect(seam.pendingWake).toBe(true);
+
+    const t0 = Date.now();
+    await seam.idleSleep(15_000);
+    expect(Date.now() - t0).toBeLessThan(1000);
   });
 
   it('无闩时 idleSleep 正常睡足（闩锁不改变无事件时的空闲调度）', async () => {
-    const loop = new AgentLoop(mockRole, fileStore);
-    const seam = seamOf(loop);
-    seam.alive = true;
-
+    const seam = seamOf();
     const t0 = Date.now();
     await seam.idleSleep(60);
     expect(Date.now() - t0).toBeGreaterThanOrEqual(50);
-    expect(seam.pendingWake).toBe(false);
   });
 });
 
@@ -361,9 +352,8 @@ describe('#523: workunit 认领真唤醒（created + status_changed）', () => {
       expect(indexSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
     }, { timeout: 3000, interval: 20 });
     indexSpy.mockRestore();
-    const seam = agentLoop as unknown as { instance: { id: string } | null };
-    expect(seam.instance).toBeTruthy();
-    return seam.instance!.id;
+    expect(agentLoop.currentInstance).toBeTruthy();
+    return agentLoop.currentInstance!.id;
   }
 
   /** workunit.created 的 EVENT EXECUTE handler（trigger scheduler 会把事件 payload 传进来） */
@@ -465,13 +455,9 @@ describe('#523: 步间 sleep 可中断（seam 直驱）', () => {
   let testDir: string;
   let fileStore: FileStore;
 
-  interface Seam523 {
-    alive: boolean;
-    pendingWake: boolean;
-    onWorkUnitClaimable(payload: unknown): void;
-    idleSleep(ms: number): Promise<void>;
-  }
-  const seamOf = (loop: AgentLoop) => loop as unknown as Seam523;
+  const seamOf = () => new LoopObserver({
+    role: mockRole, fileStore, getInstance: () => null, isAlive: () => true,
+  });
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-523-seam-'));
@@ -483,41 +469,35 @@ describe('#523: 步间 sleep 可中断（seam 直驱）', () => {
   });
 
   it('认领事件打断在睡的 idleSleep（步间 sleep 同款原语，不睡满）', async () => {
-    const loop = new AgentLoop(mockRole, fileStore);
-    const seam = seamOf(loop);
-    seam.alive = true;
-
+    const seam = seamOf();
     const t0 = Date.now();
-    const sleeping = seam.idleSleep(30_000); // 步间 dynamicInterval 上限档
+    const sleeping = seam.idleSleep(30_000);
     seam.onWorkUnitClaimable({ workunit: { id: 'wu-1', claimable: true } });
     await sleeping;
     expect(Date.now() - t0).toBeLessThan(1000);
   });
 
   it('不在 sleep 时认领事件置闩，下一次 idleSleep 入口消费立即放行', async () => {
-    const loop = new AgentLoop(mockRole, fileStore);
-    const seam = seamOf(loop);
-    seam.alive = true;
-
+    const seam = seamOf();
     seam.onWorkUnitClaimable({ workunit: { id: 'wu-1', claimable: true } });
-    expect(seam.pendingWake).toBe(true);
 
     const t0 = Date.now();
     await seam.idleSleep(15_000);
     expect(Date.now() - t0).toBeLessThan(1000);
-    expect(seam.pendingWake).toBe(false);
+    await seam.idleSleep(40);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(30);
   });
 
-  it('闩锁不误置：claimable=false / 缺字段 / 空负载不置闩', () => {
-    const loop = new AgentLoop(mockRole, fileStore);
-    const seam = seamOf(loop);
-    seam.alive = true;
-
+  it('闩锁不误置：claimable=false / 缺字段 / 空负载不提前放行', async () => {
+    const seam = seamOf();
     seam.onWorkUnitClaimable({ workunit: { id: 'wu-1', claimable: false } });
     seam.onWorkUnitClaimable({ workunit: { id: 'wu-1' } });
     seam.onWorkUnitClaimable({});
     seam.onWorkUnitClaimable(null);
-    expect(seam.pendingWake).toBe(false);
+
+    const t0 = Date.now();
+    await seam.idleSleep(40);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(30);
   });
 });
 
@@ -531,11 +511,9 @@ describe('B5: observe 回复检测增量水位线', () => {
   let wuService: WorkUnitService;
   let channelId: string;
 
-  interface SeamB5 {
-    observe(): Promise<{ myActive: { id: string }[]; newReplies: { id: string }[] }>;
-    replyScanWatermarks: Map<string, number>;
-  }
-  const seamOf = (loop: AgentLoop) => loop as unknown as SeamB5;
+  const seamOf = (_loop: AgentLoop) => new LoopObserver({
+    role: mockRole, fileStore, getInstance: () => null, isAlive: () => true,
+  });
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-b5-'));
@@ -589,19 +567,17 @@ describe('B5: observe 回复检测增量水位线', () => {
     const wu = await createBlockedWu('等回复');
     const seam = seamOf(loop);
 
+    await fileStore.appendMessage(channelId, humanMsg('m-consumed', wu.id, new Date(wu.updatedAt.getTime() - 1000).toISOString()));
     await fileStore.appendMessage(channelId, humanMsg('m-1', wu.id, new Date(wu.updatedAt.getTime() + 1000).toISOString()));
     const obs1 = await seam.observe();
     expect(obs1.newReplies.map(m => m.id)).toEqual(['m-1']);
-    expect(seam.replyScanWatermarks.has(channelId)).toBe(true);
 
-    // 模拟压实原子重写使水位作废（偏移越界触发原语 valid=false）
-    seam.replyScanWatermarks.set(channelId, Number.MAX_SAFE_INTEGER);
+    // 压实/重写经 readChannelMessagesDelta 的 valid=false 契约上报；观察段必须当轮回退 0。
+    const deltaSpy = vi.spyOn(fileStore, 'readChannelMessagesDelta');
+    deltaSpy.mockImplementationOnce(async () => ({ valid: false, messages: [], newOffset: 0, endOffset: 0 }));
     const obs2 = await seam.observe();
-    expect(obs2.newReplies.map(m => m.id)).toEqual(['m-1']); // 回退全读，不漏
-    // 水位已重建为合法值
-    const rebuilt = seam.replyScanWatermarks.get(channelId);
-    expect(rebuilt).toBeDefined();
-    expect(rebuilt).not.toBe(Number.MAX_SAFE_INTEGER);
+    expect(obs2.newReplies.map(m => m.id)).toEqual(['m-1']);
+    expect(deltaSpy.mock.calls.at(-1)?.[1]).toBe(0);
   });
 
   it('边界锚覆盖 slice(0,20) 外的在跑 WU：经排序挤入视野后其未消费回复必须检出', async () => {

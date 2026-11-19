@@ -8,7 +8,10 @@ import {
   prepareRecordBookkeeping,
   type RecordBookkeepingInput,
 } from '../result-bookkeeping';
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadataRepository } from '@dommaker/studio-shared';
+import { ExecutionJournal, type StepBookkeeping } from '../../workunit/execution-journal.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 import type { StepResult } from '../agent-loop.js';
 
 function makeWu(overrides: Partial<WorkUnitData> = {}): WorkUnitData {
@@ -36,6 +39,24 @@ function makeInput(overrides: Partial<RecordBookkeepingInput> = {}): RecordBookk
     notices: { verifyBlocked: false, diffEmptyBlocked: false, contractArtifactBlocked: false },
     ...overrides,
   };
+}
+
+/** 原锁内 mutator 断言改打语义命令本体；输入/latest 与旧测试逐条一致。 */
+function applyJournal(
+  input: RecordBookkeepingInput,
+  bookkeeping: StepBookkeeping,
+  latest: Record<string, unknown>,
+): WorkUnitMetadata {
+  let next: Record<string, unknown> | undefined;
+  const repository = {
+    mutateSnapshot: (_id: string, mutator: (current: Record<string, unknown>) => Record<string, unknown>) => {
+      const updated = mutator({ ...latest, metadata: JSON.stringify(latest) });
+      next = JSON.parse(updated.metadata as string);
+      return Promise.resolve(null);
+    },
+  } as unknown as WorkUnitMetadataRepository;
+  void new ExecutionJournal(repository).recordStepResult({ ...input, bookkeeping });
+  return next as WorkUnitMetadata;
 }
 
 describe('result-bookkeeping: stepCount / consecutiveStuck 推导', () => {
@@ -194,9 +215,9 @@ describe('result-bookkeeping: B4 blockReasonUpdates', () => {
   });
 });
 
-describe('result-bookkeeping: #170 锁内合并 mutator', () => {
+describe('ExecutionJournal: #170 锁内合并', () => {
   it('字段合并优先级：stepUpdates < waitingUpdates < guardUpdates < freshnessUpdates < blockReasonUpdates', () => {
-    const out = prepareRecordBookkeeping(makeInput({
+    const input = makeInput({
       action: 'need_input',
       result: makeResult({
         action: 'need_input',
@@ -205,42 +226,45 @@ describe('result-bookkeeping: #170 锁内合并 mutator', () => {
       }),
       guardUpdates: { traceId: 'from-guard', blockReason: 'from-guard' },
       freshnessUpdates: { traceId: 'from-fresh', blockReason: 'from-fresh' },
-    }));
-    const next = out.mutator({}) as WorkUnitMetadata;
-    expect(next.traceId).toBe('from-fresh');              // freshnessUpdates > guardUpdates > stepUpdates
-    expect(next.waitingForInput).toBe(true);              // waitingUpdates > stepUpdates
-    expect(next.blockReason).toBe('need-input: 请确认');   // blockReasonUpdates 最优先
+    });
+    const out = prepareRecordBookkeeping(input);
+    const next = applyJournal(input, out, {});
+    expect(next.traceId).toBe('from-fresh');
+    expect(next.waitingForInput).toBe(true);
+    expect(next.blockReason).toBe('need-input: 请确认');
   });
 
   it('stepCount/consecutiveStuck 锁内重计：以 latest 为准（忽略锁外推导值）', () => {
-    const out = prepareRecordBookkeeping(makeInput({
+    const input = makeInput({
       action: 'failed',
       result: makeResult({ action: 'failed', summary: 'boom' }),
       metadata: { stepCount: 0, consecutiveStuck: 0 },
-    }));
-    const next = out.mutator({ stepCount: 10, consecutiveStuck: 7 }) as WorkUnitMetadata;
+    });
+    const out = prepareRecordBookkeeping(input);
+    const next = applyJournal(input, out, { stepCount: 10, consecutiveStuck: 7 });
     expect(next.stepCount).toBe(11);
     expect(next.consecutiveStuck).toBe(8);
   });
 
-  it('mutator 按引用闭包 guardUpdates：prepare 之后追加的 mutate（F6-c）在锁内展开时被包含', () => {
+  it('guardUpdates 后置 mutate（F6-c）在锁内展开时被包含', () => {
     const guardUpdates: Partial<WorkUnitMetadata> = {};
-    const out = prepareRecordBookkeeping(makeInput({ action: 'progress', guardUpdates }));
-    // F6-c 强制收口段在 prepare 之后、updateMetadata 之前 mutate guardUpdates
+    const input = makeInput({ action: 'progress', guardUpdates });
+    const out = prepareRecordBookkeeping(input);
     guardUpdates.attestations = { l1: { verdict: 'approved', by: 'dev', at: '2026-09-29T00:00:00Z', kind: 'verify', summary: 'ok' } };
-    const next = out.mutator({}) as WorkUnitMetadata;
+    const next = applyJournal(input, out, {});
     expect(next.attestations).toEqual(guardUpdates.attestations);
   });
 
   it('progressLog 环形：progress 追加（截 200、保留最近 5 条、step=锁内 nextStepCount）', () => {
-    const out = prepareRecordBookkeeping(makeInput({
+    const input = makeInput({
       action: 'progress',
       result: makeResult({ action: 'progress', summary: 's'.repeat(300) }),
-    }));
+    });
+    const out = prepareRecordBookkeeping(input);
     const prevLog = [1, 2, 3, 4, 5].map(step => ({ step, action: 'progress', summary: `old-${step}`, at: '2026-09-01T00:00:00Z' }));
-    const next = out.mutator({ stepCount: 5, progressLog: prevLog }) as WorkUnitMetadata;
+    const next = applyJournal(input, out, { stepCount: 5, progressLog: prevLog });
     expect(next.progressLog).toHaveLength(5);
-    expect(next.progressLog?.[0].step).toBe(2); // 最旧一条被挤出
+    expect(next.progressLog?.[0].step).toBe(2);
     const appended = next.progressLog?.[4];
     expect(appended?.step).toBe(6);
     expect(appended?.action).toBe('progress');
@@ -249,56 +273,59 @@ describe('result-bookkeeping: #170 锁内合并 mutator', () => {
   });
 
   it('progressLog 环形：complete 也追加；failed 不追加', () => {
-    const complete = prepareRecordBookkeeping(makeInput({
+    const completeInput = makeInput({
       action: 'complete',
       result: makeResult({ action: 'complete', summary: 'done' }),
-    }));
-    const afterComplete = complete.mutator({ stepCount: 0 }) as WorkUnitMetadata;
+    });
+    const complete = prepareRecordBookkeeping(completeInput);
+    const afterComplete = applyJournal(completeInput, complete, { stepCount: 0 });
     expect(afterComplete.progressLog).toHaveLength(1);
     expect(afterComplete.progressLog?.[0].action).toBe('complete');
 
-    const failed = prepareRecordBookkeeping(makeInput({
+    const failedInput = makeInput({
       action: 'failed',
       result: makeResult({ action: 'failed', summary: 'boom' }),
-    }));
+    });
+    const failed = prepareRecordBookkeeping(failedInput);
     const prevLog = [{ step: 1, action: 'progress', summary: 'old', at: '2026-09-01T00:00:00Z' }];
-    const afterFailed = failed.mutator({ progressLog: prevLog }) as WorkUnitMetadata;
+    const afterFailed = applyJournal(failedInput, failed, { progressLog: prevLog });
     expect(afterFailed.progressLog).toEqual(prevLog);
   });
 
   it('pendingReplies 三段合成：consumedPending 精确 slice 掉 stepStartReplyCount 条，保留锁内新到回复', () => {
-    const out = prepareRecordBookkeeping(makeInput({
+    const input = makeInput({
       action: 'progress',
       wu: makeWu({ metadata: JSON.stringify({ pendingReplies: ['a', 'b'] }) }),
       result: makeResult({ action: 'progress', metadataUpdates: { pendingReplies: undefined } }),
-    }));
-    // 锁内最新值：step 期间经 waiting-input 新到一条 'c'
-    const next = out.mutator({ pendingReplies: ['a', 'b', 'c'] }) as WorkUnitMetadata;
+    });
+    const out = prepareRecordBookkeeping(input);
+    const next = applyJournal(input, out, { pendingReplies: ['a', 'b', 'c'] });
     expect(next.pendingReplies).toEqual(['c']);
   });
 
   it('pendingReplies 三段合成：freshnessHeld 尾部追加', () => {
-    const out = prepareRecordBookkeeping(makeInput({
+    const input = makeInput({
       action: 'progress',
       freshnessUpdates: { pendingReplies: ['x', 'y'] },
-    }));
-    const next = out.mutator({ pendingReplies: ['a'] }) as WorkUnitMetadata;
+    });
+    const out = prepareRecordBookkeeping(input);
+    const next = applyJournal(input, out, { pendingReplies: ['a'] });
     expect(next.pendingReplies).toEqual(['a', 'x', 'y']);
   });
 
   it('pendingReplies 三段合成：合成后为空 → delete（键不存在）', () => {
-    // consumed 后清空
-    const consumed = prepareRecordBookkeeping(makeInput({
+    const consumedInput = makeInput({
       action: 'progress',
       wu: makeWu({ metadata: JSON.stringify({ pendingReplies: ['a'] }) }),
       result: makeResult({ action: 'progress', metadataUpdates: { pendingReplies: undefined } }),
-    }));
-    const next = consumed.mutator({ pendingReplies: ['a'] }) as WorkUnitMetadata;
+    });
+    const consumed = prepareRecordBookkeeping(consumedInput);
+    const next = applyJournal(consumedInput, consumed, { pendingReplies: ['a'] });
     expect('pendingReplies' in next).toBe(false);
 
-    // 本来就没有
-    const empty = prepareRecordBookkeeping(makeInput({ action: 'progress' }));
-    const next2 = empty.mutator({}) as WorkUnitMetadata;
+    const emptyInput = makeInput({ action: 'progress' });
+    const empty = prepareRecordBookkeeping(emptyInput);
+    const next2 = applyJournal(emptyInput, empty, {});
     expect('pendingReplies' in next2).toBe(false);
   });
 });

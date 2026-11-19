@@ -10,10 +10,11 @@
  * 心跳本体在 lease-heartbeat.ts（同族模块）。#635：deps 增 heartbeatIntervalMs 测试 seam
  * （生产 undefined = 30s 缺省）；AgentLoop.stop() 不再调 stop()——租约收尾移到 runLoop 退出点。
  */
-import { logger, type FileStore } from '@dommaker/studio-shared';
+import { WorkUnitSnapshotConflictError, type FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitData } from '../workunit/index.js';
 import { startLeaseHeartbeat } from './lease-heartbeat.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface WuLeaseDeps {
   fileStore: FileStore;
@@ -24,13 +25,13 @@ export interface WuLeaseDeps {
   /** 杀进程组（best-effort，失败只记日志） */
   stopProcessGroup: (executionId: string) => Promise<void>;
   /** 真实状态迁移（fencing 通过后由持有方执行） */
-  transitionStatus: (wuId: string, status: string) => Promise<unknown>;
+  transitionStatus: (wuId: string, status: string, assignmentId?: string) => Promise<unknown>;
   /** 测试注入：覆盖心跳间隔（生产缺省 30s，见 lease-heartbeat） */
   heartbeatIntervalMs?: number;
 }
 
 export class WuLeaseTracker {
-  private lease: { wuId: string; claimedAt: string; stop: () => void } | null = null;
+  private lease: { wuId: string; claimedAt: string; assignmentId?: string; stop: () => void } | null = null;
 
   constructor(private deps: WuLeaseDeps) {}
 
@@ -41,23 +42,26 @@ export class WuLeaseTracker {
 
   /**
    * 为持有中的 WU 确保租约心跳在跑。新认领与 myActive 续跑（含 blocked 复活回 active）
-   * 统一经此进入；令牌（wuId+claimedAt）与在跑轨道一致时幂等跳过，令牌换代（如本实例
-   * 重新认领）先停旧轨再开新轨。
+   * 统一经此进入；令牌（wuId+claimedAt+assignmentId）与在跑轨道一致时幂等跳过。
    */
-  ensure(wu: WorkUnitData): void {
+  ensure(wu: WorkUnitData, expectedAssignmentId?: string): void {
     const assigneeId = this.deps.getAssigneeId();
     const claimedAt = wu.claimedAt?.toISOString();
+    const assignmentId = expectedAssignmentId ?? wu.execution?.current?.id;
     if (!assigneeId || !claimedAt || wu.assigneeId !== assigneeId) return;
-    if (this.lease && this.lease.wuId === wu.id && this.lease.claimedAt === claimedAt) return;
+    if (this.lease && this.lease.wuId === wu.id && this.lease.claimedAt === claimedAt
+      && this.lease.assignmentId === assignmentId) return;
     this.stop();
     this.lease = {
       wuId: wu.id,
       claimedAt,
+      assignmentId,
       stop: startLeaseHeartbeat({
         fileStore: this.deps.fileStore,
         wuId: wu.id,
         claimedAt,
         assigneeId,
+        assignmentId,
         intervalMs: this.deps.heartbeatIntervalMs,
         onLost: (reason) => { void this.handleLost(wu.id, reason); },
       }),
@@ -80,7 +84,8 @@ export class WuLeaseTracker {
     const assigneeId = this.deps.getAssigneeId();
     if (!this.lease || this.lease.wuId !== wuId || !assigneeId) return true;
     const snap = (await this.deps.fileStore.getIndex({ id: wuId }))[0];
-    return !!snap && snap.assigneeId === assigneeId && snap.claimedAt === this.lease.claimedAt;
+    return !!snap && snap.assigneeId === assigneeId && snap.claimedAt === this.lease.claimedAt
+      && (this.lease.assignmentId === undefined || snap.currentAssignmentId === this.lease.assignmentId);
   }
 
   /**
@@ -106,8 +111,14 @@ export class WuLeaseTracker {
       await this.handleLost(wuId, 'lost');
       return false;
     }
-    await this.deps.transitionStatus(wuId, status);
-    return true;
+    try {
+      await this.deps.transitionStatus(wuId, status, this.lease?.assignmentId);
+      return true;
+    } catch (error) {
+      if (!(error instanceof WorkUnitSnapshotConflictError)) throw error;
+      await this.handleLost(wuId, 'lost');
+      return false;
+    }
   }
 
   /** WU 离开 active 或已易主 -> 停租约心跳（recordResult 后调用） */

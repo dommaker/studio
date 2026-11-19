@@ -2,15 +2,16 @@
 
 ### 职责
 
-提供审计日志的查询与统计 API 端点，支持按用户、角色、公司、操作类型、资源、状态、时间范围等条件过滤，并支持分页查询和统计汇总。
+提供审计日志的记录、查询、统计与导出：服务层 `AuditService`（JSONL 存储，#684 自 packages/studio-audit 下沉并入本模块）+ 查询与统计 API 端点，支持按用户、角色、公司、操作类型、资源、状态、时间范围等条件过滤，并支持分页查询和统计汇总。
 
 ### 核心导出
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
 | index.ts | 模块公共出口（barrel） | P2-c 立界：跨模块唯一合法 import 面（实际消费反推生成）；深路径 import 由 eslint `local/no-deep-module-import` 拦截 |
-| `router` (默认导出) | routes.ts | Express 路由对象，包含 `GET /api/audit-logs`（查询日志）和 `GET /api/audit-logs/stats`（获取统计）两个端点。 |
-| `queryProposalDecisionRows` / `getProposalDecisionRowById` / `collectProposalDecisionRows` / `filterProposalDecisionRows` | proposal-source.ts | #591 A 类：review-proposal 8 种 kind 的聚合读面（零新写入，折叠归各 adapter store 正本），映射 audit 行形状（actorType=agent, action=propose, resource=kind, status=提案终态原值，evolution 含 stale）；details 含卡片作者（adapter.author），详情回查（getProposalDecisionRowById）带提案全文；已知 kind 未注册时 warn 留痕不静默缺源；evolution 随 #623 归位（自定义 store 包 EP-XXXX.json 读写，频道文本审核退役）；constraint 随 ADR-0033 子项 7 入词表（adapter 与 evolution 同机注册，EvolutionService 构造带出） |
+| `AuditService` / `AuditActions` / `AuditResources` / `getAuditService` | audit-service.ts | 核心审计服务（记录/查询/统计/导出，写 `~/.studio/logs/audit.jsonl`）；`getAuditService` 为进程级单例入口（#684 单例化：取代消费方各自 new 的四份实例，createLazyService 首次调用时才取 getStore()）；`AuditLogInput`/`AuditLogQuery`/`AuditLogStats` 类型同文件 |
+| `router` (默认导出) | routes.ts | Express 路由对象，5 个端点：`GET /`（查询）、`GET /stats`、`GET /actions`、`GET /resources`、`GET /export`（消费方 = 前端 auditLogs.ts + AuditLogsPage）。`GET /:id` 与 `POST /` 已随 P4.6（2026-10-17）删除——仓内无消费方，审计写入走 registerAuditSink 直调 service。 |
+| `queryProposalDecisionRows` / `collectProposalDecisionRows` / `filterProposalDecisionRows` | proposal-source.ts | #591 A 类：review-proposal 8 种 kind 的聚合读面（零新写入，折叠归各 adapter store 正本），映射 audit 行形状（actorType=agent, action=propose, resource=kind, status=提案终态原值，evolution 含 stale）；details 含卡片作者（adapter.author）；已知 kind 未注册时 warn 留痕不静默缺源；evolution 随 #623 归位（自定义 store 包 EP-XXXX.json 读写，频道文本审核退役）；constraint 随 ADR-0033 子项 7 入词表（adapter 与 evolution 同机注册，EvolutionService 构造带出）。`getProposalDecisionRowById` 已随 P4.6 删除（唯一消费方 GET /:id 端点同删） |
 | `recordAgentDecision` / `AuditActor` | agent-decision.ts | #591 B 类：自主决策埋点统一入口（fire-and-forget，失败只记日志不阻断业务链） |
 
 ### 决策词表（治理变更条目，出处 #591 + ADR 2026-09-17 决策 2；增删走治理变更流程）
@@ -30,15 +31,16 @@ agent 自主决策埋点的 action/resource 词表：
 
 ### 依赖关系
 
-- **上游依赖**：`../../utils/logger.js`（日志）、`../../utils/pagination.js`（分页格式化）、`../../utils/services.js`（惰性服务工厂）、`@dommaker/studio-audit`（审计服务与枚举）、`@dommaker/studio-shared`（FileStore）、`express`。
+- **上游依赖**：`../../utils/logger.js`（日志）、`../../utils/pagination.js`（分页格式化）、`../../utils/services.js`（惰性服务工厂）、`@dommaker/studio-shared`（FileStore）、`express`。审计服务已随 #684 下沉为本模块 audit-service.ts（不再依赖 packages/studio-audit）。
 - **下游依赖**：`apps/api/src/route-registry.ts` 注册此模块的路由。
 
 ### 注意事项
 
 - 查询参数 `anonymousId` 为 SEC-009 新增字段，需确保前端传递正确。
-- #591：`actorType`（human/agent，human 归一匹配存量无字段行）与 `source`（operation|proposal|all，缺省 operation 保持既有行为）两个维度；source 含 proposal 时合并 review-proposal 聚合行统一排序分页，`GET /:id` 未命中回查提案源；stats 端点维持操作轨口径不混提案源。
+- #591：`actorType`（human/agent，human 归一匹配存量无字段行）与 `source`（operation|proposal|all，缺省 operation 保持既有行为）两个维度；source 含 proposal 时合并 review-proposal 聚合行统一排序分页；stats 端点维持操作轨口径不混提案源。
 - 所有错误场景统一返回 `{ error: { code, message } }` 格式，内部日志使用 `logger.error`。
+- **SEC-07 凭证脱敏**：`utils/redact.ts` 对 token/access_token/refresh_token/authorization（含 camelCase、大小写变体）递归返回脱敏副本；audit middleware 的 query、AuditService 的 details/changes 落盘前及 error-handler 的 Error.config/body/query 均强制经过它，原请求与 Error 不被改写。仓内没有反向 proxy access_log 实现；requestLogger 只记 path/method/status，不记 query 或 Authorization。外部反代必须自行对完整 URL/access log 脱敏；应用 URL 的凭证只可能是 60 秒单用途票据，不再出现长期 JWT。
 - 审计服务通过 `createLazyService` 延迟初始化，避免启动时加载依赖。
 - 分页默认值为 page=1, limit=20（上限 100），统一走 `parsePagination`（#359：堵 limit=999999 直通豁口，原缺省 50 无 clamp）。
-- **鉴权（2026-07-24 收紧）**：`/api/v1/audit-logs` 挂载级 `requireAuth()+requireAdmin()` —— 日志含 IP/UA/email（PII），且 `POST /`（伪造审计）、`POST /cleanup`（销毁证据）此前无角色限制。`GET /export` 曾注册在 `GET /:id` 之后被遮蔽不可达（历史 bug），2026-09-09 已修复：/export 移到 /:id 之前，并补 action/resource/status 过滤透传（与列表口径一致，E7 前端已带参）。
-- **契约驱动迁移（2026-10 批次 6/7）**：七端点全走 defineRoute——actorType/source 由任意串透传收紧为词表（唯一消费方前端已在词表内）、POST / action/resource 收紧必填（缺此二键落库即废行）；GET / 分页壳原已同形不变、stats 裸对象与 /:id 裸行进 `{ data }` 壳、/export 附件下载 handler 自写 res 不进壳；500 code 'INTERNAL_ERROR' 归一 INTERNAL（message 由固定串变为实际错误消息）。
+- **鉴权（2026-07-24 收紧）**：`/api/v1/audit-logs` 挂载级 `requireAuth()+requireAdmin()` —— 日志含 IP/UA/email（PII）。`GET /export` 曾注册在 `GET /:id` 之后被遮蔽不可达（历史 bug），2026-09-09 已修复并补 action/resource/status 过滤透传（与列表口径一致，E7 前端已带参）；`GET /:id` 与 `POST /` 已随 P4.6 删除，遮蔽前提不复存在。
+- **契约驱动迁移（2026-10 批次 6/7；P4.6 后 5 端点）**：全部端点走 defineRoute——actorType/source 由任意串透传收紧为词表（唯一消费方前端已在词表内）；GET / 分页壳原已同形不变、stats 裸对象进 `{ data }` 壳、/export 附件下载 handler 自写 res 不进壳；500 code 'INTERNAL_ERROR' 归一 INTERNAL（message 由固定串变为实际错误消息）。

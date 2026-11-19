@@ -36,9 +36,9 @@ vi.mock('../../api/requirements', () => ({
   requirementApi: { list: mockListReqs },
 }));
 
-// #242：live 状态条走 WebSocketContext——测试环境无 Provider，置空订阅
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
+// #242：live 状态条走 SseContext——测试环境无 Provider，置空订阅
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => null }));
@@ -59,7 +59,7 @@ const MESSAGES = [
   {
     id: 'msg-ac-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'Studio',
     content: '分析结论待确认（#wu-ana-1），确认后将按 TASK 拆分自动派工', workUnitId: 'wu-ana-1', replyToId: null,
-    meta: JSON.stringify({ cardType: 'analysis_confirm' }),
+    meta: { cardType: 'analysis_confirm' },
     createdAt: new Date().toISOString(),
   },
 ];

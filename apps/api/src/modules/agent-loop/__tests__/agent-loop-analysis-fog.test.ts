@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -20,13 +21,17 @@ vi.mock('@dommaker/studio-agent', () => ({
   },
 }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: vi.fn().mockResolvedValue({ prompt: '', injectedIds: [] }),
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 import { AgentLoop } from '../agent-loop';
 
@@ -86,7 +91,7 @@ describe('analysis COMPLETE：FOG:/DESTINATION: 行落 metadata', () => {
 
   async function runCompleteStep(wuId: string) {
     const wu = (await wuService.getById(wuId))!;
-    const loop = agentLoop as unknown as AgentStepCapable;
+    const loop = agentLoop;
     const stepResult = await loop.agentStep({ workUnit: wu });
     await loop.recordResult({ workUnit: wu }, stepResult);
     return stepResult;

@@ -36,18 +36,21 @@
  *   计时基准取 metadata.blockedAt（回退 waitingSince/updatedAt），复用同一 30 分钟
  *   阈值 + 一次性 waitingReminded 标记，消息带统一 CTA（blocked-cta 模板）。
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from './workunit.service.js';
+import { FileStore, WorkUnitMetadataRepository, type MandatePrincipal } from '@dommaker/studio-shared';
+import { WorkUnitService } from './workunit-review.js';
+import { WaitingGate } from './waiting-gate.js';
+import { ExecutionJournal } from './execution-journal.js';
+import { assertExecutionMandate, SYSTEM_PRINCIPAL } from './mandate.js';
+import type { WorkUnitMetadata } from './workunit.types.js';
+import type { WorkUnitData } from './workunit-crud.js';
 import { PLAN_STEP_LIMIT } from './workunit.types.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { withBlockedCta } from './blocked-cta.js';
 import { ProjectDiscoveryService, matchProjectByReply, type LocalProject } from '../projects/index.js';
-import { RequirementService } from '../requirements/index.js';
-// P2-c 拆环：projectService 转函数内动态 import（workunit→pmo 静态边清零）
-import type { MessageMeta } from '../channels/index.js';
+import { workUnitPort, type WorkUnitMessageMeta as MessageMeta } from './workunit-ports.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 提醒阈值（毫秒）。默认 30 分钟，可用 STUDIO_INPUT_REMINDER_MINUTES 覆盖 */
 export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -71,6 +74,8 @@ export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): nu
 export interface ResumeWaitingOptions {
   /** 折进锁内 metadata 写的 traceId（仅消费分支生效；不传 = 不折叠，行为同前） */
   traceId?: string | null;
+  /** 服务端认证操作人；内部无会话测试/系统路径显式使用 System 策略主体。 */
+  actor?: MandatePrincipal;
 }
 
 export async function resumeWaitingWorkUnit(
@@ -80,13 +85,12 @@ export async function resumeWaitingWorkUnit(
   opts?: ResumeWaitingOptions,
 ): Promise<boolean> {
   const fileStore = fs ?? getStore();
+  const waitingGate = new WaitingGate(new WorkUnitMetadataRepository(fileStore));
   const wuService = new WorkUnitService(fileStore);
   const wu = await wuService.getById(workUnitId);
   if (!wu) return false;
 
   const metadata = parseWuMetadata(wu.metadata);
-  // B2：消费分支的锁内写统一折入 traceId（值固定，多次折叠幂等）
-  const traceMeta = opts?.traceId ? { traceId: opts.traceId } : {};
 
   // 已恢复但 loop 尚未消费 pendingReplies 的窗口内，后续回复直接追加拼接。
   // #499：active 一律入缓冲（不再要求 pendingReplies 非空）——执行中的 WU 收到线程回复时，
@@ -95,11 +99,7 @@ export async function resumeWaitingWorkUnit(
   // 下一步 prompt-composer 必注入。in_review/done/closed 等无下一步的状态仍直返 false。
   if (wu.status === 'active') {
     // #170（决策 #65-1）：锁内合并写追加——并发回复之间、回复与 recordResult 簿记之间互不冲掉
-    await fileStore.updateMetadata(workUnitId, latest => ({
-      ...latest,
-      pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
-      ...traceMeta,
-    }));
+    await waitingGate.apply(workUnitId, { kind: 'buffer-reply', replyText, traceId: opts?.traceId });
     return true;
   }
 
@@ -111,6 +111,11 @@ export async function resumeWaitingWorkUnit(
     // not-found-or-not-blocked = 指令未被消费（竞态下状态已变，交还后续流程）
     return outcome !== 'not-found-or-not-blocked';
   }
+
+  // 撤销或缺少可靠授权的旧单只能关闭或重新授权，普通回复不能复活执行。
+  const current = (await fileStore.getIndex({ id: workUnitId }))[0];
+  if (!current) return false;
+  assertExecutionMandate(current);
 
   // B3a 归属链：等待工程归属的挂起 — 回复先解析为工程，唯一命中才复活
   if (metadata.waitingReason === 'ownership') {
@@ -140,11 +145,7 @@ export async function resumeWaitingWorkUnit(
       logger.info('[WaitingInput] Requirement-guard reply unrecognized, still waiting', { workUnitId });
       return false;
     }
-    await fileStore.updateMetadata(workUnitId, latest => ({
-      ...latest,
-      requirementOverride: true,
-      waitingReason: undefined, // JSON 序列化丢弃 undefined → 清除
-    }));
+    await waitingGate.apply(workUnitId, { kind: 'grant-requirement-override' });
     if (wu.channelId) {
       await postWuSystemMessage(wu, `好的，任务「${title}」已按你的确认放行，继续执行`, { fileStore })
         .catch(err => logger.warn('[WaitingInput] requirement-guard放行提示失败 (non-blocking)', { workUnitId, error: String(err) }));
@@ -158,13 +159,12 @@ export async function resumeWaitingWorkUnit(
   // 会话预算（sessionCount）不动——复活后凭档案会话号续用旧会话（#94；#639 起非 claude
   // 凭 metadata.cliSessionId 点名续用）。
   if (metadata.waitingReason === 'plan-step-limit') {
-    await fileStore.updateMetadata(workUnitId, latest => ({
-      ...latest,
-      planStepAllowance: (typeof latest.planStepAllowance === 'number' && latest.planStepAllowance > 0
-        ? Math.floor(latest.planStepAllowance)
-        : PLAN_STEP_LIMIT) + PLAN_STEP_LIMIT,
-      waitingReason: undefined, // JSON 序列化丢弃 undefined → 清除
-    }));
+    const planSteps = (metadata.planStepAllowance && metadata.planStepAllowance > 0
+      ? Math.floor(metadata.planStepAllowance) : PLAN_STEP_LIMIT) + PLAN_STEP_LIMIT;
+    await wuService.authorizeMandate(workUnitId, opts?.actor ?? SYSTEM_PRINCIPAL, {
+      budget: { planSteps }, reason: 'plan-step-limit reply renewal',
+    });
+    await wuService.updateMetadata(workUnitId, { waitingReason: undefined });
     if (wu.channelId) {
       const title = (metadata.title ?? wu.scope).slice(0, 50);
       await postWuSystemMessage(wu, `好的，任务「${title}」已续期 ${PLAN_STEP_LIMIT} 步额度，继续规划`, { fileStore })
@@ -174,20 +174,9 @@ export async function resumeWaitingWorkUnit(
   }
 
   // #170（决策 #65-1）：锁内合并写——pendingReplies 基于锁内最新值追加
-  await fileStore.updateMetadata(workUnitId, latest => ({
-    ...latest,
-    waitingForInput: false,
-    waitingReminded: false, // 重置提醒标记：下次 blocked 重新计一次
-    blockReason: undefined, // B4: 人工接管后清除 blocked 原因（JSON 序列化丢弃 undefined）
-    consecutiveStuck: 0,    // #176（决策 #57 D2）：复活重置停滞计数（仿 B5 重置 sessionCount 先例）
-    resumeCount: (typeof latest.resumeCount === 'number' ? latest.resumeCount : 0) + 1, // D5：观测钩子
-    // timeoutReleaseCount 不动 —— 终身保留（#63 的 3 次上限不可被复活绕过）
-    // #94: 不再清零 sessionCount —— 复活后下一步凭档案会话号优先续用旧会话（#639 起
-    // 非 claude 凭 metadata.cliSessionId 点名续用），
-    // 不靠清零预算放行（清零会让失控 WU 无限重开新会话烧 token）
-    pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
-    ...traceMeta,
-  }));
+  // timeoutReleaseCount/sessionCount 不由复活清除；具体字段归 WaitingGate。
+  await waitingGate.apply(workUnitId, { kind: 'resume', replyText, traceId: opts?.traceId });
+  await new ExecutionJournal(new WorkUnitMetadataRepository(fileStore)).resumeWaiting(workUnitId);
   await wuService.transitionStatus(workUnitId, 'active');
 
   logger.info('[WaitingInput] WorkUnit resumed by human reply', { workUnitId });
@@ -269,7 +258,11 @@ async function resolveBudgetChoiceFromReply(
       await notify(`任务「${title}」已消耗 ${used.toLocaleString()} token，新上限需要大于这个数才能继续。请重新回复：「追加预算 <数值>」，或「收尾」/「放弃」`);
       return false;
     }
+    await wuService.authorizeMandate(wu.id, opts?.actor ?? SYSTEM_PRINCIPAL, {
+      budget: { tokens: newBudget }, reason: 'token-budget reply renewal',
+    });
     await wuService.update(wu.id, { metadata: { ...clearedMetadata, tokenBudget: newBudget } });
+    await new ExecutionJournal(new WorkUnitMetadataRepository(fileStore)).resumeWaiting(wu.id);
     await transit('active');
     await notify(`好的，任务「${title}」的 token 上限已调整为 ${newBudget.toLocaleString()}，继续执行`);
     logger.info('[WaitingInput] Budget-tripped WorkUnit resumed with raised budget', {
@@ -351,6 +344,7 @@ export const WEB_RESUME_PLACEHOLDER = '（人类在 Web 端授权继续执行）
 export async function resumeBlockedWorkUnitFromWeb(
   workUnitId: string,
   fs?: FileStore,
+  actor?: MandatePrincipal,
 ): Promise<boolean> {
   const fileStore = fs ?? getStore();
   // #499：复活原语对 active WU 改为缓冲回复（入 pendingReplies，不再返回 false）——
@@ -358,7 +352,7 @@ export async function resumeBlockedWorkUnitFromWeb(
   // active/其他状态直返 false，不注占位文案、不发里程碑
   const before = await new WorkUnitService(fileStore).getById(workUnitId);
   if (!before || before.status !== 'blocked') return false;
-  const resumed = await resumeWaitingWorkUnit(workUnitId, WEB_RESUME_PLACEHOLDER, fileStore);
+  const resumed = await resumeWaitingWorkUnit(workUnitId, WEB_RESUME_PLACEHOLDER, fileStore, { actor });
   if (!resumed) return false;
 
   const wu = await new WorkUnitService(fileStore).getById(workUnitId);
@@ -440,18 +434,14 @@ async function resolveOwnershipFromReply(
   }
 
   if (hit) {
+    await wuService.authorizeMandate(wu.id, opts?.actor ?? SYSTEM_PRINCIPAL, {
+      repositories: [{ repo: hit.path, leg: metadata.pmoBranch ?? null }],
+      reason: 'ownership reply binding',
+    });
     // #170（决策 #65-1）：锁内合并写——pendingReplies 基于锁内最新值追加
-    await fileStore.updateMetadata(wu.id, latest => ({
-      ...latest,
-      waitingForInput: false,
-      waitingReminded: false,
-      workspaceRoot: hit.path,
-      ownershipSource: 'human-reply',
-      ownershipAttempts: undefined, // #265: 绑定成功清除轮次计数（JSON 序列化丢弃 undefined）
-      pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
-      // B2：绑定命中的锁内写折入本次 traceId（不再由路由层独立 refresh）
-      ...(opts?.traceId ? { traceId: opts.traceId } : {}),
-    }));
+    await new WaitingGate(new WorkUnitMetadataRepository(fileStore)).apply(wu.id, {
+      kind: 'bind-ownership', replyText, workspaceRoot: hit.path, traceId: opts?.traceId,
+    });
     // 置回 unassigned 而非 active：此 WU 创建即挂起、从未被认领，assigneeId 仍是
     // mention 路由写入的 profile id。置 active 会让它对所有人不可见——loop 续跑
     // 查询按 instance.id 过滤（myActive），认领过滤又要求 status==='unassigned'，
@@ -472,11 +462,9 @@ async function resolveOwnershipFromReply(
   }
 
   // 未解 → 轮次计数锁内累加（#265 仿 resumeCount 先例）
-  let attempts = 0;
-  await fileStore.updateMetadata(wu.id, latest => {
-    attempts = (typeof latest.ownershipAttempts === 'number' ? latest.ownershipAttempts : 0) + 1;
-    return { ...latest, ownershipAttempts: attempts };
-  });
+  const attempted = await new WaitingGate(new WorkUnitMetadataRepository(fileStore)).apply(wu.id, { kind: 'ownership-attempt' });
+  const attemptedMeta = attempted ? parseWuMetadata(attempted.metadata) : {};
+  const attempts = typeof attemptedMeta.ownershipAttempts === 'number' ? attemptedMeta.ownershipAttempts : 0;
   const title = (metadata.title ?? wu.scope).slice(0, 50);
 
   // #265（决策 #258）：3 轮未解 → 停止追问、播报转人工、WU 保持 blocked
@@ -538,32 +526,7 @@ const MAX_OWNERSHIP_ATTEMPTS = 3;
  * 把人工答案写回 PMO.gitRepo（PMO = 归属的唯一回答点，一次绑定终身有效）。
  */
 async function bindRequirementToProject(reqId: string, hit: LocalProject, fileStore: FileStore): Promise<void> {
-  const reqService = new RequirementService(fileStore);
-  const requirement = await reqService.get(reqId);
-  if (!requirement) return;
-  // P2-c 拆环：workunit→pmo 静态边转函数内动态 import
-  const { projectService } = await import('../pmo/index.js');
-
-  if (requirement.projectId) {
-    // 别名/已挂接：PMO 缺 gitRepo 才补写（不覆盖既有锚点）
-    const backing = await projectService.get(requirement.projectId);
-    if (backing && !backing.gitRepo) {
-      await projectService.update(backing.id, { gitRepo: hit.path });
-      logger.info('[WaitingInput] PMO gitRepo bound from human reply', {
-        reqId, projectId: backing.id, gitRepo: hit.path,
-      });
-    }
-    return;
-  }
-
-  const existing = (await projectService.list({ limit: 1000 })).find(p => p.gitRepo === hit.path);
-  const project = existing ?? (await projectService.create({ title: hit.name, gitRepo: hit.path }));
-  await reqService.update(reqId, { projectId: project.id });
-  logger.info('[WaitingInput] Requirement bound to PMO project', {
-    reqId,
-    projectId: project.id,
-    gitRepo: hit.path,
-  });
+  await (await workUnitPort('projectRead')).bindRequirementToProject(reqId, hit, fileStore);
 }
 
 /** 候选工程列表文案（封顶 10 条） */

@@ -17,13 +17,10 @@ const { mockCreateCardMessage } = vi.hoisted(() => ({
   mockCreateCardMessage: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
-}));
-
 import { FileStore } from '@dommaker/studio-shared';
 import { clearReviewProposalAdapters } from '../../review-proposal/registry.js';
 import { approveProposal, rejectProposal, getProposalStatus } from '../../review-proposal/service.js';
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 import {
   foldDraftRows,
   roleMemoryRoot,
@@ -35,6 +32,7 @@ import {
   registerMemoryReviewAdapter,
   submitMemoryProposal,
 } from '../review-adapter.js';
+import { roleMemoryMaintenance } from '../maintenance.js';
 
 const TEST_ROOT = roleMemoryRoot();
 
@@ -53,6 +51,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearReviewProposalAdapters();
   fileStore = new FileStore();
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   // 发卡频道解析走 adapter.fileStore.listChannels——spy 控制 #系统 频道有无，其余 FileStore I/O 全真
   listChannelsSpy = vi.spyOn(fileStore, 'listChannels').mockResolvedValue([]);
   // 预注册受控 adapter：submitMemoryProposal 优先取注册表（getReviewProposalAdapter），不自助注册
@@ -198,6 +200,7 @@ describe('正本生命周期全链路（kind=memory，通用端点同款 service
     expect((await getProposalStatus('memory', entry.id))).toMatchObject({ ok: true, status: 'executed' });
     expect(await roleMemoryStore.readDraft(roleId)).toHaveLength(0);
     expect(await roleMemoryStore.readIndex(roleId)).toContain('full-flow');
+    await expect(roleMemoryMaintenance.getRun(roleId, `promote-${entry.id}`)).resolves.toMatchObject({ status: 'succeeded' });
 
     // 重复 approve → not-pending 闸（正本词表）
     const again = await approveProposal('memory', entry.id);

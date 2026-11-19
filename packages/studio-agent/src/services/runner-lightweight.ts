@@ -15,8 +15,8 @@
 import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fsSync from 'fs';
-import { logger } from '@dommaker/studio-shared';
-import { execSh, classifyCliFailure } from '@dommaker/studio-shared/node';
+import { getErrorMessage } from '@dommaker/studio-shared';
+import { logger, execSh, classifyCliFailure, prepareAgentSandbox, type AgentSandboxHandle } from '@dommaker/studio-shared/node';
 
 import { resolveWorkspace, propagateHarnessConfig } from './worktree-resolver.js';
 import {
@@ -62,8 +62,11 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       worktreesDir: config.worktreesDir,
       repoDir: config.repoDir,
     });
+    // capability 的 /proc/<pid>/fd 路径在 bwrap 新 PID namespace 内不可见；
+    // 外层仍持有目录 fd，这里固定其真实路径供 prompt、CLI 命令和 sandbox 使用。
+    worktree = fsSync.realpathSync(worktree);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     return { success: false, worktree: '', outputFiles: [], error: errorMessage, logFile: '', sessionCount: 0 };
   }
 
@@ -124,10 +127,23 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     };
     await emitSessionStart(sessionId, task.executionId, 1, sessionExtras);
 
+    let sandbox: AgentSandboxHandle | undefined;
     try {
-      const { stdout } = await execSh(cmd, {
-        cwd: worktree,
+      sandbox = await prepareAgentSandbox({
+        command: cmd,
+        worktree,
+        ...(typeof task.parameters?.worktreeBaseRepo === 'string'
+          ? { gitCommonDir: path.join(task.parameters.worktreeBaseRepo, '.git') }
+          : {}),
+        provider,
+        executionId: task.executionId,
         env: buildSessionEnv({ task, role: agentRole as 'analyst' | 'executor', withWorkUnitEnv: true, worktree }),
+        ttlMs: (task.timeoutMs ?? 30 * 60_000) + 5 * 60_000,
+      });
+      const { stdout } = await execSh(sandbox.command, {
+        cwd: worktree,
+        env: sandbox.env,
+        inheritProcessEnv: false,
         // 扁平默认 30min（原 fast/standard/premium tier 分档已删）
         timeoutMs: task.timeoutMs ?? 30 * 60_000,
         maxBuffer: 10 * 1024 * 1024,
@@ -183,8 +199,8 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         usage: streamUsage, // M2: 透出 CLI usage，供 agent-loop 记录 workunit:tokens
       };
     } catch (execErr) {
-      const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
-      const stdoutText = execErr?.stdout?.toString().slice(0, 2000) || '';
+      const errMsg = getErrorMessage(execErr);
+      const stdoutText = String((execErr as { stdout?: unknown })?.stdout ?? '').slice(0, 2000);
 
       await emitSessionEnd(sessionId, task.executionId, 1, sessionExtras);
 
@@ -203,10 +219,11 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         sessionIds: [sessionId],
       };
     } finally {
+      await sandbox?.dispose();
       runningProcesses.delete(task.executionId);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     return { success: false, worktree, outputFiles: [], error: errorMessage, logFile, sessionCount: 0 };
   }
 }

@@ -11,13 +11,14 @@
  * 可测试性：fileStore/role/建单全部经 deps 注入，单测用纯 ctx 对象驱动，无需 vi.mock 模块工厂。
  */
 
-import { logger, FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import {
-  checkDelegation, effectiveParentCollab, resolveMaxDepth,
+  checkDelegation, effectiveParentCollab, parseWuMetadata, resolveMaxDepth,
   type CollabMeta,
 } from '../workunit/index.js';
 import type { WorkUnitData, WorkUnitService } from '../workunit/index.js';
 import type { StepResult } from './agent-loop.types.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** DELEGATE 分支输入。仅在 action === 'delegate' 且 result.delegate 存在时由 recordResult 调用。 */
 export interface DelegateBranchCtx {
@@ -62,6 +63,13 @@ export async function handleDelegateBranch(
   });
   if (gate.pass && gate.target) {
     const parentCollab = effectiveParentCollab(wu, deps.role.id);
+    const parentMetadata = parseWuMetadata(wu.metadata);
+    // 只传子范围显式点名的仓内路径；同路径跨仓歧义时不猜，除非 scope 点名绝对路径。
+    const childFileRefs = parentMetadata.fileRefs?.filter(ref => {
+      if (!delegate.scope.includes(ref.path)) return false;
+      const samePath = parentMetadata.fileRefs!.filter(candidate => candidate.path === ref.path);
+      return samePath.length === 1 || delegate.scope.includes(`${ref.repo.replace(/\/$/, '')}/${ref.path}`);
+    }) ?? [];
     const childCollab: CollabMeta = {
       rootId: parentCollab.rootId,
       depth: parentCollab.depth + 1,
@@ -79,7 +87,12 @@ export async function handleDelegateBranch(
       workspaceId: wu.workspaceId ?? null,
       reqId: wu.reqId ?? null,
       status: 'unassigned',
-      metadata: { creationMode: 'agent-delegate', collab: childCollab },
+      metadata: {
+        creationMode: 'agent-delegate',
+        collab: childCollab,
+        // #713：文件引用是只读必要上下文，不携带父 AC、历史或其他开放 metadata。
+        ...(childFileRefs.length ? { fileRefs: childFileRefs } : {}),
+      },
     });
     // 父 WU 补记/累加 collab（根 WU 首次委派时从无 collab 合并为 depth=0 的根记录）
     const collabUpdate: CollabMeta = { ...parentCollab, delegationCount: (parentCollab.delegationCount ?? 0) + 1 };

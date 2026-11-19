@@ -16,10 +16,17 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, eventBus, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import { EffectService } from '../../workunit/index.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 import { ReviewDispatcher, REVIEW_DISPATCH_RETRY_DELAY_MS } from '../review-dispatcher.js';
 
-const { mockPostWuSystemMessage } = vi.hoisted(() => ({ mockPostWuSystemMessage: vi.fn() }));
+const { mockPostWuSystemMessage, mockDispatchMonitorAlerts } = vi.hoisted(() => ({
+  mockPostWuSystemMessage: vi.fn(),
+  mockDispatchMonitorAlerts: vi.fn(),
+}));
+
+vi.mock('../../ops/index.js', () => ({ dispatchMonitorAlerts: mockDispatchMonitorAlerts }));
 
 // wu-messenger 间谍包装：真实发送保留（消息断言不受影响），另断言委托参数（milestone 等）
 vi.mock('../../workunit/wu-messenger.js', async (importOriginal) => {
@@ -61,6 +68,7 @@ function metaOf(raw: string | null): WorkUnitMetadata {
 
 beforeEach(async () => {
   mockPostWuSystemMessage.mockClear(); // 清调用记录（保留间谍包装的实现）
+  mockDispatchMonitorAlerts.mockClear();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatcher-'));
   fileStore = new FileStore(tmpDir);
   wuService = new WorkUnitService(fileStore);
@@ -177,48 +185,62 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(meta.reviewInput).toEqual({ mode: 'diff-only', skill: 'code-review' });
   });
 
-  it('2026-07-30: 子 WU 不继承父 WU 的会话/执行簿记（防跨 WU 会话续用），域血缘保留', async () => {
-    const parent = await wuService.create({
-      scope: '实现功能 S',
-      type: 'feature',
-      channelId: 'ch-test',
-      assigneeId: executorProfile.id,
-      status: 'active',
-      metadata: {
-        pmoId: 'proj-1',
-        pmoNumber: 'PM-001',
-        sessionId: 'sess-parent-123',
-        startedAt: '2026-07-29T00:00:00Z',
-        sessionResumes: 2,
-        stepCount: 3,
-        consecutiveStuck: 1,
-        _cumulativeTokens: 999,
-        errorType: 'execution_failed',
-        errorDetail: 'x',
-        errorAt: '2026-07-29T01:00:00Z',
-      },
-    });
-    await wuService.transitionStatus(parent.id, 'in_review');
-    await dispatcher.waitForSettled();
+  it.each(['claude', 'kimi', 'codex', 'opencode'] as const)(
+    '#699: %s review 子 WU 不继承父 WU 的真实 CLI session/执行簿记，域血缘保留',
+    async (provider) => {
+      await fileStore.updateProfile(executorProfile.id, { provider });
+      const parent = await wuService.create({
+        scope: '实现功能 S',
+        type: 'feature',
+        channelId: 'ch-test',
+        assigneeId: executorProfile.id,
+        status: 'active',
+        reqId: 'REQ-0042',
+        metadata: {
+          pmoId: 'proj-1',
+          pmoNumber: 'PM-001',
+          sessionId: 'sess-parent-123',
+          cliSessionId: `cli-${provider}-parent-123`,
+          startedAt: '2026-07-29T00:00:00Z',
+          sessionResumes: 2,
+          stepCount: 3,
+          consecutiveStuck: 1,
+          _cumulativeTokens: 999,
+          errorType: 'execution_failed',
+          errorDetail: 'x',
+          errorAt: '2026-07-29T01:00:00Z',
+          pendingReplies: ['父实现会话未消费回复'],
+          waitingForInput: true,
+          waitingQuestion: '父实现会话待答问题',
+        },
+      });
+      await wuService.transitionStatus(parent.id, 'in_review');
+      await dispatcher.waitForSettled();
 
-    const snapshots = await fileStore.getIndex();
-    const child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
-    expect(child).toBeDefined();
-    const meta = metaOf(child!.metadata);
-    // 会话/执行簿记一律不继承
-    expect(meta.sessionId).toBeUndefined();
-    expect(meta.startedAt).toBeUndefined();
-    expect(meta.sessionResumes).toBeUndefined();
-    expect(meta.stepCount).toBeUndefined();
-    expect(meta.consecutiveStuck).toBeUndefined();
-    expect(meta._cumulativeTokens).toBeUndefined();
-    expect(meta.errorType).toBeUndefined();
-    expect(meta.errorDetail).toBeUndefined();
-    expect(meta.errorAt).toBeUndefined();
-    // 域血缘字段保留
-    expect(meta.pmoId).toBe('proj-1');
-    expect(meta.pmoNumber).toBe('PM-001');
-  });
+      const snapshots = await fileStore.getIndex();
+      const child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
+      expect(child).toBeDefined();
+      const meta = metaOf(child!.metadata);
+      // 四种 provider 的真实 CLI 会话号与执行簿记一律不继承
+      expect(meta.sessionId).toBeUndefined();
+      expect(meta.cliSessionId).toBeUndefined();
+      expect(meta.startedAt).toBeUndefined();
+      expect(meta.sessionResumes).toBeUndefined();
+      expect(meta.stepCount).toBeUndefined();
+      expect(meta.consecutiveStuck).toBeUndefined();
+      expect(meta._cumulativeTokens).toBeUndefined();
+      expect(meta.errorType).toBeUndefined();
+      expect(meta.errorDetail).toBeUndefined();
+      expect(meta.errorAt).toBeUndefined();
+      expect(meta.pendingReplies).toBeUndefined();
+      expect(meta.waitingForInput).toBeUndefined();
+      expect(meta.waitingQuestion).toBeUndefined();
+      // 域血缘字段保留（#700：REQ 取父 WU 一等列，不只读开放 metadata）
+      expect(child!.reqId).toBe('REQ-0042');
+      expect(meta.pmoId).toBe('proj-1');
+      expect(meta.pmoNumber).toBe('PM-001');
+    },
+  );
 
   it('AC-4.3: 已有未完结 review 子 WU -> 跳过（同父唯一性）', async () => {
     const parent = await wuService.create({
@@ -244,6 +266,87 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     const snapshots = await fileStore.getIndex();
     const reviewChildren = snapshots.filter(s => s.parentId === parent.id && s.type === 'review');
     expect(reviewChildren).toHaveLength(1); // 不创建第二个
+  });
+
+  it('#707: 事件丢失后重启恢复评审派单，恢复重跑不重复创建子 WU', async () => {
+    eventBus.unsubscribeAll?.('workunit.status_changed');
+    const parent = await wuService.create({
+      scope: '可恢复评审', type: 'feature', channelId: 'ch-test', status: 'active',
+    });
+    await wuService.transitionStatus(parent.id, 'in_review');
+    expect((await fileStore.getIndex()).filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(0);
+
+    const restartedStore = new FileStore(tmpDir);
+    const restarted = new ReviewDispatcher(restartedStore, new WorkUnitService(restartedStore));
+    await restarted.recoverEffects();
+
+    let snapshots = await restartedStore.getIndex();
+    const children = snapshots.filter(s => s.parentId === parent.id && s.type === 'review');
+    expect(children).toHaveLength(1);
+    const persistedParent = snapshots.find(s => s.id === parent.id)!;
+    expect(persistedParent.effects?.[0]).toMatchObject({ status: 'succeeded', attempts: 1 });
+    expect(persistedParent.effectReceipts?.at(-1)).toMatchObject({
+      outcome: 'succeeded', recovery: 'queued-restarted',
+      result: { reviewWorkUnitId: children[0].id },
+    });
+
+    const recoveredMessages = await restartedStore.queryMessages('ch-test', { workUnitId: parent.id });
+    expect(recoveredMessages.some(message => message.content.includes('评审派单') && message.content.includes('恢复'))).toBe(true);
+
+    await restarted.recoverEffects();
+    snapshots = await restartedStore.getIndex();
+    expect(snapshots.filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(1);
+  });
+
+  it('#708: 评审恢复不消费 queued merge Effect', async () => {
+    eventBus.unsubscribeAll?.('workunit.status_changed');
+    const parent = await wuService.create({
+      scope: '持久合并', type: 'task', channelId: 'ch-test', status: 'active',
+    });
+    await wuService.transitionStatus(parent.id, 'in_review');
+    const effects = new EffectService(fileStore);
+    const persisted = (await fileStore.getIndex({ id: parent.id }))[0]!;
+    for (const effect of persisted.effects ?? []) {
+      if (effect.kind === 'review-dispatch') await effects.cancel(parent.id, effect.id, 'isolate merge recovery');
+    }
+    const merge = await effects.enqueue(parent.id, {
+      kind: 'merge', idempotencyKey: `merge:${parent.id}`, trigger: 'automatic',
+    });
+
+    const restartedStore = new FileStore(tmpDir);
+    const restarted = new ReviewDispatcher(restartedStore, new WorkUnitService(restartedStore));
+    await restarted.recoverEffects();
+
+    const snapshots = await restartedStore.getIndex();
+    expect(snapshots.filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(0);
+    expect(snapshots.find(s => s.id === parent.id)?.effects?.find(effect => effect.id === merge.id)).toMatchObject({
+      kind: 'merge', status: 'queued', attempts: 0,
+    });
+  });
+
+  it('#707: 崩溃发生在建单后/回执前时认养原子 WU，并记录去重结果', async () => {
+    eventBus.unsubscribeAll?.('workunit.status_changed');
+    const parent = await wuService.create({
+      scope: '崩溃窗口评审', type: 'feature', channelId: 'ch-test', status: 'active',
+    });
+    await wuService.transitionStatus(parent.id, 'in_review');
+    const persisted = (await fileStore.getIndex({ id: parent.id }))[0]!;
+    const effect = persisted.effects![0]!;
+    await wuService.create({
+      scope: '已创建但未回执的评审', type: 'review', parentId: parent.id,
+      channelId: 'ch-test', status: 'unassigned', metadata: { effectId: effect.id },
+    });
+
+    const restartedStore = new FileStore(tmpDir);
+    const restarted = new ReviewDispatcher(restartedStore, new WorkUnitService(restartedStore));
+    await restarted.recoverEffects();
+
+    const snapshots = await restartedStore.getIndex();
+    expect(snapshots.filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(1);
+    expect(snapshots.find(s => s.id === parent.id)?.effectReceipts?.at(-1)).toMatchObject({
+      outcome: 'succeeded', recovery: 'queued-restarted',
+      result: { duplicatePrevented: true },
+    });
   });
 
   it('AC-4.5: child done + approved -> 父 reviewPassed', async () => {
@@ -374,6 +477,42 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     const snapshots = await fileStore.getIndex();
     const reviewChild = snapshots.find(s => s.parentId === analysis.id && s.type === 'review');
     expect(reviewChild).toBeUndefined();
+  });
+
+  it('merge queued/running 的 in_review 进度事件不重复派评审', async () => {
+    for (const state of ['queued', 'running'] as const) {
+      const wu = await wuService.create({
+        scope: `merge ${state}`, type: 'task', channelId: 'ch-test', status: 'active',
+        metadata: {
+          mergeIntent: {
+            id: `merge:${state}`, state, requestedAt: new Date().toISOString(),
+            sourceBranch: 'task/wu-1', targetBranch: 'main',
+          },
+        },
+      });
+      await wuService.transitionStatus(wu.id, 'in_review');
+      await dispatcher.waitForSettled();
+      const snapshots = await fileStore.getIndex();
+      expect(snapshots.find(s => s.parentId === wu.id && s.type === 'review')).toBeUndefined();
+      expect(await dispatcher.redispatchReview((await wuService.getById(wu.id))!)).toBeNull();
+      await expect(dispatcher.dispatchReviewNow(wu.id)).rejects.toThrow('merge');
+    }
+  });
+
+  it('merged+verification unavailable 等人工 L3 时不重派评审', async () => {
+    const wu = await wuService.create({
+      scope: 'merge unavailable', type: 'task', channelId: 'ch-test', status: 'active',
+      metadata: {
+        mergeReceipt: {
+          id: 'merge:1', merged: true, mergeCommit: 'abc123', targetBranch: 'main',
+          verification: { status: 'unavailable', ran: [] },
+        },
+      },
+    });
+    await wuService.transitionStatus(wu.id, 'in_review');
+    await dispatcher.waitForSettled();
+    const snapshots = await fileStore.getIndex();
+    expect(snapshots.find(s => s.parentId === wu.id && s.type === 'review')).toBeUndefined();
   });
 
   it('#108/#471: decision/spec/plan WU in_review -> 不派 review 子 WU（人工验收类工单，验收闸 = 人工 in_review）', async () => {
@@ -791,27 +930,84 @@ describe('2026-09 性能治理：路径 A 事件链失败 30s 进程内重试', 
     getChannelSpy.mockRestore();
   });
 
-  it('重试也失败 → 不再叠加重试（交 5min 对账兜底）', async () => {
+  it('#707: 重启时为未到期的持久重试补建定时器', async () => {
+    vi.useFakeTimers();
+    eventBus.unsubscribeAll?.('workunit.status_changed');
+    const parent = await createActiveParent('实现功能 RT1R');
+    await wuService.transitionStatus(parent.id, 'in_review');
+    const current = (await fileStore.getIndex({ id: parent.id }))[0]!;
+    const nextAttemptAt = new Date(Date.now() + REVIEW_DISPATCH_RETRY_DELAY_MS).toISOString();
+    const queued = {
+      ...current,
+      effects: current.effects?.map(effect => ({ ...effect, nextAttemptAt })),
+    };
+    await fileStore.commitSnapshot({
+      type: 'updated', wuId: parent.id, timestamp: new Date().toISOString(),
+      data: queued as unknown as Record<string, unknown>,
+    }, queued);
+
+    const restartedStore = new FileStore(tmpDir);
+    const restarted = new ReviewDispatcher(restartedStore, new WorkUnitService(restartedStore));
+    const getChannelSpy = vi.spyOn(restartedStore, 'getChannel');
+    await restarted.recoverEffects();
+    expect(getChannelSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS);
+    await restarted.waitForSettled();
+    expect(getChannelSpy).toHaveBeenCalled();
+    expect(await restartedStore.getIndex().then(snaps => snaps.find(s => s.parentId === parent.id && s.type === 'review'))).toBeDefined();
+  });
+
+  it('三次执行都失败 → 永久失败，不再叠加重试', async () => {
     vi.useFakeTimers();
     const getChannelSpy = vi.spyOn(fileStore, 'getChannel')
-      .mockRejectedValueOnce(new Error('jitter-1'))
-      .mockRejectedValueOnce(new Error('jitter-2'));
+      .mockRejectedValue(new Error('persistent jitter'));
 
     const parent = await createActiveParent('实现功能 RT2');
     await wuService.transitionStatus(parent.id, 'in_review');
     await dispatcher.waitForSettled();
 
-    await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS);
-    await dispatcher.waitForSettled();
+    for (let retry = 0; retry < 2; retry++) {
+      await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS);
+      await dispatcher.waitForSettled();
+    }
     expect(await findReviewChild(parent.id)).toBeUndefined();
-    expect(getChannelSpy).toHaveBeenCalledTimes(2);
+    expect(getChannelSpy).toHaveBeenCalledTimes(3);
+    const persisted = (await fileStore.getIndex({ id: parent.id }))[0]!;
+    expect(persisted.effects?.[0]).toMatchObject({ status: 'failed', attempts: 3 });
+    expect(mockDispatchMonitorAlerts).toHaveBeenCalledWith([expect.objectContaining({
+      source: 'review_redispatch', level: 'critical', relatedTaskIds: [parent.id],
+    })]);
 
-    // 再过一个周期：无第三次尝试
+    // 永久失败后不再执行。
     await vi.advanceTimersByTimeAsync(REVIEW_DISPATCH_RETRY_DELAY_MS * 2);
     await dispatcher.waitForSettled();
-    expect(getChannelSpy).toHaveBeenCalledTimes(2);
-    expect(await findReviewChild(parent.id)).toBeUndefined();
+    expect(getChannelSpy).toHaveBeenCalledTimes(3);
     getChannelSpy.mockRestore();
+  });
+
+  it('#707: 启动恢复期间达到重试上限同样升 critical', async () => {
+    eventBus.unsubscribeAll?.('workunit.status_changed');
+    const parent = await createActiveParent('实现功能 RT2R');
+    await wuService.transitionStatus(parent.id, 'in_review');
+    const current = (await fileStore.getIndex({ id: parent.id }))[0]!;
+    const queued = {
+      ...current,
+      effects: current.effects?.map(effect => ({ ...effect, attempts: 2 })),
+    };
+    await fileStore.commitSnapshot({
+      type: 'updated', wuId: parent.id, timestamp: new Date().toISOString(),
+      data: queued as unknown as Record<string, unknown>,
+    }, queued);
+
+    const restartedStore = new FileStore(tmpDir);
+    vi.spyOn(restartedStore, 'getChannel').mockRejectedValue(new Error('still failing'));
+    const restarted = new ReviewDispatcher(restartedStore, new WorkUnitService(restartedStore));
+    await restarted.recoverEffects();
+
+    expect(mockDispatchMonitorAlerts).toHaveBeenCalledWith([expect.objectContaining({
+      source: 'review_redispatch', level: 'critical', relatedTaskIds: [parent.id],
+    })]);
   });
 
   it('重试触发时父 WU 已离开 in_review（人工已收口）→ 跳过不建单', async () => {

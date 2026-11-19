@@ -6,7 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 const { mockExecuteLightweight, mockInjectContext, mockRecordOutcome, mockExtractFromExecution, mockExtractFromConversation } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -22,14 +24,18 @@ vi.mock('@dommaker/studio-agent', () => ({
   },
 }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: mockInjectContext,
     recordOutcome: mockRecordOutcome,
     extractFromExecution: mockExtractFromExecution,
     extractFromConversation: mockExtractFromConversation,
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 import { AgentLoop } from '../agent-loop';
 
@@ -88,27 +94,52 @@ describe('R3: COMPLETE → extractFromConversation', () => {
     });
   }
 
-  it('(c) COMPLETE → 以会话内容触发一次提取（任务 + pendingReplies + 最终结果），并标记 knowledgeExtractedAt', async () => {
+  it('(c) COMPLETE → 持久化知识提取 Effect，成功由 Receipt 表达而非提前写哨兵', async () => {
     const wu = await createActiveWu({ pendingReplies: ['用 OAuth 实现'] });
     mockCompleteOutput();
 
-    const result = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
+    await agentLoop.recordResult({ workUnit: wu }, result);
 
     expect(result.action).toBe('complete');
+    expect(result.metadataUpdates?.knowledgeExtractedAt).toBeUndefined();
+    await vi.waitFor(async () => {
+      const snapshot = (await fileStore.getIndex({ id: wu.id }))[0];
+      expect(snapshot?.effects?.find(effect => effect.kind === 'knowledge-extraction')?.status).toBe('succeeded');
+    });
+    const snapshot = (await fileStore.getIndex({ id: wu.id }))[0];
+    const effect = snapshot?.effects?.find(item => item.kind === 'knowledge-extraction');
+    expect(effect).toMatchObject({
+      workUnitId: wu.id,
+      idempotencyKey: `knowledge-extraction:${wu.id}:${result.assignmentId}`,
+      attempts: 1,
+    });
+    expect(snapshot?.effectReceipts?.some(receipt => receipt.effectId === effect?.id && receipt.outcome === 'succeeded')).toBe(true);
     expect(mockExtractFromConversation).toHaveBeenCalledTimes(1);
-    const [messages, ctx] = mockExtractFromConversation.mock.calls[0];
-    expect(ctx).toEqual({ workUnitId: wu.id });
-    expect(messages).toEqual([
-      { role: 'user', content: '实现登录功能' },
-      { role: 'user', content: '用 OAuth 实现' },
-      { role: 'assistant', content: '登录功能已完成' },
-    ]);
-    // 去重标记随 metadataUpdates 返回（由 recordResult 原子持久化）
-    expect(result.metadataUpdates?.knowledgeExtractedAt).toBeTruthy();
+    const [, ctx] = mockExtractFromConversation.mock.calls[0];
+    expect(ctx).toMatchObject({
+      workUnitId: wu.id,
+      assignmentId: result.assignmentId,
+      extractionVersion: 'conversation-1',
+      revision: 1,
+      scope: { kind: 'role', id: mockRole.id },
+      outcome: { execution: 'succeeded', delivery: 'unmerged' },
+    });
+    expect(ctx.stepRecordId).toBeTruthy();
 
     // R3 兜底独立性：模板提取 extractFromExecution 照常触发（fire-and-forget，等 microtask 排空）
     await new Promise(r => setImmediate(r));
-    expect(mockExtractFromExecution).toHaveBeenCalled();
+    expect(mockExtractFromExecution).toHaveBeenCalledWith(expect.objectContaining({
+      consumedKnowledge: [],
+      learning: expect.objectContaining({
+        workUnitId: wu.id,
+        assignmentId: result.assignmentId,
+        stepRecordId: ctx.stepRecordId,
+        transcriptRefs: expect.any(Array),
+        evidenceRefs: expect.any(Array),
+        extractionVersion: 'execution-1',
+      }),
+    }));
   });
 
   it('非 COMPLETE（PROGRESS）不触发提取', async () => {
@@ -118,35 +149,45 @@ describe('R3: COMPLETE → extractFromConversation', () => {
       logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
     });
 
-    const result = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
 
     expect(result.action).toBe('progress');
     expect(mockExtractFromConversation).not.toHaveBeenCalled();
     expect(result.metadataUpdates?.knowledgeExtractedAt).toBeUndefined();
   });
 
-  it('提取失败被吞掉：拒绝的 promise 不影响 complete 步骤结果', async () => {
+  it('临时提取失败不阻断 complete，Effect 落 retry-after 与 retrying Receipt', async () => {
     const wu = await createActiveWu();
     mockCompleteOutput();
     mockExtractFromConversation.mockRejectedValueOnce(new Error('LLM down'));
 
-    const result = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
+    await agentLoop.recordResult({ workUnit: wu }, result);
 
     expect(result.action).toBe('complete');
     expect(result.summary).toBe('登录功能已完成');
-    // 让被拒绝的 promise 走完 catch，确认无未处理拒绝导致进程级问题
-    await new Promise(r => setImmediate(r));
+    await vi.waitFor(async () => {
+      const snapshot = (await fileStore.getIndex({ id: wu.id }))[0];
+      const effect = snapshot?.effects?.find(item => item.kind === 'knowledge-extraction');
+      expect(effect).toMatchObject({ status: 'queued', attempts: 1, lastError: expect.stringContaining('LLM down') });
+      expect(effect?.nextAttemptAt).toBeTruthy();
+      expect(snapshot?.effectReceipts?.some(receipt => receipt.effectId === effect?.id && receipt.outcome === 'retrying')).toBe(true);
+    });
   });
 
-  it('去重：metadata.knowledgeExtractedAt 已存在 → 不再触发', async () => {
+  it('legacy knowledgeExtractedAt 不再冒充成功，仍补建持久 Effect', async () => {
     const wu = await createActiveWu({ knowledgeExtractedAt: new Date().toISOString() });
     mockCompleteOutput();
 
-    const result = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+    const result = await (agentLoop).agentStep({ workUnit: wu });
+    await agentLoop.recordResult({ workUnit: wu }, result);
 
     expect(result.action).toBe('complete');
-    expect(mockExtractFromConversation).not.toHaveBeenCalled();
-    // 不重复打标
+    await vi.waitFor(async () => {
+      const snapshot = (await fileStore.getIndex({ id: wu.id }))[0];
+      expect(snapshot?.effects?.find(effect => effect.kind === 'knowledge-extraction')?.status).toBe('succeeded');
+    });
+    expect(mockExtractFromConversation).toHaveBeenCalledTimes(1);
     expect(result.metadataUpdates?.knowledgeExtractedAt).toBeUndefined();
   });
 });

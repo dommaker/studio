@@ -22,13 +22,11 @@
 | ops.service | src/modules/agents/ops/ops.service.ts | Ops Service — 系统生命周期守护 |
 | ops-rules | src/modules/agents/ops/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
-| session-summary.service | src/modules/agents/session-summary.service.ts | SessionSummaryService — 会话级知识提取 (2026-05-25) |
 | triage.service | src/modules/agents/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | src/modules/agents/types.ts | Agent 团队类型定义 |
 | routes | src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | src/modules/auth/routes.ts | POST /api/v1/auth/guest-session |
 | service | src/modules/auth/service.ts | 认证服务 - Auth Service |
-| routes | src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | channel-init | src/modules/channels/channel-init.ts | Seed default channels on startup (B1-001) |
 | channel-message.service | src/modules/channels/channel-message.service.ts | ChannelMessage Service — centralized message creation + event publishing |
 | channel.routes | src/modules/channels/channel.routes.ts | Channel Routes — B1-001/B1-002/B1-009/B1-011 |
@@ -41,7 +39,8 @@
 | routes | src/modules/executions/routes.ts | Execution API 路由 |
 | iron-laws.routes | src/modules/harness/iron-laws.routes.ts | Iron Laws API — 从 runtime-proxy 迁移 (2026-05-14) |
 | routes | src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015) |
-| decision-chain-extractor | src/modules/knowledge/decision-chain-extractor.ts | DecisionChainExtractor (G-004) — 从 Meeting 辩论 + Goal 执行中提取决策链 |
+| decision-chain-extractor | src/modules/knowledge/producers/decision-chain-extractor.ts | DecisionChainExtractor — #716 起退役生产提取，仅保留历史 decision_chain 查询 |
+| knowledge-extraction-effects | src/modules/knowledge/knowledge-extraction-effects.ts | #716 知识提取 Effect/Receipt — committed transcript 输入、有限重试与启动恢复 |
 | unified-query | src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
 | env-snapper | src/modules/knowledge/env-snapper.ts | EnvSnapper (G-003) — 系统环境自动快照 |
 | eval-case-generator | src/modules/knowledge/eval-case-generator.ts | EvalCaseGenerator — Better-Harness hill-climbing 吸收 |
@@ -79,7 +78,6 @@
 | local-workspace | src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
 | workspace.routes | src/modules/workspaces/workspace.routes.ts | Workspace Routes — 本机 workspace 记录只读/删除 + 本机 CLI 清单 |
 | route-registry | src/route-registry.ts | Route Registry - 模块化路由注册 |
-| seed-skills | src/scripts/seed-skills.ts | Seed 4 built-in Skills into the Skill table (D6). |
 | discord-notifier | src/utils/discord-notifier.ts | Discord 通知工具 |
 | errors | src/utils/errors.ts | errors |
 | logger | src/utils/logger.ts | Logger 工具 |
@@ -92,8 +90,8 @@
 | agent-profile.service | src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
 | default-triggers | src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
 | eval-case-store | src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
-| monitoring.routes | src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
-| monitoring.service | src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
+| monitoring.routes | src/modules/ops/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
+| monitoring.service | src/modules/ops/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
 | manifest-loader | src/modules/skills/manifest-loader.ts | manifest-loader (AS-025 3.28c-5) |
 | skill-selector | src/modules/skills/skill-selector.ts | skill-selector (AS-025 3.28c-5) |
 | skill-store | src/modules/skills/skill-store.ts | SkillStore — File-based CRUD for Skill metadata |
@@ -168,7 +166,7 @@
 | system-health | src/modules/agents/ops/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
 | system-executor | src/modules/agents/system-executor.ts | SystemExecutor - 系统级 LLM 调用执行器（AC-1.6 ~ AC-1.10） |
-| system-role | src/modules/agents/system-role.ts | 系统角色身份断言（#631）——「是不是系统角色」的唯一判定点。 |
+| system-role | src/core/system-role.ts | 系统角色身份断言（#631）——「是不是系统角色」的唯一判定点。 |
 | token-usage.routes | src/modules/agents/token-usage.routes.ts | §10.5 角色级 token 视图路由（只读）。 |
 | token-usage.service | src/modules/agents/token-usage.service.ts | §10.5 角色级 token 滚动视图（只读聚合）。 |
 | incident-notification | src/modules/agents/triage/incident-notification.ts | incident 落通知（#468 行动中心）：incident.created/escalated 处理点同步写 |
@@ -179,14 +177,12 @@
 | routes | src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | src/modules/auth/routes.ts | GET /api/v1/auth/status |
 | service | src/modules/auth/service.ts | 认证服务 - Auth Service |
-| routes | src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | attachments | src/modules/channels/attachments.ts | 频道消息图片附件（2026-09，「频道里加上截图」，docs/plans/2026-09-channel-attachments.md） |
 | channel.service | src/modules/channels/channel.service.ts | F6: 归一化 + 校验 defaultWorkspaceId（channel PATCH 用）。 |
 | convert-to-task.service | src/modules/channels/convert-to-task.service.ts | AC-E2: Convert to Task Service |
 | current-pmo | src/modules/channels/current-pmo.ts | #272（决策 #251 Q1/Q6）：频道「当前 PMO」派生。 |
 | file-ref-vocabulary | src/modules/channels/file-ref-vocabulary.ts | #281（决策 #249 §1 / #257 D7）：@文件引用词表服务。 |
 | message-routing | src/modules/channels/message-routing.ts | Message routing logic for channel messages (AC-B1-B4). |
-| migrate-members | src/modules/channels/migrate-members.ts | §9.5 成员关系统一 — 迁移：把各 profile.channels 合并进对应 channel.members。 |
 | pmo-candidates | src/modules/channels/pmo-candidates.ts | #638：频道 PMO 候选补全派生（`#` 触发自动补全弹框的数据源）。 |
 | routing | src/modules/channels/routing.ts | #466: 频道级「阶段→角色」路由表 —— 单一解析/校验事实源。 |
 | suggestions | src/modules/channels/suggestions.ts | #443（spec #441 情境引导 02）：频道建议推导骨架 —— 只读状态说明（status 形态）端到端。 |
@@ -195,7 +191,7 @@
 | routes | src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | routes | src/modules/discord/routes.ts | Discord Interactions Endpoint |
 | distill-landings | src/modules/distill/distill-landings.ts | distill-landings (#145) — 蒸馏产物分类落地的两个通道实现（运行时装配见 distill-runtime）。 |
-| distill-runs | src/modules/distill/distill-runs.ts | distill-runs (#351) — 蒸馏运行记录持久化（runs.jsonl） |
+| distill-runs | src/modules/distill/distill-runs.ts | distill-runs — runs.jsonl 持久状态机、重试与产物恢复清单（#716） |
 | distill-runtime | src/modules/distill/distill-runtime.ts | distill-runtime (#143) — 蒸馏模块运行时装配（唯一 import knowledge-singletons 的文件） |
 | distill-service | src/modules/distill/distill-service.ts | distill-service (#143) — 蒸馏主链路最小闭环（#83 D1/D2/D5 落地，spec #141） |
 | distill-threshold | src/modules/distill/distill-threshold.ts | distill-threshold (#143) — 蒸馏门槛检测纯函数（#83 D1 / spec #141） |
@@ -229,12 +225,9 @@
 | entries.routes | src/modules/knowledge/entries.routes.ts | entries.routes — 知识条目子路由（KnowledgeStore 条目的导出/问答/缺口/统一浏览） |
 | files.routes | src/modules/knowledge/files.routes.ts | files.routes — 知识库文件浏览子路由（文件系统扫描/读取） |
 | internal.routes | src/modules/knowledge/internal.routes.ts | internal.routes — 知识库内部子路由（无 auth，本地服务间调用） |
-| knowledge-data-layer | src/modules/knowledge/knowledge-data-layer.ts | knowledge-data-layer — KnowledgeService 的数据层（文件系统存取） |
 | knowledge-design-doc | src/modules/knowledge/knowledge-design-doc.ts | knowledge-design-doc — 设计时知识沉淀工具（#343 起自 knowledge-bus.service.ts 迁出） |
 | knowledge-form-gate | src/modules/knowledge/knowledge-form-gate.ts | knowledge-form-gate — 知识形态门禁（knowledge / data / skill / rule 判定）。 |
-| knowledge-forms | src/modules/knowledge/knowledge-forms.ts | knowledge-forms — 知识形态门禁（form validation gate） |
 | knowledge-metrics | src/modules/knowledge/knowledge-metrics.ts | knowledge-metrics — KnowledgeService 的 Measure 能力带（飞轮度量 / 健康 / 审计 / 准确度）。 |
-| knowledge-search-helpers | src/modules/knowledge/knowledge-search-helpers.ts | knowledge-search-helpers — 关键词检索与 RAG 降级 helpers |
 | knowledge-semantic-search | src/modules/knowledge/knowledge-semantic-search.ts | knowledge-semantic-search — mcp-local-rag 语义检索支撑。 |
 | knowledge-store-memo | src/modules/knowledge/knowledge-store-memo.ts | MtimeMemoKnowledgeStore — FileKnowledgeStore 的 mtime 校验聚合 memo 包装（#343）。 |
 | knowledge-types | src/modules/knowledge/knowledge-types.ts | knowledge-types — KnowledgeService 的 Studio 侧类型与类型映射 |
@@ -259,10 +252,10 @@
 | task.tools | src/modules/mcp/task.tools.ts | MCP Tools — 任务管理（FileStore） |
 | tool-store | src/modules/mcp/tool-store.ts | MCP Tools 共享 FileStore 存取助手 |
 | workunit.tools | src/modules/mcp/workunit.tools.ts | MCP Tools — WorkUnit |
-| current-wu-context | src/modules/monitoring/current-wu-context.ts | 当前 WU 聚合上下文（2026-07 PMO-flow UX §6-1；#318 自 monitoring.service 提取为共享出口）： |
-| metrics-aggregate | src/modules/monitoring/metrics-aggregate.ts | D16 聚合核心纯函数（工单 30 自 metrics.service.ts 纯函数区抽出，纯搬运零逻辑变更）： |
-| metrics.service | src/modules/monitoring/metrics.service.ts | D16 监控指标聚合（B5）— 任务流健康 / 入口转化 / 人工干预 / 周期 / 角色 / 工程质量 / Token / 告警。 |
-| metrics.types | src/modules/monitoring/metrics.types.ts | D16 监控指标类型契约（工单 30 自 metrics.service.ts 类型区抽出，纯搬运零逻辑变更）： |
+| current-wu-context | src/modules/ops/current-wu-context.ts | 当前 WU 聚合上下文（2026-07 PMO-flow UX §6-1；#318 自 monitoring.service 提取为共享出口）： |
+| metrics-aggregate | src/modules/ops/metrics-aggregate.ts | D16 聚合核心纯函数（工单 30 自 metrics.service.ts 纯函数区抽出，纯搬运零逻辑变更）： |
+| metrics.service | src/modules/ops/metrics.service.ts | D16 监控指标聚合（B5）— 任务流健康 / 入口转化 / 人工干预 / 周期 / 角色 / 工程质量 / Token / 告警。 |
+| metrics.types | src/modules/ops/metrics.types.ts | D16 监控指标类型契约（工单 30 自 metrics.service.ts 类型区抽出，纯搬运零逻辑变更）： |
 | routes | src/modules/notifications/routes.ts | 通知 API 路由 |
 | clawbot-client | src/modules/notify-channels/clawbot-client.ts | #525 P2-6：ClawBot（iLink 协议）客户端 —— 扫码绑定 + 文本发送 |
 | config-store | src/modules/notify-channels/config-store.ts | #525 P2-6：/settings「通知渠道」配置存储 —— ~/.studio 数据区配置文件读写 |
@@ -331,16 +324,16 @@
 | wu-dependencies | src/modules/workunit/wu-dependencies.ts | #109（T3，#106 子票）WU 接单依赖（blockedBy）解析与可认领判定。 |
 | wu-messenger | src/modules/workunit/wu-messenger.ts | WU 频道系统消息统一出口（wu-messenger）。 |
 | wu-metadata | src/modules/workunit/wu-metadata.ts | WU metadata 访问器（2026-08-06 Card 8）：WorkUnitMetadata 的容错解析 / 会话簿记清理 / |
-| cloudflared | src/utils/cloudflared.ts | cloudflared — 隧道启停判定（#571 冲突 5 冻结结论：外联隧道默认关） |
+| cloudflared | src/bootstrap/cloudflared.ts | cloudflared — 隧道启停判定（#571 冲突 5 冻结结论：外联隧道默认关） |
 | frontend-dist | src/utils/frontend-dist.ts | frontend-dist — 前端产物存在性检查与构建分支（#571 冲突 8 冻结结论） |
-| listen-error | src/utils/listen-error.ts | listen-error — server.listen 错误处理（#573 端口双口径收口） |
-| listen-host | src/utils/listen-host.ts | 监听地址解析（2026-08-25 安全收口） |
+| listen-error | src/bootstrap/listen-error.ts | listen-error — server.listen 错误处理（#573 端口双口径收口） |
+| listen-host | src/cli/listen-host.ts | 监听地址解析（2026-08-25 安全收口） |
 | message-meta | src/utils/message-meta.ts | 消息 meta object×string 双型解析（#264 人审卡片全灭修复定下的口径）。 |
 | notifier | src/utils/notifier.ts | 告警通知出口（P0 观测性修复 4）。 |
-| runtime-paths | src/utils/runtime-paths.ts | runtime-paths — KNOWLEDGE_DIR / TUNNEL_URL_FILE 归数据根（#571） |
-| studio-events-rotation | src/utils/studio-events-rotation.ts | #173（#60 决策 Q3b / spec 批次 C4）：事件保留轮转。 |
+| runtime-paths | src/bootstrap/runtime-paths.ts | runtime-paths — KNOWLEDGE_DIR / TUNNEL_URL_FILE 归数据根（#571） |
+| studio-events-rotation | src/bootstrap/studio-events-rotation.ts | #173（#60 决策 Q3b / spec 批次 C4）：事件保留轮转。 |
 | studio-events-tail | src/utils/studio-events-tail.ts | #180（#60 决策 Q3a）：studio-events.jsonl 尾部倒读 + 游标分页。 |
 | studio-events | src/utils/studio-events.ts | 薄壳转发（#361）：D18 事件唯一写口实现下沉 @dommaker/studio-shared/src/studio-events.ts。 |
 | studio-log-path | src/utils/studio-log-path.ts | 薄壳转发（#361）：实现下沉 @dommaker/studio-shared/src/log-path.ts， |
-| studio-log-rotation | src/utils/studio-log-rotation.ts | #213：泛化 jsonl 保留轮转 + 遗留日志一次性归档清理。 |
-| token-ledger | src/utils/token-ledger.ts | #320 token 账本（token ledger）— workunit:tokens 事件流的写侧累计派生索引。 |
+| studio-log-rotation | src/bootstrap/studio-log-rotation.ts | #213：泛化 jsonl 保留轮转 + 遗留日志一次性归档清理。 |
+| token-ledger | src/modules/workunit/token-ledger.ts | #320 token 账本（token ledger）— workunit:tokens 事件流的写侧累计派生索引。 |

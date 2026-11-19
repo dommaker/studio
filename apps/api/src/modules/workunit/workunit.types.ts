@@ -5,7 +5,87 @@
  * 零服务依赖，供 service 与跨模块类型级消费方直接引用。
  */
 
-import type { WuAttestations } from '@dommaker/studio-shared';
+import { parseAttestations, type WuAttestations } from '@dommaker/studio-shared';
+
+export interface WorkUnitMergeIntent {
+  id: string;
+  state: 'queued' | 'running';
+  requestedAt: string;
+  startedAt?: string;
+  sourceBranch: string;
+  targetBranch: string;
+}
+
+export interface WorkUnitMergeReceipt {
+  id: string;
+  merged: boolean;
+  /** #710：由历史 WU 的真实 Git 对账与目标验证补证，不是正常 merge Effect 的当场回执。 */
+  legacy?: boolean;
+  mergedAt?: string;
+  mergeCommit?: string;
+  targetBranch: string;
+  verification: {
+    status: 'not-run' | 'passed' | 'failed' | 'unavailable';
+    ran: string[];
+    failure?: { command: string; tail: string };
+  };
+  failure?: {
+    kind: 'conflict' | 'uncommitted-changes' | 'merge-error' | 'verification';
+    detail?: string;
+    conflictFiles?: string[];
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function parseMetadataRecord(metadata: unknown): Record<string, unknown> | null {
+  if (typeof metadata === 'string') {
+    try { return asRecord(JSON.parse(metadata)); } catch { return null; }
+  }
+  return asRecord(metadata);
+}
+
+function mergeReceiptParts(metadata: unknown): {
+  meta: Record<string, unknown>;
+  receipt: Record<string, unknown>;
+  verification: Record<string, unknown> | null;
+} | null {
+  const meta = parseMetadataRecord(metadata);
+  const receipt = asRecord(meta?.mergeReceipt);
+  if (!meta || !receipt) return null;
+  return { meta, receipt, verification: asRecord(receipt.verification) };
+}
+
+/** 回执结构完整且目标验证有结论（passed/unavailable）；是否接受另由 isAcceptedMergeReceipt 判定。 */
+export function hasCompleteMergeReceipt(metadata: unknown): boolean {
+  const parts = mergeReceiptParts(metadata);
+  return parts?.receipt.merged === true
+    && typeof parts.receipt.mergeCommit === 'string' && parts.receipt.mergeCommit.length > 0
+    && typeof parts.receipt.targetBranch === 'string' && parts.receipt.targetBranch.length > 0
+    && (parts.verification?.status === 'passed' || parts.verification?.status === 'unavailable');
+}
+
+/** 代码 WU 完成唯一接受口径：完整回执 + passed，或 unavailable + 人工 L3。 */
+export function isAcceptedMergeReceipt(metadata: unknown): boolean {
+  const parts = mergeReceiptParts(metadata);
+  if (!parts || !hasCompleteMergeReceipt(metadata)) return false;
+  return parts.verification?.status === 'passed'
+    || parseAttestations(parts.meta)?.l3?.verdict === 'approved';
+}
+
+/** 恢复与最终交付共用：merge intent 未结束，或已合并但验证/最终 settle 尚未完成。 */
+export function hasUnsettledMergeEffect(metadata: unknown): boolean {
+  const meta = parseMetadataRecord(metadata);
+  const intent = asRecord(meta?.mergeIntent)?.state;
+  if (intent === 'queued' || intent === 'running') return true;
+  const receipt = asRecord(meta?.mergeReceipt);
+  const verification = asRecord(receipt?.verification)?.status;
+  return receipt?.merged === true && (verification === 'not-run' || verification === 'passed');
+}
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
 export interface WorkUnitMetadata {
@@ -83,7 +163,7 @@ export interface WorkUnitMetadata {
     options: { name: string; summary: string; tradeoffs: string; impact: string; recommended: boolean }[];
   };
   // #567：方向锁定开关——派单时显式 directionPick:false 关闭 plan 契约的方向锁定段
-  // （prompt-composer buildContractSection 替换为「本单已关闭方向锁定」提示）
+  // （agent-loop prompt-section-contract buildContractSection 替换为「本单已关闭方向锁定」提示）
   directionPick?: boolean;
   // #471（Triage 定稿 1）：plan 步数续期授权额度——缺省 = PLAN_STEP_LIMIT；到线挂起后人回复
   // 续期 += PLAN_STEP_LIMIT（waiting-input.ts）。非会话簿记（不随 clearSessionBookkeeping 清除），
@@ -103,7 +183,6 @@ export interface WorkUnitMetadata {
   // #110（T4，#106 子票）：decision 单与探路地图 fog 条目的关联戳（T6 开图机制建单时落档；
   // pmo/decision-resolution 订阅器按 metadata.pmoId 找 PMO、按 fogId 定位 map.fog[] 条目）
   fogId?: string;
-  ownershipProjectId?: string; // @deprecated legacy 同位名（原 B3a 审计字段），仅读兼容——wu-pmo-attribution 同级回退读；新写入一律用 pmoId
   // #109（T3，#106 子票）：接单规则机制化——依赖与验收标准
   blockedBy?: string[];       // 阻塞本 WU 的 WU id 列表（可跨 PMO）；任一未了结（非 done/closed）→ unassigned 对所有 loop 不可见（wu-dependencies.ts 判定；agent-loop observe 过滤 + 列表 claimable 标记消费）
   ac?: string[];              // 验收标准（验收闸对照用；机制只存不解释）
@@ -139,18 +218,31 @@ export interface WorkUnitMetadata {
   // @deprecated 2026-08 归因统一：pmoProjectId 已移出解析链、agent-loop 不再落档
   // （原为 pmoBranch 同批的冗余缓存，生产存量为零）；归属项目 id 经 resolvePmoProjectIdForWU 重解析
   pmoProjectId?: string;
-  // B3b-i COMPLETE 前自动验证（决策 D3 前半，约定优先可覆盖）
-  verifyCommands?: string[];  // 覆盖验证命令（优先级高于 package.json scripts 约定；workspace 记录同名字段次之）
+  // B3b-i COMPLETE 前自动验证（SEC-01 起只执行服务端固定模板）
+  /** @deprecated 遗留数据字段；不再作为执行定义，REST 也禁止写入。 */
+  verifyCommands?: string[];
   verifyReport?: {            // 最近一次全绿的验证摘要（COMPLETE 接受前写入）
     commands: string[];
-    source: 'override' | 'convention';
+    source: 'override' | 'convention'; // override 仅兼容历史报告；新报告恒为 convention
     passedAt: string;
   };
   verifyFailCount?: number;   // 自动验证连续失败计数（≥3 → blocked）
   verifyFailHint?: string;    // 验证失败提示（失败命令+输出尾部，注入下一轮 prompt 后清除）
   // B3b-ii 评审通过后自动合并（决策 D1/D3 后半，merge-on-review-pass.ts）
-  mergedAt?: string;          // task 分支合并回 base 分支完成时间 ISO 8601（防重哨兵：存在即跳过合并）
-  mergeCommit?: string;       // 合并后 baseRepo HEAD（merge commit 全哈希）
+  mergeIntent?: WorkUnitMergeIntent;   // 评审接受后的持久合并意图；queued/running 时 WU 保持 in_review
+  mergeReceipt?: WorkUnitMergeReceipt; // 真实 Git 合并与目标验证回执；代码 WU 的完成/交付证据
+  /** #710：历史 done 的补证状态；unverified 永不等于严格交付证据。 */
+  legacyEvidence?: {
+    status: 'legacy-unverified' | 'reconciled';
+    checkedAt: string;
+    reason?: string;
+    repairWorkUnitId?: string;
+  };
+  legacyRepairOf?: string;     // 修复 WU 指向未完成交付的历史 WU；不继承其会话或执行证据
+  legacyRepairReason?: string;
+  mergedAt?: string;          // task 分支合并回 base 分支完成时间；#704 起仅作 Git 事实，不再代表 verify/cleanup 已完成
+  mergeCommit?: string;       // 本任务真实 merge commit 全哈希
+  mergeCleanedAt?: string;    // worktree/task 分支幂等清理完成时间；done 后崩溃恢复哨兵
   mergeConflict?: boolean;    // 自动合并（含 rebase 重试）仍冲突，已转人工（WU 置 blocked）
   conflictFiles?: string[];   // 合并冲突文件清单（diff-filter=U）
   mergeResolution?: {         // 合并冲突 LLM 解审计（merge/rebase 冲突现场交 LLM 解时落档，仿 distill runs 审计思路）
@@ -163,8 +255,8 @@ export interface WorkUnitMetadata {
     summary?: string;         // LLM 输出摘要（截断，成功时落）
     error?: string;           // 失败原因（spawn 失败/超时/仍有残留冲突/重放 merge 失败）
   };
-  knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
-  memoryExtractedAt?: string;    // #99: WU 收尾角色记忆批量提取已触达时间戳（去重——同一 WorkUnit 只提取一次；区别于 R3 的 knowledgeExtractedAt）
+  knowledgeExtractedAt?: string; // legacy 触达哨兵；#716 起不再写入或作为成功/去重依据，成功看 knowledge-extraction Effect/Receipt
+  memoryExtractedAt?: string;    // #99: WU 收尾角色记忆批量提取成功时间戳（区别于 legacy knowledgeExtractedAt）
   matchedSkills?: string[];   // 决策 7: step 时域匹配命中并实际注入的 skill 名（agent-loop 落盘，度量用）
   lastCommitHash?: string;    // §10.5: PROGRESS 无提交监视 — 上次观察到的 worktree HEAD
   noCommitSteps?: number;     // §10.5: 连续无新提交步数（满 3 步频道提醒一次并归零）
@@ -206,11 +298,14 @@ export interface WorkUnitMetadata {
   reviewReport?: {
     approved: boolean;
     reason?: string;
-    issues?: Array<{ severity: string; message: string }>;
+    issues?: Array<{ severity: string; message: string; leg?: string }>;
   };
   // PMO 分析接力（analysis-handoff）：analysis WU COMPLETE 时 agent-loop 解析 TASK: 行落档；
   // 人工确认（reviewPassed → done）后由 analysis-handoff 据此建未指派 task 子 WU 派工
   analysisTasks?: string[];       // TASK: 拆分行解析结果（≤8 条，每条 ≤300 字符）
+  // #700/#701：plan 逐 TASK LEG/AC/依赖（按位置与 analysisTasks 对应，确认与派生均严格校验）
+  analysisTaskDetails?: Array<{ title: string; ac: string[]; blockedBy: string[]; leg?: string }>;
+  analysisTaskIndex?: number;      // plan 子 WU 对应 TASK 位置；同名任务的 AC 关联与对账去重键
   analysisTasksSpawnedAt?: string; // 子 WU 已建时间戳（幂等哨兵：存在即不再重复派生）
   // #183（#159 决议 2）：哨兵清单化——已建子 WU id 清单，5min 对账扫描据此补差集
   // （analysisTasks − 清单）；人工关闭的子 WU 仍在清单中 → 对账不复活（决议 3）。
@@ -250,6 +345,7 @@ export interface WorkUnitMetadata {
   traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
   // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
+  excludeAssignees?: string[]; // #720：整体评审禁止全部实现者认领；结果 Effect 再复核，不允许自评批准
   // 决策 14 认领前适任判断：被判不适任的角色名单（约束挂 WU 不挂角色身份，合规 ADR D2/决策 10）——
   // 写入方：agent-loop claim 前一次性 LLM 判断（agents/loop/claim-fitness.ts）；消费方：
   // observe 第 7 道过滤（含本 role.id 即不可见）+ 全员不适任转 blocked 判定

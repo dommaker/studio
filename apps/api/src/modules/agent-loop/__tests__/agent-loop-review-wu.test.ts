@@ -7,13 +7,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 const { mockExecSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
 }));
 
-vi.mock('child_process', () => ({ exec: vi.fn(),
+vi.mock('child_process', () => ({
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  exec: vi.fn((cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  }),
   execSync: mockExecSync,
 }));
 
@@ -104,7 +110,7 @@ describe('P1: review WU 守卫豁免', () => {
 
   async function record(wuId: string, action: string, summary = '结果') {
     const wu = (await wuService.getById(wuId))!;
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action, summary },
     );

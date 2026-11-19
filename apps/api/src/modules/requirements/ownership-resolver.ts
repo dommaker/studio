@@ -4,7 +4,7 @@
  * 第一性归属链：OKR → PMO 项目（gitRepo 锚点）→ Requirement（挂 PMO 项目）
  * → WU（从 Requirement 继承工程）→ 执行。频道绑定降级为默认提示。
  *
- * 优先级：Requirement.projectId → PMO 项目 gitRepo
+ * 优先级：显式 projectPath（仅消息转任务）> Requirement.projectId → PMO 项目 gitRepo
  * > 文件引用（#285 决策 #249 §4：全部引用同仓时该仓即归属工程）
  * > 频道 defaultPath（#272 决策 #251 Q2'：默认工程=本地 repo）
  * > 无归属（none → 调用方转 NEED_INPUT 问人）。
@@ -21,17 +21,17 @@
  * 以 metadata.workspaceRoot 字符串形式进入 WU，agent-loop 直接作为执行根目录
  * （与 task.parameters.workspaceRoot 消费方式兼容，不经 workspace 记录解析）。
  */
-import { logger, FileStore, stripTrailingSlashes, type ChannelData } from '@dommaker/studio-shared';
-// P2-c 拆环：projectService 转闭包内动态 import（requirements→pmo 静态边清零）
-import type { RequirementWithProject } from './requirement.service.js';
+import { FileStore, stripTrailingSlashes, type ChannelData } from '@dommaker/studio-shared';
+import { projectReadPort } from './project-read-port.js';
+import { RequirementService } from './requirement.service.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 无归属挂起时的提问文案（message-routing 建 WU 时写入 metadata.waitingQuestion） */
 export const OWNERSHIP_WAITING_QUESTION = '这个任务要修改哪个工程？请回复工程名或路径';
 
 /** 归属来源 — 写入 WU metadata.ownershipSource，供日志与审计区分 */
-export type OwnershipSource = 'requirement' | 'file-refs' | 'channel-default-path' | 'none';
+export type OwnershipSource = 'explicit-path' | 'requirement' | 'file-refs' | 'channel-default-path' | 'none';
 
 export interface OwnershipResolution {
   source: OwnershipSource;
@@ -42,6 +42,8 @@ export interface OwnershipResolution {
 }
 
 export interface ResolveWorkspaceInput {
+  /** 调用方显式选择的工程路径（消息转任务 projectPath；优先于继承归属） */
+  explicitWorkspaceRoot?: string | null;
   /** 本次派发绑定的 REQ id（经其 projectId 查 PMO 项目 gitRepo） */
   reqId?: string | null;
   /** 来源频道（defaultPath 默认工程，降级提示） */
@@ -67,13 +69,19 @@ const NONE: OwnershipResolution = { source: 'none', workspaceRoot: null, project
 export async function resolveWorkspaceForWU(input: ResolveWorkspaceInput): Promise<OwnershipResolution> {
   const fileStore = input.fileStore ?? getStore();
 
+  // 0. 消息转任务的显式工程选择保持既有优先级；其余入口不传此字段。
+  if (input.explicitWorkspaceRoot?.trim()) {
+    return { source: 'explicit-path', workspaceRoot: input.explicitWorkspaceRoot.trim(), projectId: null };
+  }
+
   // 1. Requirement → PMO 项目 gitRepo（第一性归属）
   if (input.reqId) {
     try {
-      const requirement = (await fileStore.getRequirement(input.reqId)) as RequirementWithProject | null;
+      // #700：经 canonical REQ 投影读取，统一编号 PMO 的 reqAlias 与 legacy REQ 同链解析。
+      const requirement = await new RequirementService(fileStore).get(input.reqId);
       const projectId = requirement?.projectId ?? null;
       if (projectId) {
-        const getProject = input.getProject ?? (async (id: string) => (await import('../pmo/index.js')).projectService.get(id));
+        const getProject = input.getProject ?? (async (id: string) => (await projectReadPort()).get(id));
         const project = await getProject(projectId);
         if (project?.gitRepo) {
           return { source: 'requirement', workspaceRoot: project.gitRepo, projectId };

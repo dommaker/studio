@@ -1,4 +1,4 @@
-// attachmentUrl — 2026-09 截图粘贴：频道附件 URL 判定 + 渲染时现拼 ?token=
+// attachmentUrl — 频道附件 URL 判定；长期登录凭证不得拼入 URL。
 import { describe, it, expect, afterEach } from 'vitest';
 import { resolveAttachmentSrc, CHANNEL_ATTACHMENT_SRC_RE } from '../attachmentUrl';
 import { useAuthStore } from '../../stores/authStore';
@@ -8,10 +8,10 @@ describe('resolveAttachmentSrc', () => {
     useAuthStore.setState({ token: null });
   });
 
-  it('命中频道附件 URL + 有 token → 拼 ?token=', () => {
+  it('有登录 token 也不把长期凭证拼进附件 URL', () => {
     useAuthStore.setState({ token: 'tok 1' });
     expect(resolveAttachmentSrc('/api/v1/channels/ch1/attachments/abc.png'))
-      .toBe(`/api/v1/channels/ch1/attachments/abc.png?token=${encodeURIComponent('tok 1')}`);
+      .toBe('/api/v1/channels/ch1/attachments/abc.png');
   });
 
   it('命中但无 token → 原样（由后端鉴权语义决定成败）', () => {

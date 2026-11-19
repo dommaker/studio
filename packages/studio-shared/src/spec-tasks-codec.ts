@@ -11,6 +11,12 @@
 /** 物化任务条数上限（照 MAP_OPENING_FOG_MAX 先例防刷屏） */
 export const SPEC_TASKS_MAX = 12;
 
+/** #701 plan 发布 scope 与 agent-loop 产出段共用的 TASK 协议正本。 */
+export const PLAN_TASK_CONTRACT = [
+  'TASK: <任务描述> | LEG: <gitRepo> | AC: <验收标准> | BLOCKEDBY: <wuId,...>',
+  '每条 TASK 必须且只能归属一条 LEG、至少一条 AC；LEG 必须逐字取自交付腿仓库路径。多条 AC 追加「| AC: <下一条>」；无依赖时写 BLOCKEDBY: none，有依赖时填既有 WU id（逗号分隔）。腿归属未知、缺失、重复或有歧义时输出 ACTION: NEED_INPUT 请人澄清，不得默认选择第一仓。',
+].join('\n');
+
 /** 单行物化规格（TASK 行解析结果） */
 export interface SpecTaskSpec {
   title: string;
@@ -32,6 +38,7 @@ export function parseSpecTasks(summary: string): SpecTaskSpec[] {
     const segments = head[1]!.split('|');
     const task: SpecTaskSpec = { title: segments[0]!.trim(), ac: [], blockedBy: [] };
     if (!task.title) continue;
+    let legCount = 0;
     for (const seg of segments.slice(1)) {
       const m = seg.match(/^\s*(AC|BLOCKEDBY|LEG)\s*[:：]\s*(.+?)\s*$/i);
       if (!m) continue;
@@ -42,10 +49,14 @@ export function parseSpecTasks(summary: string): SpecTaskSpec[] {
           task.ac.push(value);
           break;
         case 'BLOCKEDBY':
-          task.blockedBy.push(...value.split(/[,，]/).map(s => s.trim()).filter(Boolean));
+          if (value.trim().toLowerCase() !== 'none') {
+            task.blockedBy.push(...value.split(/[,，]/).map(s => s.trim()).filter(Boolean));
+          }
           break;
         case 'LEG':
-          if (task.leg === undefined) task.leg = value;
+          legCount += 1;
+          // 重复 LEG 必须留下缺失归属供 plan 确认/派生 fail-closed，不能静默取首段。
+          task.leg = legCount === 1 ? value : undefined;
           break;
       }
     }

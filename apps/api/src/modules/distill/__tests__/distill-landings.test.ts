@@ -24,21 +24,21 @@ const {
   mockCreateCardMessage,
   mockSubmitMemory,
   mockSkillCreate,
+  mockSkillList,
   mockSubmitSkill,
+  mockRepostSkill,
 } = vi.hoisted(() => ({
   mockRunJson: vi.fn(),
   mockCreateCardMessage: vi.fn(),
   mockSubmitMemory: vi.fn(),
   mockSkillCreate: vi.fn(),
+  mockSkillList: vi.fn().mockReturnValue([]),
   mockSubmitSkill: vi.fn(),
+  mockRepostSkill: vi.fn(),
 }));
 
 vi.mock('../../agents/system-executor.js', () => ({
   getSystemExecutor: () => ({ runJson: mockRunJson }),
-}));
-
-vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
 }));
 
 // #353：memory 落地经 review-adapter.submitMemoryProposal（正本发卡；其行为级测试在 role-memory/review-adapter.test.ts）。
@@ -52,11 +52,11 @@ vi.mock('../../role-memory/review-adapter.js', async (importOriginal) => {
 // 含 skill_review_request 卡文案/cardData 断言——本文件不再重复断言卡片）。
 vi.mock('../../skills/review-adapter.js', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
-  return { ...actual, submitSkillProposal: mockSubmitSkill };
+  return { ...actual, submitSkillProposal: mockSubmitSkill, repostSkillProposal: mockRepostSkill };
 });
 
 vi.mock('../../skills/skill-store.js', () => ({
-  skillStore: { create: mockSkillCreate },
+  skillStore: { create: mockSkillCreate, list: mockSkillList },
 }));
 
 import {
@@ -66,11 +66,14 @@ import {
 } from '../distill-service.js';
 import { approveProposal } from '../../review-proposal/service.js';
 import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 
 // #351：approve 走 review-proposal 正本生命周期（adapter 由 DistillService 构造注册）
 const approve = (id: string) => approveProposal('distill', id);
 const distillStore = () => getReviewProposalAdapter<DistillProposal>('distill')!.store;
 import { createSkillLanding, createMemoryLanding } from '../distill-landings.js';
+import { registerSkillReviewAdapter } from '../../skills/review-adapter.js';
+import { registerMemoryReviewAdapter } from '../../role-memory/review-adapter.js';
 import { roleMemoryRoot, roleMemoryStore } from '../../role-memory/role-memory.js';
 
 let tmpDir: string;
@@ -135,6 +138,7 @@ beforeEach(async () => {
   fs.writeFileSync(path.join(companiesDir, 'c1.json'), JSON.stringify({ id: 'c1', name: 'Default' }));
   fileStore = new FileStore(tmpDir);
   store = new FileKnowledgeStore({ baseDir: path.join(tmpDir, 'knowledge') });
+  registerSkillReviewAdapter({ fileStore, dataDir: path.join(tmpDir, 'skill-review') });
   const now = new Date().toISOString();
   await fileStore.createChannel({
     id: 'ch-system', name: '#系统', type: 'system',
@@ -143,6 +147,10 @@ beforeEach(async () => {
   });
   service = new DistillService({ store, fileStore, dataDir, eventsFile });
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   mockSubmitMemory.mockImplementation(async (roleId: string, inputs: Array<Record<string, unknown>>) => {
     const out = [];
     for (const input of inputs) out.push(await roleMemoryStore.appendDraft(roleId, input as never));
@@ -150,6 +158,7 @@ beforeEach(async () => {
   });
   mockSkillCreate.mockReturnValue({ id: 'skill-1' });
   mockSubmitSkill.mockResolvedValue({ proposalId: 'sp-1', posted: true });
+  mockRepostSkill.mockResolvedValue({ posted: true });
 });
 
 afterEach(() => {
@@ -255,8 +264,8 @@ describe('分类路由（注入 fake landings）', () => {
     expect(runs[0].productIds).toHaveLength(3);
   });
 
-  it('落地通道抛错 → 回落知识条目，产物不丢、原料照归档', async () => {
-    const skillLanding = vi.fn().mockRejectedValue(new Error('skill store boom'));
+  it('落地通道不可用（返回 null）→ 回落知识条目，产物不丢、原料照归档', async () => {
+    const skillLanding = vi.fn().mockResolvedValue(null);
     service = new DistillService({
       store, fileStore, dataDir, eventsFile,
       landings: { skill: skillLanding },
@@ -273,6 +282,147 @@ describe('分类路由（注入 fake landings）', () => {
     expect(products).toHaveLength(1);
     expect(products[0].title).toBe('s');
     for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('archived');
+  });
+});
+
+describe('产物恢复清单与 durable 后归档', () => {
+  it('落地存储异常 → 保留 pending 清单并 retry-after；重试不重跑模型，durable 后才归档', async () => {
+    const skillLanding = vi.fn()
+      .mockRejectedValueOnce(new Error('skill store temporarily unavailable'))
+      .mockResolvedValueOnce('sp-1');
+    service = new DistillService({
+      store, fileStore, dataDir, eventsFile,
+      landings: { skill: skillLanding }, retryDelayMs: 60_000,
+    });
+    const proposal = await propose();
+    mockRunJson.mockResolvedValue({
+      products: [{ type: 'skill', title: 's', content: 'c', tags: ['t'] }],
+    });
+
+    expect((await approve(proposal.id)).kind).toBe('skipped');
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('active');
+    expect(knowledgeProducts()).toHaveLength(0);
+    const retrying = (await service.listRuns())[0];
+    expect(retrying.outcome).toBe('retry-after');
+    expect(retrying.products).toHaveLength(1);
+    expect(retrying.products?.[0]).toMatchObject({ type: 'skill', title: 's', status: 'pending' });
+
+    expect((await approve(proposal.id)).kind).toBe('executed');
+    expect(mockRunJson).toHaveBeenCalledTimes(1);
+    expect(skillLanding).toHaveBeenCalledTimes(2);
+    const succeeded = (await service.listRuns())[0];
+    expect(succeeded).toMatchObject({ id: retrying.id, outcome: 'succeeded', attempts: 2 });
+    expect(succeeded.products?.[0]).toMatchObject({ id: retrying.products?.[0].id, status: 'durable', landingId: 'sp-1' });
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('archived');
+  });
+
+  it('恢复认养已 durable 的 skill，不重复落地；补齐 knowledge 后才归档并完成提案', async () => {
+    const skillLanding = vi.fn().mockResolvedValue('sp-existing');
+    service = new DistillService({
+      store, fileStore, dataDir, eventsFile,
+      landings: { skill: skillLanding }, retryDelayMs: 60_000,
+    });
+    const proposal = await propose();
+    mockRunJson.mockResolvedValue({
+      products: [
+        { type: 'skill', title: 's', content: 'c', tags: [] },
+        { title: 'k', content: 'c', tags: [] },
+      ],
+    });
+    const save = vi.spyOn(store, 'save');
+    const originalSave = save.getMockImplementation()!;
+    save.mockImplementation(entry => {
+      if (entry.tags.includes('distilled') && entry.title === 'k' && save.mock.calls.filter(([e]) => e.title === 'k').length === 1) {
+        throw new Error('knowledge store temporarily unavailable');
+      }
+      return originalSave(entry);
+    });
+
+    expect((await approve(proposal.id)).kind).toBe('skipped');
+    expect(skillLanding).toHaveBeenCalledTimes(1);
+    expect(knowledgeProducts()).toHaveLength(0);
+    const retrying = (await service.listRuns())[0];
+    expect(retrying.products?.map(p => [p.title, p.status])).toEqual([['s', 'durable'], ['k', 'pending']]);
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('active');
+
+    save.mockRestore();
+    // 模拟进程在 running 期间崩溃：启动恢复应立即认养，而非等待 retry-after 定时器。
+    await fileStore.appendJsonl(path.join(dataDir, 'runs.jsonl'), {
+      ...retrying, outcome: 'running', nextAttemptAt: undefined,
+    });
+    service = new DistillService({
+      store, fileStore, dataDir, eventsFile,
+      landings: { skill: skillLanding }, retryDelayMs: 60_000,
+    });
+    await service.recoverPendingRuns();
+
+    expect(mockRunJson).toHaveBeenCalledTimes(1);
+    expect(skillLanding).toHaveBeenCalledTimes(1);
+    expect(knowledgeProducts()).toHaveLength(1);
+    expect((await service.listRuns())[0].outcome).toBe('succeeded');
+    expect((await distillStore().getProposal(proposal.id))?.status).toBe('executed');
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('archived');
+  });
+
+  it('card-failed 落地结果不算 durable；恢复携带已有 landingId 重发卡而非归档', async () => {
+    const skillLanding = vi.fn()
+      .mockResolvedValueOnce({ id: 'sp-card', durable: false })
+      .mockResolvedValueOnce({ id: 'sp-card', durable: true });
+    service = new DistillService({
+      store, fileStore, dataDir, eventsFile,
+      landings: { skill: skillLanding }, retryDelayMs: 60_000,
+    });
+    const proposal = await propose();
+    mockRunJson.mockResolvedValue({ products: [{ type: 'skill', title: 's', content: 'c', tags: [] }] });
+
+    expect((await approve(proposal.id)).kind).toBe('skipped');
+    expect((await service.listRuns())[0].products?.[0]).toMatchObject({ status: 'pending', landingId: 'sp-card' });
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('active');
+
+    expect((await approve(proposal.id)).kind).toBe('executed');
+    expect(skillLanding.mock.calls[1][1]).toMatchObject({ landingId: 'sp-card', recovery: true });
+    expect(mockRunJson).toHaveBeenCalledTimes(1);
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('archived');
+  });
+});
+
+describe('landing 落账前崩溃的认养', () => {
+  it('recovery 没有 landingId 时按 productId 找到原 Skill/提案，不重复创建；executed 同样 durable', async () => {
+    const adapter = registerSkillReviewAdapter({ fileStore, dataDir: path.join(tmpDir, 'skill-review') });
+    mockSkillList.mockReturnValue([{ id: 'skill-1', metadata: JSON.stringify({ distillProductId: 'product-1' }) }]);
+    await adapter.store.appendProposal({
+      id: 'sp-existing', createdAt: new Date().toISOString(), skillId: 'skill-1',
+      name: 's', description: 'c', proposedBy: 'distill',
+    });
+    mockRepostSkill.mockResolvedValue({ posted: true });
+    const landing = createSkillLanding({ fileStore, companiesDir });
+    const product = { id: 'product-1', type: 'skill' as const, title: 's', content: 'c', tags: [], status: 'pending' as const };
+    const ctx = { materialIds: [], proposalId: 'dp', runId: 'dr', productId: 'product-1', recovery: true };
+
+    await expect(landing(product, ctx)).resolves.toEqual({ id: 'sp-existing', durable: true });
+    expect(mockSkillCreate).not.toHaveBeenCalled();
+    expect(mockSubmitSkill).not.toHaveBeenCalled();
+    expect(mockRepostSkill).toHaveBeenCalledWith('sp-existing');
+
+    await adapter.store.appendStatus('sp-existing', 'executed');
+    await expect(landing(product, ctx)).resolves.toEqual({ id: 'sp-existing', durable: true });
+    expect(mockRepostSkill).toHaveBeenCalledTimes(1);
+  });
+
+  it('memory rejected 不是可恢复发布状态，不能判 durable', async () => {
+    const roleId = 'role-rejected';
+    createdRoleIds.push(roleId);
+    const adapter = registerMemoryReviewAdapter({ fileStore });
+    await roleMemoryStore.appendDraft(roleId, {
+      id: 'memory-1', kind: 'preference', title: 'p', content: 'c', review: 'manual',
+    });
+    await adapter.store.appendStatus('memory-1', 'rejected');
+    const landing = createMemoryLanding({ fileStore });
+
+    await expect(landing(
+      { id: 'memory-1', type: 'preference', title: 'p', content: 'c', tags: [], status: 'pending' },
+      { materialIds: [], proposalId: 'dp', runId: 'dr', productId: 'memory-1', landingId: 'memory-1', recovery: true },
+    )).resolves.toEqual({ id: 'memory-1', durable: false });
   });
 });
 
@@ -334,6 +484,39 @@ describe('memory 通道（真实 roleMemoryStore + mock 发卡）', () => {
     expect(inputs[0]).toMatchObject({ kind: 'preference', title: '回复用电报风', review: 'manual' });
     expect(ctx.source).toBe('distill');
   });
+
+  it('memory 发卡失败不归档；恢复重发原草稿卡，不重复写 draft', async () => {
+    mockSubmitMemory.mockImplementation(async (roleId: string, inputs: Array<Record<string, unknown>>) => {
+      const { registerMemoryReviewAdapter } = await import('../../role-memory/review-adapter.js');
+      const adapter = registerMemoryReviewAdapter({ fileStore });
+      const out = [];
+      for (const input of inputs) {
+        const entry = await roleMemoryStore.appendDraft(roleId, input as never);
+        await adapter.store.appendStatus(entry.id, 'card-failed');
+        out.push(entry);
+      }
+      return out;
+    });
+    service = new DistillService({
+      store, fileStore, dataDir, eventsFile,
+      landings: { memory: createMemoryLanding({ fileStore }) }, retryDelayMs: 60_000,
+    });
+    const proposal = await propose();
+    mockRunJson.mockResolvedValue({
+      products: [{ type: 'preference', title: 'p', content: 'c', tags: [] }],
+    });
+
+    expect((await approve(proposal.id)).kind).toBe('skipped');
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('active');
+    const profiles = await fileStore.listProfiles();
+    createdRoleIds.push(profiles[0].id);
+    expect(await roleMemoryStore.readDraft(profiles[0].id)).toHaveLength(0); // card-failed 是待恢复，不是可审 pending
+
+    expect((await approve(proposal.id)).kind).toBe('executed');
+    expect(mockSubmitMemory).toHaveBeenCalledTimes(1);
+    expect(await roleMemoryStore.readDraft(profiles[0].id)).toHaveLength(1);
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('archived');
+  });
 });
 
 describe('skill 通道（真实 createSkillLanding + mock store）', () => {
@@ -367,6 +550,30 @@ describe('skill 通道（真实 createSkillLanding + mock store）', () => {
     expect(submitInput.description).toBe('Round 分解 → 转换 → 验证');
     expect(submitInput.proposedBy).toBe('distill');
     expect(submitInput.sourceGoalIds.sort()).toEqual(proposal.materialIds.slice().sort());
+  });
+
+  it('skill 发卡失败不归档；恢复复用 proposalId 重发卡，不重复建 draft/提案', async () => {
+    service = new DistillService({
+      store, fileStore, dataDir, eventsFile,
+      landings: { skill: createSkillLanding({ fileStore, companiesDir }) }, retryDelayMs: 60_000,
+    });
+    const proposal = await propose();
+    mockRunJson.mockResolvedValue({ products: [{ type: 'skill', title: 's', content: 'c', tags: [] }] });
+    mockSubmitSkill.mockImplementationOnce(async input => {
+      const adapter = registerSkillReviewAdapter({ fileStore, dataDir: path.join(tmpDir, 'skill-review') });
+      await adapter.store.appendProposal({ ...input, id: 'sp-card', createdAt: new Date().toISOString() });
+      await adapter.store.appendStatus('sp-card', 'card-failed');
+      return { proposalId: 'sp-card', posted: false };
+    });
+
+    expect((await approve(proposal.id)).kind).toBe('skipped');
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('active');
+
+    expect((await approve(proposal.id)).kind).toBe('executed');
+    expect(mockSkillCreate).toHaveBeenCalledTimes(1);
+    expect(mockSubmitSkill).toHaveBeenCalledTimes(1);
+    expect(mockRepostSkill).toHaveBeenCalledWith('sp-card');
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('archived');
   });
 
   it('无可用公司 → 通道返回 null → 回落知识条目', async () => {

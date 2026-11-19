@@ -1,6 +1,6 @@
 /**
- * companies 域契约测试：实体/请求/响应 schema 的接受-拒绝边界 + Company parity。
- * 正本 = companies/routes.ts CompanyRecord + 路由实测 wire 行为。
+ * companies 域契约测试：实体/请求/响应 schema 的接受-拒绝边界。
+ * schema 即正本（原 Company 手写 interface 双写互验 parity 层已退役，类型同源由编译期断言锚定）。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -29,10 +29,8 @@ const companyRow: Company = {
 };
 
 describe('companySchema', () => {
-  // strict:false 仓 z.infer 全字段退化可选 → Company 是手写 interface；parity 兜漂移
-  it('parity：Company interface fixture 全键 = schema.shape 键；必填字段删除即拒', () => {
+  it('必填字段删除即拒', () => {
     expect(companySchema.parse(companyRow)).toEqual(companyRow);
-    expect(Object.keys(companySchema.shape).sort()).toEqual(Object.keys(companyRow).sort());
     for (const key of Object.keys(companyRow)) {
       const { [key]: _drop, ...rest } = companyRow as unknown as Record<string, unknown>;
       expect(companySchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);

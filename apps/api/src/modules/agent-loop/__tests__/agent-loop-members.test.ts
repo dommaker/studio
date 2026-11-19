@@ -1,13 +1,15 @@
 // §9.5: AgentLoop.observe() 频道作用域以 channel.members 为唯一事实源。
-// members 非空 → 仅成员可见（不再看 profile.channels）；
-// members 缺失/为空 → 过渡期回退旧 profile.channels 口径。
+// members 含本 profile → 可见；不含（含空 members）→ 不可见；
+// 频道配置读不到（map miss：加载失败/频道已删）→ 放行不裁决（不致停摆）。
+// #696：profile.channels 过渡口径已随存量验收退役。
 // 真实 FileStore（tmpdir）+ 真实 WorkUnitService；CLI 执行与 knowledge-service mock。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -63,19 +65,19 @@ describe('§9.5: observe() 过滤以 channel.members 为准', () => {
 
   /** 不 start()：注入 instance 后直接调私有 observe（同 assignee 测试模式） */
   function makeLoop(role: typeof baseRole) {
-    const loop = new AgentLoop(role, fileStore);
-    (loop as unknown as { instance: unknown }).instance = {
-      id: 'instance-1',
-      roleId: role.id,
-      sessionId: null,
-      status: 'idle',
-      currentWorkUnitId: null,
-      startedAt: new Date().toISOString(),
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
-    };
-    return loop as unknown as { observe(): Promise<{ unassigned: WorkUnitData[] }> };
+    return new AgentLoop(role, fileStore, {
+      instance: {
+        id: 'instance-1',
+        roleId: role.id,
+        sessionId: null,
+        status: 'idle',
+        currentWorkUnitId: null,
+        startedAt: new Date().toISOString(),
+        terminatedAt: null,
+        lastHeartbeat: null,
+        metadata: null,
+      },
+    });
   }
 
   async function createChannelConfig(id: string, members: string[]) {
@@ -112,21 +114,20 @@ describe('§9.5: observe() 过滤以 channel.members 为准', () => {
     expect(obs.unassigned.map(w => w.id)).not.toContain(wu.id);
   });
 
-  it('members 为空：回退 profile.channels — 频道在列 → 可见（过渡期兼容）', async () => {
+  it('members 为空：本 profile 不可见（#696 严格口径，不再回退 profile.channels）', async () => {
     await createChannelConfig(LEGACY_CHANNEL_ID, []);
     const role = { ...baseRole, channels: JSON.stringify([LEGACY_CHANNEL_ID]) };
     const wu = await createUnassigned(LEGACY_CHANNEL_ID);
 
     const obs = await makeLoop(role).observe();
-    expect(obs.unassigned.map(w => w.id)).toContain(wu.id);
+    expect(obs.unassigned.map(w => w.id)).not.toContain(wu.id);
   });
 
-  it('members 为空：回退 profile.channels — 频道不在列 → 不可见（旧口径保持）', async () => {
-    await createChannelConfig(LEGACY_CHANNEL_ID, []);
-    const role = { ...baseRole, channels: JSON.stringify(['ch-elsewhere']) };
+  it('频道配置读不到（map miss）→ 放行可见（不致停摆）', async () => {
+    // 不建 channel config —— loadChannelMembers map 中无该频道
     const wu = await createUnassigned(LEGACY_CHANNEL_ID);
 
-    const obs = await makeLoop(role).observe();
-    expect(obs.unassigned.map(w => w.id)).not.toContain(wu.id);
+    const obs = await makeLoop(baseRole).observe();
+    expect(obs.unassigned.map(w => w.id)).toContain(wu.id);
   });
 });

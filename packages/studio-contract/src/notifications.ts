@@ -50,6 +50,12 @@ export type ListNotificationsQuery = z.infer<typeof listNotificationsQuerySchema
 export const notificationIdParamsSchema = z.object({ id: z.string().min(1) });
 export type NotificationIdParams = z.infer<typeof notificationIdParamsSchema>;
 
+/** POST /read：频道打开等场景批量已读；归属校验仍在 service，越权 id 静默忽略。 */
+export const markNotificationsReadBodySchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(500),
+});
+export type MarkNotificationsReadBody = z.infer<typeof markNotificationsReadBodySchema>;
+
 // ── 响应（统一 `{ data }` 壳）──
 
 export const notificationListResponseSchema = dataBodySchema(z.array(notificationItemSchema));

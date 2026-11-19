@@ -32,8 +32,8 @@ vi.mock('../../api/requirements', () => ({
 
 // #242：live 状态条的 SSE 事件源（onEvent 注册回调，用例手工驱动）；
 // 决策 9：onReconnect 注册口（重连一次性 refetch，用例手工驱动）
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect }),
 }));
 
 // 左栏/右抽屉/顶栏控件：保留接口，隔离其内部 API 依赖
@@ -114,19 +114,19 @@ const MESSAGES: ChannelMessage[] = [
   {
     id: 'm-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'librarian',
     content: '检索到 3 条相关知识', workUnitId: 'WU-1018', replyToId: null,
-    meta: JSON.stringify({ reqId: 'REQ-0042' }), createdAt: iso(0),
+    meta: { reqId: 'REQ-0042' }, createdAt: iso(0),
   },
   // 线程回复
   {
     id: 'm-2', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'librarian',
     content: '补充：SDD-012 强相关', workUnitId: null, replyToId: 'm-1',
-    meta: '{}', createdAt: iso(1),
+    meta: {}, createdAt: iso(1),
   },
   // 已完成消息 ×3（默认折叠，只留最近 2 条）
   ...[3, 4, 5].map(i => ({
     id: `m-${i}`, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'coder-1',
     content: `完成的工作 ${i}`, workUnitId: `WU-100${i}`, replyToId: null,
-    meta: JSON.stringify({ status: 'done' }), createdAt: iso(i),
+    meta: { status: 'done' }, createdAt: iso(i),
   })),
 ];
 
@@ -135,17 +135,17 @@ const PROCESS_MESSAGES: ChannelMessage[] = [
   {
     id: 'p-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
     content: '需求已收到，开始分析', workUnitId: 'WU-2000', replyToId: null,
-    meta: '{}', createdAt: iso(0),
+    meta: {}, createdAt: iso(0),
   },
   ...[2, 3, 4, 5].map(i => ({
     id: `p-${i}`, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
     content: `过程步骤 ${i}`, workUnitId: 'WU-2000', replyToId: 'p-1',
-    meta: '{}', createdAt: iso(i),
+    meta: {}, createdAt: iso(i),
   })),
   {
     id: 'p-6', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
     content: '分析结论：拆成 3 个任务', workUnitId: 'WU-2000', replyToId: 'p-1',
-    meta: '{}', createdAt: iso(6),
+    meta: {}, createdAt: iso(6),
   },
 ];
 
@@ -263,7 +263,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     mockListReqs.mockResolvedValue({ data: { data: REQS } });
   });
 
-  it('打开频道即读：本频道未读通知标记已读（逐条 POST 同步 + unreadCount 递减），其他频道不动', async () => {
+  it('打开频道即读：本频道未读通知批量标记已读 + unreadCount 递减，其他频道不动', async () => {
     useNotificationStore.setState({
       notifications: [
         { id: 'n-ch1', type: 'auditor_suggestion', channelId: 'ch-1', agentName: 'System', title: '审计建议', content: 'x', time: '10:00', read: false, workUnitId: null, pmoId: null, messageId: null },
@@ -280,9 +280,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     const byId = Object.fromEntries(s.notifications.map(n => [n.id, n.read]));
     expect(byId).toEqual({ 'n-ch1': true, 'n-ch1-b': true, 'n-ch2': false });
     expect(s.unreadCount).toBe(1);
-    expect(mockApiPost).toHaveBeenCalledTimes(2);
-    expect(mockApiPost).toHaveBeenCalledWith('/notifications/n-ch1/read');
-    expect(mockApiPost).toHaveBeenCalledWith('/notifications/n-ch1-b/read');
+    expect(mockApiPost).toHaveBeenCalledTimes(1);
+    expect(mockApiPost).toHaveBeenCalledWith('/notifications/read', { ids: ['n-ch1', 'n-ch1-b'] });
   });
 
   it('?highlight=<mid> 直达消息：滚动定位并高亮（通知中心点击跳转入参）', async () => {
@@ -300,7 +299,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     const oldMsg: ChannelMessage = {
       id: 'm-old', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'Auditor',
       content: '审计建议卡（老消息）', workUnitId: null, replyToId: null,
-      meta: '{}', createdAt: iso(-50),
+      meta: {}, createdAt: iso(-50),
     };
     seedMessages(MESSAGES, { hasMore: true });
     // 翻一页：before=最老消息 m-1 → 返回含目标的历史页并到底
@@ -346,7 +345,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
           data: {
             messages: [{
               id: `m-page-${pageSeq}`, channelId: 'ch-1', authorType: 'agent',
-              content: '历史页', replyToId: null, meta: '{}', createdAt: iso(-100 - pageSeq),
+              content: '历史页', replyToId: null, meta: {}, createdAt: iso(-100 - pageSeq),
             }],
             hasMore: true, total: 1,
           },
@@ -432,7 +431,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
 
   // #264：线上 meta 为 object——已完成折叠与里程碑判定必须同样生效
   it('object meta：已完成消息仍正确折叠（默认留最近 2 条）', async () => {
-    seedMessages(MESSAGES.map(m => ({ ...m, meta: JSON.parse(m.meta as string) as Record<string, unknown> })));
+    seedMessages(MESSAGES);
     renderPage();
     await waitFor(() => expect(screen.getByText('完成的工作 5')).toBeTruthy());
     expect(screen.queryByText('完成的工作 3')).toBeNull();
@@ -445,12 +444,12 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
       {
         id: 'c-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
         content: '需求已收到，开始分析', workUnitId: 'WU-2000', replyToId: null,
-        meta: '{}', createdAt: iso(0),
+        meta: {}, createdAt: iso(0),
       },
       ...[2, 3, 4].map(i => ({
         id: `c-${i}`, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
         content: `过程步骤 ${i}`, workUnitId: 'WU-2000', replyToId: 'c-1',
-        meta: '{}', createdAt: iso(i),
+        meta: {}, createdAt: iso(i),
       })),
       {
         id: 'c-5', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'librarian',
@@ -465,7 +464,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
       {
         id: 'c-6', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
         content: '分析结论：拆成 3 个任务', workUnitId: 'WU-2000', replyToId: 'c-1',
-        meta: '{}', createdAt: iso(6),
+        meta: {}, createdAt: iso(6),
       },
     ]);
     renderPage();
@@ -538,17 +537,17 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
       {
         id: 'm-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
         content: '多作者线程锚点', workUnitId: 'WU-3000', replyToId: null,
-        meta: '{}', createdAt: iso(0),
+        meta: {}, createdAt: iso(0),
       },
       ...(['pm', 'exec', 'reviewer', 'pm'] as const).map((name, i) => ({
         id: `m-r${i}`, channelId: 'ch-1', authorType: 'agent' as const, agentName: name as string,
         content: `过程-${name}-${i}`, workUnitId: 'WU-3000', replyToId: 'm-1',
-        meta: '{}', createdAt: iso(i + 1),
+        meta: {}, createdAt: iso(i + 1),
       })),
       {
         id: 'm-9', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
         content: '末条里程碑结论', workUnitId: 'WU-3000', replyToId: 'm-1',
-        meta: '{}', createdAt: iso(9),
+        meta: {}, createdAt: iso(9),
       },
     ]);
     renderPage();
@@ -573,7 +572,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
       // 新消息到达（播种推进等价 SSE 落地后 messages 变化）
       const newMsg: ChannelMessage = {
         id: 'm-new', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'coder-1',
-        content: '新到的消息', workUnitId: null, replyToId: null, meta: '{}', createdAt: iso(10),
+        content: '新到的消息', workUnitId: null, replyToId: null, meta: {}, createdAt: iso(10),
       };
       await act(async () => { seedMessages([...MESSAGES, newMsg]); });
 
@@ -598,7 +597,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
 
     const mk = (mid: string, min: number): ChannelMessage => ({
       id: mid, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'coder-1',
-      content: mid, workUnitId: null, replyToId: null, meta: '{}', createdAt: iso(min),
+      content: mid, workUnitId: null, replyToId: null, meta: {}, createdAt: iso(min),
     });
     // 离底期间到达 2 条 → 浮钮带未读数
     act(() => { seedMessages([...MESSAGES, mk('m-6', 10), mk('m-7', 11)]); });
@@ -706,7 +705,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     {
       id: 'a-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
       content: '任务已派发，开始执行', workUnitId: 'WU-3000', replyToId: null,
-      meta: '{}', createdAt: iso(0),
+      meta: {}, createdAt: iso(0),
     },
     {
       id: 'q-2', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
@@ -811,7 +810,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
       {
         id: 'a-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
         content: '任务已派发', workUnitId: 'WU-3000', replyToId: null,
-        meta: '{}', createdAt: iso(0),
+        meta: {}, createdAt: iso(0),
       },
       {
         id: 'q-2', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
@@ -822,7 +821,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
       {
         id: 'r-1', channelId: 'ch-1', authorType: 'human' as const,
         content: '用 OAuth', workUnitId: 'WU-3000', replyToId: 'q-2',
-        meta: '{}', createdAt: iso(2),
+        meta: {}, createdAt: iso(2),
       },
       {
         id: 'q-3', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
@@ -857,7 +856,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     // 翻一页后载入 FOLLOWUP 全量并到底
     const anchor: ChannelMessage = {
       id: 'm-anchor', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
-      content: '无关新消息', workUnitId: null, replyToId: null, meta: '{}', createdAt: iso(20),
+      content: '无关新消息', workUnitId: null, replyToId: null, meta: {}, createdAt: iso(20),
     };
     seedMessages([anchor], { hasMore: true });
     installApiGet((before) => before === 'm-anchor'
@@ -882,7 +881,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     // 同上用锚点种子起翻页；翻一页后到底（空页 + hasMore=false），WU-3000 的提问始终不存在
     const anchor: ChannelMessage = {
       id: 'm-anchor', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
-      content: '无关新消息', workUnitId: null, replyToId: null, meta: '{}', createdAt: iso(20),
+      content: '无关新消息', workUnitId: null, replyToId: null, meta: {}, createdAt: iso(20),
     };
     seedMessages([anchor], { hasMore: true });
     installApiGet((before) => before
@@ -920,7 +919,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
       {
         id: 'x-9', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
         content: '补充一句进展', workUnitId: 'WU-3000', replyToId: 'a-1',
-        meta: '{}', createdAt: iso(9),
+        meta: {}, createdAt: iso(9),
       },
     ]);
     renderPage();
@@ -972,7 +971,7 @@ describe('ChannelDetailPage — SSE 负载深化批 2：REQ chips 事件化 / wa
     await act(async () => {
       seedMessages([...MESSAGES, {
         id: 'm-9', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
-        content: '新消息', workUnitId: null, replyToId: null, meta: '{}', createdAt: iso(9),
+        content: '新消息', workUnitId: null, replyToId: null, meta: {}, createdAt: iso(9),
       }]);
     });
     await waitFor(() => expect(screen.getByText('新消息')).toBeTruthy());

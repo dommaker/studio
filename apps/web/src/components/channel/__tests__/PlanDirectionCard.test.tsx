@@ -14,7 +14,7 @@ const baseMessage: ChannelMessage = {
   agentName: 'Planner',
   content: '需要输入: 方向锁定——请选定本票方向',
   replyToId: null,
-  meta: JSON.stringify({ cardType: 'plan_direction' }),
+  meta: { cardType: 'plan_direction' },
   createdAt: new Date().toISOString(),
 };
 

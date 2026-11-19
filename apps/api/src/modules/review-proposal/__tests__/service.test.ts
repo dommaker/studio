@@ -15,17 +15,15 @@ import { FileStore } from '@dommaker/studio-shared';
 
 const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
 
-vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
-}));
-
+// Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
 import {
   registerReviewProposalAdapter,
   getReviewProposalAdapter,
   clearReviewProposalAdapters,
   type ReviewProposalAdapterConfig,
 } from '../registry.js';
-import { submitProposal, approveProposal, rejectProposal, getProposalStatus } from '../service.js';
+import { submitProposal, repostProposal, approveProposal, rejectProposal, getProposalStatus } from '../service.js';
+import { registerChannelCardPoster } from '../card.js';
 
 interface TestProposal {
   id: string;
@@ -51,6 +49,9 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-proposal-service-'));
   fileStore = new FileStore(tmpDir);
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   onApprove = vi.fn(async () => ({ status: 'executed' as const, data: { productIds: ['x'] } }));
   onReject = vi.fn(async () => {});
   const config: ReviewProposalAdapterConfig<TestProposal> = {
@@ -96,6 +97,28 @@ describe('submitProposal（建提案 → 发卡）', () => {
     const result = await submitProposal(adapter(), makeProposal('p-1'));
     expect(result.posted).toBe(false);
     expect((await adapter().store.getProposal('p-1'))!.status).toBe('card-failed');
+  });
+});
+
+describe('repostProposal（card-failed 恢复重发卡）', () => {
+  it('复用原提案重发卡，成功落 pending；已 pending 认养不重复发卡', async () => {
+    await submitProposal(adapter(), makeProposal('p-repost'));
+    expect((await adapter().store.getProposal('p-repost'))!.status).toBe('card-failed');
+
+    await seedSystemChannel();
+    await expect(repostProposal(adapter(), 'p-repost')).resolves.toEqual({ posted: true });
+    expect((await adapter().store.getProposal('p-repost'))!.status).toBe('pending');
+    expect(await adapter().store.listProposals()).toHaveLength(1);
+    expect(mockCreateCardMessage).toHaveBeenCalledTimes(1);
+
+    await expect(repostProposal(adapter(), 'p-repost')).resolves.toEqual({ posted: true });
+    expect(mockCreateCardMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('重发仍失败 → posted=false 且保留 card-failed', async () => {
+    await submitProposal(adapter(), makeProposal('p-repost-failed'));
+    await expect(repostProposal(adapter(), 'p-repost-failed')).resolves.toEqual({ posted: false });
+    expect((await adapter().store.getProposal('p-repost-failed'))!.status).toBe('card-failed');
   });
 });
 

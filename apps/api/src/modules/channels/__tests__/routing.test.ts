@@ -5,7 +5,7 @@
  *  - 未配置的阶段 → profileId=null（回池涌现，向后兼容）
  *  - 配置了且角色 active 且为频道成员 → profileId=该角色（指名即硬约束）
  *  - 配置了但角色被移出频道/inactive/不存在 → profileId=null + fallback 原因（回池涌现 + 频道出声）
- *  - 成员判定：channel.members 唯一事实源；members 空（历史频道）回退 profile.channels（agent-loop 同口径）
+ *  - 成员判定：channel.members 唯一事实源（空 = 无成员；#696 起 profile.channels 过渡口径已退役）
  *  - validateRouting：PATCH 入口校验——值须为 active profile id（'' / null = 清除该档），不强制成员
  *    （成员边界在路由时判定）
  */
@@ -97,17 +97,10 @@ describe('#466 resolveStageRouting', () => {
     expect(r.fallback).toBe('not-found');
   });
 
-  it('members 空（历史频道）→ 回退 profile.channels 判定成员', async () => {
+  it('members 空 → not-member（#696 严格口径：即使 profile.channels 含本频道也不再回退）', async () => {
     await seedProfile('p-legacy', 'legacy-agent', 'active', ['ch-legacy']);
     await seedChannel('ch-legacy', { members: [], routing: { plan: 'p-legacy' } });
     const r = await resolveStageRouting(fileStore, 'ch-legacy', 'plan');
-    expect(r.profileId).toBe('p-legacy');
-  });
-
-  it('members 空且 profile.channels 也不含本频道 → not-member', async () => {
-    await seedProfile('p-nomatch', 'nomatch');
-    await seedChannel('ch-nomatch', { members: [], routing: { plan: 'p-nomatch' } });
-    const r = await resolveStageRouting(fileStore, 'ch-nomatch', 'plan');
     expect(r.profileId).toBeNull();
     expect(r.fallback).toBe('not-member');
   });

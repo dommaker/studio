@@ -12,15 +12,33 @@
  * （不含 studio —— studio 的 provider 由 StudioRoleSetupModal 引导用户显式选择，
  * 系统身份模型档位是用户决策，不自动打戳）。幂等：provider 非空不动。
  */
-import { logger, type FileStore } from '@dommaker/studio-shared';
-import { scanAllProviders, type DetectedRuntime } from '../../daemon/cli-scanner.js';
-import { isSystemRole } from './system-role.js';
+import { type FileStore } from '@dommaker/studio-shared';
+import { scanAllProviders, scanAllProvidersAsync, type DetectedRuntime } from '../../daemon/cli-scanner.js';
+import { isSystemRole } from '../../core/system-role.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 选默认 provider：扫描结果第一个（注册表顺序）。扫不到返回 null。 */
 export function resolveDefaultProvider(
   scan: () => DetectedRuntime[] = scanAllProviders,
 ): string | null {
   const detected = scan();
+  return pickFirst(detected);
+}
+
+/**
+ * resolveDefaultProvider 的异步形态（2026-10-03 根因修复）：缺省 scanAllProvidersAsync。
+ * agent-profile.service 角色创建是请求路径——sync 全扫（execFileSync，真机冷缓存
+ * 实测 43–55s，#577）会冻结事件循环，SSE/在飞请求全部排队；daemon 进程内请求路径
+ * 一律走本变体，sync 版仅余 CLI 一次性路径（cli/server.ts checkPrerequisites、run-web）。
+ */
+export async function resolveDefaultProviderAsync(
+  scan: () => DetectedRuntime[] | Promise<DetectedRuntime[]> = scanAllProvidersAsync,
+): Promise<string | null> {
+  const detected = await scan();
+  return pickFirst(detected);
+}
+
+function pickFirst(detected: DetectedRuntime[]): string | null {
   const first = detected[0]?.provider ?? null;
   if (!first) {
     logger.warn('[DefaultProvider] 未检测到任何 agent CLI（claude/kimi/codex/opencode），新建角色将无可用执行体');
@@ -30,13 +48,17 @@ export function resolveDefaultProvider(
 
 /**
  * 回填存量角色的空 provider。返回打戳数量。
- * 幂等；scan 可注入（测试）；扫不到 CLI 时不动任何角色（warning 已由 resolveDefaultProvider 发出）。
+ * 幂等；scan 可注入（测试，同步/异步函数均可）；扫不到 CLI 时不动任何角色。
+ * 2026-10-03 冷启动修复：缺省扫描换 scanAllProvidersAsync——本函数在 bootstrap
+ * 启动链上，sync 全扫（execFileSync ≈9s）曾阻塞事件循环拖住 listen；
+ * 同日根因修复：agent-profile.service 角色创建路径也换 resolveDefaultProviderAsync，
+ * sync 版仅余 CLI 一次性路径。
  */
 export async function backfillProfileProviders(
   fileStore: FileStore,
-  scan: () => DetectedRuntime[] = scanAllProviders,
+  scan: () => DetectedRuntime[] | Promise<DetectedRuntime[]> = scanAllProvidersAsync,
 ): Promise<number> {
-  const provider = resolveDefaultProvider(scan);
+  const provider = pickFirst(await scan());
   if (!provider) return 0;
   const all = await fileStore.listProfiles();
   let stamped = 0;

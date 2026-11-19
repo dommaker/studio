@@ -1,16 +1,20 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { promisify } from 'node:util';
 import { resetCapabilityProbeCache, resetModelProbeCache } from '@dommaker/studio-shared/node';
-import { detectProvider, scanAllProviders, hasDocker, KNOWN_PROVIDERS } from '../cli-scanner';
+import { detectProvider, detectProviderAsync, scanAllProviders, scanAllProvidersAsync, hasDocker, KNOWN_PROVIDERS } from '../cli-scanner';
 
-// Mock child_process（detectProvider 走 execFileSync，hasDocker 走 execSync）
+// Mock child_process（detectProvider 走 execFileSync，hasDocker 走 execSync，
+// detectProviderAsync 走 execFile 的 promisify.custom——模块 import 期即取值，必须挂在 mock 上）
 vi.mock('child_process', () => ({
   execSync: vi.fn(),
   execFileSync: vi.fn(),
+  execFile: Object.assign(vi.fn(), { [promisify.custom]: vi.fn() }),
 }));
 
-import { execSync, execFileSync } from 'child_process';
+import { execSync, execFileSync, execFile } from 'child_process';
 const mockExecSync = vi.mocked(execSync);
 const mockExecFileSync = vi.mocked(execFileSync);
+const mockExecFileAsync = vi.mocked((execFile as any)[promisify.custom] as (...args: any[]) => Promise<{ stdout: string; stderr: string }>);
 
 describe('cli-scanner', () => {
   beforeEach(() => {
@@ -172,6 +176,78 @@ describe('cli-scanner', () => {
         throw new Error('not found');
       });
       expect(hasDocker()).toBe(false);
+    });
+  });
+
+  describe('异步扫描链（2026-10-03 冷启动修复）', () => {
+    test('detectProviderAsync：与 sync 同形状（path/version/auth/models fallback）', async () => {
+      mockExecFileAsync.mockImplementation(async (cmd: string, args?: readonly string[]) => {
+        if (cmd === 'which' && args?.[0] === 'claude') return { stdout: '/usr/local/bin/claude\n', stderr: '' };
+        // 探测调用走解析后的完整路径（/usr/local/bin/claude），按结尾匹配
+        if (cmd.endsWith('claude') && args?.includes('--version')) return { stdout: 'claude 1.2.3\n', stderr: '' };
+        if (cmd.endsWith('claude')) return { stdout: '{\n  "loggedIn": true\n}\n', stderr: '' };
+        throw new Error(`unexpected: ${cmd} ${args?.join(' ')}`);
+      });
+
+      const result = await detectProviderAsync('claude');
+      expect(result).toEqual({
+        provider: 'claude',
+        path: '/usr/local/bin/claude',
+        version: 'claude 1.2.3',
+        auth: 'ok',
+        authCheckedAt: expect.any(String),
+        models: ['opus', 'sonnet'],
+        modelsSource: 'fallback',
+      });
+      // 全程未碰 sync 原语
+      expect(mockExecFileSync).not.toHaveBeenCalled();
+    });
+
+    test('detectProviderAsync：which 失败（CLI 不存在）→ null', async () => {
+      mockExecFileAsync.mockImplementation(async () => {
+        throw Object.assign(new Error('not found'), { code: 'ENOENT' });
+      });
+
+      expect(await detectProviderAsync('claude')).toBeNull();
+    });
+
+    test('detectProviderAsync：auth 非零退出（数字 code）→ failed；spawn 失败 → unknown', async () => {
+      mockExecFileAsync.mockImplementation(async (cmd: string, args?: readonly string[]) => {
+        if (cmd === 'which') return { stdout: '/usr/local/bin/claude\n', stderr: '' };
+        if (args?.includes('--version')) return { stdout: '1.0.0\n', stderr: '' };
+        throw Object.assign(new Error('exit 3'), { code: 3 });
+      });
+      const failed = await detectProviderAsync('claude');
+      expect(failed?.auth).toBe('failed');
+
+      vi.clearAllMocks();
+      mockExecFileAsync.mockImplementation(async (cmd: string, args?: readonly string[]) => {
+        if (cmd === 'which') return { stdout: '/usr/local/bin/claude\n', stderr: '' };
+        if (args?.includes('--version')) return { stdout: '1.0.0\n', stderr: '' };
+        throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
+      });
+      const unknown = await detectProviderAsync('claude');
+      expect(unknown?.auth).toBe('unknown');
+    });
+
+    test('scanAllProvidersAsync：保 KNOWN_PROVIDERS 顺序，每个 provider 一次 which', async () => {
+      mockExecFileAsync.mockImplementation(async (cmd: string, args?: readonly string[]) => {
+        if (cmd === 'which' && args?.[0] === 'kimi') return { stdout: '/usr/local/bin/kimi\n', stderr: '' };
+        if (cmd === 'kimi' && args?.includes('--version')) return { stdout: 'kimi 1.0.0\n', stderr: '' };
+        throw Object.assign(new Error('not found'), { code: 'ENOENT' });
+      });
+
+      const results = await scanAllProvidersAsync();
+      expect(results.map(r => r.provider)).toEqual(['kimi']);
+      const whichCalls = mockExecFileAsync.mock.calls.filter(c => c[0] === 'which');
+      expect(whichCalls.length).toBe(KNOWN_PROVIDERS.length);
+    });
+
+    test('scanAllProvidersAsync：全部不存在 → 空数组', async () => {
+      mockExecFileAsync.mockImplementation(async () => {
+        throw Object.assign(new Error('not found'), { code: 'ENOENT' });
+      });
+      expect(await scanAllProvidersAsync()).toEqual([]);
     });
   });
 

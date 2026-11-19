@@ -45,6 +45,29 @@ describe('EvidenceLedger drawer 变体', () => {
     expect(screen.getByText('存量任务，证据模型未介入（按存储状态展示）')).toBeTruthy();
     expect(screen.queryByText('自动验证')).toBeNull();
   });
+
+  it.each(['passed', 'failed', 'unavailable'] as const)('可选 metadata 展示 merge commit、目标分支与目标验证 %s', status => {
+    render(
+      <EvidenceLedger
+        attestations={baseAttestations}
+        metadata={JSON.stringify({
+          mergeReceipt: {
+            id: 'merge-1', merged: true, mergeCommit: 'abc123def', targetBranch: 'main',
+            verification: { status, ran: [] },
+          },
+        })}
+        variant="drawer"
+      />,
+    );
+
+    expect(screen.getByText('Merge commit')).toBeTruthy();
+    expect(screen.getByText('abc123def')).toBeTruthy();
+    expect(screen.getByText('目标分支')).toBeTruthy();
+    expect(screen.getByText('main')).toBeTruthy();
+    expect(screen.getByText('目标验证')).toBeTruthy();
+    expect(screen.getByText(status)).toBeTruthy();
+    expect(screen.getByText(/verify · profile-/)).toBeTruthy();
+  });
 });
 
 describe('EvidenceLedger card 变体', () => {

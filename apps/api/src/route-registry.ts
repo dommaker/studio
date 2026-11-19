@@ -7,7 +7,7 @@
 import { Router as ExpressRouter, type Router } from 'express';
 import { requireAuth, requireNotGuest, requireAdmin, requireLocalhost } from './middleware/auth.js';
 import { mcpRateLimit } from './middleware/rate-limit.js';
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface RouteEntry {
   path: string;
@@ -65,6 +65,42 @@ const LOCALHOST = [requireLocalhost()];
 export type AuthPosture = 'open' | 'auth' | 'authNotGuest' | 'admin' | 'localhost';
 
 /**
+ * 协议面例外清单（#664 固化）：全仓 raw Express 路由（非 defineRoute）的完整集合。
+ *
+ * 口径：例外清单之外出现新 raw 路由 = 违规；例外被收编 defineRoute 后须同步从本表删除。
+ * 机械守卫 = openapi/__tests__/openapi.probe.ts 断言「skipped 集合 ≡ 本表」（双向精确相等），
+ * 与 OpenAPI `x-studio-undocumented` 同一数据源（discover 的 skipped 即本表路由）。
+ *
+ * 例外成立的唯一理由是「协议/运维面，defineRoute 的 JSON envelope 模型不适用」，
+ * 业务面一律收编（knowledge/harness 已于 2026-10 批次 4/7 收编，不在此表）。
+ */
+export interface ProtocolSurfaceException {
+  /** 大写方法（GET/POST），与 discover skipped.method 大小写无关比较 */
+  method: string;
+  /** 完整路径（含挂载前缀），与 discover skipped.path 对齐 */
+  path: string;
+  /** 例外原因（为什么 defineRoute 模型不适用） */
+  reason: string;
+}
+
+export const PROTOCOL_SURFACE_EXCEPTIONS: readonly ProtocolSurfaceException[] = [
+  // 事件流（HZ-028）：text/event-stream 长连接 + 手写 SSE 帧（id/data/heartbeat），非请求-响应壳
+  { method: 'GET', path: '/api/v1/events/stream', reason: 'SSE 长连接流：defineRoute 的「返回数据包 envelope」模型不适用（res.writeHead + 持续写帧）' },
+  { method: 'GET', path: '/api/v1/events/clients', reason: 'SSE 连接管理伴生调试端点，随 SSE 路由同进出' },
+  // MCP 消息面（§12.9）：JSON-RPC over HTTP + SSE transport，自有协议壳
+  { method: 'POST', path: '/api/v1/mcp', reason: 'MCP 协议端点：JSON-RPC 消息壳（jsonrpc/id/result|error），非 { data } envelope' },
+  { method: 'GET', path: '/api/v1/mcp/sse', reason: 'MCP SSE transport：长连接协议通道' },
+  { method: 'POST', path: '/api/v1/mcp/messages', reason: 'MCP SSE transport 消息回传：协议会话帧，非独立 REST 端点' },
+  { method: 'GET', path: '/api/v1/mcp/external/sse', reason: '外部 MCP SSE transport：长连接协议通道' },
+  { method: 'POST', path: '/api/v1/mcp/external/messages', reason: '外部 MCP SSE transport 消息回传：协议会话帧' },
+  // 第三方回调：验签需 raw body / 响应形状由对方平台规定，非自有 envelope
+  { method: 'POST', path: '/api/v1/discord/interactions', reason: 'Ed25519 验签需 express.raw 原始 body（app.ts 挂载）；响应形状由 Discord Interactions 协议规定' },
+  { method: 'POST', path: '/api/v1/deploy/webhook', reason: 'HMAC-SHA256 验签（X-Hub-Signature-256）需 raw body；GitHub webhook 协议面' },
+  // 运维探针：响应形状对外固定（监控消费），且带 5s timeout race 分支
+  { method: 'GET', path: '/api/v1/health', reason: '健康探针：{ status, ... } 平铺壳对外固定（Uptime 消费方），503 降级分支不走统一错误壳' },
+];
+
+/**
  * 判别 entry 的鉴权姿态（OpenAPI 派生用）：entry.middleware 与模块级姿态数组同一引用即该档；
  * 无 middleware = open（含混合粒度留路由内的例外面，语义见各 entry 注释）。
  */
@@ -84,8 +120,6 @@ export function describeEntryAuth(entry: Pick<RouteEntry, 'middleware'>): AuthPo
  */
 export async function buildRouteTable(): Promise<RouteEntry[]> {
   const [
-    agentRouters,
-    executionRoutes,
     auditLogRoutes,
     { notificationRoutes },
     { knowledgeRoutes, knowledgeInternalRoutes },
@@ -94,46 +128,33 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     notifyRoutes,
     authRoutes,
     discordRoutes,
-    larkRoutes,
-    dingtalkRoutes,
     { deployWebhookRoutes },
   ] = await Promise.all([
-    import('./modules/agents/routes.js'),
-    import('./modules/executions/routes.js').then(m => m.default),
     import('./modules/audit-logs/routes.js').then(m => m.default),
     import('./modules/notifications/routes.js') as Promise<{ notificationRoutes: Router }>,
-    import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
+    import('./modules/knowledge/routes/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
     import('./modules/pmo/routes.js'),
     import('./modules/specs/routes.js'),
-    import('./modules/outbound-notify/routes.js').then(m => m.default),
+    import('./modules/notifications/outbound-notify.routes.js').then(m => m.default),
     import('./modules/auth/routes.js').then(m => m.default),
     import('./modules/discord/routes.js').then(m => m.default),
-    import('./modules/lark/routes.js').then(m => m.default),
-    import('./modules/dingtalk/routes.js').then(m => m.default),
     import('./modules/deploy/webhook.routes.js') as Promise<{ deployWebhookRoutes: Router }>,
   ]);
 
   // SkillHub routes (FL-025)——P2-e 拆 open/write 双 router（鉴权挂 registry entry）
+  // P4.3：skill-demotion-routes / skill-proposal-routes 整文件随孤儿端点删除，
+  // 原「先于 SkillHub 挂载防 /:id 遮蔽」的顺序约束随之退役（/:id 本身已删）
   const { skillsOpenRoutes, skillsWriteRoutes } = await import('./modules/skills/routes.js');
-
-  // §10.6 skill 降级提案（须先于 /api/v1/skills 注册，否则被 skillsOpenRoutes 的 GET /:id 吃掉）
-  const { skillDemotionOpenRoutes, skillDemotionWriteRoutes } = await import('./modules/skills/skill-demotion-routes.js');
-
-  // Skill proposal routes
-  const { skillProposalOpenRoutes, skillProposalWriteRoutes } = await import('./modules/skills/skill-proposal-routes.js');
 
   // Company routes (FileStore 存储；PMO 页 / Settings 依赖)
   const { default: companyRoutes } = await import('./modules/companies/routes.js') as { default: Router };
 
   // KnowledgeService HTTP API + SSE
-  const { knowledgeServiceRoutes, initKnowledgeEventBridge } = await import('./modules/knowledge/knowledge-service.routes.js') as { knowledgeServiceRoutes: Router; initKnowledgeEventBridge: () => void };
+  const { knowledgeServiceRoutes, initKnowledgeEventBridge } = await import('./modules/knowledge/routes/knowledge-service.routes.js') as { knowledgeServiceRoutes: Router; initKnowledgeEventBridge: () => void };
   initKnowledgeEventBridge();
 
   // MCP routes (§12.9: 系统能力 MCP 化)
   const { default: mcpRoutes } = await import('./modules/mcp/routes.js') as { default: Router };
-
-  // Docs freshness routes (T-020)
-  const { default: docsFreshnessRoutes } = await import('./modules/admin/docs-freshness.routes.js') as { default: Router };
 
   // Event Stream SSE routes (HZ-028)
   const { default: sseRoutes } = await import('./modules/events/sse.routes.js') as { default: Router };
@@ -141,14 +162,14 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // StudioEvent CRUD routes (G30)
   const { eventOpenRoutes, eventWriteRoutes } = await import('./modules/events/event.routes.js');
 
+  // Runtime 事件回调（自 executions 模块迁入，POST /api/v1/executions/events URL 不变）
+  const { default: runtimeEventRoutes } = await import('./modules/events/runtime-events.routes.js') as { default: Router };
+
   // Action Center routes (#468 统一行动中心)
   const { actionCenterRoutes } = await import('./modules/action-center/routes.js') as { actionCenterRoutes: Router };
 
   // WU transcript 只读查看 (#174, #60 C5)
   const { default: transcriptRoutes } = await import('./modules/transcripts/transcript.routes.js') as { default: Router };
-
-  // Iron Laws routes (ex-runtime-proxy, 2026-05-14)
-  const { default: ironLawsRoutes } = await import('./modules/harness/iron-laws.routes.js') as { default: Router };
 
   // Harness monitoring routes (T-015)
   const { default: harnessRoutes } = await import('./modules/harness/routes.js') as { default: Router };
@@ -156,11 +177,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // CSO 验证子路由（2026-07 收紧：/api/v1/cso 只挂 validate，不再整挂 harness router——否则 /harness 的 Admin 收紧可被 /cso/* 双挂载绕过）
   const { csoRoutes } = await import('./modules/harness/cso.routes.js') as { csoRoutes: Router };
 
-  // Built-in Toolset routes (HZ-026)
-  const { default: builtinToolRoutes } = await import('./modules/builtin-tools/routes.js') as { default: Router };
-
-  // Channel routes (B1-001)——P2-e 拆 attachment/read/write 三 router（鉴权挂 registry entry；
-  // attachment 单条保 ?token= 前置 tokenQueryToHeader，鉴权留路由内）
+  // Channel routes (B1-001)——P2-e 拆 attachment/read/write 三 router；
+  // 附件流式票据在 app/Lurk Wall 前消费，路由内只做 Session 认证。
   const { channelReadRoutes, channelWriteRoutes, channelAttachmentRoutes } = await import('./modules/channels/channel.routes.js');
 
   // Review proposal routes (#351: 人审提案卡通用端点，kind 走注册表分发；取代 #143/#144/#146 专有端点)
@@ -181,7 +199,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     try {
       const status = await Promise.race([
         (async () => {
-          const { createOpsService } = await import('./modules/agent-ops/index.js');
+          const { createOpsService } = await import('./modules/ops/index.js');
           return await createOpsService().getStatus();
         })(),
         new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
@@ -203,26 +221,21 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // AgentProfile routes (AS-025 Phase 2)
   const { agentProfileOpenRoutes, agentProfileWriteRoutes } = await import('./modules/agents/agent-profile.routes.js');
 
-  // §10.5 角色级 token 视图（只读聚合，挂在 /api/v1/agents 下，须先于 legacy agentRoutes 注册）
-  const { default: tokenUsageRoutes } = await import('./modules/agents/token-usage.routes.js') as { default: Router };
-
-  // RuntimeInstance routes (AS-026 AC-1)
-  const { agentInstanceOpenRoutes, agentInstanceWriteRoutes, agentInstanceAdminRoutes } = await import('./modules/agents/agent-instance.routes.js');
+  // RuntimeInstance terminate（AS-026 AC-1；Phase 4 批5：管理面 4 条孤儿端点已删，
+  // agent-instance.service 由 ops/agent-loop 直调，不经 HTTP）
+  const { agentInstanceAdminRoutes } = await import('./modules/agents/agent-instance.routes.js');
 
   // Trigger routes (3.28c-4: REST API for trigger management)
   const { triggerRouter } = await import('./modules/triggers/trigger.routes.js') as { triggerRouter: Router };
 
-  // Evolution routes (E1 约束进化, vision §6)
-  const { default: evolutionRoutes } = await import('./modules/evolution/evolution.routes.js') as { default: Router };
-
-  // Monitoring routes (MVP-2 + MVP-6)
-  const { default: monitoringRoutes } = await import('./modules/monitoring/monitoring.routes.js') as { default: Router };
+  // Monitoring routes (MVP-2 + MVP-6)（#683 起归 ops 模块）
+  const { default: monitoringRoutes } = await import('./modules/ops/monitoring.routes.js') as { default: Router };
 
   // Project Discovery routes (AC-D1+D3: local project scanning)
   const { default: projectRoutes } = await import('./modules/projects/project.routes.js') as { default: Router };
 
   // #525 P2-6: 通知渠道配置（/settings「通知渠道」配置区，消费方 = notifyAlert 告警外推）
-  const { default: notifyChannelRoutes } = await import('./modules/notify-channels/routes.js') as { default: Router };
+  const { default: notifyChannelRoutes } = await import('./modules/notifications/channels/routes.js') as { default: Router };
 
   const auth = AUTH;
   const authNotGuest = AUTH_NOT_GUEST;
@@ -235,20 +248,11 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/auth', router: authRoutes, comment: 'SEC-001: 认证系统（混合粒度，不上移）' },
 
     // 核心业务
-    // 顺序约束①：tokenUsageRoutes 必须先于 legacy agent open 路由挂载（见文件尾部 assertRouteOrder）。
-    // 原因：两者同挂 /api/v1/agents，token-usage 只处理 GET /:id/token-usage 并放行其余路径；
-    // 显式定序保证该聚合端点恒由 tokenUsageRoutes 接管，不被 legacy 路由的任何通配变更吞掉。
-    { path: '/api/v1/agents', router: tokenUsageRoutes, comment: '§10.5: 角色级 token 视图（仅 /:id/token-usage，先于 legacy 注册）' },
-    // P2-e：legacy agents 拆 open/write/admin 三档（原路由内挂载上移；DELETE 原 requireRole('Admin') 单挂，
-    // 现 = requireAuth+requireAdmin，全部模式下状态码与错误体逐点等价）
-    { path: '/api/v1/agents', router: agentRouters.agentOpenRoutes },
-    { path: '/api/v1/agents', router: agentRouters.agentWriteRoutes, middleware: authNotGuest },
-    { path: '/api/v1/agents', router: agentRouters.agentAdminRoutes, middleware: admin },
-    // LEGACY 面：GET 开放 + POST /events 路由内 requireLocalhost（粒度混合，不上移）
-    { path: '/api/v1/executions', router: executionRoutes },
+    // runtime 事件回调（events 模块；POST /events 路由内 legacy localhost / Agent 服务身份，粒度混合不上移）
+    { path: '/api/v1/executions', router: runtimeEventRoutes, comment: 'agent-runtime 事件回调（自 executions 模块迁入，URL 不变）' },
 
-    { path: '/api/v1/channels', router: channelAttachmentRoutes, comment: '附件 GET：?token= 需 tokenQueryToHeader 先于 requireAuth（registry 无 per-route 前置 middleware 能力，单条鉴权保留路由内）' },
-    { path: '/api/v1/channels', router: channelReadRoutes, middleware: auth, comment: 'B1-001: Channel chat interface（读：登录即可，Guest 可读）' },
+    { path: '/api/v1/channels', router: channelAttachmentRoutes, comment: '附件 GET：流式票据先于 Lurk Wall 消费，路由内 requireAuth' },
+    { path: '/api/v1/channels', router: channelReadRoutes, middleware: auth, comment: 'B1-001: Channel chat interface（读：Operator 认证）' },
     { path: '/api/v1/channels', router: channelWriteRoutes, middleware: authNotGuest },
     // P2-e：PMO 拆 open（GET + POST parse-command）/ write / admin（DELETE project/okr）三档，
     // 鉴权全部上移（原 POST 挂 GET 不挂的双轨消除；DELETE 姿态等价变化见 agents 条注释同款说明）
@@ -262,36 +266,25 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/requirements', router: requirementWriteRoutes, middleware: authNotGuest },
     { path: '/api/v1/agent-profiles', router: agentProfileOpenRoutes, comment: 'AS-025 Phase 2: AgentProfile CRUD（读开放）' },
     { path: '/api/v1/agent-profiles', router: agentProfileWriteRoutes, middleware: authNotGuest },
-    { path: '/api/v1/agent-instances', router: agentInstanceOpenRoutes, comment: 'AS-026 AC-1: RuntimeInstance CRUD（读开放）' },
-    { path: '/api/v1/agent-instances', router: agentInstanceWriteRoutes, middleware: authNotGuest },
-    { path: '/api/v1/agent-instances', router: agentInstanceAdminRoutes, middleware: admin, comment: 'terminate（原 requireAuth+requireAdmin，等价上移）' },
-    { path: '/api/v1/triggers', router: triggerRouter, middleware: admin, comment: '3.28c-4: Trigger CRUD + status' },
-    { path: '/api/v1/evolution', router: evolutionRoutes, middleware: admin, comment: 'E1 约束进化：提案列表/审批/手动扫描 (vision §6)' },
+    { path: '/api/v1/agent-instances', router: agentInstanceAdminRoutes, middleware: admin, comment: 'terminate（Phase 4 批5 后唯一活端点；原 requireAuth+requireAdmin，等价上移）' },
+    { path: '/api/v1/triggers', router: triggerRouter, middleware: admin, comment: '3.28c-4: Trigger costs + fire（Phase 4 批5 后仅剩两个活端点）' },
     { path: '/api/v1/monitoring', router: monitoringRoutes, middleware: admin, comment: 'MVP-2/6: Agent + WorkUnit monitoring' },
     { path: '/api/v1/projects', router: projectRoutes, middleware: auth, comment: 'AC-D1+D3: Local project discovery（登录即可：PMO 新建表单工程下拉依赖）' },
 
     // 能力与工具
-    // 顺序约束②：skillDemotionOpenRoutes 必须先于 skillsOpenRoutes 挂载（见文件尾部 assertRouteOrder）。
-    // 原因：skillsOpenRoutes 的 GET /:id 未命中时直接 404 不 next()，
-    // 若 SkillHub 先挂载，GET /api/v1/skills/demotion-proposals 会被 :id='demotion-proposals' 吞掉，降级提案端点死路。
-    { path: '/api/v1/skills/demotion-proposals', router: skillDemotionOpenRoutes, comment: '§10.6: skill 降级提案（先于 SkillHub 注册；读开放）' },
-    { path: '/api/v1/skills/demotion-proposals', router: skillDemotionWriteRoutes, middleware: authNotGuest },
-    // §10.6 同理：skillsOpenRoutes 的 GET /:id 未命中直接 404，proposals 必须先于 SkillHub 挂载
-    { path: '/api/v1/skills/proposals', router: skillProposalOpenRoutes },
-    { path: '/api/v1/skills/proposals', router: skillProposalWriteRoutes, middleware: authNotGuest },
-    { path: '/api/v1/skills', router: skillsOpenRoutes, comment: 'FL-025: SkillHub（读开放）' },
+    // P4.3：/api/v1/skills 面只剩 GET /、GET /manifest（open）+ POST /:id/retract/decide（write），
+    // 原 /:id 参数路由已删，demotion-proposals / proposals 先于 SkillHub 挂载的防遮蔽约束随之退役。
+    { path: '/api/v1/skills', router: skillsOpenRoutes, comment: 'FL-025: SkillHub（读开放；P4.3 后剩 GET / 与 GET /manifest）' },
     { path: '/api/v1/skills', router: skillsWriteRoutes, middleware: authNotGuest },
 
     // 运行时
-    { path: '/api/v1/iron-laws', router: ironLawsRoutes, comment: 'Iron Laws (ex-runtime-proxy)' },
-    { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE' },
+    { path: '/api/v1/events', router: sseRoutes, middleware: auth, comment: 'HZ-028: Event Stream SSE（协议面例外，流式票据在 Lurk Wall 前认证）' },
     { path: '/api/v1/events', router: eventOpenRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD（读：登录即可）' },
     { path: '/api/v1/events', router: eventWriteRoutes, middleware: authNotGuest },
     { path: '/api/v1/transcripts', router: transcriptRoutes, middleware: auth, comment: '#174: WU transcript 只读查看（#60 C5）' },
-    { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server（localhost/admin/permission service 三态混合粒度，鉴权留路由内；rate limit via tool-registry）' },
+    { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server（localhost/admin/permission service 三态混合粒度，鉴权留路由内；rate limit via tool-registry；消息面为协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
     { path: '/api/v1/harness', router: harnessRoutes, middleware: admin, comment: 'T-015: Harness 监控集成' },
     { path: '/api/v1/cso', router: csoRoutes, comment: 'Decision #5: CSO 验证（无需认证；仅 csoRoutes，不再整挂 harness router）' },
-    { path: '/api/v1/builtin-tools', router: builtinToolRoutes, middleware: admin, comment: 'HZ-026: Built-in Toolset' },
 
     // 文档与审查
     { path: '/api/v1/specs', router: specsRoutes.specsOpenRoutes, middleware: auth, comment: 'SP-002（读 + analyze-change：登录即可）' },
@@ -302,7 +295,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/action-center', router: actionCenterRoutes, middleware: authNotGuest, comment: '#468: 统一行动中心（状态派生 + 事件持久）' },
     { path: '/api/v1/notify', router: notifyRoutes, middleware: admin, comment: 'DD-009: 出站推送（内部调用）' },
     { path: '/api/v1/notify-channels', router: notifyChannelRoutes, middleware: admin, comment: '#525 P2-6: 通知渠道配置（企微 webhook + ClawBot 扫码绑定，/settings 配置区）' },
-    { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
+    { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth, comment: '知识条目/检索（2026-10 批次 4/7 收编 defineRoute；P4.2 删孤儿 8 端点后剩 gaps/:type·unified·resolutions·search·maintenance/run，#664 验证全覆盖）' },
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
     { path: '/api/v1/review-proposals', router: reviewProposalOpenRoutes, middleware: auth, comment: '#351: 人审提案卡通用端点 status（只读，登录即可；distill/gc/audit/memory 经注册表分发；#353 起取代 /role-memory 专有端点）' },
     { path: '/api/v1/review-proposals', router: reviewProposalWriteRoutes, middleware: authNotGuest, comment: '#351: approve/reject（原路由内 requireNotGuest 等价上移）' },
@@ -310,45 +303,24 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/library', router: libraryRoutes, comment: 'T5 #155: library 阅览室——跨项目 .studio/ 聚合只读层' },
 
     // 运维
-    { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Health check' },
+    { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Health check（运维探针面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
     { path: '/api/v1/audit-logs', router: auditLogRoutes, middleware: admin, comment: 'AR-012' },
-    { path: '/api/v1/admin/docs-freshness', router: docsFreshnessRoutes, middleware: admin, comment: 'T-020: CLAUDE.md 新鲜度检查' },
 
-    // Discord
-    { path: '/api/v1/discord', router: discordRoutes, comment: 'Discord Interactions' },
+    // Discord（协议面例外：Ed25519 raw body 验签，固化于 PROTOCOL_SURFACE_EXCEPTIONS）
+    { path: '/api/v1/discord', router: discordRoutes, comment: 'Discord Interactions（协议面例外，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
 
     // Deploy（触发式部署：GitHub push webhook，HMAC 校验，免登录见 app.ts PUBLIC_API）
-    { path: '/api/v1/deploy', router: deployWebhookRoutes, comment: 'GitHub push webhook → auto-deploy' },
+    { path: '/api/v1/deploy', router: deployWebhookRoutes, comment: 'GitHub push webhook → auto-deploy（协议面例外：HMAC raw body 验签，固化于 PROTOCOL_SURFACE_EXCEPTIONS）' },
 
     // Workspace（AS-020 P2：只读查询 + 删除；token 管理已随 #481 退役——远程节点方向的纯残骸）
-    { path: '/api/v1/workspaces', router: workspaceRoutes, middleware: admin, comment: 'AS-020: Workspace read-only + delete（P2-e：原路由内 requireAuth+requireAdmin 等价上移）' },
-
-    // Lark (飞书)
-    { path: '/api/v1/lark', router: larkRoutes, comment: '飞书机器人回调' },
-
-    // DingTalk (钉钉)
-    { path: '/api/v1/dingtalk', router: dingtalkRoutes, comment: '钉钉机器人回调' },
+    { path: '/api/v1/workspaces', router: workspaceRoutes, middleware: admin, comment: 'AS-020: Workspace read-only（P2-e：原路由内 requireAuth+requireAdmin 等价上移；P4.6 删 DELETE /:id 与 /:id/runtimes）' },
   ];
 
-  // 启动断言（fail-fast）：两处顺序敏感注册约束，顺序被改动破坏时启动即报错，
-  // 而不是上线后静默 404 / 路由错。约束原因见上方「顺序约束①/②」注释。
-  assertRouteOrder(table, [
-    {
-      before: { path: '/api/v1/agents', router: tokenUsageRoutes },
-      after: { path: '/api/v1/agents', router: agentRouters.agentOpenRoutes },
-      reason: '§10.5: token-usage 聚合端点必须先于 legacy agent open 路由挂载，保证 /:id/token-usage 恒由 tokenUsageRoutes 接管。',
-    },
-    {
-      before: { path: '/api/v1/skills/demotion-proposals', router: skillDemotionOpenRoutes },
-      after: { path: '/api/v1/skills', router: skillsOpenRoutes },
-      reason: '§10.6: skillsOpenRoutes 的 GET /:id 未命中直接 404，降级提案必须先于 SkillHub 挂载，否则端点被 :id 吞掉。',
-    },
-    {
-      before: { path: '/api/v1/skills/proposals', router: skillProposalOpenRoutes },
-      after: { path: '/api/v1/skills', router: skillsOpenRoutes },
-      reason: '§10.6 同理：proposals 必须先于 SkillHub 挂载，否则 GET /api/v1/skills/proposals 被 :id=\'proposals\' 吞掉。',
-    },
-  ]);
+  // 启动断言（fail-fast）：顺序敏感注册约束，顺序被改动破坏时启动即报错，
+  // 而不是上线后静默 404 / 路由错。
+  // P4.3：skills 域的 assertRouteOrder 约束随 demotion-proposals / proposals 挂载退役
+  // （/:id 参数路由已删，遮蔽前提不复存在）；表内其余顺序约束如有新增在此登记。
+  assertRouteOrder(table, []);
 
   return table;
 }

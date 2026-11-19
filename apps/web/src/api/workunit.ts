@@ -38,17 +38,18 @@ export type {
 } from '@dommaker/studio-contract';
 /** 巡检机会条目（契约名 InspectionOpportunity；UI 侧沿用短名 Opportunity） */
 export type { InspectionOpportunity as Opportunity } from '@dommaker/studio-contract';
-/** 分页壳别名 = 契约 PaginatedBody（后端 formatPaginatedResponse 同形状） */
-export type PaginatedResponse<T> = PaginatedBody<T>;
 
 // 事件负载类型（WorkunitTokenEvent/ExecutionStepToolCall/ExecutionStepEvent/ExecutionStreamChunk）
-// P3-a 迁至 src/types/workunit.ts（api 层不声明导出类型），此处仅 re-export，消费方 import 路径不变。
-import type { WorkunitTokenEvent, ExecutionStepToolCall, ExecutionStepEvent, ExecutionStreamChunk } from '../types/workunit';
+// #665（ADR 2026-08-24 落地）：与 studio-contract 同源（sse-events.ts），本地声明清零，
+// 此处仅 re-export，消费方 import 路径不变。
+import type { WorkunitTokenEvent, ExecutionStepToolCall, ExecutionStepEvent, ExecutionStreamChunk } from '@dommaker/studio-contract';
 export type { WorkunitTokenEvent, ExecutionStepToolCall, ExecutionStepEvent, ExecutionStreamChunk };
 
 /**
  * 从 GET /events?type=workunit:tokens 的响应行中解析某个 WorkUnit 的 token 事件。
  * payload 损坏或不属于该 WorkUnit 的行跳过（不计 0，不编造）。
+ * 行的 createdAt 不进入输出：契约 WorkunitTokenEvent 无该字段（#665 起类型与契约同源），
+ * 唯一消费方 WorkUnitDrawer 不读它——静默丢弃是知情取舍，非遗漏。
  */
 export function parseWorkunitTokenEvents(
   rows: Array<{ payload: unknown; createdAt?: string }>,
@@ -62,12 +63,12 @@ export function parseWorkunitTokenEvents(
       if (typeof p.injectedTokens !== 'number') continue;
       out.push({
         workUnitId: p.workUnitId,
+        assignmentId: p.assignmentId,
         executionId: p.executionId,
         injectedTokens: p.injectedTokens,
         executionTokens: typeof p.executionTokens === 'number' ? p.executionTokens : null,
         executionSource: p.executionSource,
         totalTokens: typeof p.totalTokens === 'number' ? p.totalTokens : p.injectedTokens,
-        createdAt: row.createdAt,
       });
     } catch {
       // 跳过损坏行
@@ -77,13 +78,12 @@ export function parseWorkunitTokenEvents(
 }
 
 /**
- * 从 GET /events?type=workunit:execution_step 的响应行解析执行步事件。
- * 兼容历史无 workUnitId 过滤的调用方：传 workUnitId 时顺带按它过滤；
+ * 从 GET /events?type=workunit:execution_step 的响应行解析执行步事件（顺带按 workUnitId 过滤）。
  * 损坏行/缺 step 的行跳过；按 step → at 升序（回放顺序）。
  */
 export function parseExecutionStepEvents(
   rows: Array<{ payload: unknown; createdAt?: string }>,
-  workUnitId?: string,
+  workUnitId: string,
 ): ExecutionStepEvent[] {
   const out: ExecutionStepEvent[] = [];
   for (const row of rows) {
@@ -93,6 +93,7 @@ export function parseExecutionStepEvents(
       if (workUnitId && p.workUnitId !== workUnitId) continue;
       out.push({
         workUnitId: p.workUnitId,
+        assignmentId: p.assignmentId,
         executionId: p.executionId ?? '',
         sessionId: p.sessionId,
         step: p.step,
@@ -105,7 +106,7 @@ export function parseExecutionStepEvents(
           ? p.toolCalls
               .filter((c: unknown): c is { tool: string; summary?: unknown } =>
                 !!c && typeof (c as { tool?: unknown }).tool === 'string')
-              .map((c) => ({ tool: c.tool, summary: typeof c.summary === 'string' ? c.summary : '' }))
+              .map((c: { tool: string; summary?: unknown }) => ({ tool: c.tool, summary: typeof c.summary === 'string' ? c.summary : '' }))
           : [],
         skills: Array.isArray(p.skills) ? p.skills.filter((s: unknown) => typeof s === 'string') : [],
         text: typeof p.text === 'string' ? p.text : undefined,

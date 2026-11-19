@@ -15,7 +15,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { getDefaultFileStore } from './file-store-default';
+import { getDefaultFileStore } from './file-store/file-store-default';
 import { studioPath } from './config/studio-dir';
 
 /** workspace 记录中与本判定相关的字段（记录其余字段经索引签名原样保留） */

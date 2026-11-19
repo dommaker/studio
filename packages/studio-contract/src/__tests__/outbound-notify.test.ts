@@ -1,6 +1,6 @@
 /**
  * outbound-notify 域契约测试：NotifyMessage type 词表 + 请求边界 + 响应壳。
- * 正本 = apps/api/src/modules/outbound-notify/routes.ts + notify.service.ts。
+ * 正本 = apps/api/src/modules/notifications/outbound-notify.routes.ts + outbound-notify.service.ts。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -13,10 +13,9 @@ import {
 import * as contractIndex from '../index.js';
 
 describe('notifyMessageTypeSchema', () => {
-  it('词表 = NotifyMessage.type 十值联合', () => {
+  it('词表 = NotifyMessage.type 六值联合', () => {
     for (const t of [
       'task-failed', 'timeout', 'crash', 'zombie', 'human-needed',
-      'meeting-started', 'meeting-message', 'meeting-completed', 'meeting-cancelled',
       'user-intervention-needed',
     ]) {
       expect(notifyMessageTypeSchema.parse(t)).toBe(t);

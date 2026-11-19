@@ -16,8 +16,8 @@ vi.mock('../../../hooks/useChannelList', () => ({
   useChannelList: () => mockUseChannelList(),
 }));
 
-vi.mock('../../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: 'disconnected' }),
+vi.mock('../../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, status: 'disconnected' }),
 }));
 
 vi.mock('../../../api/monitoring', () => ({

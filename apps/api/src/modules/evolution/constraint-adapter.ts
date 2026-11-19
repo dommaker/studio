@@ -24,7 +24,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import yaml from 'js-yaml';
 import { getEffectiveConstraints, type KnowledgeEntry } from '@dommaker/harness';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import {
   getReviewProposalAdapter,
@@ -34,6 +34,7 @@ import {
 } from '../review-proposal/index.js';
 import { submitProposal } from '../review-proposal/index.js';
 import { resolveHarnessBin, runCmd } from './applier.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 约束提案载荷（行形态：{ kind:'proposal', ... } 落 constraint-proposals.jsonl） */
 export interface ConstraintProposal {
@@ -250,8 +251,8 @@ async function postUpgradeMaterialNote(
       '',
       '下一步：请人工确认材料无应用内部信息（params 正则/glob 为原文带出），然后拿材料去 harness 仓开 issue——不自动开。',
     ].join('\n');
-    const { channelMessageService } = await import('../channels/index.js');
-    await channelMessageService.createAgentMessage(channel.id, 'Evolution', content);
+    const { getChannelMessageService } = await import('../channels/index.js');
+    await getChannelMessageService().createAgentMessage(channel.id, 'Evolution', content);
   } catch (err) {
     logger.warn('[Constraint] 升级材料回帖失败（不阻断 executed 结果）', { id: p.id, error: String(err) });
   }

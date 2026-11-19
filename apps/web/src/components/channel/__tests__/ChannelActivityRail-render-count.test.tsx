@@ -27,8 +27,8 @@ vi.mock('react-router-dom', () => ({
 
 // 探针：deriveChainSteps（卡静态部分每次渲染必调）与 buildChannelActivity（动态派生入口）计数，
 // 实现本体放行（importOriginal 部分 mock，行为不变）
-vi.mock('../activityRail', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('../activityRail')>();
+vi.mock('../../../utils/activityRail', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../../utils/activityRail')>();
   return {
     ...mod,
     deriveChainSteps: (...args: Parameters<typeof mod.deriveChainSteps>) => {
@@ -46,7 +46,7 @@ import { ChannelActivityRail } from '../ChannelActivityRail';
 import { useChannelDataStore } from '../../../stores/channelDataStore';
 import { useRequirementChainStore } from '../../../stores/requirementChainStore';
 import type { Requirement } from '../../../api/requirements';
-import type { ChannelActivityItem } from '../activityRail';
+import type { ChannelActivityItem } from '../../../utils/activityRail';
 
 function req(id: string): Requirement {
   return {

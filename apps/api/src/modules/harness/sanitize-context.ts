@@ -7,8 +7,12 @@
  * 即「证据不可得」第三态——服务端能独立取证的项目（docs_freshness 等）
  * 不受影响。
  *
- * 标志清单与 harness ConstraintContext 的 boolean 证据标志字段保持一致
- * （harness 侧类型 = checkers/types.ts ContextEvidenceFlag，未导出值级清单）。
+ * 标志清单原与 harness ConstraintContext 的 boolean 证据标志字段一致
+ * （harness 侧类型 = checkers/types.ts ContextEvidenceFlag）。harness 3.0.0（ADR-0041）
+ * 将「从不置位的死证据标志管道」整体出清（含 ContextEvidenceFlag 类型与 checkers 的
+ * needs.contextFlags 比对），ConstraintContext 类型面只剩 hasPlanApproval；本清单转为
+ * studio 本地 wire 卫生面：旧客户端仍可自报这些键，入口一律剥离（harness 侧已无消费，
+ * 剥离为无害防御，保留至确认无旧客户端流量后另行退役）。
  */
 import type { ConstraintCheckResult, ConstraintContext, ConstraintViolationError } from '@dommaker/harness';
 
@@ -23,7 +27,7 @@ const EVIDENCE_FLAGS = [
   'hasReuseCheck',
   'hasSingleTask',
   'hasRequirement',
-] as const satisfies readonly (keyof ConstraintContext)[];
+] as const satisfies readonly string[];
 
 export interface SanitizedContext {
   context: ConstraintContext;
@@ -31,8 +35,13 @@ export interface SanitizedContext {
   strippedFlags: string[];
 }
 
-export function sanitizeConstraintContext(input: ConstraintContext): SanitizedContext {
-  const context = { ...input };
+/**
+ * 入参放宽为「候选 context」：客户端 wire 仍可能携带自报标志键（契约体保留声明），
+ * 这些键在 harness 3.0.0 的 ConstraintContext 类型面上已不存在——类型不再兜住它们，
+ * 剥离职责留在本函数（运行时删除，绝不送进 checkConstraints）。
+ */
+export function sanitizeConstraintContext(input: ConstraintContext | Record<string, unknown>): SanitizedContext {
+  const context = { ...input } as Record<string, unknown>;
   const strippedFlags: string[] = [];
   for (const flag of EVIDENCE_FLAGS) {
     if (context[flag] !== undefined) {
@@ -40,22 +49,12 @@ export function sanitizeConstraintContext(input: ConstraintContext): SanitizedCo
       strippedFlags.push(flag);
     }
   }
-  return { context, strippedFlags };
+  return { context: context as unknown as ConstraintContext, strippedFlags };
 }
 
 /** 响应面降级标注（strippedEvidenceFlags），无剥离时为空对象（响应不带该字段） */
 export function downgradeAnnotation(strippedFlags: string[]): { strippedEvidenceFlags?: string[] } {
   return strippedFlags.length > 0 ? { strippedEvidenceFlags: strippedFlags } : {};
-}
-
-/**
- * 降级检查项清单（AC2 三态不可混淆）：从检查结果中收 skipped 项，
- * 无论请求体是否带标志，证据不可得的检查项都在响应顶层显式可见。
- */
-export function degradedChecksOf(result: ConstraintCheckResult): Array<{ id: string; skipReason?: string }> {
-  return [...result.errors, ...result.warnings]
-    .filter((r) => r.skipped)
-    .map((r) => ({ id: r.id, skipReason: r.skipReason }));
 }
 
 /**

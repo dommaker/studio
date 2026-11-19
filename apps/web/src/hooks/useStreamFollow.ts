@@ -30,6 +30,8 @@ export interface UseStreamFollowOptions {
   loadMore: () => Promise<boolean>;
   // #325 虚拟化入参（STREAM_VIRTUAL_ENABLED=false 时忽略，行为与现状一致）
   items: StreamItem[];
+  /** items 原地修改的版本号，驱动回调/memo 更新。 */
+  itemsRevision: number;
   /** 消息 id → item index（含 thread replies/过程组内消息），prepend 补偿与恢复的 mid→item 桥 */
   messageToItemIndex: Map<string, number>;
   /** 滚动内容头部块（加载更早/折叠 toggle/空态）高度，virtualizer scrollMargin */
@@ -39,7 +41,7 @@ export interface UseStreamFollowOptions {
 /** 锚点扩展：虚拟化路径携带 item key 与 item 内偏移（measurements 补偿用） */
 type StreamAnchor = ScrollAnchor & { itemKey?: string; withinItemOffset?: number };
 
-export function useStreamFollow({ channelId, messages, loading, loadMore, items, messageToItemIndex, scrollMargin }: UseStreamFollowOptions) {
+export function useStreamFollow({ channelId, messages, loading, loadMore, items, itemsRevision, messageToItemIndex, scrollMargin }: UseStreamFollowOptions) {
   const streamRef = useRef<HTMLDivElement>(null);
   const streamInnerRef = useRef<HTMLDivElement>(null);
   const scrollStateRef = useRef<{ initial: boolean; anchor: StreamAnchor | null }>({ initial: true, anchor: null });
@@ -84,11 +86,17 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
   const scrollToFn = useCallback((offset: number, { adjustments = 0 }: { adjustments?: number }) => {
     scrollStreamTo(offset + adjustments);
   }, [scrollStreamTo]);
-  const getItemKey = useCallback((index: number) => streamItemKey(items[index]), [items]);
+  const getItemKey = useCallback((index: number) => {
+    void itemsRevision;
+    return streamItemKey(items[index]);
+  }, [items, itemsRevision]);
   // #450（#438 方案 A）：estimateSize 分型静态估计——按 item 类型给值替代常量 120
   // （档位值 = #系统 长频道实测行高分布，见 streamVirtual.ROW_HEIGHT_ESTIMATE 注释与报告附录）；
   // useCallback 依赖 items 与 getItemKey 同步重建，估计值本身是静态表、不随测量更新（报告 §3-B 证伪动态估计）。
-  const estimateSize = useCallback((index: number) => estimateStreamItemSize(items[index]), [items]);
+  const estimateSize = useCallback((index: number) => {
+    void itemsRevision;
+    return estimateStreamItemSize(items[index]);
+  }, [items, itemsRevision]);
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: items.length,
     getScrollElement: () => streamRef.current,
@@ -228,7 +236,7 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
       const el = streamRef.current;
       const idx = messageToItemIndex.get(anchor.mid);
       const meas = idx != null && el ? virtualizer.measurementsCache[idx] : undefined;
-      if (meas) {
+      if (meas && el) {
         const withinItemOffset = (el.scrollTop + anchor.top) - meas.start;
         scrollStateRef.current.anchor = { ...anchor, itemKey: String(meas.key), withinItemOffset };
       } else {
@@ -275,7 +283,7 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
         if (restoreRef.current?.channelId !== channelId) {
           restoreRef.current = { channelId, pos: channelId ? loadReadingPosition(channelId) : undefined };
         }
-        const restore = restoreRef.current.pos;
+        const restore = restoreRef.current?.pos;
         if (virtualEnabled) {
           // 两段式：scrollToIndex 粗定位（自带动态重算收敛，验证约束 3）→ 锚行进 DOM 后精校正
           const idx = restore ? messageToItemIndex.get(restore.mid) : undefined;

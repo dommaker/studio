@@ -28,4 +28,14 @@ describe('skillsApi', () => {
     await skillsApi.listManifest();
     expect(api.get).toHaveBeenCalledWith('/skills/manifest');
   });
+
+  it('#717: Skill 提案 approve/reject/status 走 review-proposal 通用端点', async () => {
+    await skillsApi.approveProposal('sp 1');
+    await skillsApi.rejectProposal('sp 1');
+    await skillsApi.proposalStatus('sp 1');
+
+    expect(api.post).toHaveBeenCalledWith('/review-proposals/skill/sp%201/approve');
+    expect(api.post).toHaveBeenCalledWith('/review-proposals/skill/sp%201/reject');
+    expect(api.get).toHaveBeenCalledWith('/review-proposals/skill/sp%201/status');
+  });
 });

@@ -13,6 +13,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {
@@ -23,7 +28,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 import { FileStore } from '@dommaker/studio-shared';
 import { foldIncidentRows, appendIncidentUpdate } from '../incident-store.js';
-import { rotateJsonlLog } from '../../../utils/studio-log-rotation.js';
+import { rotateJsonlLog } from '../../../bootstrap/studio-log-rotation.js';
 
 const NOW = new Date('2026-08-19T12:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -3,7 +3,8 @@
  *
  * Source-code verification:
  * - workunit-events.ts and cycle-detection.ts deleted
- * - workunit.service.ts has no emit/cycle/unlockDependents references
+ * - workunit 服务层（#672 拆分四文件）无 emit/cycle/unlockDependents 引用
+ *   （架构精简刀6：workunit.service.ts 门面删除，扫描目标改为拆分层四文件）
  */
 
 import { describe, it, expect } from 'vitest';
@@ -11,6 +12,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const WORKUNIT_DIR = path.resolve(__dirname, '..');
+const SERVICE_LAYER = ['workunit-crud.ts', 'workunit-query.ts', 'workunit-lifecycle.ts', 'workunit-review.ts']
+  .map(f => fs.readFileSync(path.join(WORKUNIT_DIR, f), 'utf-8')).join('\n');
 
 describe('EventBus cleanup verification', () => {
   it('workunit-events.ts is deleted', () => {
@@ -29,33 +32,33 @@ describe('EventBus cleanup verification', () => {
     expect(fs.existsSync(path.join(WORKUNIT_DIR, '__tests__/cycle-detection.test.ts'))).toBe(false);
   });
 
-  it('workunit.service.ts has no workunit-events import', () => {
-    const content = fs.readFileSync(path.join(WORKUNIT_DIR, 'workunit.service.ts'), 'utf-8');
+  it('服务层无 workunit-events import', () => {
+    const content = SERVICE_LAYER;
     expect(content).not.toMatch(/workunit-events/);
   });
 
-  it('workunit.service.ts has no cycle-detection import', () => {
-    const content = fs.readFileSync(path.join(WORKUNIT_DIR, 'workunit.service.ts'), 'utf-8');
+  it('服务层无 cycle-detection import', () => {
+    const content = SERVICE_LAYER;
     expect(content).not.toMatch(/cycle-detection/);
   });
 
-  it('workunit.service.ts has no emit function calls', () => {
-    const content = fs.readFileSync(path.join(WORKUNIT_DIR, 'workunit.service.ts'), 'utf-8');
+  it('服务层无 emit function calls', () => {
+    const content = SERVICE_LAYER;
     expect(content).not.toMatch(/emit(WorkUnit|workunit)/);
   });
 
-  it('workunit.service.ts has no unlockDependents method', () => {
-    const content = fs.readFileSync(path.join(WORKUNIT_DIR, 'workunit.service.ts'), 'utf-8');
+  it('服务层无 unlockDependents method', () => {
+    const content = SERVICE_LAYER;
     expect(content).not.toMatch(/unlockDependents/);
   });
 
-  it('workunit.service.ts has no getExistingEdges method', () => {
-    const content = fs.readFileSync(path.join(WORKUNIT_DIR, 'workunit.service.ts'), 'utf-8');
+  it('服务层无 getExistingEdges method', () => {
+    const content = SERVICE_LAYER;
     expect(content).not.toMatch(/getExistingEdges/);
   });
 
-  it('workunit.service.ts has no validateNoCycle call', () => {
-    const content = fs.readFileSync(path.join(WORKUNIT_DIR, 'workunit.service.ts'), 'utf-8');
+  it('服务层无 validateNoCycle call', () => {
+    const content = SERVICE_LAYER;
     expect(content).not.toMatch(/validateNoCycle/);
   });
 });

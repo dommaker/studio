@@ -6,20 +6,24 @@
  * - 探测失败 fail-open：返回 undefined（调用方保持全量传参），失败同样入缓存
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { promisify } from 'node:util';
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
+  execFile: Object.assign(vi.fn(), { [promisify.custom]: vi.fn() }),
 }));
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execFile } from 'node:child_process';
 import {
   parseHelpFlags,
   warmCapabilityProbe,
+  warmCapabilityProbeAsync,
   getSupportedFlags,
   resetCapabilityProbeCache,
 } from '../capability-probe';
 
 const mockExecFileSync = vi.mocked(execFileSync);
+const mockExecFileAsync = vi.mocked((execFile as any)[promisify.custom] as (...args: any[]) => Promise<{ stdout: string; stderr: string }>);
 
 /** 模拟 codex exec --help 输出形态（0.147.0 实测节选，脱敏） */
 const CODEX_HELP_SAMPLE = `
@@ -154,5 +158,40 @@ describe('warmCapabilityProbe / getSupportedFlags', () => {
       throw new Error('not found');
     });
     expect(getSupportedFlags('codex')).toBeUndefined();
+  });
+});
+
+describe('warmCapabilityProbeAsync（2026-10-03 异步形态，与 sync 共享 flagsCache）', () => {
+  test('探测成功入缓存：getSupportedFlags 直接命中，不再发起进程', async () => {
+    mockExecFileAsync.mockImplementation(async (_cmd, args) => {
+      if (args?.join(' ') === 'exec --help') return { stdout: CODEX_HELP_SAMPLE, stderr: '' };
+      throw new Error(`unexpected call: ${args?.join(' ')}`);
+    });
+
+    await warmCapabilityProbeAsync('codex', '/usr/local/bin/codex', 'codex-cli 0.147.0');
+    // getSupportedFlags 命中 binaryInfoCache 需 which/--version；此处直接喂 flagsCache，
+    // 经 sync getSupportedFlags 读会补 which+version 两个 sync 调用，但 help 探测不得重跑
+    mockExecFileSync.mockImplementation(((cmd: string, args?: readonly string[]) => {
+      if (cmd === 'which' && args?.[0] === 'codex') return '/usr/local/bin/codex\n';
+      // version 探测走解析后的完整路径（/usr/local/bin/codex），按结尾匹配
+      if (cmd.endsWith('codex') && args?.includes('--version')) return 'codex-cli 0.147.0\n';
+      throw new Error('help 不得重跑');
+    }) as typeof execFileSync);
+
+    const flags = getSupportedFlags('codex');
+    expect(flags?.has('--config')).toBe(true);
+    const helpCalls = mockExecFileSync.mock.calls.filter(
+      c => Array.isArray(c[1]) && (c[1] as string[]).join(' ') === 'exec --help',
+    );
+    expect(helpCalls.length).toBe(0);
+  });
+
+  test('探测失败 fail-open：失败入缓存，同 key 不重试', async () => {
+    mockExecFileAsync.mockImplementation(async () => { throw new Error('help crashed'); });
+
+    await warmCapabilityProbeAsync('codex', '/usr/local/bin/codex', 'codex-cli 0.147.0');
+    const callsAfterFirst = mockExecFileAsync.mock.calls.length;
+    await warmCapabilityProbeAsync('codex', '/usr/local/bin/codex', 'codex-cli 0.147.0');
+    expect(mockExecFileAsync.mock.calls.length).toBe(callsAfterFirst);
   });
 });

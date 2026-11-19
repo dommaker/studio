@@ -1,0 +1,633 @@
+/**
+ * D16 指标聚合 — aggregateOverview 纯函数 + MetricsService（缓存/文件注入/窗口）
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import type { WorkUnitSnapshot, WorkUnitEvent } from '@dommaker/studio-shared';
+import { aggregateOverview, MetricsService, type OverviewAggregateInput } from '../metrics.service.js';
+import { buildAssigneeProfileResolver } from '../../workunit/assignee-resolver.js';
+
+const T = new Date('2026-07-27T12:00:00.000Z').getTime();
+const H = 3600_000;
+const D = 24 * H;
+const iso = (t: number) => new Date(t).toISOString();
+
+function makeWu(overrides: Partial<WorkUnitSnapshot> & { metadataObj?: Record<string, unknown> }): WorkUnitSnapshot {
+  const { metadataObj, ...rest } = overrides;
+  return {
+    id: 'wu-x', parentId: null, type: 'feature', scope: 's', assigneeId: null,
+    status: 'unassigned', failureType: null, retryCount: 0, timeoutAt: null,
+    channelId: null, projectPath: null,
+    metadata: metadataObj ? JSON.stringify(metadataObj) : null,
+    createdAt: iso(T - 5 * D), updatedAt: iso(T - 1 * D),
+    claimedAt: null, completedAt: null,
+    ...rest,
+  };
+}
+
+function makeInput(): OverviewAggregateInput {
+  const snapshots: WorkUnitSnapshot[] = [
+    makeWu({
+      id: 'wu-a', status: 'done', assigneeId: 'inst-1',
+      createdAt: iso(T - 5 * D), claimedAt: iso(T - 4.5 * D), completedAt: iso(T - 1 * D), updatedAt: iso(T - 1 * D),
+      metadataObj: {
+        stepCount: 4, _consecutiveReviewRejections: 1,
+        verifyReport: { commands: ['make check'], source: 'convention', passedAt: iso(T - 1 * D) },
+        mergedAt: iso(T - 1 * D),
+      },
+    }),
+    makeWu({
+      id: 'wu-b', status: 'done', assigneeId: 'inst-2',
+      createdAt: iso(T - 6 * D), claimedAt: iso(T - 6 * D), completedAt: iso(T - 2 * D), updatedAt: iso(T - 2 * D),
+      metadataObj: { stepCount: 2, mergeConflict: true },
+    }),
+    makeWu({
+      id: 'wu-c', status: 'active', assigneeId: 'inst-1',
+      createdAt: iso(T - 3 * D), claimedAt: iso(T - 3 * D), updatedAt: iso(T - 1 * D),
+      metadataObj: { stepCount: 3, consecutiveStuck: 2, errorType: 'timeout', verifyFailCount: 2 },
+    }),
+    makeWu({
+      id: 'wu-d', status: 'blocked', failureType: 'execution_failed',
+      createdAt: iso(T - 2 * D), updatedAt: iso(T - 0.5 * D),
+      metadataObj: { waitingForInput: true, waitingReason: 'ownership' },
+    }),
+    makeWu({
+      id: 'wu-e', status: 'unassigned',
+      createdAt: iso(T - 10 * D), updatedAt: iso(T - 10 * D),
+    }),
+  ];
+
+  const wuEvents: WorkUnitEvent[] = [
+    { type: 'created', wuId: 'wu-a', timestamp: iso(T - 5 * D) },
+    { type: 'created', wuId: 'wu-b', timestamp: iso(T - 6 * D) },
+    { type: 'created', wuId: 'wu-c', timestamp: iso(T - 3 * D) },
+    { type: 'created', wuId: 'wu-d', timestamp: iso(T - 2 * D) },
+    { type: 'created', wuId: 'wu-e', timestamp: iso(T - 10 * D) }, // 窗口外
+    { type: 'claimed', wuId: 'wu-a', timestamp: iso(T - 4.5 * D), data: { assigneeId: 'inst-1' } },
+    { type: 'claimed', wuId: 'wu-b', timestamp: iso(T - 6 * D), data: { assigneeId: 'inst-2' } },
+    { type: 'claimed', wuId: 'wu-c', timestamp: iso(T - 3 * D), data: { assigneeId: 'inst-1' } },
+    // NEED_INPUT 挂起：wu-d 澄清期（ownership）；wu-a 执行期（无 waitingReason）
+    { type: 'blocked', wuId: 'wu-d', timestamp: iso(T - 0.5 * D), data: { metadata: JSON.stringify({ waitingForInput: true, waitingReason: 'ownership' }) } },
+    { type: 'blocked', wuId: 'wu-a', timestamp: iso(T - 4 * D), data: { metadata: JSON.stringify({ waitingForInput: true }) } },
+  ];
+
+  const events: Array<Record<string, unknown>> = [
+    {
+      type: 'workunit:tokens', source: 'agent-loop',
+      payload: JSON.stringify({
+        workUnitId: 'wu-a', injectedTokens: 100, executionTokens: 900, totalTokens: 1000,
+        inputTokens: 400, cacheReadTokens: 300, cacheCreationTokens: 100,
+      }),
+      createdAt: iso(T - 1 * D),
+    },
+    {
+      type: 'workunit:tokens', source: 'agent-loop',
+      payload: JSON.stringify({ workUnitId: 'wu-b', injectedTokens: 200, executionTokens: 800, totalTokens: 1000 }),
+      createdAt: iso(T - 2 * D),
+    },
+    { type: 'monitor:alert', source: 'monitor', payload: JSON.stringify({ level: 'warning', message: 'w' }), createdAt: iso(T - 1 * H) },
+    { type: 'monitor:alert', source: 'monitor', payload: JSON.stringify({ level: 'critical', message: 'c' }), createdAt: iso(T - 2 * D) },
+  ];
+
+  const humanMessages = [
+    { createdAt: iso(T - 1 * D) }, { createdAt: iso(T - 1 * D) }, { createdAt: iso(T - 1 * D) },
+    { createdAt: iso(T - 10 * D) }, // 窗口外
+  ];
+
+  const instanceToProfile = new Map([['inst-1', 'dev'], ['inst-2', 'reviewer']]);
+  const profileNames = new Map([['dev', '开发'], ['reviewer', '评审']]);
+  const resolveAssigneeProfile = buildAssigneeProfileResolver({
+    states: [...instanceToProfile].map(([id, roleId]) => ({ id, roleId })),
+    profileIds: new Set(profileNames.keys()),
+  });
+
+  return { snapshots, wuEvents, events, humanMessages, resolveAssigneeProfile, profileNames, distillRuns: [], now: T, windowDays: 7 };
+}
+
+describe('aggregateOverview (D16)', () => {
+  it('任务流健康：byStatus / 滞留 P50/P95 / 创建→认领 / 认领→完成 / errorType 分桶 / step 统计', () => {
+    const m = aggregateOverview(makeInput());
+
+    expect(m.taskFlow.byStatus).toEqual({ done: 2, active: 1, blocked: 1, unassigned: 1 });
+    // 滞留：wu-c 24h、wu-d 12h、wu-e 240h → P50=24, P95=218.4（线性插值：idx=1.9 → 24*0.1+240*0.9）
+    expect(m.taskFlow.dwell.count).toBe(3);
+    expect(m.taskFlow.dwell.p50Hours).toBe(24);
+    expect(m.taskFlow.dwell.p95Hours).toBe(218.4);
+    // 创建→认领：wu-a 12h、wu-b 0h、wu-c 0h（wu-e 窗口外、wu-d 未认领）→ P95 idx=1.9 → 12*0.9=10.8
+    expect(m.taskFlow.createToClaim.count).toBe(3);
+    expect(m.taskFlow.createToClaim.p50Hours).toBe(0);
+    expect(m.taskFlow.createToClaim.p95Hours).toBe(10.8);
+    // 认领→完成：wu-a 84h、wu-b 96h → P50 线性插值 = (84+96)/2 = 90
+    expect(m.taskFlow.claimToComplete.count).toBe(2);
+    expect(m.taskFlow.claimToComplete.p50Hours).toBe(90);
+    // errorType 分桶：failureType 列优先，其次 metadata.errorType
+    expect(m.taskFlow.failuresByErrorType.buckets).toEqual({ execution_failed: 1, timeout: 1 });
+    // step 统计：4/2/3 → avg 3；stuck：wu-c consecutiveStuck=2
+    expect(m.taskFlow.steps.count).toBe(3);
+    expect(m.taskFlow.steps.avgStepCount).toBe(3);
+    expect(m.taskFlow.steps.stuckWorkUnits).toBe(1);
+    expect(m.taskFlow.steps.avgStuckSteps).toBe(2);
+    expect(m.taskFlow.description).toBeTruthy();
+  });
+
+  it('入口转化：人类消息 vs 建 WU 数与转化率', () => {
+    const m = aggregateOverview(makeInput());
+    expect(m.intake.humanMessages).toBe(3);
+    expect(m.intake.workUnitsCreated).toBe(4);
+    expect(m.intake.conversionPct).toBe(133);
+  });
+
+  it('人工干预（北极星）：NEED_INPUT + review 驳回 + 冲突，每完成 WU 均值', () => {
+    const m = aggregateOverview(makeInput());
+    expect(m.humanIntervention.completedWorkUnits).toBe(2);
+    expect(m.humanIntervention.needInputCount).toBe(2);       // wu-d + wu-a
+    expect(m.humanIntervention.reviewRejections).toBe(1);     // wu-a._consecutiveReviewRejections
+    expect(m.humanIntervention.mergeConflicts).toBe(1);       // wu-b
+    expect(m.humanIntervention.avgPerCompletedWu).toBe(2);    // (2+1+1)/2
+  });
+
+  it('端到端周期：创建→done P50/P95/avg', () => {
+    const m = aggregateOverview(makeInput());
+    expect(m.cycleTime.createToDone.count).toBe(2);
+    expect(m.cycleTime.createToDone.p50Hours).toBe(96);
+    expect(m.cycleTime.avgHours).toBe(96);
+  });
+
+  it('角色维度：认领/完成/时长/澄清期 vs 执行期 NEED_INPUT', () => {
+    const m = aggregateOverview(makeInput());
+    const dev = m.roles.roles.find(r => r.profileId === 'dev')!;
+    const reviewer = m.roles.roles.find(r => r.profileId === 'reviewer')!;
+
+    expect(dev.profileName).toBe('开发');
+    expect(dev.claims).toBe(2);            // wu-a + wu-c
+    expect(dev.completions).toBe(1);       // wu-a
+    expect(dev.avgDurationHours).toBe(84); // claimed→completed wu-a
+    expect(dev.needInputExecution).toBe(1);
+    expect(dev.needInputClarify).toBe(0);
+
+    expect(reviewer.claims).toBe(1);
+    expect(reviewer.completions).toBe(1);  // wu-b
+    expect(reviewer.avgDurationHours).toBe(96);
+    // wu-d 澄清期挂起但无 assignee → 不归因任何角色（不编造归属）
+    expect(m.roles.roles.every(r => r.needInputClarify === 0)).toBe(true);
+  });
+
+  it('工程质量：verifyReport 通过率 / mergeConflict / mergedAt', () => {
+    const m = aggregateOverview(makeInput());
+    expect(m.quality.verifyPassed).toBe(1);  // wu-a
+    expect(m.quality.verifyFailing).toBe(1); // wu-c
+    expect(m.quality.verifyPassRatePct).toBe(50);
+    expect(m.quality.mergeConflicts).toBe(1);
+    expect(m.quality.merges).toBe(1);        // wu-a mergedAt 在窗口内
+  });
+
+  it('Token：合计 / 每 WU 均值 / 缓存命中率与覆盖率 / 按角色聚合', () => {
+    const m = aggregateOverview(makeInput());
+    expect(m.tokens.totals).toEqual({ injectedTokens: 300, executionTokens: 1700, totalTokens: 2000 });
+    expect(m.tokens.workUnits).toBe(2);
+    expect(m.tokens.avgTokensPerWu).toBe(850);
+    // 缓存：300 / (300+100+400) = 37.5 → 38%；只有 1/2 事件带缓存字段
+    expect(m.tokens.cacheHitRatePct).toBe(38);
+    expect(m.tokens.cacheCoveragePct).toBe(50);
+
+    const dev = m.tokens.byRole.find(r => r.profileId === 'dev')!;
+    expect(dev).toMatchObject({ profileName: '开发', injectedTokens: 100, executionTokens: 900, workUnits: 1 });
+    const reviewer = m.tokens.byRole.find(r => r.profileId === 'reviewer')!;
+    expect(reviewer).toMatchObject({ injectedTokens: 200, executionTokens: 800, workUnits: 1 });
+  });
+
+  it('告警：近 24h / 窗口内 / 按级别', () => {
+    const m = aggregateOverview(makeInput());
+    expect(m.alerts.last24h).toBe(1);    // T-1h 的 warning
+    expect(m.alerts.inWindow).toBe(2);
+    expect(m.alerts.byLevel).toEqual({ warning: 1, critical: 1 });
+  });
+
+  it('#707: Effect 状态、Receipt 结果与恢复核查从只读快照聚合', () => {
+    const input = makeInput();
+    const at = iso(T - H);
+    input.snapshots[0].effects = [
+      { id: 'e1', workUnitId: 'wu-a', kind: 'review-dispatch', idempotencyKey: 'k1', trigger: 'automatic', status: 'succeeded', attempts: 1, maxAttempts: 3, createdAt: at, updatedAt: at },
+      { id: 'e2', workUnitId: 'wu-a', kind: 'review-dispatch', idempotencyKey: 'k2', trigger: 'automatic', status: 'queued', attempts: 1, maxAttempts: 3, createdAt: at, updatedAt: at },
+    ];
+    input.snapshots[0].effectReceipts = [
+      { id: 'r1', effectId: 'e1', idempotencyKey: 'k1', outcome: 'succeeded', at, attempts: 1, recovery: 'running-reconciled', result: { duplicatePrevented: true } },
+      { id: 'r2', effectId: 'e2', idempotencyKey: 'k2', outcome: 'retrying', at, attempts: 1, recovery: 'queued-restarted' },
+      { id: 'r3', effectId: 'e2', idempotencyKey: 'k2', outcome: 'cancelled', at, attempts: 1, recovery: 'revocation' },
+    ];
+    input.snapshots[1].effects = [
+      { id: 'e3', workUnitId: 'wu-b', kind: 'review-dispatch', idempotencyKey: 'k3', trigger: 'automatic', status: 'failed', attempts: 3, maxAttempts: 3, createdAt: at, updatedAt: at },
+      { id: 'e4', workUnitId: 'wu-b', kind: 'review-dispatch', idempotencyKey: 'k4', trigger: 'automatic', status: 'needs_reconciliation', attempts: 1, maxAttempts: 3, createdAt: at, updatedAt: at },
+    ];
+
+    const m = aggregateOverview(input);
+    expect(m.effects.byStatus).toEqual({ succeeded: 1, queued: 1, failed: 1, needs_reconciliation: 1 });
+    expect(m.effects.receiptsByOutcome).toEqual({ succeeded: 1, retrying: 1, cancelled: 1 });
+    expect(m.effects.recoveryChecks).toBe(2);
+    expect(m.effects.duplicatesPrevented).toBe(1);
+  });
+
+  it('#716: 知识提取与蒸馏的失败、retry-after 和 stale-running 进入只读投影', () => {
+    const input = makeInput();
+    input.snapshots[0].effects = [
+      { id: 'ke-retry', workUnitId: 'wu-a', kind: 'knowledge-extraction', idempotencyKey: 'ke1', trigger: 'automatic', status: 'queued', attempts: 1, maxAttempts: 3, createdAt: iso(T - 2 * H), updatedAt: iso(T - H), nextAttemptAt: iso(T + H), lastError: 'model down' },
+      { id: 'ke-stuck', workUnitId: 'wu-a', kind: 'knowledge-extraction', idempotencyKey: 'ke2', trigger: 'automatic', status: 'running', attempts: 2, maxAttempts: 3, createdAt: iso(T - 3 * H), updatedAt: iso(T - 2 * H) },
+    ];
+    input.distillRuns = [
+      { id: 'dr-failed', proposalId: 'p1', executedAt: iso(T - H), outcome: 'failed', signals: { topicTags: [], manualCount: 0 }, materialIds: [], productIds: [], attempts: 3, lastError: 'store down' },
+      { id: 'dr-stuck', proposalId: 'p2', executedAt: iso(T - 2 * H), outcome: 'running', signals: { topicTags: [], manualCount: 0 }, materialIds: [], productIds: [], attempts: 1 },
+      { id: 'dr-card', proposalId: 'p3', executedAt: iso(T - H), outcome: 'retry-after', signals: { topicTags: [], manualCount: 0 }, materialIds: [], productIds: [], attempts: 1, lastError: 'landing-card-failed:sp-card' },
+    ];
+
+    const m = aggregateOverview(input);
+    expect(m.knowledgePublishing.byState).toEqual({
+      'knowledge-extraction:retry-after': 1,
+      'knowledge-extraction:running': 1,
+      'distill:failed': 1,
+      'distill:running': 1,
+      'distill:retry-after': 1,
+    });
+    expect(m.knowledgePublishing.failed).toBe(1);
+    expect(m.knowledgePublishing.retryAfter).toBe(2);
+    expect(m.knowledgePublishing.staleRunning).toBe(2);
+    expect(m.knowledgePublishing.cardFailed).toBe(1);
+    expect(m.knowledgePublishing.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'ke-retry', kind: 'knowledge-extraction', state: 'retry-after', workUnitId: 'wu-a' }),
+      expect.objectContaining({ id: 'dr-failed', kind: 'distill', state: 'failed', lastError: 'store down' }),
+    ]));
+  });
+
+  // assignee-resolver 口径修复钉板：未认领指名 WU（assigneeId = profile id，无实例 state）
+  // 此前 instanceToProfile map 查找 miss → 静默归因为 null；修复后按 profile id 直通归因
+  it('未认领指名 WU（assigneeId=profile id）：角色完成数与 token 按 profile 归因', () => {
+    const input = makeInput();
+    input.snapshots.push(makeWu({
+      id: 'wu-f', status: 'done', assigneeId: 'dev', // profile-id 形态，无对应实例
+      createdAt: iso(T - 2 * D), claimedAt: iso(T - 2 * D), completedAt: iso(T - 1 * D), updatedAt: iso(T - 1 * D),
+    }));
+    input.events.push({
+      type: 'workunit:tokens', source: 'agent-loop',
+      payload: JSON.stringify({ workUnitId: 'wu-f', injectedTokens: 10, executionTokens: 90, totalTokens: 100 }),
+      createdAt: iso(T - 1 * D),
+    });
+
+    const m = aggregateOverview(input);
+    const dev = m.roles.roles.find(r => r.profileId === 'dev')!;
+    expect(dev.completions).toBe(2);       // wu-a + wu-f（修复前 wu-f 丢失）
+    const devTokens = m.tokens.byRole.find(r => r.profileId === 'dev')!;
+    expect(devTokens.totalTokens).toBe(1100); // 1000(wu-a) + 100(wu-f)
+    expect(devTokens.workUnits).toBe(2);
+  });
+
+  it('claimed 事件携带 profile-id 形态 assigneeId 也计入角色接单数', () => {
+    const input = makeInput();
+    input.snapshots.push(makeWu({
+      id: 'wu-g', status: 'active', assigneeId: 'reviewer',
+      createdAt: iso(T - 2 * D), claimedAt: iso(T - 2 * D), updatedAt: iso(T - 1 * D),
+    }));
+    input.wuEvents.push({ type: 'claimed', wuId: 'wu-g', timestamp: iso(T - 2 * D), data: { assigneeId: 'reviewer' } });
+
+    const m = aggregateOverview(input);
+    const reviewer = m.roles.roles.find(r => r.profileId === 'reviewer')!;
+    expect(reviewer.claims).toBe(2);       // wu-b + wu-g（修复前 wu-g 丢失）
+  });
+
+  it('全空输入 → source=insufficient-data，比率型指标 null（不编造）', () => {
+    const m = aggregateOverview({
+      snapshots: [], wuEvents: [], events: [], humanMessages: [],
+      resolveAssigneeProfile: buildAssigneeProfileResolver({ states: [], profileIds: new Set() }),
+      profileNames: new Map(), now: T, windowDays: 7,
+    });
+    expect(m.source).toBe('insufficient-data');
+    expect(m.intake.conversionPct).toBeNull();
+    expect(m.humanIntervention.avgPerCompletedWu).toBeNull();
+    expect(m.cycleTime.createToDone.p50Hours).toBeNull();
+    expect(m.quality.verifyPassRatePct).toBeNull();
+    expect(m.tokens.cacheHitRatePct).toBeNull();
+    expect(m.alerts.last24h).toBe(0);
+  });
+
+  it('窗口外事件不计入（windowDays=1 时 7 天前数据全部排除）', () => {
+    const input = makeInput();
+    input.windowDays = 1;
+    const m = aggregateOverview(input);
+    // 窗口 = T-1d ~ T：只有 wu-a completed (T-1d 边界) 与 T-1h 告警等
+    expect(m.tokens.totals.executionTokens).toBe(900); // wu-b T-2d 被排除
+    expect(m.alerts.inWindow).toBe(1);                 // 只剩 T-1h
+  });
+
+  it('每个指标组都带 description（大白话）', () => {
+    const m = aggregateOverview(makeInput());
+    for (const group of [m.taskFlow, m.intake, m.humanIntervention, m.cycleTime, m.roles, m.quality, m.tokens, m.alerts, m.stuck, m.failure24h]) {
+      expect(typeof group.description).toBe('string');
+      expect(group.description.length).toBeGreaterThan(10);
+    }
+  });
+});
+
+describe('aggregateOverview — #456 行动面计数（stuck + failure24h，NeedsAttentionSection 服务端单源）', () => {
+  it('stuck：blocked 总数 / 待领取滞留（>2h，POOL_STAGNATION_WARN_MS）/ 执行中停滞（租约过期）', () => {
+    const input = makeInput();
+    // makeInput 自带：wu-c active（timeoutAt null → 不停滞）、wu-d blocked、wu-e unassigned 10 天（滞留）
+    input.snapshots.push(
+      makeWu({ id: 'wu-s1', status: 'blocked', createdAt: iso(T - 1 * D), updatedAt: iso(T - 1 * H) }),
+      makeWu({ id: 'wu-s2', status: 'unassigned', createdAt: iso(T - 1 * H), updatedAt: iso(T - 1 * H) }), // 仅 1h → 不滞留
+      makeWu({ id: 'wu-s3', status: 'active', timeoutAt: iso(T - 5 * 60_000), createdAt: iso(T - 1 * D), updatedAt: iso(T - 1 * H) }), // 租约已过期
+      makeWu({ id: 'wu-s4', status: 'active', timeoutAt: iso(T + 5 * 60_000), createdAt: iso(T - 1 * D), updatedAt: iso(T - 1 * H) }), // 租约未过期
+    );
+    const m = aggregateOverview(input);
+    expect(m.stuck.blocked).toBe(2);         // wu-d + wu-s1
+    expect(m.stuck.staleUnassigned).toBe(1); // wu-e（wu-s2 未超阈值）
+    expect(m.stuck.stalledActive).toBe(1);   // wu-s3（wu-c 无租约、wu-s4 未过期）
+  });
+
+  it('failure24h：失败步+失败终态计数 / 失败率 / 与前 24h 比趋势 / 48h 外不计', () => {
+    const input = makeInput();
+    input.events = [
+      // 近 24h：1 失败步 + 3 成功步（含 1 条缺 status 的历史事件按 success 计，#172）+ 1 WU 失败终态
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'failed' }), createdAt: iso(T - 1 * H) },
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'success' }), createdAt: iso(T - 2 * H) },
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'success' }), createdAt: iso(T - 3 * H) },
+      { type: 'workunit:execution_step', payload: JSON.stringify({}), createdAt: iso(T - 4 * H) },
+      { type: 'workunit:failed', createdAt: iso(T - 5 * H) },
+      // 前 24h（24~48h）：1 失败步 + 1 成功步 → rate 0.5
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'failed' }), createdAt: iso(T - 30 * H) },
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'success' }), createdAt: iso(T - 36 * H) },
+      // 48h 外一律不计（前端旧口径有 since=48h 过滤，服务端须自带下限）
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'failed' }), createdAt: iso(T - 72 * H) },
+      { type: 'workunit:failed', createdAt: iso(T - 72 * H) },
+    ];
+    const m = aggregateOverview(input);
+    expect(m.failure24h.n).toBe(2);          // 1 失败步 + 1 WU 失败终态
+    expect(m.failure24h.rate).toBe(0.4);     // 2 / (2 + 3 成功步)
+    expect(m.failure24h.trend).toBe('down'); // 0.4 < 0.5
+  });
+
+  it('failure24h：步事件缺 createdAt 回退 payload.at；窗口无执行样本 rate/trend = null（不编造）', () => {
+    const input = makeInput();
+    input.events = [
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'failed', at: iso(T - 2 * H) }) },
+    ];
+    const m = aggregateOverview(input);
+    expect(m.failure24h.n).toBe(1);
+    expect(m.failure24h.rate).toBe(1);
+
+    const empty = aggregateOverview({ ...makeInput(), events: [] });
+    expect(empty.failure24h.n).toBe(0);
+    expect(empty.failure24h.rate).toBeNull();
+    expect(empty.failure24h.trend).toBeNull();
+  });
+});
+
+// ─── MetricsService：文件注入 + 60s 缓存 ───
+
+describe('MetricsService', () => {
+  let dir: string;
+  let eventsFile: string;
+  let wuEventsFile: string;
+
+  const input = makeInput();
+
+  const fileStoreStub = {
+    getIndex: vi.fn(async () => input.snapshots),
+    readJsonl: vi.fn(async (fp: string) => {
+      const real = await import('node:fs/promises');
+      try {
+        return (await real.readFile(fp, 'utf-8')).split('\n').filter(l => l.trim())
+          .map(l => { try { return JSON.parse(l); } catch { return null; } })
+          .filter(Boolean);
+      } catch { return []; }
+    }),
+    queryAllMessages: vi.fn(async () => input.humanMessages),
+    withLock: vi.fn(async (_lock: string, fn: () => Promise<unknown>) => fn()),
+    readJsonUncached: vi.fn(async (file: string) => {
+      try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+    }),
+    writeJson: vi.fn(async (file: string, value: unknown) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(value), 'utf8');
+    }),
+    listStates: vi.fn(async () => [{ id: 'inst-1', roleId: 'dev' }, { id: 'inst-2', roleId: 'reviewer' }]),
+    listProfiles: vi.fn(async () => [{ id: 'dev', name: '开发' }, { id: 'reviewer', name: '评审' }]),
+  };
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'metrics-service-'));
+    eventsFile = path.join(dir, 'studio-events.jsonl');
+    wuEventsFile = path.join(dir, 'wu-events.jsonl');
+    fs.writeFileSync(eventsFile, input.events.map(r => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    fs.writeFileSync(wuEventsFile, input.wuEvents.map(r => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('从文件聚合出与纯函数一致的结果', async () => {
+    const svc = new MetricsService(fileStoreStub as never);
+    const m = await svc.getOverviewMetrics({ eventsFile, wuEventsFile, now: T });
+    expect(m.source).toBe('events');
+    expect(m.tokens.totals.executionTokens).toBe(1700);
+    expect(m.humanIntervention.avgPerCompletedWu).toBe(2);
+    expect(m.roles.roles.find(r => r.profileId === 'dev')?.profileName).toBe('开发');
+  });
+
+  it('#716: overview 从既有 runs.jsonl 装配蒸馏失败投影', async () => {
+    const distillDataDir = path.join(dir, 'distill');
+    fs.mkdirSync(distillDataDir, { recursive: true });
+    fs.writeFileSync(path.join(distillDataDir, 'runs.jsonl'), JSON.stringify({
+      id: 'dr-file', proposalId: 'p-file', executedAt: iso(T - H), outcome: 'failed',
+      signals: { topicTags: [], manualCount: 0 }, materialIds: [], productIds: [], attempts: 3, lastError: 'disk full',
+    }) + '\n');
+
+    const m = await new MetricsService(fileStoreStub as never).getOverviewMetrics({ eventsFile, wuEventsFile, distillDataDir, now: T });
+    expect(m.knowledgePublishing.failed).toBe(1);
+    expect(m.knowledgePublishing.items).toEqual([
+      expect.objectContaining({ id: 'dr-file', kind: 'distill', state: 'failed', lastError: 'disk full' }),
+    ]);
+  });
+
+  it('60s 缓存：窗口内第二次调用不重新扫文件；invalidateCache 后重扫', async () => {
+    const svc = new MetricsService(fileStoreStub as never);
+    const first = await svc.getOverviewMetrics({ eventsFile, wuEventsFile });
+    expect(fileStoreStub.getIndex).toHaveBeenCalledTimes(1);
+
+    const second = await svc.getOverviewMetrics({ eventsFile, wuEventsFile });
+    expect(second).toBe(first); // 缓存命中返回同一对象
+    expect(fileStoreStub.getIndex).toHaveBeenCalledTimes(1);
+
+    svc.invalidateCache();
+    await svc.getOverviewMetrics({ eventsFile, wuEventsFile });
+    expect(fileStoreStub.getIndex).toHaveBeenCalledTimes(2);
+  });
+
+  it('PERF-05：投影建立后冷/暖 overview 不再全量读 WU events 与 human messages', async () => {
+    await new MetricsService(fileStoreStub as never).getOverviewMetrics({ eventsFile, wuEventsFile });
+    vi.clearAllMocks();
+
+    const cold = new MetricsService(fileStoreStub as never);
+    await cold.getOverviewMetrics({ eventsFile, wuEventsFile });
+    await cold.getOverviewMetrics({ eventsFile, wuEventsFile });
+
+    // #716 新增的小体量蒸馏状态读口；WU events 与 human messages 仍由持久投影直读，不全量回放。
+    expect(fileStoreStub.readJsonl).toHaveBeenCalledTimes(1);
+    expect(fileStoreStub.readJsonl).toHaveBeenCalledWith(expect.stringMatching(/distill\/runs\.jsonl$/));
+    expect(fileStoreStub.queryAllMessages).not.toHaveBeenCalled();
+  });
+
+  it('PERF-05：并发 60s 缓存 miss 合并为一次加载', async () => {
+    const svc = new MetricsService(fileStoreStub as never);
+    await Promise.all([
+      svc.getOverviewMetrics({ eventsFile, wuEventsFile }),
+      svc.getOverviewMetrics({ eventsFile, wuEventsFile }),
+    ]);
+    expect(fileStoreStub.getIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('不同 windowDays 走不同缓存键', async () => {
+    const svc = new MetricsService(fileStoreStub as never);
+    await svc.getOverviewMetrics({ eventsFile, wuEventsFile, windowDays: 7 });
+    await svc.getOverviewMetrics({ eventsFile, wuEventsFile, windowDays: 30 });
+    expect(fileStoreStub.getIndex).toHaveBeenCalledTimes(2);
+
+    await svc.getOverviewMetrics({ eventsFile, wuEventsFile, windowDays: 7 });
+    expect(fileStoreStub.getIndex).toHaveBeenCalledTimes(2); // 7d 命中缓存
+  });
+
+  it('注入 now 时跳过缓存（测试/排障口径）', async () => {
+    const svc = new MetricsService(fileStoreStub as never);
+    await svc.getOverviewMetrics({ eventsFile, wuEventsFile, now: T });
+    await svc.getOverviewMetrics({ eventsFile, wuEventsFile, now: T });
+    expect(fileStoreStub.getIndex).toHaveBeenCalledTimes(2);
+  });
+
+  it('依赖全失败 → 空数据 insufficient-data，绝不抛出', async () => {
+    const svc = new MetricsService({
+      getIndex: vi.fn(async () => { throw new Error('x'); }),
+      readJsonl: vi.fn(async () => { throw new Error('x'); }),
+      queryAllMessages: vi.fn(async () => { throw new Error('x'); }),
+      listStates: vi.fn(async () => { throw new Error('x'); }),
+      listProfiles: vi.fn(async () => { throw new Error('x'); }),
+    } as never);
+    const m = await svc.getOverviewMetrics({ eventsFile: path.join(dir, 'none.jsonl'), wuEventsFile: path.join(dir, 'none2.jsonl') });
+    expect(m.source).toBe('insufficient-data');
+    expect(m.taskFlow.byStatus).toEqual({});
+  });
+
+  it('#456：windowDays=1 时事件读取窗口仍覆盖 48h（failure24h 前窗可算，趋势不为 null）', async () => {
+    fs.writeFileSync(eventsFile, [
+      // 近 24h 1 成功步（rate 0）；前 24h 1 失败步（rate 1）→ trend down
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'success' }), createdAt: iso(T - 2 * H) },
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'failed' }), createdAt: iso(T - 30 * H) },
+    ].map(r => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const svc = new MetricsService(fileStoreStub as never);
+    const m = await svc.getOverviewMetrics({ eventsFile, wuEventsFile, windowDays: 1, now: T });
+    // 读取窗口若未扩到 48h，T-30h 事件进不来 → trend 会是 null
+    expect(m.failure24h.rate).toBe(0);
+    expect(m.failure24h.trend).toBe('down');
+  });
+});
+
+describe('aggregateOverview — F6 证据台账（决策 1）', () => {
+  it('分层达成 / 自评 / 人类待办 / 双轨偏差 / 派生列分布', () => {
+    const input = makeInput();
+    // wu-a: done + l1/l2 approved（自评）→ engaged，needsHuman（缺 l3）
+    input.snapshots[0] = makeWu({
+      id: 'wu-a', status: 'done', assigneeId: 'inst-1',
+      createdAt: iso(T - 5 * D), claimedAt: iso(T - 4.5 * D), completedAt: iso(T - 1 * D), updatedAt: iso(T - 1 * D),
+      metadataObj: {
+        attestations: {
+          l1: { verdict: 'approved', by: 'dev', at: iso(T - 1 * D), kind: 'verify' },
+          l2: { verdict: 'approved', by: 'dev', at: iso(T - 1 * D), kind: 'agent-review', selfReview: true },
+        },
+      },
+    });
+    // wu-b: done + l2 + l3 → 派生列 done，双轨一致
+    input.snapshots[1] = makeWu({
+      id: 'wu-b', status: 'done', assigneeId: 'inst-2',
+      createdAt: iso(T - 6 * D), claimedAt: iso(T - 6 * D), completedAt: iso(T - 2 * D), updatedAt: iso(T - 2 * D),
+      metadataObj: {
+        attestations: {
+          l2: { verdict: 'approved', by: 'reviewer', at: iso(T - 2 * D), kind: 'agent-review' },
+          l3: { verdict: 'approved', by: 'Alice', at: iso(T - 2 * D), kind: 'human-confirm' },
+        },
+      },
+    });
+    // wu-d: blocked 无证据 → legacy 透传；wu-e: unassigned legacy
+
+    const m = aggregateOverview(input);
+    expect(m.evidence.engaged).toBe(2);
+    expect(m.evidence.l1Approved).toBe(1);
+    expect(m.evidence.l2Approved).toBe(2);
+    expect(m.evidence.l3Approved).toBe(1);
+    expect(m.evidence.selfReviewCount).toBe(1);
+    // needsHuman：wu-a（done 缺 l3）= 1
+    expect(m.evidence.needsHuman).toBe(1);
+    // 双轨偏差：wu-a 存储 done 但派生列 in_review = 1
+    expect(m.evidence.derivedMismatch).toBe(1);
+    expect(m.evidence.derivedByColumn).toEqual({ done: 1, in_review: 1, active: 1, blocked: 1, unassigned: 1 });
+    expect(m.evidence.description).toBeTruthy();
+  });
+
+  it('无证据快照 → 全 0 但派生列分布仍有值（双轨：存储即派生）', () => {
+    const m = aggregateOverview(makeInput());
+    expect(m.evidence.engaged).toBe(0);
+    expect(m.evidence.needsHuman).toBe(0);
+    expect(m.evidence.derivedMismatch).toBe(0);
+    expect(m.evidence.derivedByColumn).toEqual({ done: 2, active: 1, blocked: 1, unassigned: 1 });
+  });
+});
+
+describe('aggregateOverview — #703 merge receipt 监控', () => {
+  it('doneWithoutReceipt 只计 legacy done 代码 WU，不重复计 mergeDivergence', () => {
+    const input = makeInput();
+    input.snapshots = [
+      makeWu({ id: 'legacy', status: 'done', type: 'task', metadataObj: {} }),
+      makeWu({ id: 'closed', status: 'closed', type: 'task', metadataObj: {} }),
+      makeWu({ id: 'analysis', status: 'done', type: 'analysis', metadataObj: {} }),
+      makeWu({ id: 'accepted', status: 'done', type: 'task', metadataObj: {
+        mergeReceipt: {
+          id: 'm1', merged: true, mergeCommit: 'c0ffee', targetBranch: 'PMO-1',
+          verification: { status: 'passed', ran: ['pnpm test'] },
+        },
+      } }),
+    ];
+    const m = aggregateOverview(input);
+    expect(m.evidence.doneWithoutReceipt).toBe(1);
+    expect(m.evidence.mergeDivergence).toBe(0);
+  });
+
+  it('mergeDivergence 只计 metadata/receipt 自相矛盾；unavailable+L3 是接受态', () => {
+    const receipt = {
+      id: 'm1', merged: true, mergedAt: '2026-07-27T00:00:00Z',
+      mergeCommit: 'c0ffee', targetBranch: 'PMO-1',
+      verification: { status: 'passed', ran: ['pnpm test'] },
+    };
+    const input = makeInput();
+    input.snapshots = [
+      makeWu({ id: 'unaccepted', status: 'done', metadataObj: { mergeReceipt: { ...receipt, merged: false } } }),
+      makeWu({ id: 'failed', status: 'done', metadataObj: { mergeReceipt: { ...receipt, verification: { status: 'failed', ran: [] } } } }),
+      makeWu({ id: 'not-run', status: 'done', metadataObj: { mergeReceipt: { ...receipt, verification: { status: 'not-run', ran: [] } } } }),
+      makeWu({ id: 'no-target', status: 'done', metadataObj: { mergeReceipt: { ...receipt, targetBranch: '' } } }),
+      makeWu({ id: 'no-commit', status: 'active', metadataObj: { mergeReceipt: { ...receipt, mergeCommit: undefined } } }),
+      makeWu({ id: 'commit-conflict', status: 'active', metadataObj: { mergeCommit: 'old', mergeReceipt: receipt } }),
+      makeWu({ id: 'time-conflict', status: 'active', metadataObj: { mergedAt: '2026-07-26T00:00:00Z', mergeReceipt: receipt } }),
+      makeWu({ id: 'done-conflict', status: 'done', metadataObj: { mergeConflict: true, mergeReceipt: receipt } }),
+    ];
+    expect(aggregateOverview(input).evidence.mergeDivergence).toBe(input.snapshots.length);
+    expect(aggregateOverview(input).evidence.doneWithoutReceipt).toBe(0);
+
+    input.snapshots = [
+      makeWu({ id: 'not-done-rejected', status: 'active', metadataObj: { mergeReceipt: { ...receipt, merged: false } } }),
+      makeWu({ id: 'accepted-unavailable', status: 'done', metadataObj: {
+        mergeReceipt: { ...receipt, verification: { status: 'unavailable', ran: [] } },
+        attestations: { l3: { verdict: 'approved', by: 'Alice', at: iso(T), kind: 'human-confirm' } },
+      } }),
+      makeWu({ id: 'accepted-no-mirror', status: 'active', metadataObj: { mergeReceipt: receipt } }),
+    ];
+    expect(aggregateOverview(input).evidence.mergeDivergence).toBe(0);
+  });
+});

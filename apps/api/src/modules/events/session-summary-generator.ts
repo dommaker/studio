@@ -1,47 +1,32 @@
 /**
  * B9-015: SessionSummaryGenerator — server-side session aggregation
  *
- * Called after batch ingest of agent events.
+ * Watches real session:end writes and recovers unfinished sessions at startup.
  * Aggregates same-session events → session:summary with filesChanged, toolsUsed, patternType.
  */
 
-import { logger } from '@dommaker/studio-shared';
-import * as os from 'os';
-import * as path from 'path';
-import { skillStore } from '../skills/index.js';
-// #342：窗口读口（尾部倒读 + 窗口外早停）——两个事件读点切到此读口；
+import { eventBus } from '@dommaker/studio-shared';
+import type { SessionPatternType, SessionSummaryPayload } from '@dommaker/studio-shared';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+// #342：窗口读口（尾部倒读 + 窗口外早停）；
 // #654：file 缺省即 resolveStudioEventsFile()（调用时解析，认 STUDIO_EVENTS_FILE）
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
+import { logger } from '@dommaker/studio-shared/node';
 
-
-/** #342：事件读窗口 30d——session 跨度 ≪ 窗口；suggestSkillForPattern 本就按 30d 过滤 */
+/** #342：事件读窗口 30d——session 跨度 ≪ 窗口 */
 const EVENTS_WINDOW_MS = 30 * 86_400_000;
 
-type PatternType =
-  | 'ci_fix'
-  | 'pr_review'
-  | 'changelog'
-  | 'doc_update'
-  | 'release_prep'
-  | 'debug_session'
-  | 'test_triage'
-  | 'refactor'
-  | 'config_change'
-  | 'skill_creation'
-  | 'knowledge_curation'
-  | 'architecture'
-  | 'unknown';
-
-interface SessionSummary {
+/** generator 落盘形态：共享 payload 的必落字段收窄为必填 */
+interface SessionSummary extends SessionSummaryPayload {
   sessionId: string;
   agentId: string;
   filesChanged: string[];
   toolsUsed: string[];
-  patternType: PatternType;
+  patternType: SessionPatternType;
   eventCount: number;
-  durationMs?: number;
 }
 
 /**
@@ -50,9 +35,12 @@ interface SessionSummary {
  */
 export async function generateSessionSummary(sessionId: string): Promise<SessionSummary | null> {
   try {
-    // #342：窗口读 30d（挂在事件批量写入 HTTP 路径上，读成本必须与文件总量解耦）；
+    // #342：窗口读 30d，读成本与文件总量解耦；
     // sessionId 的 payload.includes 子串匹配仍在窗口行内进行
     const allEvents: any[] = await readStudioEventsSince({ sinceMs: Date.now() - EVENTS_WINDOW_MS });
+    if (allEvents.some((event) => event.type === 'session:summary' && readSessionId(event) === sessionId)) {
+      return null;
+    }
     const events = allEvents
       .filter((e: any) => e.payload && typeof e.payload === 'string' && e.payload.includes(sessionId))
       .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -134,10 +122,9 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
       toolsUsed: toolsUsed.length,
     });
 
-    // KE-001 Phase 5: suggest Skill for recurring patterns (fire-and-forget)
-    suggestSkillForPattern(patternType, toolsUsed).catch((err: unknown) => {
-      logger.warn('[SessionSummary] Skill suggestion failed', { patternType, error: String(err) });
-    });
+    // KE-001 Phase 5（#687 依赖倒置）：复发模式 Skill 建议归 skills 模块——
+    // 落盘后发布进程内事件，由 skills/session-pattern-suggest 订阅接进来（fire-and-forget）
+    eventBus.publish('session:summary', { patternType, toolsUsed });
 
     return summary;
   } catch (e: unknown) {
@@ -146,11 +133,83 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
   }
 }
 
+function readSessionId(event: any): string | null {
+  if (typeof event.payload !== 'string') return null;
+  try {
+    const payload = JSON.parse(event.payload);
+    return typeof payload.sessionId === 'string' && payload.sessionId ? payload.sessionId : null;
+  } catch {
+    return null;
+  }
+}
+
+async function runRecovery(): Promise<void> {
+  try {
+    const events: any[] = await readStudioEventsSince({ sinceMs: Date.now() - EVENTS_WINDOW_MS });
+    const completed = new Set(
+      events.filter((event) => event.type === 'session:summary').map(readSessionId).filter(Boolean),
+    );
+    const ended = new Set(
+      events.filter((event) => event.type === 'session:end').map(readSessionId).filter(Boolean),
+    );
+    for (const sessionId of ended) {
+      if (!completed.has(sessionId)) await generateSessionSummary(sessionId as string);
+    }
+  } catch (e: unknown) {
+    logger.warn('[SessionSummary] Recovery failed', { error: String(e) });
+  }
+}
+
+let recoveryQueue: Promise<void> = Promise.resolve();
+
+/** Recover completed sessions after restart; only persisted summaries suppress retries. */
+export function recoverSessionSummaries(): Promise<void> {
+  recoveryQueue = recoveryQueue.then(runRecovery, runRecovery);
+  return recoveryQueue;
+}
+
+let activeStop: (() => void) | undefined;
+
+/** Watch the real StudioEvent file so direct studio-agent writes trigger the same recovery path. */
+export function initSessionSummaryGenerator(): () => void {
+  if (activeStop) return activeStop;
+
+  const eventsFile = resolveStudioEventsFile();
+  const directory = path.dirname(eventsFile);
+  const basename = path.basename(eventsFile);
+  fs.mkdirSync(directory, { recursive: true });
+
+  let stopped = false;
+  let timer: NodeJS.Timeout | undefined;
+  const scheduleRecovery = () => {
+    if (stopped) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { void recoverSessionSummaries(); }, 50);
+    timer.unref();
+  };
+  const watcher = fs.watch(directory, { persistent: false }, (_eventType, filename) => {
+    if (!filename || filename.toString() === basename) scheduleRecovery();
+  });
+  watcher.on('error', (error) => {
+    logger.warn('[SessionSummary] Event watch failed', { error: String(error) });
+  });
+
+  const stop = () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    watcher.close();
+    if (activeStop === stop) activeStop = undefined;
+  };
+  activeStop = stop;
+  void recoverSessionSummaries();
+  return stop;
+}
+
 /**
  * D3: Pattern type classification — pure rules, no LLM.
- * File paths + tool sequences + agentId → PatternType.
+ * File paths + tool sequences + agentId → SessionPatternType.
  */
-function classifyPattern(files: string[], tools: string[], _agentId: string): PatternType {
+function classifyPattern(files: string[], tools: string[], _agentId: string): SessionPatternType {
   const fileSet = new Set(files);
   const toolSet = new Set(tools);
 
@@ -210,48 +269,4 @@ function classifyPattern(files: string[], tools: string[], _agentId: string): Pa
   }
 
   return 'unknown';
-}
-
-/**
- * KE-001 Phase 5: Suggest Skill for recurring patterns.
- * If a patternType appears 3+ times and has no matching Skill, create a proposal.
- */
-async function suggestSkillForPattern(patternType: PatternType, toolsUsed: string[]): Promise<void> {
-  if (patternType === 'unknown') return;
-
-  // Count recent sessions of this pattern type
-  // #342：窗口读 30d（与下方 createdAt >= now-30d 过滤同口径）
-  const allSummariesEvents: any[] = await readStudioEventsSince({ sinceMs: Date.now() - EVENTS_WINDOW_MS });
-  const recentSummaries = allSummariesEvents.filter((e: any) =>
-    e.type === 'session:summary' &&
-    typeof e.payload === 'string' && e.payload.includes(`"patternType":"${patternType}"`) &&
-    new Date(e.createdAt).getTime() >= Date.now() - 30 * 24 * 60 * 60 * 1000
-  ).length;
-
-  if (recentSummaries < 3) return; // Not recurring enough
-
-  // Check if a Skill already exists for this pattern
-  const byCategory = skillStore.findFirst({ companyId: 'system', category: patternType });
-  const byName = skillStore.findFirst({ companyId: 'system', name: { contains: patternType } });
-  const existingSource = (byCategory || byName);
-  if (existingSource && ['proposal', 'extraction', 'builtin'].includes(existingSource.source)) return; // Already has a Skill
-
-  // Create proposal
-  skillStore.create({
-    companyId: 'system',
-    name: `Pattern: ${patternType}`.slice(0, 100),
-    source: 'proposal',
-    status: 'draft',
-    category: patternType,
-    description: `Recurring pattern "${patternType}" detected (${recentSummaries} sessions in 30d). Tools: ${toolsUsed.join(', ')}`,
-    tools: JSON.stringify(toolsUsed),
-    metadata: JSON.stringify({
-      autoGenerated: true,
-      patternType,
-      sessionCount: recentSummaries,
-      trigger: 'session-summary',
-    }),
-  });
-
-  logger.info('[SessionSummary] Skill proposal for recurring pattern', { patternType, sessionCount: recentSummaries });
 }

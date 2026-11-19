@@ -1,12 +1,12 @@
 /**
  * knowledge-singletons — 知识子系统共享单例的唯一所有者 (R4 收敛, 断点 H)
  *
- * #343：sharedStore 已包 MtimeMemoKnowledgeStore（mtime 校验聚合 memo，
+ * #343 / PERF-04：sharedStore 已包 MtimeMemoKnowledgeStore（manifest generation 聚合 memo，
  * 缓存 seam ADR「外部包存储栈」条款）；原 @deprecated KnowledgeBus 兼容壳
  * （knowledge-bus.service.ts）已删除，消费者直连本模块。
  * 本模块接管所有权：
  *   - 统一存储路径 UNIFIED_KNOWLEDGE_DIR（运行时知识库唯一 = ~/.studio/knowledge）
- *   - sharedStore / sharedLifecycle / sharedIngest / sharedQuery / sharedInjector / sharedLinter
+ *   - sharedStore / sharedLifecycle / sharedIngest / sharedQuery / sharedInjector
  *   - 消费事件链（recordReference → knowledge:consumption 事件）
  *   - scheduleVectorDbSync（向量库同步：flock 单写者 + 700M 内存帽 + 指数退避）
  *   - ingestWithQualityGate — 全系统唯一的 recordPattern 质量门（R4 收敛：
@@ -17,20 +17,25 @@
  * 不得 import 任何 studio 业务模块（防止循环依赖）。
  */
 
-import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
-import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
+import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery } from '@dommaker/harness';
+import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeStore, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
+import type { LearningMetadata } from './learning-metadata.js';
+import { withLearningMetadata } from './learning-metadata.js';
 import { KnowledgeInjector } from './knowledge-injector.js';
-import { logger, eventBus } from '@dommaker/studio-shared';
+import { eventBus } from '@dommaker/studio-shared';
 import { wrapWithSegmentSpan } from '@dommaker/studio-shared/read-metrics';
+// #665（ADR 2026-08-24 落地）：knowledge.entry_changed SSE 负载与 studio-contract 同源
+// （import type 编译期擦除，不入运行时依赖图，与本文件头依赖纪律不冲突）
+import type { KnowledgeEntryChangedPayload } from '@dommaker/studio-contract';
 import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { MtimeMemoKnowledgeStore } from './knowledge-store-memo.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 // #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
 
@@ -49,15 +54,15 @@ try {
 } catch { /* no orphans — good */ }
 
 // Singleton store + lifecycle + ingest — shared by all knowledge consumers
-// #343：sharedStore 包 mtime 校验聚合 memo（缓存 seam ADR「外部包存储栈」条款）。
+// #343 / PERF-04：sharedStore 包 manifest generation 聚合 memo（缓存 seam ADR「外部包存储栈」条款）。
 // 底层 FileKnowledgeStore 的 list() = readIndex + 逐条目 readFileSync（N+1 同步读），
 // injectContext 每执行步四连扫（queryEntries×2 + getIndexes + count）；memo 后
-// 稳态每步读口 = 4 次 memo 查（readdir+stat 指纹校验，无文件重读），本进程写穿透失效。
+// 稳态每步读口 = 4 次 memo 查 + 4 次单点 index.json stat（无目录扫描/文件重读）。
 //
 // #411：harness 段计时（bench 分段归因 读口/harness/exec/其他）——调用侧包装，harness 包
 // 本体不动。包装点 = 装配层的 rawKnowledgeStore（memo 之下，仅写方法 + 直通方法）+ 五个
 // facade 单例方法面；嵌套（facade 内 store 调用）只记顶层，且 span 上报自耗时（扣除嵌套
-// 读口）。sink 关闭（默认）时仅多一层直调，行为零变化。注意 memo 自身开销（指纹
+// 读口）。sink 关闭（默认）时仅多一层直调，行为零变化。注意 memo 自身开销（manifest
 // stat/clone）与其 miss 穿透的磁读都已在读口 knowledgeRead 事件内，故不包 memo 实例、
 // 也不包 raw store 的 get/list/readIndex——避免与读口段双重计入（详见测试锁定的口径）。
 const HARNESS_SPAN_STORE_METHODS = [
@@ -76,7 +81,6 @@ const HARNESS_SPAN_LIFECYCLE_METHODS = [
 const HARNESS_SPAN_INGEST_METHODS = ['ingestEntry', 'ingestBatch', 'ingestExternal'] as const;
 const HARNESS_SPAN_QUERY_METHODS = ['query', 'search', 'queryByMode', 'consume'] as const;
 const HARNESS_SPAN_INJECTOR_METHODS = ['inject'] as const;
-const HARNESS_SPAN_LINTER_METHODS = ['run'] as const;
 
 const rawKnowledgeStore = wrapWithSegmentSpan(
   new FileKnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR }),
@@ -85,9 +89,9 @@ const rawKnowledgeStore = wrapWithSegmentSpan(
 );
 export const sharedStore = new MtimeMemoKnowledgeStore(rawKnowledgeStore);
 export const sharedLifecycle = wrapWithSegmentSpan(
-  new KnowledgeLifecycle(sharedStore, {
-    autoPromoteSources: ['triage', 'auditor', 'evolution', 'analyst'],
-  }),
+  // harness 3.0.0（ADR-0041）：shouldAutoPromote/autoPromoteSources 死面出清（AS-021 起生产调用已拆），
+  // DecayConfig 仅余衰减字段，无 studio 侧覆写需求 → 构造缺省配置。
+  new KnowledgeLifecycle(sharedStore),
   'KnowledgeLifecycle',
   HARNESS_SPAN_LIFECYCLE_METHODS,
 );
@@ -108,12 +112,9 @@ export const sharedInjector = wrapWithSegmentSpan(
   'KnowledgeInjector',
   HARNESS_SPAN_INJECTOR_METHODS,
 );
-// GAP-01: shared linter for ingest validation
-export const sharedLinter = wrapWithSegmentSpan(
-  new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore)),
-  'KnowledgeLinter',
-  HARNESS_SPAN_LINTER_METHODS,
-);
+// GAP-01: 摄入前校验保种落点 = KnowledgeIngest.validateEntry（harness 3.0.0 随
+// KnowledgeLinter/ReferenceTracker 出清删除，原 sharedLinter 装配整体移除；
+// 消费方见 conversation-extractor.ts）。
 
 // D6 flywheel: emit consumption events on every recordReference() call
 // (same-day dedup already handled by lifecycle, so max 1 event per contributor per entry per day)
@@ -341,6 +342,7 @@ export interface QualityGateIngestInput {
    * 显式声明 origin:'agent'。
    */
   origin?: KnowledgeOrigin;
+  learning?: LearningMetadata;
 }
 
 /**
@@ -357,7 +359,7 @@ export interface QualityGateIngestInput {
  * 返回保存的条目；被任一门禁跳过时返回 null。
  */
 export function ingestWithQualityGate(
-  deps: { ingest: KnowledgeIngest },
+  deps: { ingest: KnowledgeIngest; store?: KnowledgeStore },
   input: QualityGateIngestInput,
 ): KnowledgeEntry | null {
   const entryType = input.entryType ?? input.type;
@@ -394,6 +396,15 @@ export function ingestWithQualityGate(
     return null;
   }
 
+  if (input.learning && deps.store) {
+    const refs = saved.entry.sourceReferences ?? [];
+    if (refs.length > 0) {
+      deps.store.update(saved.entry.id, {
+        sourceReferences: [withLearningMetadata({ ...refs[0] }, input.learning), ...refs.slice(1)],
+      });
+    }
+  }
+
   // 3. 成功：同步向量库 + entry_created 事件 + SSE 广播
   scheduleVectorDbSync();
   appendKnowledgeEvent('knowledge:entry_created', { entryType, title: input.title });
@@ -415,7 +426,7 @@ export function appendKnowledgeEvent(type: string, payload: Record<string, unkno
 
 // ── 知识条目变更 SSE 广播（2026-09 web-ux-optional-fixes Step 2） ──
 
-export type KnowledgeEntryChangeAction = 'created' | 'promoted' | 'demoted';
+export type KnowledgeEntryChangeAction = 'created' | 'updated' | 'promoted' | 'demoted';
 
 /**
  * 知识条目创建/成熟度变更 → SSE 广播（event_type: knowledge.entry_changed，
@@ -432,7 +443,7 @@ export function publishKnowledgeEntryChanged(
     eventBus.publish('events', {
       event_type: 'knowledge.entry_changed',
       timestamp: new Date().toISOString(),
-      data: { action, ...info },
+      data: { action, ...info } satisfies KnowledgeEntryChangedPayload,
     });
   } catch (e: any) {
     logger.warn('[Knowledge] entry_changed SSE publish failed', { error: String(e) });

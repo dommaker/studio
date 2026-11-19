@@ -55,6 +55,11 @@ vi.mock('@dommaker/studio-skill', () => ({
   },
 }));
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -63,7 +68,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-const { WorkUnitService } = await import('../../workunit/workunit.service.js');
+const { WorkUnitService } = await import('../../workunit/workunit-review.js');
 const { invalidateManifestCache } = await import('../manifest-loader.js');
 
 describe('AC4 → 决策 7: claim 基础行为（skill 匹配已挪到 step 时）', () => {
@@ -82,7 +87,7 @@ describe('AC4 → 决策 7: claim 基础行为（skill 匹配已挪到 step 时�
       id: 'wu-1', status: 'unassigned', scope: '分析需求：用户认证',
       parentId: null, type: 'task', assigneeId: null, failureType: null,
       retryCount: 0, timeoutAt: null, channelId: null, projectPath: null,
-      metadata: null, claimedAt: null, completedAt: null,
+      metadata: null, mandate: { policyVersion: '1' }, claimedAt: null, completedAt: null,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     };
     const claimedSnapshot = {
@@ -109,7 +114,7 @@ describe('AC4 → 决策 7: claim 基础行为（skill 匹配已挪到 step 时�
       id: 'wu-2', status: 'unassigned', scope: '完全无关的 scope 内容',
       parentId: null, type: 'task', assigneeId: null, failureType: null,
       retryCount: 0, timeoutAt: null, channelId: null, projectPath: null,
-      metadata: null, claimedAt: null, completedAt: null,
+      metadata: null, mandate: { policyVersion: '1' }, claimedAt: null, completedAt: null,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     };
     let getIndexCalls = 0;
@@ -131,7 +136,7 @@ describe('AC4 → 决策 7: claim 基础行为（skill 匹配已挪到 step 时�
         id: 'wu-3', status: 'unassigned', scope: 'test',
         parentId: null, type: 'task', assigneeId: null, failureType: null,
         retryCount: 0, timeoutAt: null, channelId: null, projectPath: null,
-        metadata: null, claimedAt: null, completedAt: null,
+        metadata: null, mandate: { policyVersion: '1' }, claimedAt: null, completedAt: null,
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       },
     ]);

@@ -5,14 +5,15 @@
  * and LLM-based suggestions for task creation (AC-E2，走 SystemExecutor /
  * studio 角色绑定的 CLI；角色未配置或调用失败时 suggest 返回空建议，非阻断).
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore, parseChannels, type MandatePrincipal } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/index.js';
 import type { WorkUnitData } from '../workunit/index.js';
-import { ChannelMessageService, channelMessageService } from './channel-message.service.js';
-import { resolveReqIdForDispatch } from '../requirements/index.js';
-// P2-c 拆环：getSystemExecutor 转函数内动态 import（channels→agents 静态边清零）
+import { ChannelMessageService, getChannelMessageService, type MessageMeta } from './channel-message.service.js';
+import { buildOwnershipMetadata, postOwnershipQuestion } from './wu-dispatch.js';
+import { resolveReqIdForDispatch, resolveWorkspaceForWU } from '../requirements/index.js';
+import { getSystemExecutor } from '../agents/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface ConvertInput {
   title?: string;
@@ -20,6 +21,7 @@ export interface ConvertInput {
   assigneeId?: string;
   projectPath?: string;
   reqId?: string | null;        // REQ 需求编号（显式指定；缺省走 token/自动新建）
+  requestedBy?: MandatePrincipal; // 服务端路由注入，非消息元数据
 }
 
 export interface ConvertSuggestion {
@@ -39,7 +41,7 @@ export class ConvertToTaskService {
     this.workUnitService = new WorkUnitService(this.fileStore);
     // #333：关联 WU 走 ChannelMessageService 统一更新路径（自带 channel.message_updated 双发）；
     // 注入口径：可注入；缺省 fileStore 新建 ChannelMessageService，无 fileStore 用单例
-    this.messageService = messageService ?? (fileStore ? new ChannelMessageService(fileStore) : channelMessageService);
+    this.messageService = messageService ?? (fileStore ? new ChannelMessageService(fileStore) : getChannelMessageService());
   }
 
   /**
@@ -55,6 +57,13 @@ export class ConvertToTaskService {
     if (found.message.workUnitId) {
       throw new Error(`Message already has WorkUnit ${found.message.workUnitId}`);
     }
+    if (input.assigneeId) {
+      const channel = await this.fileStore.getChannel(channelId);
+      const memberIds = parseChannels(channel?.members);
+      if (!memberIds.includes(input.assigneeId)) {
+        throw new Error(`Assignee ${input.assigneeId} is not a channel member`);
+      }
+    }
 
     // 2. Create WorkUnit via WorkUnitService (FileStore)
     // REQ 需求编号（vision §5.3）：显式 > 原消息 #REQ-XXXX token > 自动新建（best-effort）
@@ -68,28 +77,51 @@ export class ConvertToTaskService {
       logger.warn('[ConvertToTask] REQ binding failed (non-blocking)', { error: String(err) });
       return null;
     });
+    // #700：与 mention/new-task 共用同一 REQ/#PMO 别名及工程归属链；显式 projectPath 优先。
+    let messageMeta: MessageMeta = {};
+    try {
+      messageMeta = typeof found.message.meta === 'string'
+        ? JSON.parse(found.message.meta) as MessageMeta
+        : found.message.meta ?? {};
+    } catch { /* 畸形 meta 按无文件引用处理 */ }
+    const ownership = await resolveWorkspaceForWU({
+      explicitWorkspaceRoot: input.projectPath,
+      reqId,
+      channelId,
+      fileRefs: messageMeta.files,
+      fileStore: this.fileStore,
+    }).catch(err => {
+      logger.warn('[ConvertToTask] Ownership resolution failed, continuing without attribution', { error: String(err) });
+      return null;
+    });
+    const parked = ownership?.source === 'none';
     const workUnit = await this.workUnitService.create({
       scope: input.title || found.message.content.slice(0, 500),
       channelId,
       type: 'task',
-      // L1（2026-07-28）：有 assigneeId 也建 unassigned——UI 传的是 profile.id（指名语义，
-      // §1.2-b），由被指名 profile 的 loop 认领（与 @mention/委派口径一致）。
-      // 直接建 active + assigneeId=profile.id 是卡死态：myActive 按 instance.id 续跑查询、
-      // 认领过滤要求 unassigned，两边都看不到该 WU（同 d7bd1e8 修过的 ownership resume）。
-      status: 'unassigned',
-      assigneeId: input.assigneeId ?? null,
+      // L1（2026-07-28）：有归属且有 assigneeId 也建 unassigned——UI 传的是 profile.id
+      // （指名语义），由被指名 profile 的 loop 认领；无归属时与频道建单同样挂起澄清。
+      status: parked ? 'blocked' : 'unassigned',
+      assigneeId: input.assigneeId ?? undefined,
       projectPath: input.projectPath ?? null,
       reqId,
+      authorization: input.requestedBy ? {
+        requestedBy: input.requestedBy,
+        source: { kind: 'channel', channelId, messageId },
+      } : undefined,
       metadata: {
         creationMode: 'convert',
         originalMessageId: messageId,
+        anchorMessageId: messageId,
         description: input.description,
+        ...buildOwnershipMetadata(ownership, parked),
       },
     });
 
     // 3. Link message to WorkUnit —— #333：经 ChannelMessageService 统一更新路径
     // （append 新版保留原 createdAt，自带 eventBus + SSE channel.message_updated 双发）
     await this.messageService.linkWorkUnit(messageId, workUnit.id, channelId);
+    if (parked) await postOwnershipQuestion(workUnit, messageId, this.fileStore);
 
     return workUnit;
   }
@@ -99,8 +131,8 @@ export class ConvertToTaskService {
    * Returns empty suggestion on failure (non-blocking).
    */
   async suggest(
+    channelId: string,
     messageContent: string,
-    agents: Array<{ id: string; name: string; description?: string }>,
     projects: Array<{ name: string; path: string }>,
   ): Promise<ConvertSuggestion> {
     if (!messageContent || !messageContent.trim()) {
@@ -108,8 +140,16 @@ export class ConvertToTaskService {
     }
 
     try {
-      const result = await this.callLLM(messageContent, agents, projects);
-      return result;
+      // 只把显式 active 频道成员提供给 LLM；空频道候选为空（#699）
+      const [profiles, channel] = await Promise.all([
+        this.fileStore.listProfiles({ status: 'active' }),
+        this.fileStore.getChannel(channelId),
+      ]);
+      const memberIds = parseChannels(channel?.members);
+      const agents = profiles
+        .filter(p => memberIds.includes(p.id))
+        .map(p => ({ id: p.id, name: p.name, description: p.description ?? undefined }));
+      return await this.callLLM(messageContent, agents, projects);
     } catch (error) {
       logger.warn('[ConvertToTask] LLM suggestion failed (non-blocking)', { error: String(error) });
       return {};
@@ -140,7 +180,6 @@ ${projectList || '(none)'}
 Return JSON only: {"title":"...","description":"...","suggestedAssigneeId":"...","suggestedProjectPath":"..."}`;
 
     // LLM 调用走 SystemExecutor（studio 角色绑定的 CLI）；角色未配置/失败由 suggest() 兜空
-    const { getSystemExecutor } = await import('../agents/index.js');
     const parsed = await getSystemExecutor().runJson<{
       title?: string;
       description?: string;

@@ -8,7 +8,7 @@ import { useMessageLocate } from '../hooks/useMessageLocate';
 import { useMessageNav } from '../hooks/useMessageNav';
 import { useActivityMessageItems } from '../hooks/useActivityMessageItems';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelMessageEnvProvider, type ChannelMessageEnv } from '../components/channel/ChannelMessageEnv';
 import { ConvertToTaskDialog } from '../components/channel/ConvertToTaskDialog';
@@ -42,10 +42,11 @@ import type { ChannelMessage, ChannelSuggestion, FileRef, SendIntent } from '../
 const EMPTY_WUS: WorkUnit[] = [];
 const EMPTY_REQS: Requirement[] = [];
 const EMPTY_SUGGESTIONS: ChannelSuggestion[] = [];
+const EMPTY_WU_IDS: ReadonlySet<string> = new Set();
 
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { messages, loading, error, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
+  const { messages, loading, error, sendMessage, loadMore, hasMore, refresh, syncPruning, change, threadIndex, agentWorkUnitIds } = useChannelMessages(id);
   // B3：频道记录走 channelDataStore 门禁（ensureChannel：与成员面同响应一次拉取，TTL + single-flight）——
   // 原裸 channelApi.get 与 ChannelInput 的 ensureMembers 挂载并发双拉同一端点
   const channel = useChannelDataStore(s => (id ? s.channels[id] : undefined)) ?? null;
@@ -122,7 +123,7 @@ export function ChannelDetailPage() {
   // 单源选择器（notificationStore 旁纯函数），本页退回订阅并渲染，口径变更只落选择器一处
   // F2（2026-09-16 性能体检）：订阅经 useNeedInputView——投影内容等值复用旧引用，
   // 他频道 status_changed 触发的 stateItems 整体替换不掀动本频道下游派生
-  const { onEvent, onReconnect } = useWebSocketContext();
+  const { onEvent, onReconnect } = useSseContext();
   const needInput = useNeedInputView(id);
   const { waitingWus, promotedQuestionIds, isWaitingForInput } = needInput;
 
@@ -210,12 +211,11 @@ export function ChannelDetailPage() {
   // 拿不到/为空 → 该 WU 降级候选集词表，行为不变）
   // #528：拉取纪律与缓存收编 channelWorkStore per-wuId slice（失败记 [] 不重试语义保留）
   const wuChangedFiles = useChannelWorkStore(s => s.wuChangedFiles);
+  const distinctWuIds = agentWorkUnitIds ?? EMPTY_WU_IDS;
   useEffect(() => {
-    const wuIds = [...new Set(
-      messages.filter(m => m.authorType === 'agent' && m.workUnitId).map(m => m.workUnitId!),
-    )];
-    useChannelWorkStore.getState().ensureWuChangedFiles(wuIds);
-  }, [messages]);
+    useChannelWorkStore.getState().ensureWuChangedFiles([...distinctWuIds]);
+  }, [distinctWuIds]);
+  useEffect(() => () => useChannelWorkStore.getState().releaseWuChangedFiles(), [id]);
 
   // #416：右栏消息摘要投影——右栏只消费 card/agent WU 条目集（不再收全量 messages）；
   // 无关增量（人类插话等）投影等值 → 引用保持 → memo 化的右栏整栏零重渲
@@ -238,7 +238,7 @@ export function ChannelDetailPage() {
   // （浮钮/发送链路）、特性消费产物（下方 locate / 键盘导航即插即用口）
   const stream = useChannelStream({
     channelId: id,
-    messages, loading, loadMore, syncPruning,
+    messages, loading, loadMore, syncPruning, change, threadIndex,
     promotedQuestionIds, isWaitingForInput,
   });
   const {
@@ -284,7 +284,10 @@ export function ChannelDetailPage() {
 
   // Phase 3（AC5）：消息级键盘导航（j/k/r/Esc）——可导航序列 = stream items 拍平
   // （navigableIdsOf 纯函数：折叠组/日期分隔跳过）；滚动跟随 scrollToIndex 优先、DOM 查询兜底
-  const navIds = useMemo(() => navigableIdsOf(stream.items), [stream.items]);
+  const navIds = useMemo(() => {
+    void stream.streamRevision;
+    return navigableIdsOf(stream.items);
+  }, [stream.items, stream.streamRevision]);
   const scrollToFocusedMessage = useCallback((mid: string) => {
     unpinFromBottom(); // 键盘导航 = 离开底部的阅读意图（同 highlight 定位，防钉底跟随拽回）
     const idx = messageToItemIndex.get(mid);

@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vites
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { execFileSync } from 'node:child_process';
 
 // SKILLS_DIR 在 manifest-loader 模块加载时读取 —— 必须先设再 import prompt-composer
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-skills-'));
@@ -31,6 +32,11 @@ const { mockInjectContext, mockAppendJsonl, mockProjectGet, mockReadIndex, mockP
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: mockLogger };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return { ...actual, logger: mockLogger };
@@ -38,6 +44,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 vi.mock('../../knowledge/knowledge-service', () => ({
   knowledgeService: { injectContext: mockInjectContext },
+  knowledgePorts: { consume: { injectContext: mockInjectContext } },
 }));
 
 vi.mock('../agent-loop-events', () => ({
@@ -49,7 +56,7 @@ vi.mock('../../pmo/project.service.js', () => ({
 }));
 
 vi.mock('../../role-memory/role-memory.js', () => ({
-  roleMemoryStore: { readIndex: mockReadIndex },
+  roleMemoryStore: { readApplicableIndex: mockReadIndex },
 }));
 
 vi.mock('../../workunit/wu-messenger.js', () => ({
@@ -60,7 +67,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';
 // 推导块的 2K 线常量之一（INJECT_TOKEN_BUDGET 走 vi.importActual，本文件把 knowledge-service 整体 mock 了）
-import { INJECTED_TOKEN_BUDGET } from '../../monitoring/monitoring.service.js';
+import { INJECTED_TOKEN_BUDGET } from '../../ops/monitoring.service.js';
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载
 const { composeStepPrompt, SECTION_QUOTAS, CONTRACT_TEMPLATES } = await import('../prompt-composer');
@@ -218,11 +225,23 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
 
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
+      scope: { roleId: 'role-1', companyId: undefined, projectId: undefined, repo: undefined },
       // persona 703 + roster 493 + skills 635 + map 1181 + memory 318 全未用 → 余量入池
       maxTokens: SECTION_QUOTAS.knowledge
         + SECTION_QUOTAS.persona + SECTION_QUOTAS.roster + SECTION_QUOTAS.skills
         + SECTION_QUOTAS.map + SECTION_QUOTAS.memory,
     });
+  });
+
+  it('#715: 注入携带当前 role 与稳定母仓作用域', async () => {
+    await composeStepPrompt({
+      wu: makeWu({ projectPath: '/checkout/worktree' }),
+      metadata: { worktreeBaseRepo: '/repo/studio' } as any,
+    }, deps(makeRole({ id: 'role-executor' })));
+
+    expect(mockInjectContext).toHaveBeenCalledWith('feature', expect.objectContaining({
+      scope: { roleId: 'role-executor', companyId: undefined, projectId: undefined, repo: '/repo/studio' },
+    }));
   });
 
   it('skills 段占定额后余量入池：knowledge 预算 = 493 + (1831 - skillTokens) + 1181 + 318', async () => {
@@ -240,6 +259,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     expect(knowledgeContext).toContain('## 本次任务 Skills');
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
+      scope: { roleId: 'role-1', companyId: undefined, projectId: undefined, repo: undefined },
       // skills 有效预算 = 635 + persona 703 + roster 493 余量 = 1831
       maxTokens: SECTION_QUOTAS.knowledge
         + (SECTION_QUOTAS.skills + SECTION_QUOTAS.persona + SECTION_QUOTAS.roster - skillTokens)
@@ -269,6 +289,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     // skills 段截断后仅剩余量 (1831 - expectedTrimmed) 入池 → knowledge 预算
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
+      scope: { roleId: 'role-1', companyId: undefined, projectId: undefined, repo: undefined },
       maxTokens: SECTION_QUOTAS.knowledge + (effective - expectedTrimmed)
         + SECTION_QUOTAS.map + SECTION_QUOTAS.memory,
     });
@@ -293,6 +314,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     // persona 余量 (703 - expectedTrimmed) 入池 → knowledge 预算 = 493 + 余量 + roster/skills/map/memory 定额
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
+      scope: { roleId: 'role-1', companyId: undefined, projectId: undefined, repo: undefined },
       maxTokens: SECTION_QUOTAS.knowledge + (SECTION_QUOTAS.persona - expectedTrimmed)
         + SECTION_QUOTAS.roster + SECTION_QUOTAS.skills + SECTION_QUOTAS.map + SECTION_QUOTAS.memory,
     });
@@ -635,9 +657,8 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     const actualKs = await vi.importActual<any>('../../knowledge/knowledge-service.js');
     const ks = new actualKs.KnowledgeService({
       store: { list: vi.fn(() => []), get: vi.fn(), save: vi.fn(), update: vi.fn(), delete: vi.fn() } as any,
-      lifecycle: { recordReference: vi.fn(), shouldAutoPromote: vi.fn(() => false) } as any,
+      lifecycle: { recordReference: vi.fn() } as any,
       ingest: { ingestEntry: vi.fn() } as any,
-      linter: { validateEntry: vi.fn(() => []) } as any,
       query: {
         queryEntries: vi.fn()
           .mockResolvedValueOnce(KNOWLEDGE_RULES)
@@ -1207,7 +1228,7 @@ describe('#100: 角色记忆索引常驻注入（memory 段 = per-role MEMORY.md
 
   afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
 
-  it('AC1/AC2: 索引存在 → memory 段注入 readIndex 全文（topic 路径 + 一句话摘要行原样保留）+ 段首协议行说明按需语义', async () => {
+  it('AC1/AC2 + #718: memory 段注入适用索引全文，并在预算前传当前 scope', async () => {
     const index = '# Role Memory Index\n\n- [auth-flow](topics/auth-flow.md) — OAuth 授权走 PKCE 且不回退账号密码\n- [build-cache](topics/build-cache.md) — pnpm 损坏时用 vitest/tsc-gate 直跑';
     mockReadIndex.mockResolvedValue(index);
 
@@ -1216,7 +1237,9 @@ describe('#100: 角色记忆索引常驻注入（memory 段 = per-role MEMORY.md
       deps(makeRole()),
     );
 
-    expect(mockReadIndex).toHaveBeenCalledWith('role-1');
+    expect(mockReadIndex).toHaveBeenCalledWith('role-1', {
+      roleId: 'role-1', companyId: undefined, projectId: undefined, repo: undefined,
+    });
     expect(knowledgeContext).toContain(MEMORY_HEADER);
     // 索引行（topic 路径 + 一句话摘要）原样保留，正文不注入
     expect(knowledgeContext).toContain('- [auth-flow](topics/auth-flow.md) — OAuth 授权走 PKCE 且不回退账号密码');
@@ -1343,7 +1366,7 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).not.toContain('## PMO 地图');
   });
 
-  it('契约段 review → REVIEW_RESULT 协议行，挂 base 后、handoff 前、hint 前，不进稳定前缀', async () => {
+  it('契约段 review → REVIEW_RESULT + 评审上下文，拒绝旧 handoff 与实现者 hint', async () => {
     const { prompt, knowledgeContext } = await composeStepPrompt(
       {
         wu: makeWu({ type: 'review' }),
@@ -1364,12 +1387,12 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
 
     const baseIdx = prompt.indexOf('## 当前工作');
     const contractIdx = prompt.indexOf('## 产出契约');
-    const handoffIdx = prompt.indexOf('## 前序进展');
-    const hintIdx = prompt.indexOf('## 提交提醒');
+    const purposeIdx = prompt.indexOf('## 评审上下文');
     expect(baseIdx).toBeGreaterThanOrEqual(0);
     expect(contractIdx).toBeGreaterThan(baseIdx);
-    expect(handoffIdx).toBeGreaterThan(contractIdx);
-    expect(hintIdx).toBeGreaterThan(handoffIdx);
+    expect(purposeIdx).toBeGreaterThan(contractIdx);
+    expect(prompt).not.toContain('## 前序进展');
+    expect(prompt).not.toContain('## 提交提醒');
   });
 
   it('契约段 implement → 测试先行 + Phase commit 格式', async () => {
@@ -1789,5 +1812,351 @@ describe('#285（决策 #257 D1/D2/D4/D6/D7/D9）：files 段「## 引用文件�
 
     expect(mockPostWuSystemMessage).not.toHaveBeenCalled();
     expect(sectionTrimmedEvents().filter(e => e.section === 'files')).toEqual([]);
+  });
+});
+
+describe('#713: 按执行用途组装上下文', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement', 'review'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '## 相关知识\n- 登录模块先写失败测试', injectedIds: ['rule-login'] });
+    mockReadIndex.mockResolvedValue('');
+    mockProjectGet.mockResolvedValue(null);
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-purpose-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
+
+  it('实现上下文包含目标、Mandate、AC、仓库规则和相关知识', async () => {
+    const wu = makeWu({
+      type: 'implement',
+      scope: '实现登录功能',
+      mandate: {
+        revision: 3,
+        policyVersion: '1',
+        repositories: [{ repo: '/repo/studio', leg: 'PMO-7' }],
+        deliveryActions: ['merge'],
+        budget: { tokens: 50000, planSteps: null },
+      },
+    });
+
+    const { prompt, knowledgeContext } = await composeStepPrompt(
+      { wu, metadata: { ac: ['登录成功返回会话', '失败时不泄露凭证'] } as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('实现登录功能');
+    expect(prompt).toContain('## 实现上下文');
+    expect(prompt).toContain('revision: 3');
+    expect(prompt).toContain('/repo/studio (PMO-7)');
+    expect(prompt).toContain('登录成功返回会话');
+    expect(prompt).toContain('失败时不泄露凭证');
+    expect(prompt).toContain('仓库根有 AGENTS.md/CLAUDE.md 时以它们为准');
+    expect(prompt).toContain('## 产出契约');
+    expect(knowledgeContext).toContain('登录模块先写失败测试');
+  });
+
+  it('评审上下文只含需求、AC、base/head diff 与验证证据，不含实现者历史或通用知识', async () => {
+    const repo = path.join(testDir, 'repo');
+    fs.mkdirSync(repo);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    git('init', '-b', 'main');
+    git('config', 'user.email', 'test@example.invalid');
+    git('config', 'user.name', 'Test');
+    fs.writeFileSync(path.join(repo, 'login.ts'), 'export const login = false;\n');
+    git('add', 'login.ts');
+    git('commit', '-m', 'base');
+    git('checkout', '-b', 'task/wu-parent');
+    fs.writeFileSync(path.join(repo, 'login.ts'), 'export const login = true;\n');
+    git('commit', '-am', 'implement login');
+
+    const wu = makeWu({
+      type: 'review',
+      scope: '审查代码变更（diff-only 输入契约）\n背景（仅供定位）：实现登录功能\ngit diff main...task/wu-parent 看全部变更',
+    });
+    const metadata = {
+      ac: ['登录成功返回会话'],
+      worktreePath: repo,
+      worktreeBaseBranch: 'main',
+      worktreeBranch: 'task/wu-parent',
+      verifyReport: { commands: ['pnpm test', 'pnpm typecheck'], source: 'convention', passedAt: '2026-11-15T00:00:00Z' },
+      attestations: { l1: { verdict: 'approved', at: '2026-11-15T00:00:00Z', by: 'implementer' } },
+      stepCount: 4,
+      progressLog: [{ step: 4, action: 'progress', summary: '实现者私有进展' }],
+      sessionSummary: '实现者私有会话摘要',
+      verifyFailHint: '实现者上一轮失败细节',
+      commitGuardHint: '实现者提交提醒',
+    };
+
+    const { prompt, knowledgeContext } = await composeStepPrompt(
+      { wu, metadata: metadata as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 评审上下文');
+    expect(prompt).toContain('实现登录功能');
+    expect(prompt).toContain('登录成功返回会话');
+    expect(prompt).toContain('base: main; head: task/wu-parent');
+    expect(prompt).toContain('git diff main...task/wu-parent');
+    expect(prompt).toContain('diff --git a/login.ts b/login.ts');
+    expect(prompt).toContain('+export const login = true;');
+    expect(prompt).toContain('passed at 2026-11-15T00:00:00Z');
+    expect(prompt).toContain('pnpm test');
+    expect(prompt).toContain('REVIEW_RESULT');
+    expect(prompt).not.toContain('实现者私有进展');
+    expect(prompt).not.toContain('实现者私有会话摘要');
+    expect(prompt).not.toContain('实现者上一轮失败细节');
+    expect(prompt).not.toContain('实现者提交提醒');
+    expect(knowledgeContext).not.toContain('登录模块先写失败测试');
+    expect(mockInjectContext).not.toHaveBeenCalled();
+  });
+
+  it('恢复上下文由持久 StepRecord 识别，聚焦未完成工作且保留产出契约与预算', async () => {
+    const wu = makeWu({ type: 'implement', scope: '恢复登录实现' });
+    const metadata = { ac: ['完成登录'], stepCount: 0, sessionSummary: '过期会话摘要' };
+    const step = {
+      id: 'step-1', workUnitId: wu.id, assignmentId: 'assignment-1', step: 1,
+      action: 'progress', result: '已写登录测试', at: '2026-11-15T00:00:00Z',
+      acProgress: [{ ac: '完成登录', status: 'in_progress' }], modifiedFiles: [],
+      commands: [], verification: null, decisions: [], artifacts: [],
+      nextStep: '实现登录处理器', transcriptRefs: [],
+    };
+    const snapshot = {
+      ...wu, metadata: JSON.stringify(metadata), stepRecords: [step], currentAssignmentId: 'assignment-1',
+      createdAt: new Date(), updatedAt: new Date(),
+    };
+    await fileStore.commitSnapshot({
+      type: 'created', wuId: wu.id, timestamp: '2026-11-15T00:00:00Z', data: snapshot,
+    }, snapshot as any);
+
+    const { prompt } = await composeStepPrompt(
+      { wu, metadata: metadata as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 恢复上下文');
+    expect(prompt).toContain('## 恢复包');
+    expect(prompt).toContain('完成登录');
+    expect(prompt).toContain('实现登录处理器');
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).not.toContain('过期会话摘要');
+    expect(mockAppendJsonl).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      type: 'prompt:section_trimmed', payload: expect.stringContaining('"section":"handoff"'),
+    }));
+  });
+
+  it('委派上下文只含子范围、必要引用和期望产出，不带父授权、历史或通用知识', async () => {
+    writeSkill('tdd-implement', '通用实现流程');
+    const wu = makeWu({
+      type: 'implement', scope: '只补登录表单校验',
+      mandate: { revision: 9, repositories: [{ repo: '/repo/parent', leg: null }] },
+    });
+    const metadata = {
+      creationMode: 'agent-delegate',
+      fileRefs: [{ repo: '/repo/studio', path: 'src/login-form.ts' }],
+      workspaceRoot: '/repo/studio',
+      pmoId: 'parent-pmo', ac: ['父任务验收标准'],
+      stepCount: 3, progressLog: [{ step: 3, action: 'progress', summary: '父会话进展' }],
+      sessionSummary: '父会话摘要', commitGuardHint: '父提交提醒',
+    };
+
+    const { prompt, knowledgeContext } = await composeStepPrompt(
+      { wu, metadata: metadata as any, isNewSession: true },
+      deps(makeRole({ persona: '委派角色自述' })),
+    );
+
+    expect(prompt).toContain('## 委派上下文');
+    expect(prompt).toContain('只补登录表单校验');
+    expect(prompt).toContain('期望产出');
+    expect(prompt).toContain('## 产出契约');
+    expect(knowledgeContext).toContain('src/login-form.ts');
+    expect(knowledgeContext).not.toContain('委派角色自述');
+    expect(knowledgeContext).not.toContain('## 本次任务 Skills');
+    expect(prompt).not.toContain('本环节标准打法');
+    expect(prompt).not.toContain('父任务验收标准');
+    expect(prompt).not.toContain('/repo/parent');
+    expect(prompt).not.toContain('父会话进展');
+    expect(prompt).not.toContain('父会话摘要');
+    expect(prompt).not.toContain('父提交提醒');
+    expect(knowledgeContext).not.toContain('登录模块先写失败测试');
+    expect(mockProjectGet).not.toHaveBeenCalled();
+    expect(mockInjectContext).not.toHaveBeenCalled();
+  });
+
+  it('用途正文与恢复共用既有 handoff token 预算，产出契约不被截断', async () => {
+    const { prompt } = await composeStepPrompt(
+      {
+        wu: makeWu({ type: 'review', scope: '审查登录变更' }),
+        metadata: { ac: ['验'.repeat(8000)] } as any,
+      },
+      deps(makeRole()),
+    );
+
+    const events = mockAppendJsonl.mock.calls
+      .map(call => call[1])
+      .filter((event: any) => event.type === 'prompt:section_trimmed')
+      .map((event: any) => JSON.parse(event.payload));
+    expect(events).toEqual([expect.objectContaining({ section: 'handoff', quota: SECTION_QUOTAS.handoff })]);
+    expect(events[0].originalTokens).toBeGreaterThan(events[0].trimmedTokens);
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).toContain('REVIEW_RESULT');
+  });
+
+  it('大 diff 截断时仍优先保留评审验证证据', async () => {
+    const repo = path.join(testDir, 'large-diff-repo');
+    fs.mkdirSync(repo);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    git('init', '-b', 'main');
+    git('config', 'user.email', 'test@example.invalid');
+    git('config', 'user.name', 'Test');
+    fs.writeFileSync(path.join(repo, 'large.ts'), 'export const value = 0;\n');
+    git('add', 'large.ts');
+    git('commit', '-m', 'base');
+    git('checkout', '-b', 'task/large');
+    fs.writeFileSync(path.join(repo, 'large.ts'), Array.from({ length: 8000 }, (_, i) => `export const value${i} = ${i};`).join('\n'));
+    git('commit', '-am', 'large diff');
+
+    const { prompt } = await composeStepPrompt(
+      {
+        wu: makeWu({ type: 'review', scope: '审查大变更' }),
+        metadata: {
+          worktreePath: repo, worktreeBaseBranch: 'main', worktreeBranch: 'task/large',
+          verifyReport: { commands: ['pnpm test'], source: 'convention', passedAt: '2026-11-15T00:00:00Z' },
+          attestations: { l1: { verdict: 'approved', at: '2026-11-15T00:00:00Z', by: 'implementer' } },
+        } as any,
+      },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('### 验证证据');
+    expect(prompt).toContain('passed at 2026-11-15T00:00:00Z');
+    expect(prompt).toContain('pnpm test');
+    expect(mockAppendJsonl).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      type: 'prompt:section_trimmed', payload: expect.stringContaining('"section":"handoff"'),
+    }));
+  });
+});
+
+describe('#714: 同一真实 CLI session 的增量上下文', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv('STUDIO_INCREMENTAL_CONTEXT', 'true');
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '## 相关知识\n- 登录模块先写失败测试', injectedIds: ['rule-login'] });
+    mockReadIndex.mockResolvedValue('');
+    mockProjectGet.mockResolvedValue(null);
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-delta-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (testDir) fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('新会话收到完整快照，同会话续用省略未变化段且保留产出契约', async () => {
+    const wu = makeWu({
+      type: 'implement',
+      scope: '实现登录功能',
+      mandate: { revision: 1, policyVersion: '1', repositories: [], deliveryActions: [], budget: { tokens: null } },
+    });
+    const metadata = { ac: ['登录成功返回会话'] } as any;
+    const role = makeRole({ persona: '实现角色' });
+
+    const full = await composeStepPrompt({ wu, metadata, isNewSession: true }, deps(role));
+    expect(full.knowledgeContext).toContain('实现角色');
+    expect(full.knowledgeContext).toContain('登录模块先写失败测试');
+    expect(full.prompt).toContain('## 实现上下文');
+    expect(full.prompt).toContain('## 产出契约');
+    expect(full.context.mode).toBe('full');
+    expect(full.contextCursor.handoff).toMatch(/^[a-f0-9]{64}$/);
+
+    const delta = await composeStepPrompt(
+      { wu, metadata, isNewSession: false, presentedCursor: full.contextCursor },
+      deps(role),
+    );
+    expect(delta.context.mode).toBe('delta');
+    expect(delta.context.repeatedTokens).toBeGreaterThan(0);
+    expect(delta.knowledgeContext).not.toContain('实现角色');
+    expect(delta.knowledgeContext).not.toContain('登录模块先写失败测试');
+    expect(delta.prompt).not.toContain('## 实现上下文');
+    expect(delta.prompt).toContain('## 产出契约');
+  });
+
+  it('变化段使用最新 revision，新人类输入和必要产出契约不被增量省略', async () => {
+    const wu = makeWu({ type: 'implement', scope: '实现登录功能' });
+    const role = makeRole();
+    const full = await composeStepPrompt(
+      { wu, metadata: { ac: ['旧验收标准'] } as any, isNewSession: true },
+      deps(role),
+    );
+
+    const delta = await composeStepPrompt(
+      {
+        wu,
+        metadata: { ac: ['新验收标准'], pendingReplies: ['请同时保留刷新令牌'] } as any,
+        isNewSession: false,
+        presentedCursor: full.contextCursor,
+      },
+      deps(role),
+    );
+
+    expect(delta.prompt).toContain('新验收标准');
+    expect(delta.prompt).not.toContain('旧验收标准');
+    expect(delta.contextCursor.handoff).not.toBe(full.contextCursor.handoff);
+    expect(delta.prompt).toContain('请同时保留刷新令牌');
+    expect(delta.prompt).toContain('## 产出契约');
+    expect(delta.context.humanInputs).toBe(1);
+  });
+
+  it('即使误带旧游标，新 CLI session 仍强制完整快照', async () => {
+    const wu = makeWu({ type: 'implement' });
+    const role = makeRole({ persona: '完整角色上下文' });
+    const first = await composeStepPrompt(
+      { wu, metadata: { ac: ['完整验收'] } as any, isNewSession: true },
+      deps(role),
+    );
+    const replacement = await composeStepPrompt(
+      { wu, metadata: { ac: ['完整验收'] } as any, isNewSession: true, presentedCursor: first.contextCursor },
+      deps(role),
+    );
+
+    expect(replacement.context.mode).toBe('full');
+    expect(replacement.knowledgeContext).toContain('完整角色上下文');
+    expect(replacement.prompt).toContain('完整验收');
+  });
+
+  it('未显式启用增量特性时保留 full 对照基线', async () => {
+    vi.stubEnv('STUDIO_INCREMENTAL_CONTEXT', 'false');
+    const wu = makeWu({ type: 'implement' });
+    const first = await composeStepPrompt({ wu, metadata: {} as any, isNewSession: true }, deps(makeRole()));
+    const resumed = await composeStepPrompt(
+      { wu, metadata: {} as any, isNewSession: false, presentedCursor: first.contextCursor },
+      deps(makeRole()),
+    );
+
+    expect(resumed.context.mode).toBe('full');
+    expect(resumed.context.repeatedTokens).toBe(0);
   });
 });

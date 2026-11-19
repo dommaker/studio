@@ -161,4 +161,24 @@ describe('ProjectPipeline', () => {
     screen.getByText('任务').click();
     expect(mockNavigate).toHaveBeenCalledWith('/workunits/a');
   });
+
+  it('交付子状态在主 WU 状态旁展示，不改变泳道主状态', () => {
+    render(
+      <ProjectPipeline
+        workunits={[wu({
+          id: 'a', title: '任务', status: 'blocked',
+          metadata: JSON.stringify({
+            mergeReceipt: {
+              id: 'merge-1', merged: true, mergeCommit: 'abc123', targetBranch: 'main',
+              verification: { status: 'failed', ran: [] },
+            },
+          }),
+        })]}
+        agents={[]}
+      />,
+    );
+
+    expect(screen.getByText('已合并，目标验证失败')).toBeInTheDocument();
+    expect(screen.getByText(/阻塞 \(1\)/)).toBeInTheDocument();
+  });
 });

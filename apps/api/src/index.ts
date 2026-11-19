@@ -5,7 +5,7 @@ import 'dotenv/config';
 
 // 固定 KnowledgeStore 路径 — CWD 无关, 与 memory-knowledge-sync hook 共用
 // #571：缺省自 monorepo 相对路径迁至数据根 harness-knowledge（契约 §8 待归位），env 可覆盖
-import { defaultKnowledgeDir } from './utils/runtime-paths.js';
+import { defaultKnowledgeDir } from './bootstrap/runtime-paths.js';
 process.env.KNOWLEDGE_DIR = defaultKnowledgeDir();
 
 import { bootstrap } from './bootstrap/index.js';

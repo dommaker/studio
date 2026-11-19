@@ -1,7 +1,7 @@
 /**
- * 通用入口 — 不包含 CLI/Config（避免前端引入 fs/path/yaml）
+ * 通用入口 — 不包含 Node-only Config（避免前端引入 fs/path 等 Node 依赖）
  * 前端和通用包使用此入口
- * 后端需要 CLI 功能请使用 '@dommaker/studio-shared/node'
+ * 后端需要 Node-only 能力请使用 '@dommaker/studio-shared/node'
  */
 
 // 导出 Utils 模块
@@ -22,6 +22,7 @@ export * from './constants/levels';
 export * from './constants/monitoring';
 export * from './constants/map-opening';
 export * from './spec-tasks-codec';
+export * from './wu-attribution';
 
 // 导出职能域词表（决策 8：阶段导向单一词表 + legacy 归一化）
 export * from './domain-vocab';
@@ -40,14 +41,13 @@ export * from './harness/auditor/auditor-types';
 // 导出 EventBus
 export { eventBus, StudioEventBus } from './event-bus';
 
-// 导出 MemoryStore
-export { memoryStore } from './memory-store';
-
 // 导出 FileStore (AN 运行时数据文件存储)
-export { FileStore, LockTimeoutError, parseChannels, stringifyChannels, parseFrontmatter, serializeFrontmatter, formatRequirementId, formatEvolutionId, parseWorkUnitIndexContent } from './file-store';
+export { FileStore, LockTimeoutError, WorkUnitSnapshotConflictError, parseChannels, stringifyChannels, parseFrontmatter, serializeFrontmatter, formatRequirementId, formatEvolutionId, parseWorkUnitIndexContent } from './file-store';
+export { WorkUnitMetadataRepository } from './file-store/workunit-metadata-repository';
+export type { WorkUnitMetadataWritePort } from './file-store/workunit-metadata-repository';
 export type { FileStoreOptions } from './file-store';
 // 进程级默认 FileStore 持有器（P2-b：全仓唯一无参构造出处，消费方经访问口获取）
-export { getDefaultFileStore, setDefaultFileStore, resetDefaultFileStoreForTesting } from './file-store-default';
+export { getDefaultFileStore, setDefaultFileStore, resetDefaultFileStoreForTesting } from './file-store/file-store-default';
 // 导出 JSONL append-only 折叠（#360：byId 分组 + 业务侧墓碑判据）
 export { foldJsonlById } from './jsonl-fold';
 export type { JsonlFoldGroup } from './jsonl-fold';
@@ -72,6 +72,24 @@ export type {
   MessageCompactionOptions,
   WorkUnitEvent,
   WorkUnitEventType,
+  AssignmentStatus,
+  AssignmentProgress,
+  AssignmentEvidence,
+  AssignmentRecord,
+  PresentedContextCursor,
+  StepAcProgress,
+  StepCommandRecord,
+  StepVerificationRecord,
+  StepRecordDetails,
+  StepRecord,
+  EffectStatus,
+  EffectRecord,
+  EffectReceipt,
+  MandatePrincipalType,
+  MandatePrincipal,
+  MandateSource,
+  MandateHistoryEntry,
+  MandateRecord,
   WorkUnitSnapshot,
   WorkUnitFilter,
   WorkUnitReconcileResult,
@@ -82,7 +100,9 @@ export type {
   EvolutionProposalStatus,
   EvolutionProposalFilter,
   EvolutionTargetType,
+  EvolutionMetricSnapshot,
+  EvolutionObservation,
 } from './file-store';
 
 // 导出 Stats 模块
-export * from './stats/anomaly-detector';
+export * from './stats/percentile';

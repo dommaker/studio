@@ -6,9 +6,10 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus, FileStore, type AgentProfileData, type ChannelMessageData } from '@dommaker/studio-shared';
-import { routeMessage, detectMention } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { routeMessage } from '../message-routing.js';
+import { detectMention } from '../mention-match.js';
+import { getChannelMessageService } from '../channel-message.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 let channelId: string;
 let tmpDir: string;
@@ -54,7 +55,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     // 让 singleton service 使用测试 FileStore
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   afterAll(async () => {
@@ -75,7 +76,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   // ── AC-A1: @mention binds assigneeId ──
@@ -92,6 +93,7 @@ describe('Message Routing (AC-B1-B4)', () => {
         updatedAt: new Date().toISOString(),
       };
       await fileStore.createProfile(agentData);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([agentData.id]) });
 
       const result = await routeMessage(channelId, '@AssignAgent do this', undefined, { fs: fileStore });
 
@@ -126,6 +128,7 @@ describe('Message Routing (AC-B1-B4)', () => {
         updatedAt: new Date().toISOString(),
       };
       await fileStore.createProfile(agentData);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([agentData.id]) });
       // Pre-create a WorkUnit for this agent (simulating busy state)
       await workUnitService.create({ scope: 'existing task', channelId, type: 'task', status: 'active', assigneeId: agentData.id });
 
@@ -140,7 +143,8 @@ describe('Message Routing (AC-B1-B4)', () => {
 
   describe('AC-B1: @mention → WorkUnit', () => {
     it('creates WorkUnit when @mention matches active AgentProfile', async () => {
-      await createTestAgent(fileStore, 'TestAgent');
+      await createTestAgent(fileStore, 'TestAgent', 'active', { id: 'test-agent-1' });
+      await fileStore.updateChannel(channelId, { members: JSON.stringify(['test-agent-1']) });
 
       const result = await routeMessage(channelId, '@TestAgent do this task', undefined, { fs: fileStore });
 
@@ -397,7 +401,8 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(await countWu(channelId)).toBe(0);
     });
 
-    it('intent=new-task → 显式建未指派 WU（creationMode=channel-new-task，走涌现认领）', async () => {
+    it('intent=new-task → 有归属时显式建未指派 WU（creationMode=channel-new-task，走涌现认领）', async () => {
+      await fileStore.updateChannel(channelId, { defaultPath: tmpDir });
       const result = await routeMessage(channelId, '没有点名的消息', undefined, { fs: fileStore, intent: 'new-task' });
 
       expect(result.workUnitId).toBeTruthy();
@@ -559,15 +564,17 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(meta.matched).toBe(false);
     });
 
-    it('falls back to matching any active profile when channel members is empty', async () => {
+    it('#699: does not match any active profile when channel members is empty', async () => {
       const agent = activeProfile('legacy-agent-1', 'LegacyAgent');
       await fileStore.createProfile(agent);
-      await fileStore.updateChannel(channelId, { members: '[]' }); // 历史频道：members 未回填
+      await fileStore.updateChannel(channelId, { members: '[]' });
 
       const result = await routeMessage(channelId, '@LegacyAgent do this', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
-      expect(wu!.assigneeId).toBe(agent.id);
+      expect(wu!.assigneeId).toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(false);
     });
 
     it('matches a CJK-named member and strips the mention from scope', async () => {

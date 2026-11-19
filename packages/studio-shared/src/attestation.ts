@@ -44,9 +44,17 @@ export interface WuAttestations {
 /** 看板列词表（与现门模型状态词表一致，派生值也落在这七列） */
 export type WuDisplayColumn = 'pending' | 'unassigned' | 'active' | 'in_review' | 'done' | 'blocked' | 'closed';
 
+export type WuDeliveryState =
+  | 'merge-queued'
+  | 'merge-running'
+  | 'merged-with-failed-verification'
+  | 'verification-unavailable';
+
 export interface DerivedWuState {
   /** 展示列：UI 分列/徽章/计数只能用这个值 */
   column: WuDisplayColumn;
+  /** 代码交付子状态；不改变 WU 主状态/看板列 */
+  delivery: WuDeliveryState | null;
   /** 证据达成快照（approved 才算达成；rejected/缺失为 false） */
   evidence: { l1: boolean; l2: boolean; l3: boolean; selfReview: boolean };
   /** 人类待办 = 活已干完但人未确认（手写 in_review，或 done 且证据模型已介入但缺 l3）。
@@ -133,6 +141,25 @@ export function deriveDisplayState(input: { status: string; metadata?: unknown }
   const selfReview = attestations?.l2?.selfReview === true;
   const evidence = { l1, l2, l3, selfReview };
 
+  let rawMetadata = input.metadata;
+  if (typeof rawMetadata === 'string') {
+    try { rawMetadata = JSON.parse(rawMetadata); } catch { rawMetadata = undefined; }
+  }
+  const metadata = isRecord(rawMetadata) ? rawMetadata : undefined;
+  const intent = isRecord(metadata?.mergeIntent) ? metadata.mergeIntent : undefined;
+  const receipt = isRecord(metadata?.mergeReceipt) ? metadata.mergeReceipt : undefined;
+  const verification = isRecord(receipt?.verification) ? receipt.verification : undefined;
+  let delivery: WuDeliveryState | null = null;
+  if (receipt?.merged === true && verification?.status === 'failed') {
+    delivery = 'merged-with-failed-verification';
+  } else if (input.status === 'in_review' && !l3 && receipt?.merged === true && verification?.status === 'unavailable') {
+    delivery = 'verification-unavailable';
+  } else if (input.status === 'in_review' && intent?.state === 'queued') {
+    delivery = 'merge-queued';
+  } else if (input.status === 'in_review' && intent?.state === 'running') {
+    delivery = 'merge-running';
+  }
+
   let column: WuDisplayColumn;
   switch (input.status) {
     case 'pending':
@@ -154,13 +181,14 @@ export function deriveDisplayState(input: { status: string; metadata?: unknown }
       break;
   }
 
-  // pending 不计 needsHuman（#280）：pending 是「待确认」人闸（扩范围单创建落点，活未开干），
-  // 与 in_review（活已干完等审查）/ done 缺 l3（活已干完等人工验收）语义不同。
-  const needsHuman =
+  // merge 自动执行期间不是人工待办；unavailable 仍按缺 L3 等待人工确认。
+  const mergeInFlight = delivery === 'merge-queued' || delivery === 'merge-running';
+  const needsHuman = !mergeInFlight && (
     input.status === 'in_review' ||
-    (input.status === 'done' && attestations !== undefined && !l3);
+    (input.status === 'done' && attestations !== undefined && !l3)
+  );
 
   const workFinished = input.status === 'done' || input.status === 'closed';
 
-  return { column, evidence, needsHuman, workFinished, hasAttestations: attestations !== undefined };
+  return { column, delivery, evidence, needsHuman, workFinished, hasAttestations: attestations !== undefined };
 }

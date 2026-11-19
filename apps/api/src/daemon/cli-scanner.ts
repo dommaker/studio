@@ -6,8 +6,13 @@
  * Uses `which` to find path, provider version command to get version string.
  */
 
-import { execFileSync, execSync } from 'child_process';
-import { listScanProviders, resolveProviderDefinition, warmCapabilityProbe, getProviderModels, type ProviderId } from '@dommaker/studio-shared/node';
+import { execFile, execFileSync, execSync } from 'child_process';
+import { promisify } from 'node:util';
+import { listScanProviders, resolveProviderDefinition, warmCapabilityProbe, warmCapabilityProbeAsync, getProviderModels, getProviderModelsAsync, type ProviderId } from '@dommaker/studio-shared/node';
+
+/** execFile 的 promisify 形态（调用期才取值：wholesale mock child_process 的测试无 execFile 导出，模块加载期取值会炸） */
+const execFileAsync = (file: string, args: string[], options: object): Promise<{ stdout: string; stderr: string }> =>
+  (promisify(execFile) as unknown as (f: string, a: string[], o: object) => Promise<{ stdout: string; stderr: string }>)(file, args, options);
 
 /** Known agent CLI providers (from the provider registry, built-ins + user config) */
 export const KNOWN_PROVIDERS: readonly string[] = listScanProviders();
@@ -147,6 +152,112 @@ export function scanAllProviders(): DetectedRuntime[] {
     if (detected) results.push(detected);
   }
   return results;
+}
+
+// ── 异步扫描链（2026-10-03 冷启动修复）──
+// sync 链（execFileSync）在启动期阻塞事件循环：workspaces 重扫 + default-provider
+// backfill 两处全量扫描串行 ≈9s，拖住 bootstrap 的 listen。异步链语义逐条对齐 sync 版
+// （三态 auth、capability/model 探测共享同一进程内缓存），provider 级并行。
+// sync 版保留给一次性/低频路径：cli/server.ts checkPrerequisites、run-web、
+// agent-profile.service 的 resolveDefaultProvider。
+
+/** probeAuth 的异步形态：三态判定逐条对齐 sync 版 */
+async function probeAuthAsync(
+  def: ReturnType<typeof resolveProviderDefinition>,
+  binaryPath: string,
+): Promise<Pick<DetectedRuntime, 'auth' | 'authHint' | 'authCheckedAt'>> {
+  const authCheckedAt = new Date().toISOString();
+  const probe = def.authProbe;
+  if (!probe) return { auth: 'unknown', authCheckedAt };
+
+  const notLoggedIn = (output: string): boolean =>
+    (probe.notLoggedInPatterns ?? []).some(p => new RegExp(p).test(output));
+
+  try {
+    const { stdout } = await execFileAsync(binaryPath, probe.args, {
+      encoding: 'utf-8',
+      timeout: probe.timeoutMs ?? 10_000,
+    });
+    if (notLoggedIn(String(stdout))) {
+      return { auth: 'failed', authHint: probe.authHint, authCheckedAt };
+    }
+    return { auth: 'ok', authCheckedAt };
+  } catch (err) {
+    // 进程跑了但非零退出（err.code 是数字）→ failed；spawn 失败/超时 → unknown
+    const e = err as { code?: number };
+    if (typeof e.code === 'number') {
+      return { auth: 'failed', authHint: probe.authHint, authCheckedAt };
+    }
+    return { auth: 'unknown', authCheckedAt };
+  }
+}
+
+/**
+ * detectProvider 的异步形态。与 sync 版唯一差异：execFile 回调化；
+ * capability/model 探测走 *Async 变体，与 sync 版共享进程内缓存。
+ */
+export async function detectProviderAsync(name: ProviderName): Promise<DetectedRuntime | null> {
+  const def = resolveProviderDefinition(name);
+  for (const binary of def.binaries) {
+    try {
+      const { stdout: whichOut } = await execFileAsync('which', [binary], { encoding: 'utf-8' });
+      const cliPath = whichOut.trim();
+      if (!cliPath) continue;
+
+      let version = 'unknown';
+      try {
+        const { stdout } = await execFileAsync(binary, def.versionArgs, {
+          encoding: 'utf-8',
+          timeout: 5_000,
+        });
+        version = stdout.trim();
+      } catch {
+        // version command may not be supported; try -v
+        try {
+          const { stdout } = await execFileAsync(binary, ['-v'], {
+            encoding: 'utf-8',
+            timeout: 5_000,
+          });
+          version = stdout.trim();
+        } catch {
+          version = 'unknown';
+        }
+      }
+
+      // capability/model/auth 三个探测互不依赖，并行跑（共享缓存语义同 sync 链）
+      const [, authResult, modelsResult] = await Promise.all([
+        def.capabilityProbe
+          ? warmCapabilityProbeAsync(name, cliPath, version).catch(() => { /* best-effort */ })
+          : Promise.resolve(),
+        probeAuthAsync(def, cliPath),
+        (async () => {
+          try {
+            return await getProviderModelsAsync(name, cliPath, version);
+          } catch { return undefined; /* best-effort：不阻断扫描 */ }
+        })(),
+      ]);
+
+      return {
+        provider: name,
+        path: cliPath,
+        version,
+        ...authResult,
+        ...(modelsResult ? { models: modelsResult.models, modelsSource: modelsResult.source } : {}),
+      };
+    } catch {
+      // binary not found — try the next candidate
+    }
+  }
+  return null;
+}
+
+/**
+ * scanAllProviders 的异步形态：provider 级并行，不阻塞事件循环。
+ * 返回顺序与 KNOWN_PROVIDERS 一致（Promise.all 保序），消费方语义不变。
+ */
+export async function scanAllProvidersAsync(): Promise<DetectedRuntime[]> {
+  const detected = await Promise.all(KNOWN_PROVIDERS.map(name => detectProviderAsync(name)));
+  return detected.filter((d): d is DetectedRuntime => d !== null);
 }
 
 /**

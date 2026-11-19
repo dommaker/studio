@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 const { mockPostWuSystemMessage } = vi.hoisted(() => ({
   mockPostWuSystemMessage: vi.fn(),
@@ -33,6 +34,10 @@ vi.mock('../../requirements/pmo-branch-resolver', () => ({
 }));
 
 vi.mock('../wu-verification', () => ({
+  CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
+  runWuVerification: vi.fn().mockResolvedValue({ ran: [], source: 'convention' }),
+}));
+vi.mock('../../core/wu-verification', () => ({
   CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
   runWuVerification: vi.fn().mockResolvedValue({ ran: [], source: 'convention' }),
 }));
@@ -81,7 +86,7 @@ describe('#95: recordResult progressLog 环形簿记', () => {
 
   const record = async (wuId: string, action: string, summary: string) => {
     const wu = (await wuService.getById(wuId))!;
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action, summary },
     );

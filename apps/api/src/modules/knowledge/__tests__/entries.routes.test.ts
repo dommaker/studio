@@ -3,9 +3,9 @@
  *
  * 挂载 entriesRoutes 到 express app，覆盖：
  * POST /unified（400 缺字段 / 201 创建，applicableAgents → agent: 标签）、
- * GET /unified（列出创建的条目）、POST /ask（400 / 空库短路回答，不触发 LLM）、
- * GET /gaps/:type（非法类型 400）、GET /export（md / json 两种格式）。
+ * GET /unified（列出创建的条目）、GET /gaps/:type（非法类型 400）。
  * HOME 指向临时目录隔离 sharedStore（~/.studio/knowledge）。
+ * P4.2：/export /ask /gaps（统计概览）端点已删，对应用例随之摘除。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -35,7 +35,7 @@ beforeAll(async () => {
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
 
-  const { entriesRoutes } = await import('../entries.routes.js');
+  const { entriesRoutes } = await import('../routes/entries.routes.js');
   const { requireAuth } = await import('../../../middleware/auth.js');
   const app = express();
   app.use(express.json());
@@ -102,16 +102,29 @@ describe('entries.routes', () => {
     expect(found.tags).toContain('process');
   });
 
-  it('POST /ask 400 without question', async () => {
-    const res = await api('POST', '/ask', {});
-    expect(res.status).toBe(400);
-    expect(res.json.error.code).toBe('BAD_REQUEST');
-  });
+  it('human entries are explicitly global and legacy scope can be completed', async () => {
+    const created = await api('POST', '/unified', {
+      type: 'guideline', title: '人工全局知识', content: '由操作员显式创建，因此具有可靠的人工来源。',
+      consumptionMode: 'reference',
+    });
+    const { sharedStore } = await import('../knowledge-singletons.js');
+    const learning = sharedStore.get(created.json.data.id).sourceReferences[0].learning;
+    expect(learning.scope).toEqual({ kind: 'global' });
+    expect(learning.outcome.execution).toBe('unknown');
 
-  it('POST /ask short-circuits when no entry matches (no LLM call)', async () => {
-    const res = await api('POST', '/ask', { question: 'zzz-no-match-token' });
-    expect(res.status).toBe(200);
-    expect(res.json).toEqual({ data: { answer: '未找到相关知识条目。', sources: [] } });
+    sharedStore.save({
+      id: 'legacy-unknown', type: 'guideline', title: '旧知识', content: '保留浏览但暂停自动注入。',
+      maturity: 'active', layer: 'project', created: new Date().toISOString(), lastReferenced: new Date().toISOString(),
+      contributors: [], projects: [], tags: [], applicablePhases: [],
+      sourceReferences: [{ workflow: 'legacy', timestamp: new Date().toISOString() }],
+      referencedBy: [], executionResults: [], consumptionMode: 'signal', origin: 'agent',
+    });
+    const patched = await api('PATCH', '/unified/legacy-unknown', { scope: { kind: 'repo', id: '/repo/studio' } });
+    expect(patched.status).toBe(200);
+    expect(sharedStore.get('legacy-unknown').sourceReferences[0].learning.scope).toEqual({ kind: 'repo', id: '/repo/studio' });
+    const overwrite = await api('PATCH', '/unified/legacy-unknown', { scope: { kind: 'global' } });
+    expect(overwrite.status).toBe(409);
+    expect(sharedStore.get('legacy-unknown').sourceReferences[0].learning.scope.kind).toBe('repo');
   });
 
   it('GET /gaps/:type 400 for invalid type', async () => {
@@ -119,18 +132,5 @@ describe('entries.routes', () => {
     expect(res.status).toBe(400);
     // 非法 type 原手写 400 → zod enum 400
     expect(res.json.error.code).toBe('BAD_REQUEST');
-  });
-
-  it('GET /export returns markdown by default and JSON with format=json', async () => {
-    const md = await api('GET', '/export');
-    expect(md.status).toBe(200);
-    expect(md.headers.get('content-type')).toContain('text/markdown');
-    expect(md.headers.get('content-disposition')).toContain('knowledge-export.md');
-
-    const jsonRes = await fetch(`${base}/export?format=json`);
-    expect(jsonRes.status).toBe(200);
-    expect(jsonRes.headers.get('content-type')).toContain('application/json');
-    const entries = await jsonRes.json() as any[];
-    expect(entries.some((e: any) => e.title === '提交规范')).toBe(true);
   });
 });

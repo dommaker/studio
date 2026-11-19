@@ -6,7 +6,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FileStore } from '../file-store';
-import { getDefaultFileStore, setDefaultFileStore, resetDefaultFileStoreForTesting } from '../file-store-default';
+import { getDefaultFileStore, setDefaultFileStore, resetDefaultFileStoreForTesting } from '../file-store/file-store-default';
 
 const origDataDir = process.env.STUDIO_DATA_DIR;
 

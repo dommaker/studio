@@ -1,12 +1,12 @@
 // App.tsx - Agent Studio - 路由重构
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Routes, Route, useLocation, useNavigate, useParams, Navigate } from 'react-router-dom';
+import { Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
 const ChannelHomeRedirect = lazy(() => import('./pages/ChannelHomeRedirect').then(m => ({ default: m.ChannelHomeRedirect })));
 const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({ default: m.TriageBanner })));
 const CommandPalette = lazy(() => import('./components/CommandPalette').then(m => ({ default: m.CommandPalette })));
 
 // 路由级代码分割 - 懒加载页面组件
-const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then(m => ({ default: m.AuditLogsPage })));
 const PMOPage = lazy(() => import('./pages/PMOPage').then(m => ({ default: m.PMOPage })));
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
@@ -30,10 +30,10 @@ const PageLoader = () => (
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TopNav } from './components/TopNav';
-import { Sidebar } from './components/SidebarNew';
+import { Sidebar } from './components/Sidebar';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
-import { WebSocketProvider } from './api/websocket';
+import { SseProvider } from './api/sse';
 import { useRosterStore } from './stores/rosterStore';
 import { useRequirementChainStoreSync } from './hooks/useRequirementChainStoreSync';
 import { useWorkUnitStoreSync } from './hooks/useWorkUnitStoreSync';
@@ -41,12 +41,12 @@ import { usePmoDataStoreSync } from './hooks/usePmoDataStoreSync';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
 import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
-import { joinDefaultChannel } from './components/setup/joinChannel';
+import { joinDefaultChannel } from './utils/joinChannel';
 import { isStudioRoleSetupDismissed, isFirstRoleSetupDismissed } from './components/setup/dismissed';
 import { isSystemRole } from './utils/systemRole';
 import './styles/theme.css';
 
-// #412：REQ chain 数据面 SSE 接线（App 级单点、零渲染；useWebSocketContext 依赖 Provider，故置于 Provider 内）
+// #412：REQ chain 数据面 SSE 接线（App 级单点、零渲染；useSseContext 依赖 Provider，故置于 Provider 内）
 function RequirementChainSync() {
   useRequirementChainStoreSync();
   return null;
@@ -63,13 +63,6 @@ function PmoDataSync() {
 function WorkUnitStoreSync() {
   useWorkUnitStoreSync();
   return null;
-}
-
-// #474：/project/:id 旧路由收编——双路由渲染同一页面已合并为 /pmo/project/:id 唯一入口，
-// 存量链接（书签/外部引用）在此 301 式重定向（replace 不留历史栈）
-function LegacyProjectRedirect() {
-  const { projectId } = useParams<{ projectId: string }>();
-  return <Navigate to={`/pmo/project/${projectId}`} replace />;
 }
 
 export default function App() {
@@ -135,18 +128,18 @@ export default function App() {
   if (isGuest) {
     return (
       <ThemeProvider>
-        <WebSocketProvider>
+        <SseProvider>
           <LandingPage />
-        </WebSocketProvider>
+        </SseProvider>
       </ThemeProvider>
     );
   }
 
   return (
     <ThemeProvider>
-    <WebSocketProvider>
+    <SseProvider>
     <div className="h-screen flex flex-col u-page-bg">
-      {/* #412：REQ chain 数据面 SSE 接线（App 级单点，hook 需 WebSocketProvider 上下文） */}
+      {/* #412：REQ chain 数据面 SSE 接线（App 级单点，hook 需 SseProvider 上下文） */}
       <RequirementChainSync />
       {/* #456：PMO 数据面接线（App 级单点） */}
       <PmoDataSync />
@@ -205,10 +198,9 @@ export default function App() {
                 </Suspense>
               }
             />
-            {/* #474：双路由合并——/project/:id 不再直挂页面，存量链接重定向到 /pmo/project/:id */}
-            <Route path="/project/:projectId" element={<LegacyProjectRedirect />} />
+            {/* #474：双路由合并——/pmo/project/:id 为项目详情唯一入口 */}
             <Route path="/goals" element={<Navigate to="/workunits" replace />} />
-            <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
+            <Route path="/settings" element={<Suspense fallback={<PageLoader />}><SettingsPage /></Suspense>} />
             <Route path="/audit-logs" element={<Suspense fallback={<PageLoader />}><AuditLogsPage /></Suspense>} />
             <Route path="/channels" element={<Suspense fallback={<PageLoader />}><ChannelHomeRedirect /></Suspense>} />
             <Route path="/channels/:id" element={<Suspense fallback={<PageLoader />}><ChannelDetailPage /></Suspense>} />
@@ -229,7 +221,7 @@ export default function App() {
       </div>
 
     </div>
-    </WebSocketProvider>
+    </SseProvider>
     </ThemeProvider>
   );
 }

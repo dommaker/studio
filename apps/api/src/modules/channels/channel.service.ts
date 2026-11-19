@@ -2,12 +2,13 @@
 // 与 channel-message.service 同款 seam：频道记录的读（404 判定单点）与写
 // （写路径内部即失效 channels 列表缓存，调用方不再感知 clearCache）。
 import { randomUUID } from 'crypto';
-import { logger, FileStore, type ChannelData } from '@dommaker/studio-shared';
+import { FileStore, type ChannelData } from '@dommaker/studio-shared';
 import { clearCache } from '../../middleware/api-cache.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { getWorkspaceRecord } from '../workspaces/index.js';
 import { getStore } from '../../core/store.js';
-
+import { createLazyService } from '../../utils/services.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 缓存失效键 = 路由挂载点（route-registry `/api/v1/channels`，与现状 req.baseUrl 一致） */
 const CHANNELS_BASE_PATH = '/api/v1/channels';
@@ -231,8 +232,8 @@ export class ChannelService {
       id: randomUUID(),
       name,
       description: description ?? null,
-      // 废弃字段停写（B4）：members 已是成员关系唯一事实源，此处恒写空数组，
-      // 读侧兜底（routing.ts / agent-loop members 空回退）与 migrate-members 保留至存量消化
+      // 废弃字段停写（B4）：members 是成员关系唯一事实源，此处恒写空数组
+      // （#696 验收后兼容链已退役：migrate-members / 读侧回退 / 双层解码全删）
       channels: '[]',
       provider: provider ?? null,
       status: 'active' as const,
@@ -258,4 +259,6 @@ export async function validateDefaultWorkspaceId(
   return { ok: true, value: wsId };
 }
 
-export const channelService = new ChannelService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getChannelService = createLazyService(() => new ChannelService());

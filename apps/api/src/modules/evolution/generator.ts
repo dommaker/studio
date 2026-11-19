@@ -35,10 +35,10 @@ import {
 import {
   FileStore,
   formatEvolutionId,
-  logger,
   type EvolutionProposalData,
   type EvolutionTargetType,
 } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 import { loadWindowSignals, type EvolutionPaths, type WindowSignals } from './signals.js';
 import { loadIncidentLedger } from './incident-ledger.js';
 
@@ -74,6 +74,7 @@ interface RawProposal {
   targetId: string;
   action: 'add' | 'amend';
   constraintChange?: EvolutionProposalData['constraintChange'];
+  targetProfileIds?: string[];
   currentText: string;
   proposedText: string;
   rationale: string;
@@ -85,6 +86,8 @@ export interface GeneratorDeps {
   fileStore: FileStore;
   paths: EvolutionPaths;
   windowHours: number;
+  /** 每个角色需经人审的既有 AgentProfile 显式目标；缺省只改 preset。 */
+  roleProfileTargets?: Readonly<Record<string, string[]>>;
 }
 
 /** (a) 启发式阈值：每轮最多产生的约束类提案数（保守原则） */
@@ -217,6 +220,7 @@ async function rolePresetProposals(signals: WindowSignals, deps: GeneratorDeps):
     out.push({
       targetType: 'role-preset',
       targetId: roleId,
+      ...(deps.roleProfileTargets?.[roleId]?.length ? { targetProfileIds: [...new Set(deps.roleProfileTargets[roleId])] } : {}),
       action: 'amend',
       currentText: currentPersona,
       proposedText: `${currentPersona.replace(/\s+$/, '')}\n${guidance}`,
@@ -272,20 +276,21 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
   // 抑重键（#624）：constraint 类提案（带 constraintChange）按 `targetType:targetId:constraintChange`
   // 判重——proposedText 内嵌统计数字每日漂移会让 rejected 提案换数字复现；其余类型维持
   // `targetType:targetId:proposedText` 原口径。
-  const duplicateKeyOf = (p: Pick<EvolutionProposalData, 'targetType' | 'targetId' | 'proposedText'> & { constraintChange?: EvolutionProposalData['constraintChange'] }): string =>
+  const duplicateKeyOf = (p: Pick<EvolutionProposalData, 'targetType' | 'targetId' | 'proposedText'> & { targetRepo?: string; constraintChange?: EvolutionProposalData['constraintChange'] }): string =>
     p.constraintChange
-      ? `${p.targetType}:${p.targetId}:${p.constraintChange}`
-      : `${p.targetType}:${p.targetId}:${p.proposedText}`;
+      ? `${p.targetRepo ?? ''}:${p.targetType}:${p.targetId}:${p.constraintChange}`
+      : `${p.targetRepo ?? ''}:${p.targetType}:${p.targetId}:${p.proposedText}`;
   const openTargets = new Set(
-    existing.filter(p => p.status === 'pending' || p.status === 'approved').map(p => `${p.targetType}:${p.targetId}`),
+    existing.filter(p => p.status === 'pending' || p.status === 'approved').map(p => `${p.targetRepo ?? ''}:${p.targetType}:${p.targetId}`),
   );
   const exactKeys = new Set(
     existing.filter(p => p.status !== 'stale').map(duplicateKeyOf),
   );
 
   const created: EvolutionProposalData[] = [];
-  for (const r of raw) {
-    const targetKey = `${r.targetType}:${r.targetId}`;
+  for (const rawProposal of raw) {
+    const r = { ...rawProposal, targetRepo: deps.paths.repoRoot };
+    const targetKey = `${r.targetRepo}:${r.targetType}:${r.targetId}`;
     if (openTargets.has(targetKey)) { skipped['open-exists'] = (skipped['open-exists'] ?? 0) + 1; continue; }
     if (exactKeys.has(duplicateKeyOf(r))) { skipped['duplicate'] = (skipped['duplicate'] ?? 0) + 1; continue; }
 
@@ -294,9 +299,11 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
       id: formatEvolutionId(seq),
       seq,
       targetType: r.targetType,
+      targetRepo: r.targetRepo,
       targetId: r.targetId,
       action: r.action,
       ...(r.constraintChange ? { constraintChange: r.constraintChange } : {}),
+      ...(r.targetProfileIds ? { targetProfileIds: r.targetProfileIds } : {}),
       currentText: r.currentText,
       proposedText: r.proposedText,
       rationale: r.rationale,

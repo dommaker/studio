@@ -14,8 +14,8 @@ const { mockOnEvent, mockOnReconnect, mockWuList, mockReqList, mockGetSuggestion
   mockGetSuggestions: vi.fn(),
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect, status: 'disconnected' }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect, status: 'disconnected' }),
 }));
 vi.mock('../useGatedPoll', () => ({ useGatedPoll: () => {} }));
 vi.mock('../../api/workunit', () => ({

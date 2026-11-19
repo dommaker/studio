@@ -5,22 +5,22 @@
  * GET  /api/v1/events — query StudioEvents（JWT auth；#180：type/since/until/level/keyword/
  *                       workUnitId 过滤 + 尾部倒读游标分页，替代全文件线性扫 + 200 硬顶）
  *
- * B9-014: Agent Event Protocol API
- * POST /api/v1/events/agent-events — batch ingest AgentEvent[] (JWT auth)
+ * B9-014 POST /api/v1/events/agent-events 已随 P4.6（2026-10-17）删除：仓内无代码消费方
+ *（外部 runtime 来源已断）；session:end → session:summary 现由 generator 直接监听
+ * StudioEvent 文件并执行启动恢复，不依赖 HTTP 入口。
  *
  * 契约驱动迁移（2026-10 批次 5/7）：走 core/http.ts defineRoute——type/source 必填
- * 与 agent-events 数组/逐条字段校验收进 zod；D18 空 payload 拒绝（isEmptyEventPayload
- * 唯一口径，含字符串 '{}' 语义）与写盘被拒保留 HttpError 显式文案；响应统一 `{ data }`
- * 壳（原裸对象/平铺进壳）；错误统一 `{ error: { code, message } }`（原 `{ error: string }`
- * 与 agent-events 的 `{ error, details }` 退役；500 文案由固定串变为实际错误消息）。
- * 鉴权（P2-e 声明式统一）：open（GET /，registry 挂 auth）/ write（POST /、/agent-events，registry 挂 authNotGuest）拆 router；
- * 注册顺序（sseRoutes 先于本 router 挂在 /api/v1/events）保持原样；
- * SSE /events/stream 不在本文件、不迁。
+ * 收进 zod；D18 空 payload 拒绝（isEmptyEventPayload 唯一口径，含字符串 '{}' 语义）
+ * 与写盘被拒保留 HttpError 显式文案；响应统一 `{ data }` 壳（原裸对象/平铺进壳）；
+ * 错误统一 `{ error: { code, message } }`（原 `{ error: string }` 退役；500 文案由固定串
+ * 变为实际错误消息）。
+ * 鉴权（P2-e 声明式统一）：open（GET /，registry 挂 auth）/ write（POST /，registry 挂
+ * authNotGuest）拆 router；注册顺序（sseRoutes 先于本 router 挂在 /api/v1/events）
+ * 保持原样；SSE /events/stream 不在本文件、不迁。
  */
 
 import { Router } from 'express';
-import { logger } from '@dommaker/studio-shared';
-import { generateSessionSummary } from './session-summary-generator.js';
+
 import {
   writeStudioEvent,
   isEmptyEventPayload,
@@ -28,17 +28,18 @@ import {
   resolveStudioEventsFile,
   getStudioEventTime,
   type StudioEventLevel,
-} from '../../utils/studio-events.js';
+} from '@dommaker/studio-shared';
 import { readStudioEventsTail, studioEventLevelOf, levelAtLeast } from '../../utils/studio-events-tail.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 import {
   ERROR_CODES,
   createStudioEventBodySchema,
   listStudioEventsQuerySchema,
-  agentEventBatchBodySchema,
+  createStudioEventResponseSchema,
+  eventSearchResponseSchema,
 } from '@dommaker/studio-contract';
 
-// P2-e 鉴权声明式统一：open（GET /，registry 挂 auth）/ write（POST /、/agent-events，registry 挂
+// P2-e 鉴权声明式统一：open（GET /，registry 挂 auth）/ write（POST /，registry 挂
 // authNotGuest）拆 router，路由内不再挂鉴权。
 const openRoutes = Router();
 const writeRoutes = Router();
@@ -50,7 +51,7 @@ const writeRoutes = Router();
  * D18：payload 为空（{} / null / undefined）拒绝落盘 → 400（调用方自查）。
  */
 writeRoutes.post('/', defineRoute(
-  { body: createStudioEventBodySchema },
+  { body: createStudioEventBodySchema, response: createStudioEventResponseSchema },
   { status: 201 },
   async (_req, _res, { body }) => {
     const { type, source, payload } = body;
@@ -90,7 +91,7 @@ writeRoutes.post('/', defineRoute(
 const EVENT_LEVELS: StudioEventLevel[] = ['debug', 'info', 'warning', 'critical'];
 
 openRoutes.get('/', defineRoute(
-  { query: listStudioEventsQuerySchema },
+  { query: listStudioEventsQuerySchema, response: eventSearchResponseSchema },
   async (_req, _res, { query }) => {
     const { type, since, until, level: levelStr, keyword, workUnitId, limit: limitStr, cursor } = query;
     const limit = Math.min(Math.max(parseInt(String(limitStr || '50'), 10) || 50, 1), 200);
@@ -131,44 +132,15 @@ openRoutes.get('/', defineRoute(
     // 页内按事件时间倒序兜底（文件追加序基本即时间序，防同文件乱序行）
     events.sort((a, b) => getStudioEventTime(b) - getStudioEventTime(a));
 
-    return { events, total: events.length, nextCursor };
-  },
-));
-
-/**
- * POST /api/v1/events/agent-events
- * B9-014: Agent Event Protocol — batch ingest events from any agent.
- * Body: AgentEvent[] — array of events with { sessionId, agentId, timestamp, type, payload? }
- * （zod 校验非空数组 / ≤500 上限 / 逐条必填字段；原「Validation failed + details[]」
- * 聚合错误体随之退役为 zod 首错格式）
- */
-writeRoutes.post('/agent-events', defineRoute(
-  { body: agentEventBatchBodySchema },
-  { status: 201 },
-  async (_req, _res, { body: events }) => {
-    // Batch insert — map AgentEvent → StudioEvent（D18：统一写入入口；payload 恒含 sessionId 非空）
-    for (const e of events) {
-      const written = await writeStudioEvent(e.type, {
-        sessionId: e.sessionId,
-        ...(typeof e.payload === 'object' && e.payload !== null ? e.payload : {}),
-      }, {
-        source: e.agentId,
-        createdAt: new Date(e.timestamp).toISOString(),
-      });
-      if (!written) throw new Error(`event write rejected/failed: ${e.type}`);
-    }
-
-    logger.info('[AgentEvents] Batch ingested', { count: events.length, agentId: events[0].agentId });
-
-    // B9-015: fire-and-forget session:summary generation on session:end
-    const sessionEndEvents = events.filter((e) => e.type === 'session:end');
-    for (const se of sessionEndEvents) {
-      generateSessionSummary(se.sessionId).catch((err: unknown) => {
-        logger.warn('[AgentEvents] SessionSummary generation failed', { sessionId: se.sessionId, error: String(err) });
-      });
-    }
-
-    return { ingested: events.length };
+    const wireEvents = events.map(event => ({
+      ...event,
+      type: typeof event.type === 'string' ? event.type : 'unknown',
+      source: typeof event.source === 'string' ? event.source : undefined,
+      level: studioEventLevelOf(event),
+      payload: typeof event.payload === 'string' ? event.payload : undefined,
+      createdAt: typeof event.createdAt === 'string' ? event.createdAt : undefined,
+    }));
+    return { events: wireEvents, total: wireEvents.length, nextCursor };
   },
 ));
 

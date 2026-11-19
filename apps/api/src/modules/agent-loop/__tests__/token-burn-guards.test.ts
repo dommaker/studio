@@ -11,12 +11,24 @@ import fs from 'node:fs';
 const { mockExecSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
 }));
-vi.mock('child_process', () => ({ exec: vi.fn(), execSync: mockExecSync }));
+vi.mock('child_process', () => ({
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  exec: vi.fn((cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  }),
+  execSync: mockExecSync,
+}));
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({ mockExecuteLightweight: vi.fn() }));
 vi.mock('@dommaker/studio-agent', () => ({
   agentRunner: { executeLightweight: mockExecuteLightweight },
 }));
+
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -36,18 +48,24 @@ const { mockTriggerScheduler } = vi.hoisted(() => ({
 }));
 vi.mock('../../triggers/trigger-registry', () => ({ getTriggerScheduler: () => mockTriggerScheduler }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: vi.fn().mockResolvedValue({ prompt: '', injectedIds: [] }),
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 import { AgentLoop, type StepResult } from '../agent-loop';
 import { isTestLikeWorkUnit, testWuGuardEnabled } from '../agent-loop-guards';
 import { resolveRealUsage, writeWorkunitTokenEvent } from '../agent-loop-events';
-import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 import type { ExecutionResult } from '@dommaker/studio-agent';
 
 const mockRole = {
@@ -93,10 +111,8 @@ function readTokenEventPayload(): Record<string, unknown> {
 
 type AgentStepFn = (t: { workUnit: WorkUnitData }) => Promise<StepResult>;
 type RecordResultFn = (t: { workUnit: WorkUnitData }, r: StepResult) => Promise<void>;
-const stepOf = (loop: AgentLoop): AgentStepFn =>
-  (loop as unknown as { agentStep: AgentStepFn }).agentStep.bind(loop);
-const recordOf = (loop: AgentLoop): RecordResultFn =>
-  (loop as unknown as { recordResult: RecordResultFn }).recordResult.bind(loop);
+const stepOf = (loop: AgentLoop): AgentStepFn => loop.agentStep.bind(loop);
+const recordOf = (loop: AgentLoop): RecordResultFn => loop.recordResult.bind(loop);
 
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -191,7 +207,11 @@ describe('B2: agentStep 守卫集成（STUDIO_TEST_WU_GUARD=on）', () => {
 describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=5，#95 2→5）', () => {
   // #94: claude 续用判定要求会话文件存在（cwd 未知时一律按续用）——本组用例验证新建分支，
   // 统一给一个无会话文件的 workspaceRoot（无 .git 不走 worktree），使判定落入新建路径
-  const noSessionRoot = (): string => path.join(tmpDir, 'wt-no-session');
+  const noSessionRoot = (): string => {
+    const dir = path.join(tmpDir, 'wt-no-session');
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  };
 
   it('sessionCount 已达 5 且无续用 → need_input 转人工，不起新会话', async () => {
     const wu = await createActiveWu({ sessionCount: 5, sessionId: 'old-session', workspaceRoot: noSessionRoot() });

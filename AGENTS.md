@@ -17,7 +17,7 @@
 | `dist-npm/` | — |
 | `docs/` | 项目文档 |
 | `node-compile-cache/` | — |
-| `packages/` | monorepo 共享包：studio-agent、studio-audit、studio-contract、studio-notification、studio-shared、studio-skill、studio-spec |
+| `packages/` | monorepo 共享包：studio-agent、studio-contract、studio-shared、studio-skill |
 | `scripts/` | 工具脚本 |
 | `tests/` | 测试 |
 
@@ -40,7 +40,7 @@ pnpm start  # 启动生产服务
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 45 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 37 个），改动代码时同步更新
 
 <!-- PRESERVE:governance -->
 ## 治理契约
@@ -121,53 +121,41 @@ pnpm start  # 启动生产服务
 | 目录 | 说明 |
 |------|------|
 | `apps/api/src/modules/action-center` | 统一行动中心（#468）：一个端点回答「现在需要我做什么」。GET /api/v1/action-center（requireAuth + requireNotGuest）返回三段：stateItems（状态派生：reply=bloc... |
-| `apps/api/src/modules/admin` | 提供 REST API 端点检查 CLAUDE.md 和 CAPABILITIES.md 的文档新鲜度，包括文件是否存在、最近修改时间、harness 约束检查结果，用于监控文档同步状态。 |
 | `apps/api/src/modules/agent-auditor` | Auditor Agent（P2-d 刀4 自 modules/agents/auditor 提升为顶层模块）：24h 日审跨任务审计——错误归类/技能建议/知识健康 → 低风险自动应用 / 人审确认卡片 / Resolution /... |
 | `apps/api/src/modules/agent-knowledge` | 知识维护 Agent（P2-d 刀7 自 modules/agents/knowledge 提升为顶层模块）：知识库冷启动导入 + 每日维护。命名 agent-knowledge 以区别于顶层 knowledge 模块（知识引擎：Pr... |
 | `apps/api/src/modules/agent-loop` | 决策循环与 WU 执行链（P2-d 刀5 自 modules/agents/loop 提升为顶层模块）：AgentLoop 循环编排（observe → 过滤 → claim → agentStep → recordResult →... |
-| `apps/api/src/modules/agent-monitor` | Monitor Agent（P2-d 刀6 自 modules/agents/monitor 提升为顶层模块）：5min 轮询健康监控 + 渐进告警 + 轨迹评估/每日洞察 + 知识沉淀闸门与每日 TTL 清理 + 实例超时巡检。命名... |
-| `apps/api/src/modules/agent-ops` | 进程级守护（P2-d 刀3 自 modules/agents/ops 提升为顶层模块）：preflight 启动检查、health 轮询自愈、代理守护、默认数据 ensure。OpsService 由 bootstrap/servic... |
-| `apps/api/src/modules/agents` | Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言门面、default-provid... |
-| `apps/api/src/modules/audit-logs` | 提供审计日志的查询与统计 API 端点，支持按用户、角色、公司、操作类型、资源、状态、时间范围等条件过滤，并支持分页查询和统计汇总。 |
-| `apps/api/src/modules/auth` | 负责 API 用户认证与会话管理，包括注册、登录、Guest Session 创建、认证状态查询及 JWT 令牌管理。同时集成 OAuth 认证流程（参见 oauth.routes.ts 与 oauth.service.ts）和邮件验... |
-| `apps/api/src/modules/builtin-tools` | 提供一组内置工具（文件操作、搜索、执行、通信）的元数据定义与 RESTful 路由，供上层服务注册和调用。工具列表静态注册在 routes.ts 中，每个工具包含名称、描述、分类、输入 schema 与启用状态。 |
+| `apps/api/src/modules/agents` | Agent 配置（profile）、运行实例（instance）、token 用量视图三条线 + 共享支撑件（system-executor 系统级 LLM 直调、system-role 系统角色断言——正本在 core/system... |
+| `apps/api/src/modules/audit-logs` | 提供审计日志的记录、查询、统计与导出：服务层 AuditService（JSONL 存储，#684 自 packages/studio-audit 下沉并入本模块）+ 查询与统计 API 端点，支持按用户、角色、公司、操作类型、资源、... |
+| `apps/api/src/modules/auth` | 负责单 Operator 认证、Guest 匿名 Session、JWT/refresh 生命周期与短期流式票据。支持 none / on 两种模式；当前仓内没有 OAuth 或邮件验证实现，前端同名死面不构成后端能力。 |
 | `apps/api/src/modules/channels` | Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线程 / @mention 派单 / #632 合并窗口（解耦 + 歧义守卫））、情境引导建议推导、@文件引用词表、「当前 PMO」派生。 |
 | `apps/api/src/modules/companies` | 公司（Company）记录的 CRUD REST API，FileStore 文件存储（~/.studio/data/companies/*.json），不依赖数据库。PMO 的 OKR/项目均以 companyId 作为归属维度。创... |
-| `apps/api/src/modules/deploy` | Deploy Webhook：GitHub push 事件触发的自动部署入口（触发式部署，替代每分钟轮询的主通道）。仅接受 push 到 refs/heads/master，202 立即返回后异步触发部署脚本（幂等可重入，脚本内含方向... |
-| `apps/api/src/modules/dingtalk` | 处理钉钉机器人交互回调，包括 ActionCard 按钮点击的健康检查和操作忽略提示。当前 Meeting 模块已移除，按钮点击仅返回占位响应。 |
+| `apps/api/src/modules/deploy` | Deploy Webhook：GitHub push 事件触发的自动部署入口（触发式部署，替代每分钟轮询的主通道）。仅接受 push 到 refs/heads/master，detached spawn + 台账 complete 后... |
 | `apps/api/src/modules/discord` | 处理 Discord 集成，包括命令行 (studio run) 和 Discord 斜杠命令 (/studio run) 共享的命令运行逻辑，以及 Discord 交互端点（按钮点击回调）的路由处理。 |
-| `apps/api/src/modules/distill` | 蒸馏主链路：WU done 钩子跑门槛检测（纯确定性计数，零 LLM）-> 命中发 distill_proposal 卡到 #系统 -> approve 后 system-executor 执行蒸馏 -> 产物入库 + 原料 matu... |
-| `apps/api/src/modules/events` | 提供全局事件系统：StudioEvent CRUD（G30）、AgentEvent 批量写入（B9-014）、SSE 实时流（HZ-028）、Session 摘要生成（B9-015）。 |
+| `apps/api/src/modules/distill` | 蒸馏主链路：真实进入 WU done 的钩子跑门槛检测（纯确定性计数，零 LLM；#703 previousStatus=done 的补证据事件不重复触发）-> 命中发 distill_proposal 卡到 #系统 -> appro... |
+| `apps/api/src/modules/events` | 提供全局事件系统：StudioEvent CRUD（G30）、SSE 实时流（HZ-028）、Session 摘要生成（B9-015）。AgentEvent 批量写入 HTTP 入口（B9-014）已随 P4.6 删除（无消费方）。 |
 | `apps/api/src/modules/evolution` | E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：从执行 traces/outcomes 中加载信号，生成约束进化提案，经人审提案卡（review-propos... |
-| `apps/api/src/modules/executions` | 提供执行（execution）相关的 REST API 路由，当前仅包含获取执行列表（GET /）。基于本地 JSONL 文件和 tasks 目录的 FileStore 实现，不依赖已删除的数据库。此模块为遗留接口（LEGACY su... |
 | `apps/api/src/modules/harness` | Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生命周期、 |
 | `apps/api/src/modules/knowledge` | 知识引擎：让系统越来越聪明。三层分离架构（Producer → Engine → Consumer）。 |
-| `apps/api/src/modules/lark` | 处理飞书机器人回调事件，包括 URL 验证（首次配置）、卡片按钮点击事件（card.action.trigger）以及其他未处理事件。提供健康检查端点。 |
 | `apps/api/src/modules/library` | 阅览室（#155 T5）：跨项目 .studio/ 文档面的聚合只读层。缺省遍历全部有 gitRepo 的 PMO 项目，读各仓 .studio/ 下的 specs/、research/、CONTEXT.md + 仓根 docs/ad... |
 | `apps/api/src/modules/mcp` | MCP（Model Context Protocol）模块 — 将 Studio 系统能力暴露为 MCP tools，供 Agent 和 UI 共享调用。 |
-| `apps/api/src/modules/monitoring` | 负责聚合 Agent Network 的监控指标，包括 Agent 摘要、统计信息、飞轮指标（M1）和封装开销（M2），通过 HTTP 路由对外暴露。 |
-| `apps/api/src/modules/notifications` | 提供通知相关的 API 路由，包括获取通知列表、查询未读数量、标记单条已读和标记全部已读，作为后台消息通知模块的 HTTP 接口层。 |
-| `apps/api/src/modules/notify-channels` | 通知渠道配置（#525 P2-6，决策 #516 项⑦⑧）：服务端配置存储 + 读写 API + ClawBot（iLink 协议）内嵌轻量直连。/settings「通知渠道」配置区的服务端支撑——#434 死配置的「复活成真功能」版... |
-| `apps/api/src/modules/outbound-notify` | 本模块提供基于 Discord 的通知发送服务，支持多种任务与会议相关通知类型。内部封装了对 discordNotifier 的调用，并通过 eventBus 将通知事件发布到消息总线。还暴露 HTTP 路由供内部模块通过 POST... |
+| `apps/api/src/modules/notifications` | 通知域（#682 合一：原 notifications + notify-channels + outbound-notify + utils/notifier + utils/discord-notifier 六个面并为单模块，ut... |
+| `apps/api/src/modules/ops` | 监控/ops 合一模块（#683：原 modules/monitoring 指标聚合 + modules/agent-monitor 巡检告警 + modules/agent-ops 进程守护 + src/monitoring Pro... |
 | `apps/api/src/modules/pmo` | 项目管理办公室（PMO）：OKR 管理 + 项目 CRUD + 交付守卫。PMO 是链条脊椎：id = 分支名、需求文档挂载点、状态 = WU 汇总 + 证据台账、交付策略挂在项目上。统一编号 PMO-<n>。 |
 | `apps/api/src/modules/projects` | Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息并对外提供查询 API，供频道默认工程、WorkUnit 工程绑定等流程使用。 |
 | `apps/api/src/modules/requirements` | REQ 需求编号体系（vision §5.3）：一个需求（REQ-<序号>）= 一组 WorkUnit。负责 REQ 的创建、绑定解析与状态汇总，需求文档/SDD/产物以编号关联，UI 按编号串联全链路。 |
 | `apps/api/src/modules/review-proposal` | 人审提案卡生命周期唯一正本（#351，docs/adr/2026-08-25-review-proposal-lifecycle-module.md）： |
-| `apps/api/src/modules/role-memory` | 角色记忆存储服务：per-role 目录落数据区（经 studioPath()），三件套--MEMORY.md 索引 + topics/*.md topic 正文 + draft.jsonl append-only 草稿区。role-... |
+| `apps/api/src/modules/role-memory` | 角色记忆存储服务：per-role 目录落数据区（经 studioPath()），MEMORY.md 索引 + topics/*.md 正文 + draft.jsonl 草稿 + maintenance.jsonl 持久维护 run。... |
 | `apps/api/src/modules/skills` | skills 模块负责技能（Skill）的完整生命周期管理，包括基于文件的技能元数据存储（SkillStore）、技能目录扫描与加载（manifest-loader）、基于描述的技能匹配（skill-selector）、从 WorkU... |
-| `apps/api/src/modules/specs` | 提供 Specs 模块的 HTTP API 路由，包括变更分析、变更历史查询和门禁验证。遵循 SP-002 变更分级流程，通过调用外部 SDK 中的服务处理 Spec 变更相关的业务逻辑。 |
-| `apps/api/src/modules/transcripts` | transcript 归档器（#97，#88 子票）：把会话原文落盘到数据区（经 studioDir()/studioPath()），供四个消费方共用——#99 WU 收尾批量提取（要全文）、handoff 摘要（要对话）、#85 执... |
+| `apps/api/src/modules/specs` | Specs 域：变更分析（L1-L4 分级与审批推荐）、变更历史查询、门禁验证（SP-002/SP-003）。服务实现自 packages/studio-spec 并回本模块（#684 包下沉）。 |
+| `apps/api/src/modules/transcripts` | transcript 归档器（#97，#88 子票；#712 完整性）：把会话原文落盘到数据区（经 studioDir()/studioPath()），供恢复包、#99 WU 收尾提取、#85 执行质量评估（后续）与 Skill 使用... |
 | `apps/api/src/modules/triage` | 错误分类（triage）与严重度评估 + Triage Agent 事件响应。两层同域合并（P2-d 刀2，agents 超级域拆分）： |
 | `apps/api/src/modules/triggers` | Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus）两类条件的触发器调度与持久化，动作包括 CREATE WorkUnit / UPDATE / EXECUTE。系统默... |
-| `apps/api/src/modules/workspaces` | 本机 Workspace 记录的自动注册与查询（只读 list/get + 删除）、CLI 运行时清单扫描。Token 管理已随 #481 退役删除。 |
+| `apps/api/src/modules/workspaces` | 本机 Workspace 记录的自动注册与查询（只读 list/get）、CLI 运行时清单扫描。Token 管理已随 #481 退役删除；DELETE /:id 与 GET /:id/runtimes 已随 P4.6（2026-10... |
 | `apps/api/src/modules/workunit` | WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 NEED_INPUT 挂起/恢复与超时提醒。 |
 | `packages/studio-agent` | Sub-agent 的完整生命周期管理：创建隔离 worktree → 传播 harness 配置 → spawn provider CLI（单 session）→ stream-json 解析与事件发射。完成判定/状态机不在本包，由... |
-| `packages/studio-audit` | 提供审计日志的记录、查询、统计与导出功能。通过 AuditService 进行持久化日志操作（JSONL 存储）。 |
 | `packages/studio-contract` | API 契约唯一正本（docs/architecture/target-architecture.md）：按域一个文件的 zod schema，定义请求/响应形状；envelope.ts 定义统一响应壳（{ data } / { da... |
-| `packages/studio-notification` | 本目录提供 studio-notification 包的核心代码，包含通知的创建、查询、标记，服务层基于 FileStore 实现持久化通知管理。 |
 | `packages/studio-shared` | 跨 apps/packages 的共享层：provider 注册表（agent CLI 定义与 spawn 模板）、FileStore（全部运行时数据的文件存储）、eventBus、共享类型与工具、 harness 运行时。Node-... |
 | `packages/studio-skill` | 本目录是 Studio Skill 的核心模块，负责 Skill 的定义类型、从磁盘加载 Skill 定义（支持 frontmatter 解析和缓存）。为 Agent prompt 注入可加载的能力单元。内置 skill 库正本随包分... |
-| `packages/studio-spec` | 本目录提供 Spec 的变更分析与门禁检查能力，是 Studio 中 Spec 质量管控与变更管理的核心模块。支持变更分级（L1-L4）与自动审批推荐，并实现门禁检查以管控变更上线。 |
 <!-- /AUTO-GENERATED:modules -->
 <!-- /PRESERVE:modules -->
 

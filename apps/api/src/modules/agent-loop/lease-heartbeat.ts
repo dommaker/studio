@@ -13,8 +13,9 @@
  *
  * 单跳 IO 失败（撕裂读取等瞬态）只记日志不停跳——fencing 不漏判：真正易主时下一跳仍会命中。
  */
-import { logger, type FileStore } from '@dommaker/studio-shared';
+import { type FileStore } from '@dommaker/studio-shared';
 import { WU_LEASE_TTL_MS } from '../workunit/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** #63 决议 1：租约心跳间隔 30s（10 跳缺席 = 5min TTL 耗尽才释放） */
 export const LEASE_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -26,6 +27,8 @@ export interface LeaseHeartbeatOptions {
   claimedAt: string;
   /** 持有方实例 id（assigneeId 双比对，防实例 id 复用盲区） */
   assigneeId: string;
+  /** #705：同一次 WU 持有期内的 Assignment 代际令牌。 */
+  assignmentId?: string;
   /** 易主/消失回调：'lost' = claimedAt 或 assigneeId 不匹配；'missing' = WU 已删除 */
   onLost: (reason: 'lost' | 'missing') => void;
   /** 测试注入：覆盖心跳间隔（生产缺省 30s） */
@@ -50,6 +53,7 @@ export function startLeaseHeartbeat(opts: LeaseHeartbeatOptions): () => void {
         opts.assigneeId,
         opts.claimedAt,
         new Date(Date.now() + WU_LEASE_TTL_MS),
+        opts.assignmentId,
       );
       if (result !== 'ok' && !stopped) {
         stopped = true;

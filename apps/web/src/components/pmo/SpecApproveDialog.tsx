@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { ApproveDialogShell, Button } from '../ui';
 import type { ReviewConfirmPayload } from '../../api/workunit';
-import type { SpecTaskFormItem } from './mapUtils';
+import type { SpecTaskFormItem } from '../../utils/mapUtils';
 
 interface SpecCardState extends SpecTaskFormItem {
   included: boolean;

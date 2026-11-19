@@ -5,12 +5,13 @@
 // 2026-09-25 断点修复：挂 onReconnect（决策 9 既有机制）——断线期间错过的事件由
 // unreadStore.resyncOnReconnect 拉 REST 最新一页补底数，不再「错过即丢」。
 import { useEffect, useRef } from 'react';
-import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';
+import { useSseContext, type SseMessage } from '../api/sseHooks';
+import { isSseEvent } from '../api/sseParser';
 import { useUnreadStore } from '../stores/unreadStore';
 
-function handleUnreadEvent(msg: WebSocketMessage) {
-  if (msg.event_type !== 'channel.message_sent') return;
-  const data = msg.data as { channelId?: string; message?: { authorType?: string; createdAt?: string } } | null;
+function handleUnreadEvent(msg: SseMessage) {
+  if (!isSseEvent(msg, 'channel.message_sent')) return;
+  const data = msg.data;
   if (!data?.channelId) return;
   const at = data.message?.createdAt ? Date.parse(data.message.createdAt) : undefined;
   useUnreadStore.getState().applyMessageSent(
@@ -25,7 +26,7 @@ let detachEvent: (() => void) | null = null;
 let detachReconnect: (() => void) | null = null;
 
 export function useUnreadStoreSync(): void {
-  const { onEvent, onReconnect } = useWebSocketContext();
+  const { onEvent, onReconnect } = useSseContext();
   const onEventRef = useRef(onEvent);
   const onReconnectRef = useRef(onReconnect);
   useEffect(() => {

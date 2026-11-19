@@ -27,9 +27,7 @@ import { resolveEvolutionPaths, type EvolutionPaths } from '../signals.js';
 
 const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
 
-vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
-}));
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -43,6 +41,7 @@ async function seedProposal(patch?: Partial<EvolutionProposalData>): Promise<Evo
     id: formatEvolutionId(seq),
     seq,
     targetType: 'prompt-template',
+    targetRepo: tmpDir,
     targetId: 'tpl-review',
     action: 'amend',
     currentText: '旧模板正文',
@@ -61,13 +60,16 @@ async function seedProposal(patch?: Partial<EvolutionProposalData>): Promise<Evo
 beforeEach(async () => {
   vi.clearAllMocks();
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-review-adapter-'));
   fileStore = new FileStore(tmpDir);
   prevEnv = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
   process.env.STUDIO_PROMPT_OVERRIDES_DIR = path.join(tmpDir, 'prompt-overrides');
   paths = resolveEvolutionPaths({
     repoRoot: tmpDir,
-    eventsDir: path.join(tmpDir, 'events'),
     studioEventsFile: path.join(tmpDir, 'studio-events.jsonl'),
   });
   // 构造即注册 kind='evolution' adapter（绑定本实例的 fileStore/decide）
@@ -123,11 +125,13 @@ describe('EvolutionProposalStore', () => {
 });
 
 describe('renderCardContent', () => {
-  it('卡片正文含当前/提案/理由/证据窗口，cardData 带 proposalId 接线', async () => {
-    const p = await seedProposal();
+  it('卡片正文含目标仓库/档案、当前/提案/理由/证据窗口，cardData 带 proposalId 接线', async () => {
+    const p = await seedProposal({ targetProfileIds: ['profile-1'] });
     const adapter = registerEvolutionReviewAdapter({ fileStore, service });
     const { content, cardData } = adapter.renderCardContent(p);
     expect(content).toContain(p.id);
+    expect(content).toContain(`目标仓库：${tmpDir}`);
+    expect(content).toContain('既有 AgentProfile：profile-1');
     expect(content).toContain('prompt-template / tpl-review');
     expect(content).toContain('旧模板正文');
     expect(content).toContain('进化后的模板正文');
@@ -176,7 +180,7 @@ describe('runScan 发布路径', () => {
     }));
     fs.writeFileSync(paths.studioEventsFile, rows.map(r => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
 
-    const result = await cardService.runScan();
+    const result = await cardService.runScan(tmpDir);
     expect(result.created.length).toBe(1);
     expect(result.posted).toBe(1);
     expect(mockCreateCardMessage).toHaveBeenCalledTimes(1);

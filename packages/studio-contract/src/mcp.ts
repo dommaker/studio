@@ -41,7 +41,7 @@ import { dataBodySchema } from './envelope.js';
 export const mcpToolSchema = z.object({
   name: z.string(),
   description: z.string(),
-  inputSchema: z.record(z.unknown()),
+  inputSchema: z.record(z.string(), z.unknown()),
 });
 export type McpTool = z.infer<typeof mcpToolSchema>;
 
@@ -87,7 +87,7 @@ export const mcpAuditLogSchema = z.object({
   id: z.string(),
   toolName: z.string(),
   roleId: z.string().optional(),
-  input: z.record(z.unknown()).optional(),
+  input: z.record(z.string(), z.unknown()).optional(),
   output: z.unknown().optional(),
   duration: z.number(),
   success: z.boolean(),
@@ -169,7 +169,7 @@ export const mcpAdminStatsResultSchema = z.object({
   enabledTools: z.number(),
   totalCalls: z.number(),
   successRate: z.number(),
-  byTool: z.record(mcpToolStatsSchema),
+  byTool: z.record(z.string(), mcpToolStatsSchema),
 });
 export type McpAdminStatsResult = z.infer<typeof mcpAdminStatsResultSchema>;
 

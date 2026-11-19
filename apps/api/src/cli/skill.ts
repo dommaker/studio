@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseFrontmatter } from '@dommaker/studio-shared';
 import { studioDir, studioPath } from '@dommaker/studio-shared/studio-dir';
-import { hashSkillDir, builtinSkillsDir } from '@dommaker/studio-skill';
+import { hashSkillDir, builtinSkillsDir, copyTree } from '@dommaker/studio-skill';
 import { validateSkillDir } from './skill-validate.js';
 
 export async function studioSkill(args: string[]): Promise<number> {
@@ -36,18 +36,6 @@ export async function studioSkill(args: string[]): Promise<number> {
 /** 数据区 skill 目录，运行期读 SKILLS_DIR 支持测试隔离（与 loader/seed 同口径） */
 function skillsDir(): string {
   return process.env.SKILLS_DIR || studioPath('skills');
-}
-
-/** 递归整目录拷贝（与 seed copyTree 同语义：先清目标再逐文件复制） */
-function copyTree(src: string, dest: string): void {
-  fs.rmSync(dest, { recursive: true, force: true });
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dest, entry.name);
-    if (entry.isDirectory()) copyTree(s, d);
-    else if (entry.isFile()) fs.copyFileSync(s, d);
-  }
 }
 
 function splitFlags(args: string[]): { positional: string[]; force: boolean } {

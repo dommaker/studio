@@ -30,18 +30,19 @@
  * AnalysisHandoff 一致（eventBus 进程内，best-effort）。
  */
 
-import { eventBus, logger, createSettledTracker, type FileStore } from '@dommaker/studio-shared';
+import { type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { ChannelMessageService } from '../channels/index.js';
 import { projectService, type PmoMap, type ProjectData } from './project.service.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
 import { getStore } from '../../core/store.js';
-
+import { WuStatusChangedSubscription } from './wu-status-subscription.js';
 
 /** 开图 fog 条数上限（照 ANALYSIS_TASKS_MAX 先例防刷屏）
  *  P2-c：正本下沉 @dommaker/studio-shared constants/map-opening.ts（三域共用防互耦），此处转介 */
 import { MAP_OPENING_FOG_MAX } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 export { MAP_OPENING_FOG_MAX };
 
 /**
@@ -66,10 +67,9 @@ export function parseMapOpening(summary: string): { destination?: string; fog: s
 }
 
 export class MapOpening {
-  private subscribed = false;
+  /** #228 测试可观测性（纯增量，同 analysis-handoff）：在途事件链登记，见 waitForSettled（共享骨架 P2.1） */
+  private readonly statusChanged = new WuStatusChangedSubscription();
   private messageService: ChannelMessageService;
-  /** #228 测试可观测性（纯增量，同 analysis-handoff）：在途事件链登记，见 waitForSettled */
-  private readonly settled = createSettledTracker();
 
   constructor(
     private fileStore: FileStore,
@@ -81,17 +81,13 @@ export class MapOpening {
 
   /** 订阅 workunit.status_changed。幂等。 */
   subscribeToEvents(): void {
-    if (this.subscribed) return;
-    this.subscribed = true;
-
-    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
-      const wu = payload.workunit;
-      // #471：plan（新链）+ analysis（存量在飞链）双吃；其余类型不相关
-      if (!wu || (wu.type !== 'analysis' && wu.type !== 'plan') || wu.status !== 'done') return;
-      this.settled.track(this.onAnalysisDone(wu.id).catch(err =>
+    this.statusChanged.subscribe(
+      // #471：plan（新链）+ analysis（存量在飞链）双吃；其余类型/状态不相关
+      (wu) => !!wu && (wu.type === 'analysis' || wu.type === 'plan') && wu.status === 'done',
+      (wu) => this.onAnalysisDone(wu.id).catch(err =>
         logger.warn('[MapOpening] onAnalysisDone failed', { wuId: wu.id, error: String(err) }),
-      ));
-    });
+      ),
+    );
   }
 
   /**
@@ -99,7 +95,7 @@ export class MapOpening {
    * 同 analysis-handoff.waitForSettled）。
    */
   async waitForSettled(): Promise<void> {
-    await this.settled.waitForSettled();
+    await this.statusChanged.waitForSettled();
   }
 
   private async onAnalysisDone(wuId: string): Promise<void> {

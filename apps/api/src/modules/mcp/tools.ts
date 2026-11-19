@@ -7,9 +7,9 @@
  * 本文件保留注册顺序、风险级别标注、权限种子与执行门面。
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { toolRegistry, type RegisteredTool } from './tool-registry.js';
 import { mcpPermissionService } from './permission.service.js';
+import { logger } from '@dommaker/studio-shared/node';
 import { pmoTools } from './pmo.tools.js';
 import { taskTools } from './task.tools.js';
 import { economyTools } from './economy.tools.js';

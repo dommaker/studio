@@ -79,7 +79,7 @@ const baseDelivery: DeliveryStatus = {
   deliverCommit: null,
 };
 
-const gapDelivery = (missing: Array<'l1' | 'l2' | 'l3'>): DeliveryStatus => ({
+const gapDelivery = (missing: Array<'l1' | 'l2' | 'l3' | 'merge'>): DeliveryStatus => ({
   ...baseDelivery,
   wu: { total: 1, finished: 1, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
   gaps: [{ id: 'wu-1', title: '修复登录缺陷', type: 'bug', missing }],
@@ -111,6 +111,11 @@ describe('DeliveryPanel', () => {
     expect(screen.getByText('实现交付台账')).toBeTruthy();
     expect(screen.getByText('缺 Agent 评审')).toBeTruthy();
     expect(screen.getByRole('button', { name: '派发评审' })).toBeTruthy();
+  });
+
+  it('merge receipt/目标验证缺口使用人话文案', () => {
+    renderPanel(gapDelivery(['merge']));
+    expect(screen.getByText('缺合并回执或目标验证')).toBeTruthy();
   });
 
   it('「查看任务 ›」跳转 /workunits/:id', () => {
@@ -262,7 +267,11 @@ describe('DeliveryPanel', () => {
 
   it('#471 plan 缺口：人工确认同样走共享弹窗，confirm kind=plan 回传', async () => {
     mockWuGet.mockResolvedValue({
-      data: { data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'], analysisTasks: ['实现存储层'] }) } },
+      data: { data: { metadata: JSON.stringify({
+        analysisFog: ['存储选型用哪个？'],
+        analysisTasks: ['实现存储层'],
+        analysisTaskDetails: [{ title: '实现存储层', ac: ['单测通过'], leg: '/repo/api', blockedBy: [] }],
+      }) } },
     });
     const onRefresh = vi.fn();
     renderPanel({
@@ -277,7 +286,9 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByText('确认开图'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-p1', undefined, undefined, {
-      kind: 'plan', fog: ['存储选型用哪个？'], tasks: ['实现存储层'],
+      kind: 'plan',
+      fog: ['存储选型用哪个？'],
+      tasks: [{ title: '实现存储层', ac: ['单测通过'], leg: '/repo/api', blockedBy: [] }],
     }));
     expect(onRefresh).toHaveBeenCalled();
   });
@@ -398,5 +409,36 @@ describe('DeliveryPanel', () => {
 
     await waitFor(() => expect(mockToastError).toHaveBeenCalledWith('已于 2026-09-01 落档'));
     expect(onRefresh).not.toHaveBeenCalled();
+  });
+
+  it('#721 多腿逐行展示回执与操作人，未交付腿独立提交 commit', async () => {
+    mockMarkDelivered.mockResolvedValue({ data: { data: { delivered: true, deliverCommit: 'bbbbbbb2', deliveredAt: '2026-11-17T00:00:00Z' } } });
+    const legWu = { total: 1, finished: 1, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } };
+    renderPanel({
+      ...branchOnlyDelivery,
+      legs: [
+        {
+          gitRepo: '/repo/a', branch: 'PMO-11-a', status: 'delivered',
+          deliveredAt: '2026-11-16T00:00:00Z', deliveredBy: 'Alice', deliverCommit: 'aaaaaaa1',
+          wu: legWu, evidence: baseDelivery.evidence, deliverable: true, missing: [], gaps: [], tokens: 0,
+        },
+        {
+          gitRepo: '/repo/b', branch: 'PMO-11-b', status: 'completed',
+          deliveredAt: null, deliveredBy: null, deliverCommit: null,
+          wu: legWu, evidence: baseDelivery.evidence, deliverable: true, missing: [], gaps: [], tokens: 0,
+        },
+      ],
+    });
+
+    expect(screen.getByText('PMO-11-a')).toBeTruthy();
+    expect(screen.getByText(/Alice/)).toBeTruthy();
+    expect(screen.getByText(/aaaaaaa/)).toBeTruthy();
+    expect(screen.getByText('PMO-11-b')).toBeTruthy();
+    expect(screen.getAllByLabelText('合并 commit 哈希')).toHaveLength(1);
+
+    fireEvent.change(screen.getByLabelText('合并 commit 哈希'), { target: { value: 'bbbbbbb2' } });
+    fireEvent.click(screen.getByRole('button', { name: '标记已交付' }));
+
+    await waitFor(() => expect(mockMarkDelivered).toHaveBeenCalledWith('p1', 'bbbbbbb2', 'PMO-11-b'));
   });
 });

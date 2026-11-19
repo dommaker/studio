@@ -6,8 +6,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { eventBus, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit.service.js';
-import { channelMessageService } from '../../channels/channel-message.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import { getChannelMessageService } from '../../channels/channel-message.service.js';
+
+const { mockHostExecFile, mockExecSh } = vi.hoisted(() => ({ mockHostExecFile: vi.fn(), mockExecSh: vi.fn() }));
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const orig = await importOriginal() as Record<string, unknown>;
+  return { ...orig, execFile: mockHostExecFile, execSh: mockExecSh };
+});
 
 describe('WorkUnit API service', () => {
   let tmpDir: string;
@@ -23,7 +29,7 @@ describe('WorkUnit API service', () => {
     service = new WorkUnitService(fileStore);
 
     // Inject same FileStore into channelMessageService for cross-store consistency
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
 
     // Create channel in FileStore (for message ops)
     const channelName = `#test-wu-${Date.now()}`;
@@ -441,7 +447,7 @@ describe('WorkUnit API service', () => {
 
   describe('createFromMessage', () => {
     it('converts message to WorkUnit and links', async () => {
-      const msg = await channelMessageService.createHumanMessage(
+      const msg = await getChannelMessageService().createHumanMessage(
         testChannelId, 'Fix the login bug',
       );
 
@@ -465,7 +471,7 @@ describe('WorkUnit API service', () => {
     });
 
     it('rejects if message already converted', async () => {
-      const msg = await channelMessageService.createHumanMessage(
+      const msg = await getChannelMessageService().createHumanMessage(
         testChannelId, 'Already converted',
       );
       const wu = await service.createFromMessage(msg.id);
@@ -475,7 +481,7 @@ describe('WorkUnit API service', () => {
     });
 
     it('accepts custom type and metadata', async () => {
-      const msg = await channelMessageService.createHumanMessage(
+      const msg = await getChannelMessageService().createHumanMessage(
         testChannelId, 'Analysis needed',
       );
 
@@ -493,7 +499,7 @@ describe('WorkUnit API service', () => {
 
     it('truncates long content for scope', async () => {
       const longContent = 'x'.repeat(600);
-      const msg = await channelMessageService.createHumanMessage(
+      const msg = await getChannelMessageService().createHumanMessage(
         testChannelId, longContent,
       );
 
@@ -666,6 +672,30 @@ describe('WorkUnit API service', () => {
   // ---- #551: verifyManually（POST /:id/verify 业务下沉 service，脱 HTTP 直测）----
 
   describe('verifyManually (#551 verify 下沉 service)', () => {
+    let previousWorktreesDir: string | undefined;
+
+    beforeAll(() => {
+      previousWorktreesDir = process.env.WORKTREES_DIR;
+      process.env.WORKTREES_DIR = path.join(tmpDir, 'worktrees');
+      // service 测试在 execFile 边界截断：不依赖宿主工具的时序、环境或真实退出码。
+      mockHostExecFile.mockResolvedValue({ stdout: '', stderr: '' });
+    });
+
+    afterAll(() => {
+      if (previousWorktreesDir === undefined) delete process.env.WORKTREES_DIR;
+      else process.env.WORKTREES_DIR = previousWorktreesDir;
+    });
+
+    async function attachWorktree(wuId: string, scripts?: Record<string, string>): Promise<string> {
+      const worktreePath = path.join(process.env.WORKTREES_DIR!, `wu-${wuId}`);
+      fs.mkdirSync(worktreePath, { recursive: true });
+      if (scripts) {
+        fs.writeFileSync(path.join(worktreePath, 'package.json'), JSON.stringify({ scripts }));
+      }
+      await service.update(wuId, { metadata: { worktreePath } });
+      return worktreePath;
+    }
+
     it('WU 不存在 → not-found', async () => {
       const result = await service.verifyManually('nonexistent-id', { by: 'tester' });
       expect(result.kind).toBe('not-found');
@@ -687,13 +717,24 @@ describe('WorkUnit API service', () => {
       expect(result.kind).toBe('no-worktree');
     });
 
-    it('worktree 无可跑命令 → no-commands，不落台账', async () => {
-      const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-verify-empty-'));
+    it('伪造 worktree 落档 → invalid-worktree，不执行命令也不落台账', async () => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-verify-forged-'));
       const wu = await service.create({
-        scope: 'no commands', type: 'task',
-        metadata: { worktreePath },
+        scope: 'forged worktree', type: 'task',
+        metadata: { worktreePath: outside, verifyCommands: ['custom-command'] },
       });
       testIds.push(wu.id);
+
+      const result = await service.verifyManually(wu.id, { by: 'tester' });
+      expect(result).toEqual({ kind: 'invalid-worktree' });
+      const after = await service.getById(wu.id);
+      expect(JSON.parse(after!.metadata ?? '{}').attestations).toBeUndefined();
+    });
+
+    it('worktree 无可跑命令 → no-commands，不落台账', async () => {
+      const wu = await service.create({ scope: 'no commands', type: 'task' });
+      testIds.push(wu.id);
+      await attachWorktree(wu.id);
 
       const result = await service.verifyManually(wu.id, { by: 'tester' });
       expect(result.kind).toBe('no-commands');
@@ -702,54 +743,43 @@ describe('WorkUnit API service', () => {
       expect(JSON.parse(after!.metadata ?? '{}').attestations).toBeUndefined();
     });
 
-    it('全绿 → verified + 台账 l1 approved + verifyReport', async () => {
-      const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-verify-ok-'));
-      const wu = await service.create({
-        scope: 'verify ok', type: 'task',
-        metadata: { worktreePath, verifyCommands: ['echo ok'] },
-      });
+    it('合法服务端检查模板全绿 → verified + 台账 l1 approved + verifyReport', async () => {
+      const wu = await service.create({ scope: 'verify ok', type: 'task' });
       testIds.push(wu.id);
+      const worktreePath = await attachWorktree(wu.id, { test: 'node -e ""' });
 
       const result = await service.verifyManually(wu.id, { by: 'tester' });
-      expect(result.kind).toBe('verified');
+      expect(result).toMatchObject({ kind: 'verified' });
       if (result.kind !== 'verified') return;
-      expect(result.report).toMatchObject({ commands: ['echo ok'], source: 'override' });
+      expect(result.report).toMatchObject({ commands: ['test'], source: 'convention' });
+      expect(mockHostExecFile).toHaveBeenCalledWith('pnpm', ['exec', 'vitest', 'run'], expect.objectContaining({
+        cwd: expect.stringMatching(/^\/proc\/\d+\/fd\/\d+$/),
+        inheritProcessEnv: false,
+      }));
+      expect(mockExecSh).not.toHaveBeenCalled();
 
       const after = await service.getById(wu.id);
       const meta = JSON.parse(after!.metadata ?? '{}');
       expect(meta.attestations.l1).toMatchObject({ verdict: 'approved', by: 'tester', kind: 'verify' });
-      expect(meta.verifyReport.commands).toEqual(['echo ok']);
+      expect(meta.verifyReport.commands).toEqual(['test']);
     });
 
-    it('命令失败 → failed（首个失败命令 + tail）+ 台账 l1 rejected，不写 verifyReport', async () => {
-      const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-verify-fail-'));
-      const wu = await service.create({
-        scope: 'verify fail', type: 'bug',
-        metadata: { worktreePath, verifyCommands: ['echo first', 'exit 1'] },
-      });
+    it('检查失败 → failed（首个失败检查 + tail）+ 台账 l1 rejected，不写 verifyReport', async () => {
+      const wu = await service.create({ scope: 'verify fail', type: 'bug' });
       testIds.push(wu.id);
+      await attachWorktree(wu.id, { test: 'node -e "process.exit(1)"' });
+      mockHostExecFile.mockRejectedValueOnce({ stderr: 'assert failed', message: 'exit 1' });
 
       const result = await service.verifyManually(wu.id, { by: 'tester' });
       expect(result.kind).toBe('failed');
       if (result.kind !== 'failed') return;
-      expect(result.failure.command).toBe('exit 1');
+      expect(result.failure.command).toBe('test');
+      expect(result.failure.tail).toContain('assert failed');
 
       const after = await service.getById(wu.id);
       const meta = JSON.parse(after!.metadata ?? '{}');
       expect(meta.attestations.l1).toMatchObject({ verdict: 'rejected', by: 'tester', kind: 'verify' });
       expect(meta.verifyReport).toBeUndefined();
-    });
-
-    it('opts.commands 视为 metadata.verifyCommands 覆盖', async () => {
-      const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-verify-override-'));
-      const wu = await service.create({
-        scope: 'verify override', type: 'feature',
-        metadata: { worktreePath, verifyCommands: ['exit 1'] },
-      });
-      testIds.push(wu.id);
-
-      const result = await service.verifyManually(wu.id, { by: 'tester', commands: ['echo override'] });
-      expect(result.kind).toBe('verified');
     });
   });
 

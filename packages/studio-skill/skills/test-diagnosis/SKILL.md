@@ -96,7 +96,7 @@ Agent 查表直接定位，不需要推理。命中即验证，不命中再走�
 
 ## 根因分类表（辅助参考）
 
-来源：`scripts/test-health-report.ts`（7 类）+ B33 手动修复（7 大类 21 项）+ 知识库条目
+来源：原 `scripts/test-health-report.ts`（7 类，一次性工具已退役）+ B33 手动修复（7 大类 21 项）+ 知识库条目
 
 ### L1 环境层
 
@@ -138,11 +138,10 @@ Agent 查表直接定位，不需要推理。命中即验证，不命中再走�
 
 | 工具/规则 | 职责 | 与 Skill 关系 |
 |-----------|------|-------------|
-| `test-health-report.ts` | 自动匹配常见环境错误（vitest globals / jsdom / playwright / ECONNREFUSED / mock 不完整 / env 不匹配 / session 未找到）| 自动化 L1 部分。Skill 覆盖 L2 + L3 及未自动化场景 |
 | `feedback_parallel_test_diagnosis.md` | memory 规则：禁止全量跑→修→全量跑循环 | Skill 内联此策略 |
 | `vitest --reporter` | 输出测试失败信息 | Skill 消费其输出 |
 
-**Skill 的独特价值**：test-health-report 只能匹配 7 种已知模式。Skill 覆盖所有 20 种根因类别 + 提供未知错误的 fallback 排查框架。
+**Skill 的独特价值**：覆盖全部 20 种根因类别（原 test-health-report CLI 只能匹配 7 种已知模式，该一次性工具已退役）+ 提供未知错误的 fallback 排查框架。
 
 ## 反模式
 

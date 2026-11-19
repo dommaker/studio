@@ -8,7 +8,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
 import {
   resumeWaitingWorkUnit,
   resumeBlockedWorkUnitFromWeb,

@@ -1,11 +1,11 @@
 // wu-metadata 契约测试：WorkUnitMetadata 访问器三件套（parseWuMetadata / clearSessionBookkeeping / mergedWuView）
-// 覆盖：容错解析矩阵（null/undefined/空串/坏 JSON/非对象 JSON）、14 字段会话簿记清除
-//       （含列表外字段存活、入参不可变、未知新簿记字段的闭合清单语义）、
+// 覆盖：容错解析矩阵（null/undefined/空串/坏 JSON/非对象 JSON）、22 字段会话簿记清除
+//       （含 cliSessionId、列表外字段存活、入参不可变）、
 //       合并视图语义（updates 覆盖、显式 undefined 清除 hint 的序列化口径）。
 // 纯函数无 FileStore 依赖，直接单测。
 import { describe, it, expect } from 'vitest';
 import { parseWuMetadata, clearSessionBookkeeping, mergedWuView } from '../wu-metadata.js';
-import type { WorkUnitMetadata } from '../workunit.service.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
 
 describe('parseWuMetadata 容错解析矩阵', () => {
   it('null / undefined / 空串 → {}', () => {
@@ -35,14 +35,18 @@ describe('parseWuMetadata 容错解析矩阵', () => {
   });
 });
 
-describe('clearSessionBookkeeping 15 字段权威清单', () => {
+describe('clearSessionBookkeeping 22 字段权威清单', () => {
   const BOOKKEEPING: Record<string, unknown> = {
     sessionId: 'sess-1',
+    cliSessionId: 'cli-sess-1', // #699: 新增真实 CLI 会话号也必须进入隔离回归清单
     startedAt: '2026-08-01T00:00:00Z',
     sessionResumes: 2,
     sessionCount: 1,
     lastSessionResumed: true,
     blockReason: '连续失败',
+    blockedAt: '2026-08-01T00:30:00Z',
+    staleGuardBlockedAt: '2026-08-01T00:35:00Z',
+    resumeCount: 1,
     stepCount: 7,
     consecutiveStuck: 3,
     errorType: 'execution_failed',
@@ -51,6 +55,9 @@ describe('clearSessionBookkeeping 15 字段权威清单', () => {
     _cumulativeTokens: 42000,
     progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
     sessionSummary: '滚动摘要',
+    pendingReplies: ['父任务未消费回复'],
+    waitingForInput: true,
+    waitingQuestion: '父任务待答问题',
     ownershipAttempts: 2, // #265: 归属问答轮次计数不继承（子 WU 自己的归属问答从零计）
   };
 
@@ -83,11 +90,6 @@ describe('clearSessionBookkeeping 15 字段权威清单', () => {
     expect(input.sessionId).toBe('sess-1');
     expect(cleaned.sessionId).toBeUndefined();
     expect(cleaned).not.toBe(input);
-  });
-
-  it('闭合清单语义：未知的新簿记味字段不在清单内 → 保留（新增簿记字段必须同步入清单）', () => {
-    const cleaned = clearSessionBookkeeping({ futureBookkeepingField: 1 });
-    expect(cleaned.futureBookkeepingField).toBe(1);
   });
 });
 

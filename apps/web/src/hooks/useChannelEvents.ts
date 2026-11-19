@@ -5,9 +5,10 @@
 // 取数时机（useGatedPoll/频道切换重拉）与 SSE 订阅路由；对外契约形状不变。
 import { useEffect, useCallback, useRef } from 'react';
 import { type ChannelMessage, type FileRef, type SendIntent } from '../api/channel';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
+import { isSseEvent } from '../api/sseParser';
 import { useGatedPoll } from './useGatedPoll';
-import { useChannelMessageStore, type MessageUpdatedPayload } from '../stores/channelMessageStore';
+import { useChannelMessageStore } from '../stores/channelMessageStore';
 import type { PruneOptions } from '../utils/messagePruning';
 
 /** 缺键（未加载）时的稳定空列表——防下游 memo 因每渲染新引用失效 */
@@ -19,7 +20,7 @@ export interface UseChannelMessagesOptions {
 }
 
 export function useChannelMessages(channelId: string | undefined, options?: UseChannelMessagesOptions) {
-  const { onEvent } = useWebSocketContext();
+  const { onEvent } = useSseContext();
   const slice = useChannelMessageStore(s => (channelId ? s.channels[channelId] : undefined));
   // 缺键 = 首拉进行中：loading 初值 !!channelId（对齐收编前 useState 初值语义）；
   // 切换频道旧切片数据保留到新数据到达，不做清空（per-channelId 切片天然承载）
@@ -27,6 +28,11 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
   const loading = slice?.loading ?? !!channelId;
   const error = slice?.error ?? null;
   const hasMore = slice?.hasMore ?? false;
+
+  useEffect(() => {
+    if (!channelId) return;
+    return useChannelMessageStore.getState().subscribeChannel(channelId);
+  }, [channelId]);
 
   const fetchMessages = useCallback(async () => {
     if (!channelId) return;
@@ -51,13 +57,14 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
   useEffect(() => {
     if (!channelId) return;
     const unsub = onEvent((msg) => {
-      if (msg.event_type === 'channel.message_sent') {
-        const data = msg.data as { channelId?: string; message?: ChannelMessage };
-        if (data?.channelId === channelId && data?.message) {
-          useChannelMessageStore.getState().applyMessageSent(channelId, data.message);
+      if (isSseEvent(msg, 'channel.message_sent')) {
+        const data = msg.data;
+        if (data?.channelId === channelId && data.message) {
+          // SSE message = shapeMessageData 产物（meta 恒 object），契约 union 的 string 位无活写入方
+          useChannelMessageStore.getState().applyMessageSent(channelId, data.message as ChannelMessage);
         }
-      } else if (msg.event_type === 'channel.message_updated') {
-        const data = msg.data as ({ channelId?: string } & MessageUpdatedPayload) | undefined;
+      } else if (isSseEvent(msg, 'channel.message_updated')) {
+        const data = msg.data;
         if (data?.channelId === channelId) {
           useChannelMessageStore.getState().applyMessageUpdated(channelId, data);
         }
@@ -88,5 +95,10 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
     useChannelMessageStore.getState().syncPruning(channelId, anchorMid, pruneOptsRef.current);
   }, [channelId]);
 
-  return { messages, loading, error, hasMore, sendMessage, loadMore, refresh: fetchMessages, syncPruning };
+  return {
+    messages, loading, error, hasMore, sendMessage, loadMore, refresh: fetchMessages, syncPruning,
+    change: slice?.change,
+    threadIndex: slice?.threadIndex,
+    agentWorkUnitIds: slice?.agentWorkUnitIds,
+  };
 }

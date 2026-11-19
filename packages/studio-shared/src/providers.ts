@@ -118,6 +118,42 @@ export interface ProviderDefinition {
   notes?: string;
 }
 
+const COMMON_AGENT_ENV = [
+  'PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'TERM', 'NO_COLOR',
+  'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
+] as const;
+
+/** Only credentials understood by the selected CLI/provider are eligible for spawn. */
+const PROVIDER_ENV_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+  claude: [
+    'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN',
+    'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL',
+  ],
+  kimi: ['KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_BASE_URL', 'MOONSHOT_BASE_URL', 'KIMI_MODEL'],
+  codex: ['CODEX_API_KEY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL'],
+  opencode: [
+    'OPENCODE_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY',
+    'GOOGLE_GENERATIVE_AI_API_KEY', 'DEEPSEEK_API_KEY', 'MOONSHOT_API_KEY', 'OPENROUTER_API_KEY',
+    'OPENAI_BASE_URL', 'ANTHROPIC_BASE_URL', 'DEEPSEEK_BASE_URL', 'MOONSHOT_BASE_URL',
+  ],
+};
+
+/**
+ * Construct an Agent CLI environment from an explicit allowlist. Control-plane env and
+ * caller-provided env never flow through implicitly. Provider credentials remain scoped
+ * to the selected CLI; unknown/custom CLIs get no credential env by default.
+ */
+export function buildProviderSpawnEnv(
+  provider: string,
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of [...COMMON_AGENT_ENV, ...(PROVIDER_ENV_ALLOWLIST[provider] ?? [])]) {
+    if (source[key] !== undefined) env[key] = source[key];
+  }
+  return env;
+}
+
 /** Parameters interpreted by buildArgsFromTemplate */
 export interface ProviderSpawnParams {
   model?: string;
@@ -132,24 +168,19 @@ export interface ProviderSpawnParams {
  * codex 安全基线 `-c` 配置覆盖（0.154.0 实测生效，键名对照官方 config reference）：
  *   - sandbox_mode=workspace-write：写隔离到工作目录（/etc、$HOME 只读实测），
  *     `.git`/`.codex` 递归只读保护；exec/resume 均接受 `-c`（resume 无 `-s` flag）。
- *   - network_access=true：workspace-write 默认断网（09 调研实测），而 agent 任务
- *     要装依赖/git 远端操作，断网即断活 → 显式开网络，不静默断网。域名级外发管控
- *     （features.network_proxy）不在本批范围。
+ *   - network_access=true：只放开 Codex 内层网络；SEC-05 外层 bwrap/egress broker
+ *     仍按 host+port 限流，任意直连与未允许目的地在内层之外被拒绝。
  *   - writable_roots 补包管理器缓存/全局目录：否则沙箱内 pnpm/npm install 写 store
  *     即 EROFS，开网络装依赖成空话。`$HOME` 由 shell 展开（本模板消费方 buildSessionCommand
  *     拼 shell 命令串，与 promptArg 的 "$(cat ...)" 同先例）；`\"` 转义保证经 shell 后
  *     codex 收到合法 TOML。
- *   - shell_environment_policy.inherit=core：shell 子进程 env 白名单（实测只留
- *     HOME/PATH/USER 等核心变量），凭证类（*_KEY/*_TOKEN/SSH_AUTH_SOCK 等）不进
- *     agent 起的 shell。只作用于 agent 内 shell 子进程；codex 进程自身的认证 env
- *     仍由 spawn env 透传。取舍：HTTP(S)_PROXY 同样被剥（include 过滤器实测不能加回
- *     core 基线外的变量），需代理出网的部署面须在 codex 进程级配代理。
+ *   - SEC-05 起不再另设 shell_environment_policy.inherit=core：外层 spawn env 已是
+ *     全 provider 显式 allowlist，内层重复过滤只会剥掉 egress broker 所需代理变量。
  */
 export const CODEX_SAFETY_CONFIG_ARGS: string[] = [
   '-c', `'sandbox_mode="workspace-write"'`,
   '-c', 'sandbox_workspace_write.network_access=true',
   '-c', `"sandbox_workspace_write.writable_roots=[\\"$HOME/.npm\\",\\"$HOME/.cache\\",\\"$HOME/.local/share/pnpm\\",\\"$HOME/.pnpm-store\\"]"`,
-  '-c', `'shell_environment_policy.inherit="core"'`,
 ];
 
 /**

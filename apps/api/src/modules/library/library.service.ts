@@ -19,10 +19,10 @@
 import * as path from 'node:path';
 import {
   FileStore,
-  logger,
   listLegacySddDocs,
   readLegacySddDoc,
 } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 import { legacySddDir } from '@dommaker/studio-shared/studio-dir';
 import { projectService, type ProjectData } from '../pmo/index.js';
 import { getStore } from '../../core/store.js';
@@ -100,6 +100,15 @@ function metaUpdatedAt(meta: Record<string, unknown>, mtime: string): string {
   return (typeof meta.updatedAt === 'string' && meta.updatedAt) || mtime;
 }
 
+/** legacy 与普通 markdown 同为逐文档容错；no-follow/权限错误按缺文档跳过。 */
+async function readLegacyMarkdownDoc(baseDir: string, slug: string, layer: 'requirement' | 'design' | 'task') {
+  try {
+    return await readLegacySddDoc(baseDir, slug, layer);
+  } catch {
+    return null;
+  }
+}
+
 /** 项目聚合对象（带 gitRepo 收窄过的 ProjectData） */
 type LibraryProject = ProjectData & { gitRepo: string };
 
@@ -166,7 +175,7 @@ async function scanProjectDocs(project: LibraryProject): Promise<Array<{ item: L
   // legacy-sdd/<slug>/ 三层遗产文档（只读展示）
   const legacyBase = legacySddDir(project.gitRepo);
   for (const slug of await listLegacySddDocs(legacyBase)) {
-    const req = await readLegacySddDoc(legacyBase, slug, 'requirement');
+    const req = await readLegacyMarkdownDoc(legacyBase, slug, 'requirement');
     if (!req) continue;
     const relPath = `${LEGACY_PREFIX}${slug}`;
     results.push({
@@ -253,10 +262,10 @@ export async function getLibraryDoc(id: string): Promise<LibraryDocDetail | null
     const slug = relPath.slice(LEGACY_PREFIX.length);
     if (!slug || slug.includes('/') || slug === '.' || slug === '..') return null;
     const legacyBase = legacySddDir(project.gitRepo);
-    const req = await readLegacySddDoc(legacyBase, slug, 'requirement');
+    const req = await readLegacyMarkdownDoc(legacyBase, slug, 'requirement');
     if (!req) return null;
-    const design = await readLegacySddDoc(legacyBase, slug, 'design');
-    const task = await readLegacySddDoc(legacyBase, slug, 'task');
+    const design = await readLegacyMarkdownDoc(legacyBase, slug, 'design');
+    const task = await readLegacyMarkdownDoc(legacyBase, slug, 'task');
     return {
       id,
       title: req.meta.title ?? slug,

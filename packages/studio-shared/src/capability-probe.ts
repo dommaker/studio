@@ -17,9 +17,17 @@
  * 经 '@dommaker/studio-shared/node' 导出。
  */
 
-import { execFileSync } from 'node:child_process';
-import { logger } from './utils/logger';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
+import { logger } from './utils/logger-node';
 import { resolveProviderDefinition } from './providers';
+
+/**
+ * execFile 的 promisify 形态。调用期才取值——模块加载期取值会被
+ * wholesale mock child_process（无 execFile 导出）的测试拦住。
+ */
+const execFileAsync = (file: string, args: string[], options: object): Promise<{ stdout: string; stderr: string }> =>
+  (promisify(execFile) as unknown as (f: string, a: string[], o: object) => Promise<{ stdout: string; stderr: string }>)(file, args, options);
 
 /** 从 help 输出抓 flag 的正则（实测 codex/claude/kimi/opencode help 形态足够） */
 const FLAG_RE = /--[a-z0-9][a-z0-9-]*/g;
@@ -69,6 +77,38 @@ export function warmCapabilityProbe(providerId: string, binaryPath: string, vers
   const key = cacheKey(binaryPath, version);
   if (flagsCache.has(key)) return;
   const flags = runProbe(binaryPath, def.capabilityProbe.helpArgs);
+  if (flags === null) {
+    logger.warn('[CapabilityProbe] help 探测失败，fail-open 保持全量传参', { provider: providerId, binaryPath });
+  }
+  flagsCache.set(key, flags);
+}
+
+/** runProbe 的异步形态（execFile 回调），供 scanAllProvidersAsync 不阻塞事件循环 */
+async function runProbeAsync(binaryPath: string, helpArgs: string[]): Promise<Set<string> | null> {
+  try {
+    const { stdout } = await execFileAsync(binaryPath, helpArgs, {
+      encoding: 'utf-8',
+      timeout: 10_000,
+    });
+    if (typeof stdout !== 'string') return null;
+    const flags = parseHelpFlags(stdout);
+    return flags.size > 0 ? flags : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * warmCapabilityProbe 的异步形态（2026-10-03 冷启动修复）：与 sync 版共享 flagsCache，
+ * 语义逐条对齐（同 key 跳过、失败入缓存 + warn、fail-open）。启动扫描走异步链时调用，
+ * 避免 execFileSync 阻塞事件循环拖住 listen。
+ */
+export async function warmCapabilityProbeAsync(providerId: string, binaryPath: string, version: string): Promise<void> {
+  const def = resolveProviderDefinition(providerId);
+  if (!def.capabilityProbe) return;
+  const key = cacheKey(binaryPath, version);
+  if (flagsCache.has(key)) return;
+  const flags = await runProbeAsync(binaryPath, def.capabilityProbe.helpArgs);
   if (flags === null) {
     logger.warn('[CapabilityProbe] help 探测失败，fail-open 保持全量传参', { provider: providerId, binaryPath });
   }

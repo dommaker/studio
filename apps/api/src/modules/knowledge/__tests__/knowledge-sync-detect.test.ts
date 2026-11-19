@@ -13,8 +13,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 describe('KnowledgeSync staleness detection', () => {
   it('returns empty stale/unmonitored when no design-docs exist', async () => {
     // Dynamic import to avoid init failures in non-Studio environments
-    const { knowledgeSync } = await import('../knowledge-sync.service.js');
-    const result = knowledgeSync.detectStaleness('/nonexistent');
+    const { knowledgeSync } = await import('../scheduling/knowledge-sync.service.js');
+    const result = await knowledgeSync.detectStaleness('/nonexistent');
     expect(result).toHaveProperty('stale');
     expect(result).toHaveProperty('unmonitored');
     expect(Array.isArray(result.stale)).toBe(true);
@@ -22,7 +22,7 @@ describe('KnowledgeSync staleness detection', () => {
   });
 
   it('getTrackedScopes returns non-empty list', async () => {
-    const { knowledgeSync } = await import('../knowledge-sync.service.js');
+    const { knowledgeSync } = await import('../scheduling/knowledge-sync.service.js');
     const scopes = knowledgeSync.getTrackedScopes();
     expect(scopes.length).toBeGreaterThan(0);
   });

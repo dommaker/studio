@@ -15,13 +15,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 const { mockExecSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
 }));
 
-vi.mock('child_process', () => ({ exec: vi.fn(),
+vi.mock('child_process', () => ({
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  exec: vi.fn((cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  }),
   execSync: mockExecSync,
 }));
 
@@ -37,13 +43,17 @@ vi.mock('@dommaker/studio-agent', () => ({
   },
 }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: vi.fn().mockResolvedValue({ prompt: '', injectedIds: [] }),
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 const { mockTriggerScheduler } = vi.hoisted(() => ({
   mockTriggerScheduler: {
@@ -103,7 +113,7 @@ beforeEach(async () => {
   await fileStore.createChannel({
     id: channelId, name: '#stop-lease-test', type: 'rnd',
     defaultWorkspaceId: null, defaultPath: null,
-    discordChannelId: null, discordWebhookUrl: null, members: '[]',
+    discordChannelId: null, discordWebhookUrl: null, members: JSON.stringify([mockRole.id]),
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   });
 });
@@ -130,13 +140,11 @@ async function startLoopWithInFlightStep() {
     scope: 'stop 租约守护任务', type: 'task', channelId,
     status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
   });
-  agentLoop = new AgentLoop(mockRole, fileStore);
-  internals = agentLoop as unknown as StopLeaseInternals;
-  internals.wuLease.deps.heartbeatIntervalMs = HEARTBEAT_MS;
+  agentLoop = new AgentLoop(mockRole, fileStore, { leaseHeartbeatIntervalMs: HEARTBEAT_MS });
   await agentLoop.start();
   await vi.waitFor(() => {
     expect(mockExecuteLightweight).toHaveBeenCalled();
-    expect(internals.wuLease.lease?.wuId).toBe(wu.id);
+    expect(agentLoop.hasLease(wu.id)).toBe(true);
   }, { timeout: 5000, interval: 20 });
   return { wu, resolveStep };
 }
@@ -151,7 +159,7 @@ describe('#635: stop() 后租约心跳与 fencing 活到 runLoop 退出', () => 
     agentLoop.stop();
 
     // stop 只置退出意图：租约轨道仍在，心跳未停
-    expect(internals.wuLease.lease?.wuId).toBe(wu.id);
+    expect(agentLoop.hasLease(wu.id)).toBe(true);
 
     // 心跳继续把 timeoutAt 推前（flush 间隔 0，每跳落盘）——续期命中即不会被 timeout-release 回收
     await vi.waitFor(async () => {
@@ -167,7 +175,7 @@ describe('#635: stop() 后租约心跳与 fencing 活到 runLoop 退出', () => 
     expect(mockStopProcessGroup).not.toHaveBeenCalled();
 
     // loop 主循环已退出：心跳停止，timeoutAt 不再推前（此后按既有 5min TTL 到期回收）
-    expect(internals.wuLease.lease).toBeNull();
+    expect(agentLoop.hasLease(wu.id)).toBe(false);
     // 退出瞬间可能恰有一跳在飞（ticking 写盘竞态），先等其落定再锁定「不再推前」
     await new Promise(resolve => setTimeout(resolve, HEARTBEAT_MS * 3));
     const settled = new Date((await wuService.getById(wu.id))!.timeoutAt!).getTime();
@@ -179,7 +187,7 @@ describe('#635: stop() 后租约心跳与 fencing 活到 runLoop 退出', () => 
   it('stop() 后窗口内 WU 被外部 unclaim → 心跳下一跳检出易主，handleLost 杀掉在飞 CLI 进程组', async () => {
     const { wu, resolveStep } = await startLoopWithInFlightStep();
     agentLoop.stop();
-    const executionId = internals.currentExecutionId;
+    const executionId = agentLoop.currentExecutionId;
     expect(executionId).toBeTruthy();
 
     // 模拟 REST terminate 路径外部收单：assigneeId/claimedAt 清空
@@ -189,7 +197,7 @@ describe('#635: stop() 后租约心跳与 fencing 活到 runLoop 退出', () => 
     await vi.waitFor(() => {
       expect(mockStopProcessGroup).toHaveBeenCalledWith(executionId);
     }, { timeout: 3000, interval: 30 });
-    expect(internals.wuLease.lease).toBeNull();
+    expect(agentLoop.hasLease(wu.id)).toBe(false);
 
     // 放行残余 step 让 loop 退出（进程组已被杀，结果回写走既有「无轨道不拦」契约，不在本票范围）
     resolveStep(STEP_RESULT);

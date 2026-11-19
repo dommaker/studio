@@ -1,8 +1,9 @@
 /**
  * harness 域契约（批次 6/7）——正本以 apps/api/src/modules/harness/
  * 八个子路由（traces/constraints/knowledge/sessions/agents/diagnostics/dashboard）
- * 实测 wire 为准。@dommaker/harness 的类型不可 import（contract 包禁 Node 依赖），
- * wire 形状在此重声明。
+ * 实测 wire 为准。实体 schema 与 harness 类型（经 studio-shared entity-types
+ * 纯类型中转，零运行时依赖）import type 同源 + 编译期锚定（#685）；
+ * ConstraintResult 系与 harness 内存型有意不同构，schema 即正本。
  *
  * 端点（route-registry /api/v1/harness 挂 admin）：
  *   GET  /traces | POST /traces | GET /analysis | GET /analysis/anomalies  轨迹采集/分析（T-015）
@@ -37,18 +38,31 @@
  */
 
 import { z } from 'zod';
+import type {
+  AgentState,
+  ExecutionTrace,
+  KnowledgeEntry,
+  RetiredConstraintEntry,
+} from '@dommaker/studio-shared/types';
 import { dataBodySchema } from './envelope.js';
 
-// ── 宽声明（harness 实体 wire 重声明；字段全集归 harness，passthrough 放行）──
+// ── 实体（harness 类型 import type 同源 + 编译期锚定；passthrough 宽声明只锚可见键）──
 
-/** harness ConstraintResult 项（checkConstraints/checkConstraint 结果元素） */
+/**
+ * harness ConstraintResult 项（checkConstraints/checkConstraint 结果元素）——
+ * wire 与 harness 内存型有意不同构（checkedAt: Date→ISO 串；message 内存可选 wire 必填），
+ * 不同源：schema 锚 id/satisfied/message 三键 + passthrough，schema 即正本。
+ */
 export const constraintResultItemSchema = z.object({
   id: z.string(),
   satisfied: z.boolean(),
   message: z.string(),
 }).passthrough();
 
-/** harness ConstraintCheckResult（checkConstraints 结果） */
+/**
+ * harness ConstraintCheckResult（checkConstraints 结果）——
+ * 元素同上有意不同构（checkedAt: Date→ISO 串），schema 即正本。
+ */
 export const constraintCheckResultSchema = z.object({
   passed: z.boolean(),
   errors: z.array(constraintResultItemSchema),
@@ -56,10 +70,9 @@ export const constraintCheckResultSchema = z.object({
   warningCount: z.number(),
 }).passthrough();
 
-/** 生效约束条目（getEffectiveConstraints 投影） */
+/** 生效约束条目（getEffectiveConstraints 投影；harness 3.0.0 起 Constraint.kind 出清，投影无该字段） */
 export const harnessConstraintSchema = z.object({
   id: z.string(),
-  kind: z.string(),
   severity: z.string(),
   trigger: z.unknown().optional(),
   rule: z.unknown().optional(),
@@ -67,25 +80,41 @@ export const harnessConstraintSchema = z.object({
   enforcement: z.unknown().optional(),
 }).passthrough();
 
-/** 执行轨迹条目（TraceCollector.read 返回） */
+/**
+ * 执行轨迹条目（TraceCollector.read 返回；= harness ExecutionTrace，下方编译期锚定）。
+ * 源 severity/result 为 union 词表，wire 为 z.string 宽声明（兜历史 passthrough），
+ * 故单向锚（源形状 ⊂ wire 可见键）；passthrough 索引签名只对可见键锚定。
+ */
 export const executionTraceSchema = z.object({
   constraintId: z.string(),
   severity: z.string(),
   result: z.string(),
   timestamp: z.number(),
 }).passthrough();
+const _assertExecutionTrace: ExecutionTrace extends Pick<
+  z.infer<typeof executionTraceSchema>,
+  'constraintId' | 'severity' | 'result' | 'timestamp'
+> ? true : never = true;
 
-/** harness 知识条目（FileKnowledgeStore） */
+/** harness 知识条目（FileKnowledgeStore；= harness KnowledgeEntry，下方编译期锚定，单向宽声明同 executionTraceSchema） */
 export const harnessKnowledgeEntrySchema = z.object({
   id: z.string(),
   title: z.string().optional(),
   content: z.string().optional(),
 }).passthrough();
+const _assertKnowledgeEntry: KnowledgeEntry extends Pick<
+  z.infer<typeof harnessKnowledgeEntrySchema>,
+  'id' | 'title' | 'content'
+> ? true : never = true;
 
-/** AgentLifecycle 状态条目 */
+/** AgentLifecycle 状态条目（= harness AgentState，下方编译期锚定；schema 只锚 id 一键，其余 passthrough） */
 export const harnessAgentStateSchema = z.object({
   id: z.string(),
 }).passthrough();
+const _assertAgentState: AgentState extends Pick<
+  z.infer<typeof harnessAgentStateSchema>,
+  'id'
+> ? true : never = true;
 
 // ── traces ──
 
@@ -125,8 +154,8 @@ export type TraceListResult = z.infer<typeof traceListResultSchema>;
 
 /** GET /analysis 响应 data（summaries/anomalies 为 harness 分析形状，宽声明） */
 export const traceAnalysisResultSchema = z.object({
-  summaries: z.array(z.record(z.unknown())),
-  anomalies: z.array(z.record(z.unknown())),
+  summaries: z.array(z.record(z.string(), z.unknown())),
+  anomalies: z.array(z.record(z.string(), z.unknown())),
   totalSummaries: z.number(),
   totalAnomalies: z.number(),
   skippedLines: z.number(),
@@ -135,7 +164,7 @@ export type TraceAnalysisResult = z.infer<typeof traceAnalysisResultSchema>;
 
 /** GET /analysis/anomalies 响应 data */
 export const traceAnomaliesResultSchema = z.object({
-  anomalies: z.array(z.record(z.unknown())),
+  anomalies: z.array(z.record(z.string(), z.unknown())),
   total: z.number(),
   skippedLines: z.number(),
 });
@@ -155,21 +184,26 @@ export const constraintListResultSchema = z.object({
 });
 export type ConstraintListResult = z.infer<typeof constraintListResultSchema>;
 
-/** GET /constraints/stats 响应 data（0.17.0 起按 kind/severity 聚合） */
+/** GET /constraints/stats 响应 data（0.17.0 起按 kind/severity 聚合；harness 3.0.0 kind 出清后仅 severity） */
 export const constraintStatsResultSchema = z.object({
   total: z.number(),
-  byKind: z.record(z.number()),
-  bySeverity: z.record(z.number()),
+  bySeverity: z.record(z.string(), z.number()),
 });
 export type ConstraintStatsResult = z.infer<typeof constraintStatsResultSchema>;
 
-/** GET /constraints/retired 响应 data（config.yml 墓碑唯一落点） */
+/** GET /constraints/retired 响应 data（config.yml 墓碑唯一落点；= harness
+ * RetiredConstraintEntry，下方编译期锚定。source: 'config' 为 wire 加料（源类型无此字段），
+ * 故 Omit 后对可见键单向锚定。 */
 export const retiredConstraintSchema = z.object({
   id: z.string(),
   enabled: z.boolean(),
   source: z.literal('config'),
   retired: z.unknown(),
 });
+const _assertRetiredConstraintEntry: RetiredConstraintEntry extends Omit<
+  z.infer<typeof retiredConstraintSchema>,
+  'source'
+> ? true : never = true;
 export const retiredConstraintListResultSchema = z.object({
   retired: z.array(retiredConstraintSchema),
   total: z.number(),
@@ -198,7 +232,8 @@ export const rollbackConstraintResultSchema = z.object({
 export type RollbackConstraintResult = z.infer<typeof rollbackConstraintResultSchema>;
 
 /** POST /check-constraints（M2 质量门；operation 必填收进 zod。
- * hasRequirement 保留声明——#641 sanitize 剥离依赖它存在（zod 剥未知键会抢先剥掉） */
+ * hasRequirement 保留声明兼容旧客户端请求体（harness 3.0.0 证据标志管道出清，
+ * 路由不再把它送进 harness context；sanitize 入口剥离保留为无害防御） */
 export const checkConstraintsBodySchema = z.object({
   operation: z.string().min(1),
   taskDescription: z.string().optional(),
@@ -226,7 +261,7 @@ export type CheckConstraintsResult = z.infer<typeof checkConstraintsResultSchema
 /** budget 必填收进 zod（原手写 400；positive 对齐原 `!budget` 拒 0 语义） */
 export const knowledgeQueryBodySchema = z.object({
   budget: z.number().positive(),
-  filter: z.record(z.unknown()).optional(),
+  filter: z.record(z.string(), z.unknown()).optional(),
 });
 export type KnowledgeQueryBody = z.infer<typeof knowledgeQueryBodySchema>;
 
@@ -256,7 +291,7 @@ export const harnessKnowledgeListResultSchema = z.object({
 export type HarnessKnowledgeListResult = z.infer<typeof harnessKnowledgeListResultSchema>;
 
 export const harnessKnowledgeLintResultSchema = z.object({
-  issues: z.array(z.record(z.unknown())),
+  issues: z.array(z.record(z.string(), z.unknown())),
   total: z.number(),
 });
 export type HarnessKnowledgeLintResult = z.infer<typeof harnessKnowledgeLintResultSchema>;
@@ -302,7 +337,7 @@ export const harnessAgentRegisterBodySchema = z.object({
   type: z.string().optional(),
   name: z.string().optional(),
   capabilities: z.array(z.string()).optional(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
 });
 export type HarnessAgentRegisterBody = z.infer<typeof harnessAgentRegisterBodySchema>;
 
@@ -328,7 +363,7 @@ export const classifyBodySchema = z.object({
   message: z.string().min(1),
   name: z.string().optional(),
   stack: z.string().optional(),
-  context: z.record(z.unknown()).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
 });
 export type ClassifyBody = z.infer<typeof classifyBodySchema>;
 
@@ -336,7 +371,7 @@ export const failureRecordBodySchema = z.object({
   type: z.string().optional(),
   level: z.string().optional(),
   message: z.string().min(1),
-  context: z.record(z.unknown()).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
 });
 export type FailureRecordBody = z.infer<typeof failureRecordBodySchema>;
 
@@ -362,7 +397,7 @@ export const constraintGetResponseSchema = dataBodySchema(harnessConstraintSchem
 export const proposeUpgradeResponseSchema = dataBodySchema(proposeUpgradeResultSchema);
 export const rollbackConstraintResponseSchema = dataBodySchema(rollbackConstraintResultSchema);
 export const checkConstraintsResponseSchema = dataBodySchema(checkConstraintsResultSchema);
-export const harnessKnowledgeQueryResponseSchema = dataBodySchema(z.record(z.unknown()));
+export const harnessKnowledgeQueryResponseSchema = dataBodySchema(z.record(z.string(), z.unknown()));
 export const harnessKnowledgeListResponseSchema = dataBodySchema(harnessKnowledgeListResultSchema);
 export const harnessKnowledgeGetResponseSchema = dataBodySchema(harnessKnowledgeEntrySchema);
 export const harnessKnowledgeSaveResponseSchema = dataBodySchema(z.object({
@@ -374,10 +409,10 @@ export const harnessKnowledgeLintResponseSchema = dataBodySchema(harnessKnowledg
 export const estimateTokensResponseSchema = dataBodySchema(estimateTokensResultSchema);
 export const sessionCreateResponseSchema = dataBodySchema(sessionCreateResultSchema);
 export const sessionEventResponseSchema = dataBodySchema(z.object({ recorded: z.boolean() }));
-export const sessionGetResponseSchema = dataBodySchema(z.record(z.unknown()));
-export const sessionCheckpointResponseSchema = dataBodySchema(z.record(z.unknown()));
+export const sessionGetResponseSchema = dataBodySchema(z.record(z.string(), z.unknown()));
+export const sessionCheckpointResponseSchema = dataBodySchema(z.record(z.string(), z.unknown()));
 export const harnessAgentStateResponseSchema = dataBodySchema(harnessAgentStateSchema);
 export const harnessAgentListResponseSchema = dataBodySchema(harnessAgentListResultSchema);
-export const classifyResponseSchema = dataBodySchema(z.record(z.unknown()));
-export const failureRecordResponseSchema = dataBodySchema(z.record(z.unknown()));
+export const classifyResponseSchema = dataBodySchema(z.record(z.string(), z.unknown()));
+export const failureRecordResponseSchema = dataBodySchema(z.record(z.string(), z.unknown()));
 export const harnessHealthResponseSchema = dataBodySchema(harnessHealthResultSchema);

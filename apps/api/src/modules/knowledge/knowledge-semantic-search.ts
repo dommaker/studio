@@ -14,7 +14,7 @@
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
 import { join, basename } from 'path';
-import type { SearchResult, SemanticSearchResult } from './knowledge-service.js';
+import type { SearchResult, SemanticSearchResult } from './knowledge-types.js';
 
 /** mcp-local-rag 可用性探测缓存 TTL（5 分钟） */
 export const RAG_PROBE_TTL_MS = 5 * 60 * 1000;

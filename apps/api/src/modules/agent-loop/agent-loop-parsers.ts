@@ -5,6 +5,7 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { extractToolCalls, type StepCommandRecord, type StepRecordDetails, type StreamEvent } from '@dommaker/studio-shared';
 import { ANALYSIS_TASKS_MAX, INSPECTION_OPPORTUNITIES_MAX, type WorkUnitData } from '../workunit/index.js';
 import { MAP_OPENING_FOG_MAX } from '../pmo/index.js';
 import type { ParsedReviewReport } from './review-contract.js';
@@ -59,13 +60,14 @@ export function resolveTarget(obs: Observations): Target | null {
 /** Parse agent output for ACTION protocol */
 export function parseAgentOutput(text: string): StepResult {
   const lines = text.split('\n');
+  const stepRecord = parseStepRecord(text);
   for (let i = lines.length - 1; i >= 0; i--) {
     // A2A §4.1: ACTION: DELEGATE:@<profileName>:<scope>（scope = 该行剩余内容，必填）。
     // 解析失败（@名字缺失、scope 为空、格式不对）落到下方默认 progress，与现有容错一致。
     const delegateMatch = lines[i].match(/ACTION:\s*DELEGATE:@([\w-]+):(\s*\S.*)$/);
     if (delegateMatch) {
       const scope = delegateMatch[2].trim();
-      return { action: 'delegate', summary: scope, delegate: { targetName: delegateMatch[1], scope } };
+      return { action: 'delegate', summary: scope, delegate: { targetName: delegateMatch[1], scope }, ...(stepRecord ? { stepRecord } : {}) };
     }
     const match = lines[i].match(/ACTION:\s*(PROGRESS|COMPLETE|NEED_INPUT):(.*)/);
     if (match) {
@@ -74,7 +76,10 @@ export function parseAgentOutput(text: string): StepResult {
         COMPLETE: 'complete',
         NEED_INPUT: 'need_input',
       };
-      const result: StepResult = { action: actionMap[match[1]], summary: match[2].trim() };
+      const result: StepResult = {
+        action: actionMap[match[1]], summary: match[2].trim(),
+        ...(stepRecord ? { stepRecord } : {}),
+      };
       // #279（决策 #250 D3）：NEED_INPUT 行紧接着的下一行可选携带
       //   OPTIONS: [{"label":"方案 A","description":"说明","value":"a"},...]
       // 防御：OPTIONS 缺失 / JSON 损坏 / 元素缺 label → 静默忽略（options 为 undefined），
@@ -92,7 +97,89 @@ export function parseAgentOutput(text: string): StepResult {
       return result;
     }
   }
-  return { action: 'progress', summary: text.trim() };
+  return { action: 'progress', summary: text.trim(), ...(stepRecord ? { stepRecord } : {}) };
+}
+
+/** #711：可选 STEP_RECORD JSON 行；逐字段校验，损坏记录不影响 ACTION 本体。 */
+export function parseStepRecord(text: string): StepRecordDetails | undefined {
+  for (const line of text.split('\n').reverse()) {
+    const match = line.match(/^\s*STEP_RECORD:\s*(\{.*\})\s*$/);
+    if (!match) continue;
+    try {
+      const value: unknown = JSON.parse(match[1]);
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+      const raw = value as Record<string, unknown>;
+      const details: StepRecordDetails = {};
+      if (Array.isArray(raw.acProgress)) {
+        details.acProgress = raw.acProgress.flatMap(item => {
+          if (!item || typeof item !== 'object') return [];
+          const entry = item as Record<string, unknown>;
+          if (typeof entry.ac !== 'string' || !entry.ac.trim()) return [];
+          if (!['pending', 'in_progress', 'completed'].includes(String(entry.status))) return [];
+          return [{
+            ac: entry.ac.trim().slice(0, 500),
+            status: entry.status as 'pending' | 'in_progress' | 'completed',
+            ...(typeof entry.note === 'string' && entry.note.trim() ? { note: entry.note.trim().slice(0, 500) } : {}),
+          }];
+        }).slice(0, 50);
+      }
+      if (Array.isArray(raw.commands)) {
+        details.commands = raw.commands.flatMap(item => {
+          if (!item || typeof item !== 'object') return [];
+          const entry = item as Record<string, unknown>;
+          if (typeof entry.command !== 'string' || !entry.command.trim()) return [];
+          const status = ['passed', 'failed', 'unknown'].includes(String(entry.status)) ? entry.status as StepCommandRecord['status'] : 'unknown';
+          return [{ command: entry.command.trim().slice(0, 1000), status }];
+        }).slice(0, 100);
+      }
+      if (raw.verification === null) details.verification = null;
+      else if (raw.verification && typeof raw.verification === 'object' && !Array.isArray(raw.verification)) {
+        const verification = raw.verification as Record<string, unknown>;
+        if ((verification.status === 'passed' || verification.status === 'failed') && typeof verification.at === 'string') {
+          details.verification = {
+            status: verification.status,
+            commands: stringList(verification.commands),
+            at: verification.at,
+          };
+        }
+      }
+      for (const key of ['modifiedFiles', 'decisions', 'artifacts', 'transcriptRefs'] as const) {
+        if (Array.isArray(raw[key])) details[key] = stringList(raw[key]);
+      }
+      if (typeof raw.nextStep === 'string' && raw.nextStep.trim()) details.nextStep = raw.nextStep.trim().slice(0, 500);
+      return details;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/** 从实际工具调用补充命令与修改文件；未配对结果保持 unknown。 */
+export function stepActivityFromEvents(events: StreamEvent[]): StepRecordDetails {
+  const commands: StepCommandRecord[] = [];
+  const modifiedFiles: string[] = [];
+  for (const tool of extractToolCalls(events)) {
+    if (!tool.input || typeof tool.input !== 'object' || Array.isArray(tool.input)) continue;
+    const input = tool.input as Record<string, unknown>;
+    if (tool.name === 'Bash' && typeof input.command === 'string' && input.command.trim()) {
+      commands.push({
+        command: input.command.trim().slice(0, 1000),
+        status: tool.success === true ? 'passed' : tool.success === false ? 'failed' : 'unknown',
+      });
+    }
+    if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(tool.name)) {
+      const file = typeof input.file_path === 'string' ? input.file_path : input.path;
+      if (typeof file === 'string' && file.trim()) modifiedFiles.push(file.trim().slice(0, 1000));
+    }
+  }
+  return { commands, modifiedFiles: [...new Set(modifiedFiles)] };
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map(item => item.trim().slice(0, 1000)))].slice(0, 50);
 }
 
 /** #279：解析 NEED_INPUT 下一行的 OPTIONS: JSON 数组；非法输入一律返回 undefined */
@@ -273,6 +360,7 @@ function normalizeReviewIssues(raw: unknown): Array<{ severity: string; message:
     .map(i => ({
       severity: typeof i.severity === 'string' ? i.severity : 'info',
       message: typeof i.message === 'string' ? i.message : JSON.stringify(i),
+      ...(typeof i.leg === 'string' && i.leg ? { leg: i.leg } : {}),
     }))
     .filter(i => i.message.length > 0);
   return issues.length > 0 ? issues : undefined;
@@ -371,6 +459,10 @@ export function sleep(ms: number): Promise<void> {
 
 // ─── Prompt builders ───
 
+const STEP_RECORD_PROMPT = `  ACTION 前输出一行 STEP_RECORD JSON（无内容的字段用空数组/null）：
+  STEP_RECORD: {"acProgress":[{"ac":"<验收标准>","status":"pending|in_progress|completed","note":"可省"}],"modifiedFiles":[],"decisions":[],"artifacts":[],"nextStep":null}
+  修改文件和命令由系统从工具事件补记；decisions 只写已经确认的决策，不写候选想法。`;
+
 export function buildContinuePrompt(wu: WorkUnitData): string {
   return `## 当前工作
 
@@ -379,6 +471,7 @@ ${wu.scope}
 ## 要求
 
 继续上次工作。仓库根有 AGENTS.md/CLAUDE.md 时以它们为准。每步结束后输出：
+${STEP_RECORD_PROMPT}
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
   ACTION: NEED_INPUT:<需要什么>   需要人类输入（有选项时下一行加 OPTIONS: [{"label":"方案 A","value":"a"},...]，value 可省）
@@ -399,6 +492,7 @@ ${replyText}
 ## 要求
 
 根据回复调整方案，继续工作。仓库根有 AGENTS.md/CLAUDE.md 时以它们为准。每步结束后输出：
+${STEP_RECORD_PROMPT}
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
   ACTION: NEED_INPUT:<需要什么>   需要人类输入（有选项时下一行加 OPTIONS: [{"label":"方案 A","value":"a"},...]，value 可省）`;

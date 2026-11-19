@@ -1,11 +1,11 @@
 // Trigger Action — execute trigger actions (3.28c-4, AS-026 extended)
 // Supports: CREATE WorkUnit, EXECUTE handler, UPDATE entity
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import type { TriggerAction, TriggerExecuteHandler } from './trigger.types.js';
 import { WorkUnitService } from '../workunit/index.js';
 import type { WorkUnitMetadata } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** Handler registry for EXECUTE actions */
 const executeHandlers = new Map<string, TriggerExecuteHandler>();
@@ -68,15 +68,20 @@ export function unregisterExecuteHandler(target: string): void {
   executeHandlers.delete(target);
 }
 
-let fileStore = getStore();
+// P2.4：禁 import 期捕获 getStore()——首次调用时才解析进程级单例；
+// setTriggerActionFileStore 仍可整体替换（注入后 currentFileStore 恒返回注入实例）。
+let fileStore: FileStore | null = null;
+function currentFileStore(): FileStore {
+  return (fileStore ??= getStore());
+}
 // P2-c：延迟构造——模块顶层 new WorkUnitService() 会在初始化期解引用 workunit barrel 绑定，
 // triggers↔workunit 环序下拿到 undefined（TDZ）。改为首次调用期构造。
 let workUnitService: WorkUnitService | null = null;
 function getWorkUnitService(): WorkUnitService {
-  return (workUnitService ??= new WorkUnitService(fileStore));
+  return (workUnitService ??= new WorkUnitService(currentFileStore()));
 }
 
-/** 测试用：替换 FileStore/WorkUnitService 实例（同 channelMessageService.setFileStore 模式） */
+/** 测试用：替换 FileStore/WorkUnitService 实例（同 getChannelMessageService().setFileStore 模式） */
 export function setTriggerActionFileStore(fs: FileStore): void {
   fileStore = fs;
   workUnitService = new WorkUnitService(fs);
@@ -84,7 +89,7 @@ export function setTriggerActionFileStore(fs: FileStore): void {
 
 /** #163（T8-E2）：暴露当前 FileStore 实例——inspection-scan 冷却闸消费（一处注入全覆盖） */
 export function getTriggerActionFileStore(): FileStore {
-  return fileStore;
+  return currentFileStore();
 }
 
 /**
@@ -94,7 +99,7 @@ export function getTriggerActionFileStore(): FileStore {
  */
 async function findTriggerWorkUnitInMinute(triggerId: string, now: Date): Promise<boolean> {
   const minuteStart = new Date(now).setSeconds(0, 0);
-  const snapshots = await fileStore.getIndex();
+  const snapshots = await currentFileStore().getIndex();
   for (const s of snapshots) {
     // 快速预筛：metadata 串不含该 triggerId 直接跳过（避免全量 JSON.parse）
     if (!s.metadata || !s.metadata.includes(`"triggerId":"${triggerId}"`)) continue;
@@ -147,7 +152,7 @@ export async function executeCreateAction(
   // 角色不存在时回退 unassigned（频道竞争认领的老行为），不阻塞创建。
   let assigneeId: string | undefined;
   if (assigneeRole) {
-    const profiles = await fileStore.listProfiles();
+    const profiles = await currentFileStore().listProfiles();
     const role = profiles.find(p => p.name === assigneeRole);
     if (role) {
       assigneeId = role.id;
@@ -258,7 +263,7 @@ export async function executeUpdateAction(
       logger.warn(`[TriggerAction] UPDATE workunit: dropping non-whitelisted fields: ${unknownKeys.join(', ')}`);
     }
 
-    const snapshots = await fileStore.getIndex();
+    const snapshots = await currentFileStore().getIndex();
     const now = new Date().toISOString();
 
     for (const s of snapshots) {

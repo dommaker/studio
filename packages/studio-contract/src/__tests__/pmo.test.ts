@@ -1,6 +1,6 @@
 /**
- * pmo 域契约测试：实体/请求/响应 schema 的接受-拒绝边界 + 手写 interface parity。
- * 正本 = project.service.ts ProjectData / okr.service.ts / delivery.ts + 路由实测 wire 行为。
+ * pmo 域契约测试：实体/请求/响应 schema 的接受-拒绝边界。
+ * 正本 = schema 自身（类型经 z.infer 同源，编译期锚定）；wire 行为依据 project.service.ts ProjectData / okr.service.ts / delivery.ts + 路由实测。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -8,11 +8,8 @@ import {
   projectSchema,
   type Project,
   pmoMapSchema,
-  type PmoMap,
   pmoDecisionSchema,
-  type PmoDecision,
   fogItemSchema,
-  type FogItem,
   deliveryLegSchema,
   okrSchema,
   type Okr,
@@ -37,6 +34,7 @@ import {
   publishProjectBodySchema,
   parsePmoCommandBodySchema,
   markDeliveredBodySchema,
+  candidateReviewBodySchema,
   createOkrBodySchema,
   updateOkrBodySchema,
   projectListResponseSchema,
@@ -89,12 +87,15 @@ const deliveryRow: DeliveryStatus = {
   policy: 'auto-merge',
   gitRepo: '/root/projects/studio',
   wu: { total: 3, finished: 2, inFlight: 1, byStatus: { unassigned: 0, active: 1, inReview: 0, blocked: 0 } },
-  evidence: { l1Missing: [], l2Missing: ['WU-3'], l3Missing: [], selfReviewCount: 1 },
+  evidence: {
+    l1Missing: [], l2Missing: ['WU-3'], l3Missing: [],
+    mergeMissing: ['WU-3'], verificationUnavailable: [], selfReviewCount: 1,
+  },
   deliverable: false,
   missing: ['WU-3 缺 L2'],
   tokens: 1234,
   archived: false,
-  gaps: [{ id: 'WU-3', title: 't', type: 'task', missing: ['l2'] }],
+  gaps: [{ id: 'WU-3', title: 't', type: 'task', missing: ['l2', 'merge'] }],
   deliveredAt: null,
   deliveredBy: null,
   deliverCommit: null,
@@ -121,9 +122,8 @@ describe('projectSchema', () => {
     expect(projectSchema.safeParse({ ...projectRow, deliveryPolicy: 'yolo' }).success).toBe(false);
   });
 
-  // strict:false 仓 z.infer 全字段退化可选 → Project 是手写 interface；parity 兜漂移
-  it('parity：Project interface fixture 全键 = schema.shape 键且通过校验', () => {
-    const full: Project = {
+  it('可选字段全集：delivered*/map/deliveries 合法值接受', () => {
+    const full = {
       ...projectRow,
       reqAlias: 'REQ-0001',
       deliveryPolicy: 'auto-merge',
@@ -136,14 +136,6 @@ describe('projectSchema', () => {
       deliveries: [{ gitRepo: '/r', branch: 'PMO-1', status: 'delivered', deliveredAt: 't', deliverCommit: 'c' }],
     };
     expect(projectSchema.parse(full)).toEqual(full);
-    expect(Object.keys(projectSchema.shape).sort()).toEqual(Object.keys(full).sort());
-  });
-
-  it('parity：interface 必填字段逐一删除 → schema 拒绝（必填集对齐）', () => {
-    for (const key of Object.keys(projectRow)) {
-      const { [key]: _drop, ...rest } = projectRow as unknown as Record<string, unknown>;
-      expect(projectSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
   });
 
   it('嵌套形状：pmoMap / deliveryLeg 词表', () => {
@@ -152,39 +144,15 @@ describe('projectSchema', () => {
     expect(deliveryLegSchema.safeParse({ gitRepo: null, branch: null, status: 'bogus' }).success).toBe(false);
   });
 
-  it('parity：PmoMap/FogItem/PmoDecision 手写 interface（前后端均按必填消费）↔ schema 互验', () => {
-    const map: PmoMap = {
-      destination: 'd',
-      decisions: [{ wuId: 'w', summary: 's', resolvedAt: 't' }],
-      fog: [{ id: 'f', question: 'q', wuId: null, status: 'open' }],
-      specSpawnedAt: 't2',
-      specWuId: null,
-    };
-    expect(pmoMapSchema.parse(map)).toEqual(map);
-    expect(Object.keys(pmoMapSchema.shape).sort()).toEqual(Object.keys(map).sort());
-    const fog: FogItem = { id: 'f', question: 'q', wuId: 'w', status: 'resolved' };
-    expect(Object.keys(fogItemSchema.shape).sort()).toEqual(Object.keys(fog).sort());
-    for (const key of Object.keys(fog)) {
-      const { [key]: _drop, ...rest } = fog as unknown as Record<string, unknown>;
-      expect(fogItemSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
-    const decision: PmoDecision = { wuId: 'w', summary: 's', resolvedAt: 't' };
-    expect(Object.keys(pmoDecisionSchema.shape).sort()).toEqual(Object.keys(decision).sort());
-    for (const key of Object.keys(decision)) {
-      const { [key]: _drop, ...rest } = decision as unknown as Record<string, unknown>;
-      expect(pmoDecisionSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
+  it('fog / decision：合法形状接受（status 词表内）', () => {
+    expect(fogItemSchema.parse({ id: 'f', question: 'q', wuId: 'w', status: 'resolved' })).toBeTruthy();
+    expect(pmoDecisionSchema.parse({ wuId: 'w', summary: 's', resolvedAt: 't' })).toBeTruthy();
   });
 });
 
 describe('okrSchema', () => {
-  it('parity：Okr interface fixture 全键 = schema.shape 键；必填字段删除即拒', () => {
+  it('接受后端 wire 形状（全字段含 projectCount）', () => {
     expect(okrSchema.parse(okrRow)).toEqual(okrRow);
-    expect(Object.keys(okrSchema.shape).sort()).toEqual(Object.keys(okrRow).sort());
-    for (const key of Object.keys(okrRow)) {
-      const { [key]: _drop, ...rest } = okrRow as unknown as Record<string, unknown>;
-      expect(okrSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
   });
 
   it('detail / mutation 形状：detail 带 Company null + Execution + _count；mutation 无 projectCount', () => {
@@ -196,17 +164,16 @@ describe('okrSchema', () => {
 });
 
 describe('deliveryStatusSchema', () => {
-  it('parity：DeliveryStatus interface fixture 全键 = schema.shape 键且通过校验', () => {
+  it('接受后端 wire 形状（含可选 legs 数组）', () => {
     const full: DeliveryStatus = {
       ...deliveryRow,
       legs: [{
-        gitRepo: '/r', branch: 'PMO-1', status: 'completed', deliveredAt: null, deliverCommit: null,
+        gitRepo: '/r', branch: 'PMO-1', status: 'completed', deliveredAt: null, deliveredBy: 'operator-1', deliverCommit: null,
         wu: deliveryRow.wu, evidence: deliveryRow.evidence, deliverable: true, missing: [], gaps: [], tokens: 1,
       }],
     };
     expect(deliveryStatusSchema.parse(full)).toEqual(full);
     expect(deliveryStatusSchema.parse(deliveryRow)).toEqual(deliveryRow);
-    expect(Object.keys(deliveryStatusSchema.shape).sort()).toEqual(Object.keys(full).sort());
   });
 
   it('必填字段删除即拒；gaps.missing 词表校验', () => {
@@ -244,7 +211,48 @@ describe('请求 schema', () => {
     expect(updateProjectBodySchema.parse({})).toEqual({});
     expect(updateProjectBodySchema.parse({ status: 'active', 任意键: 1 })).toEqual({ status: 'active', 任意键: 1 });
     expect(updateProjectBodySchema.safeParse({ progress: '60' }).success).toBe(false);
-    expect(updateProjectBodySchema.parse({ deliveredAt: null, map: null })).toEqual({ deliveredAt: null, map: null });
+    expect(updateProjectBodySchema.parse({ map: null })).toEqual({ map: null });
+    for (const key of ['deliveredAt', 'deliveredBy', 'deliverCommit', 'candidateReview']) {
+      expect(updateProjectBodySchema.safeParse({ [key]: 'forged' }).success).toBe(false);
+    }
+  });
+
+  it('#720 candidate review body：只允许 pass/reject，修复 issue 必须带明确 message', () => {
+    expect(candidateReviewBodySchema.parse({ verdict: 'pass' })).toEqual({ verdict: 'pass' });
+    expect(candidateReviewBodySchema.parse({
+      verdict: 'reject', issues: [{ message: '统一接口', leg: 'PMO-1-a' }],
+    })).toEqual({ verdict: 'reject', issues: [{ message: '统一接口', leg: 'PMO-1-a' }] });
+    expect(candidateReviewBodySchema.safeParse({ verdict: 'needs-info' }).success).toBe(false);
+    expect(candidateReviewBodySchema.safeParse({ verdict: 'reject', issues: [{ leg: 'PMO-1-a' }] }).success).toBe(false);
+  });
+
+  it('gitBranch：严格拒绝危险 ref 与 option injection，接受正常分支', () => {
+    const dangerous = [
+      'feature";id',
+      'feature$(id)',
+      'feature`id`',
+      'feature;id',
+      'feature\nid',
+      '--upload-pack=id',
+      '-D',
+      'feature..main',
+      'feature@{main}',
+      'feature.lock',
+      'feature/',
+      '.hidden',
+    ];
+    for (const gitBranch of dangerous) {
+      expect(createProjectBodySchema.safeParse({ title: 't', gitBranch }).success, gitBranch).toBe(false);
+      expect(updateProjectBodySchema.safeParse({ gitBranch }).success, gitBranch).toBe(false);
+      expect(deliveryLegSchema.safeParse({ gitRepo: '/repo', branch: gitBranch, status: 'pending' }).success, gitBranch).toBe(false);
+      expect(updateProjectBodySchema.safeParse({ deliveries: [{ gitRepo: '/repo', branch: gitBranch, status: 'pending' }] }).success, gitBranch).toBe(false);
+    }
+    for (const gitBranch of ['PMO-11', 'feature/sec-03', 'release-1.2.3']) {
+      expect(createProjectBodySchema.parse({ title: 't', gitBranch }).gitBranch).toBe(gitBranch);
+      expect(updateProjectBodySchema.parse({ gitBranch }).gitBranch).toBe(gitBranch);
+      expect(deliveryLegSchema.parse({ gitRepo: '/repo', branch: gitBranch, status: 'pending' }).branch).toBe(gitBranch);
+    }
+    expect(deliveryLegSchema.parse({ gitRepo: null, branch: null, status: 'pending' }).branch).toBeNull();
   });
 
   it('status / publish / parse-command / mark-delivered body 边界', () => {
@@ -255,6 +263,8 @@ describe('请求 schema', () => {
     expect(publishProjectBodySchema.safeParse({}).success).toBe(false);
     expect(parsePmoCommandBodySchema.safeParse({ command: '' }).success).toBe(false);
     expect(markDeliveredBodySchema.parse({ commit: '  c0ffee  ' }).commit).toBe('c0ffee');
+    expect(markDeliveredBodySchema.parse({ commit: 'c0ffee', leg: 'PMO-11-a' })).toEqual({ commit: 'c0ffee', leg: 'PMO-11-a' });
+    expect(markDeliveredBodySchema.safeParse({ commit: 'c0ffee', leg: 'bad branch' }).success).toBe(false);
     expect(markDeliveredBodySchema.safeParse({ commit: '   ' }).success).toBe(false);
     expect(markDeliveredBodySchema.safeParse({ commit: 123 }).success).toBe(false);
   });

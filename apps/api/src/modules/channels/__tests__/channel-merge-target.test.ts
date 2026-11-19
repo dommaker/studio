@@ -18,7 +18,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 vi.mock('../../middleware/auth.js', () => ({
   requireAuth: () => (_q: unknown, _s: unknown, n: () => void) => n(),
@@ -146,8 +146,9 @@ describe('#632: GET /:id/merge-target 发送前归属预览', () => {
 });
 
 describe('#632: POST /:id/messages intent', () => {
-  it('intent=new-task → 建未指派 WU 并关联消息', async () => {
+  it('intent=new-task → 有归属时建未指派 WU 并关联消息', async () => {
     const channelId = await seedChannel();
+    await fileStore.updateChannel(channelId, { defaultPath: tmpDir });
     await seedInFlight(channelId, '在途任务');
 
     const res = await fetch(`${baseUrl}/${channelId}/messages`, {

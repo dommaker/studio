@@ -12,7 +12,7 @@
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import type { ChannelMessageData } from '@dommaker/studio-shared';
-import type { WorkUnitData } from '../../workunit/workunit.service.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 // We'll import the actual functions once implemented
 // For RED phase, these imports will fail until implementation exists

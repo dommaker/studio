@@ -17,17 +17,22 @@ function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnTyp
     FileStore: class {
       appendJsonl = vi.fn().mockResolvedValue(undefined);
     },
-    // #361 薄壳转发后 knowledge-singletons 经 utils/studio-log-path re-export 取用；
+    // #361 薄壳已删：knowledge-singletons 直引 @dommaker/studio-shared log-path；
     // 模块加载期即调用，partial mock 必须提供
     resolveStudioLogFile: (name: string) => `/tmp/test-studio-logs/${name}`,
   }));
+  vi.doMock('@dommaker/studio-shared/node', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+    return {
+      ...actual,
+      logger: { info: loggerInfo ?? vi.fn(), warn: loggerWarn ?? vi.fn(), error: loggerError ?? vi.fn(), debug: loggerDebug ?? vi.fn() },
+    };
+  });
   vi.doMock('@dommaker/harness', () => ({
     FileKnowledgeStore: class { list() { return []; } },
     KnowledgeIngest: class { ingestEntry() { return { status: 'accepted', entry: { id: 'x' } }; } },
-    KnowledgeLifecycle: class { shouldAutoPromote() { return false; } },
+    KnowledgeLifecycle: class {},
     KnowledgeQuery: class {},
-    KnowledgeLinter: class { validateEntry() { return []; } },
-    ReferenceTracker: class {},
     // 本地 knowledge-injector.ts 从包根 import estimateTokens / EXTERNAL_SOURCE_MARKER，整体 mock 必须提供
     estimateTokens: (text: string) => Math.ceil(text.length / 4),
     EXTERNAL_SOURCE_MARKER: '[External Source — verify before acting]',

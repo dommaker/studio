@@ -59,6 +59,6 @@ describe('initConfig', () => {
   it('STUDIO_AUTH=none 下绑定非回环地址 → 拒启（抛错）', () => {
     process.env.STUDIO_AUTH = 'none';
     process.env.HOST = '0.0.0.0';
-    expect(() => initConfig()).toThrow(/禁止绑定非回环地址/);
+    expect(() => initConfig()).toThrow(/External exposure requires STUDIO_AUTH=on/);
   });
 });

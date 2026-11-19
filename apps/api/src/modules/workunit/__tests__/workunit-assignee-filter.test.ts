@@ -7,7 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
 
 describe('WorkUnitService.list assigneeId 过滤口径扩展（ADR 2026-09-23-role-form-module 决策 7）', () => {
   let tmpDir: string;

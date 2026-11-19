@@ -16,13 +16,23 @@ const { mockExecSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
 }));
 
-vi.mock('child_process', () => ({ exec: vi.fn(),
+vi.mock('child_process', () => ({
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  exec: vi.fn((cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  }),
   execSync: mockExecSync,
 }));
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
 }));
+
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -56,16 +66,20 @@ vi.mock('../../triggers/trigger-registry', () => ({
   getTriggerScheduler: () => mockTriggerScheduler,
 }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: vi.fn().mockResolvedValue({ prompt: '', injectedIds: [] }),
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 import { AgentLoop } from '../agent-loop';
-import { WorkUnitService } from '../../workunit/workunit.service';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 // #219：workspace-store 在 import 期冻结 WORKSPACES_DIR = studioPath('workspaces')，
 // STUDIO_HOME 已被 setup 钉到每文件隔离根 —— 测试写记录必须落在同一根下，
@@ -110,6 +124,7 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     fs.rmSync(testDir, { recursive: true, force: true });
     fs.rmSync(wsRoot, { recursive: true, force: true });
     try { fs.unlinkSync(path.join(WORKSPACES_DIR, `${wsId}.json`)); } catch { /* already gone */ }
@@ -119,7 +134,7 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
   async function runStep(loop: AgentLoop, wuId: string) {
     const wu = await workUnitService.getById(wuId);
     expect(wu).toBeTruthy();
-    await (loop as any).agentStep({ workUnit: wu });
+    await loop.agentStep({ workUnit: wu });
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
     return mockExecuteLightweight.mock.calls[0][0];
   }
@@ -142,9 +157,16 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
       metadata: { workspaceRoot: wsRoot },
     });
 
+    let capabilityRealRoot: string | undefined;
+    mockExecuteLightweight.mockImplementation(async (task: { parameters: { workspaceRoot: string } }) => {
+      // fd 只在 runner 回调期间存活；必须在此时校验 capability 仍指向原执行根。
+      capabilityRealRoot = fs.realpathSync(task.parameters.workspaceRoot);
+      return { success: true, outputText: 'ACTION: COMPLETE:done' };
+    });
     const task = await runStep(loop, wu.id);
 
-    expect(task.parameters.workspaceRoot).toBe(wsRoot);
+    expect(task.parameters.workspaceRoot).toMatch(new RegExp(`^/proc/${process.pid}/fd/\\d+$`));
+    expect(capabilityRealRoot).toBe(wsRoot);
   });
 
   it('unbound WorkUnit → no workspaceRoot passed (unchanged behavior)', async () => {
@@ -167,7 +189,6 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
 
   describe('idle heartbeat (F6-fix)', () => {
     async function setupLoopWithInstance(): Promise<{ loop: AgentLoop; instanceId: string }> {
-      const loop = new AgentLoop(makeRole(), fileStore);
       const instanceId = `inst-f6-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const now = new Date().toISOString();
       const state: RuntimeStateData = {
@@ -176,14 +197,14 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
         lastHeartbeat: null, metadata: null, pid: process.pid,
       };
       await fileStore.createState(instanceId, state);
-      (loop as any).instance = state;
+      const loop = new AgentLoop(makeRole(), fileStore, { instance: state });
       return { loop, instanceId };
     }
 
     it('idle branch updates lastHeartbeat (agent-timeout-scan keeps it alive)', async () => {
       const { loop, instanceId } = await setupLoopWithInstance();
 
-      await (loop as any).updateIdleState();
+      await loop.updateIdleState();
 
       const state = await fileStore.getState(instanceId);
       expect(state!.status).toBe('idle');
@@ -193,10 +214,10 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
     it('heartbeat is throttled — second idle tick within 45s does not rewrite it', async () => {
       const { loop, instanceId } = await setupLoopWithInstance();
 
-      await (loop as any).updateIdleState();
+      await loop.updateIdleState();
       const hb1 = (await fileStore.getState(instanceId))!.lastHeartbeat;
 
-      await (loop as any).updateIdleState();
+      await loop.updateIdleState();
       const state = await fileStore.getState(instanceId);
       // status 仍更新，但心跳被节流（同一时间戳）
       expect(state!.status).toBe('idle');
@@ -204,14 +225,15 @@ describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
     });
 
     it('heartbeat refreshes again after the throttle interval', async () => {
+      vi.useFakeTimers();
       const { loop, instanceId } = await setupLoopWithInstance();
 
-      await (loop as any).updateIdleState();
+      await loop.updateIdleState();
       // 把已存心跳回拨到 60s 前，并模拟上次心跳发生在 46s 前（超过 45s 节流窗口）
       await fileStore.updateState(instanceId, { lastHeartbeat: new Date(Date.now() - 60_000).toISOString() });
-      (loop as any).lastIdleHeartbeatAt = Date.now() - 46_000;
+      vi.setSystemTime(Date.now() + 46_000);
 
-      await (loop as any).updateIdleState();
+      await loop.updateIdleState();
 
       const hb = (await fileStore.getState(instanceId))!.lastHeartbeat!;
       expect(new Date(hb).getTime()).toBeGreaterThan(Date.now() - 10_000);

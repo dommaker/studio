@@ -145,10 +145,109 @@ const v1EmptyManifest: Migration = {
   apply: async () => {},
 };
 
-/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
-export const MIGRATIONS: Migration[] = [v1EmptyManifest];
+/** SEC-09：新增短期 webhook 重放台账；已有台账视为中断残留，不覆盖。 */
+const v2WebhookReplayLedger: Migration = {
+  version: 2,
+  name: 'v2-webhook-replay-ledger',
+  isApplied: async (rootDir) => fs.existsSync(path.join(dataDir(rootDir), 'webhook-replays.json')),
+  apply: async (rootDir) => {
+    const dir = dataDir(rootDir);
+    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
+    await fs.promises.chmod(dir, 0o700);
+    const target = path.join(dir, 'webhook-replays.json');
+    const tmp = `${target}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      await fs.promises.writeFile(tmp, JSON.stringify({ version: 1, entries: {} }, null, 2) + '\n', {
+        encoding: 'utf-8',
+        mode: 0o600,
+      });
+      await fs.promises.chmod(tmp, 0o600);
+      await fs.promises.rename(tmp, target);
+    } catch (error) {
+      await fs.promises.unlink(tmp).catch(() => {});
+      throw error;
+    }
+  },
+};
 
-export const CURRENT_SCHEMA_VERSION = 1;
+/** PERF-02：WU 当前态 projection 目录；文件由锁内写/重建懒生成，迁移不 fold 历史。 */
+const v3WorkUnitCurrentProjection: Migration = {
+  version: 3,
+  name: 'v3-workunit-current-projection',
+  isApplied: async (rootDir) => fs.existsSync(path.join(dataDir(rootDir), 'workunits', 'current')),
+  apply: async (rootDir) => {
+    const workunits = path.join(dataDir(rootDir), 'workunits');
+    const current = path.join(workunits, 'current');
+    await fs.promises.mkdir(current, { recursive: true, mode: 0o700 });
+    await fs.promises.chmod(workunits, 0o700);
+    await fs.promises.chmod(current, 0o700);
+  },
+};
+
+/** PERF-05：可重建 overview/notification 投影目录；内容在首次读取时懒生成。 */
+const v4ReadModelProjections: Migration = {
+  version: 4,
+  name: 'v4-read-model-projections',
+  isApplied: async (rootDir) => fs.existsSync(path.join(rootDir, 'logs', 'projections')),
+  apply: async (rootDir) => {
+    const logs = path.join(rootDir, 'logs');
+    const projections = path.join(logs, 'projections');
+    await fs.promises.mkdir(projections, { recursive: true, mode: 0o700 });
+    await fs.promises.chmod(logs, 0o700);
+    await fs.promises.chmod(projections, 0o700);
+  },
+};
+
+/** #704：同交付腿跨进程锁目录；锁目录及 owner 文件均可回收重建，不备份。 */
+const v5DeliveryLegLocks: Migration = {
+  version: 5,
+  name: 'v5-delivery-leg-locks',
+  isApplied: async (rootDir) => fs.existsSync(path.join(rootDir, 'worktrees', '.delivery-locks')),
+  apply: async (rootDir) => {
+    const worktrees = path.join(rootDir, 'worktrees');
+    const locks = path.join(worktrees, '.delivery-locks');
+    await fs.promises.mkdir(locks, { recursive: true, mode: 0o700 });
+    await fs.promises.chmod(worktrees, 0o700);
+    await fs.promises.chmod(locks, 0o700);
+  },
+};
+
+/** #707：Effect/Receipt 是既有 WU 事件/快照的可选 typed 字段，无需重写历史数据。 */
+const v6EffectReceipts: Migration = {
+  version: 6,
+  name: 'v6-effect-receipts',
+  isApplied: async (rootDir) => (await readSchemaVersion(rootDir)) >= 6,
+  apply: async () => {},
+};
+
+/** #718：角色记忆新增 per-role maintenance.jsonl；既有记忆无需重写，run 懒创建。 */
+const v7RoleMemoryMaintenance: Migration = {
+  version: 7,
+  name: 'v7-role-memory-maintenance',
+  isApplied: async (rootDir) => (await readSchemaVersion(rootDir)) >= 7,
+  apply: async () => {},
+};
+
+/** #720：PMO 整体评审派单/结果复用既有 WU Effect/Receipt；项目候选字段 additive。 */
+const v8PmoCandidateReview: Migration = {
+  version: 8,
+  name: 'v8-pmo-candidate-review',
+  isApplied: async (rootDir) => (await readSchemaVersion(rootDir)) >= 8,
+  apply: async () => {},
+};
+
+/** #722：终局学习结果复用既有 WU Effect/Receipt；知识来源 revision additive，无需重写历史。 */
+const v9KnowledgeOutcomes: Migration = {
+  version: 9,
+  name: 'v9-knowledge-outcomes',
+  isApplied: async (rootDir) => (await readSchemaVersion(rootDir)) >= 9,
+  apply: async () => {},
+};
+
+/** 迁移链（升序）。真实迁移随首次布局变更进，与契约修订同 commit（契约 §4）。 */
+export const MIGRATIONS: Migration[] = [v1EmptyManifest, v2WebhookReplayLedger, v3WorkUnitCurrentProjection, v4ReadModelProjections, v5DeliveryLegLocks, v6EffectReceipts, v7RoleMemoryMaintenance, v8PmoCandidateReview, v9KnowledgeOutcomes];
+
+export const CURRENT_SCHEMA_VERSION = 9;
 
 export interface RunMigrationsOptions {
   /** 测试注入用；缺省 = MIGRATIONS */

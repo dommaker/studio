@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "meta": {
+    "commit": "25255f53",
+    "node": "v22.22.0",
+    "date": "2026-11-03",
+    "seed": 0,
+    "runs": 20,
+    "repeats": 3,
+    "note": "PERF-07 持久化架构重锚。基础 HEAD=25255f53；数据来自 2026-11-03 完整默认 pnpm perf:gate 同次 legacy 报告，每端点 60 样本（20×3），SSE 10 轮，不使用更快单次或 cherry-pick。参考环境：Linux 本机回环隔离空区，4 vCPU / 3.7 GiB RAM / 8 GiB swap，Node v22.22.0；测量开始时 MemAvailable 约 1.1 GiB。相对门仍为中心化 20%+5ms 配置，绝对预算、端点集合和 max 诊断不变。"
+  },
+  "coldStart": {
+    "runs": [3890, 1639, 2154]
+  },
+  "endpoints": [
+    {
+      "name": "health",
+      "method": "GET",
+      "path": "/api/v1/health",
+      "statusCounts": { "200": 60 },
+      "p50": 7,
+      "p95": 10.5,
+      "max": 19.7
+    },
+    {
+      "name": "channels 列表",
+      "method": "GET",
+      "path": "/api/v1/channels",
+      "statusCounts": { "200": 60 },
+      "p50": 1.1,
+      "p95": 2.5,
+      "max": 3.7
+    },
+    {
+      "name": "workunits 列表",
+      "method": "GET",
+      "path": "/api/v1/workunits",
+      "statusCounts": { "200": 60 },
+      "p50": 1.4,
+      "p95": 3.5,
+      "max": 6.7
+    },
+    {
+      "name": "pmo 项目列表",
+      "method": "GET",
+      "path": "/api/v1/pmo/project",
+      "statusCounts": { "200": 60 },
+      "p50": 1.8,
+      "p95": 3.7,
+      "max": 4.3
+    },
+    {
+      "name": "skills 列表",
+      "method": "GET",
+      "path": "/api/v1/skills",
+      "statusCounts": { "200": 60 },
+      "p50": 1.5,
+      "p95": 3.9,
+      "max": 9.4
+    },
+    {
+      "name": "monitoring 汇总",
+      "method": "GET",
+      "path": "/api/v1/monitoring/stats",
+      "statusCounts": { "200": 60 },
+      "p50": 2.5,
+      "p95": 10.5,
+      "max": 12.1
+    },
+    {
+      "name": "notifications",
+      "method": "GET",
+      "path": "/api/v1/notifications",
+      "statusCounts": { "200": 60 },
+      "p50": 8.1,
+      "p95": 12.9,
+      "max": 18
+    },
+    {
+      "name": "workunits create",
+      "method": "POST",
+      "path": "/api/v1/workunits",
+      "statusCounts": { "201": 60 },
+      "p50": 15.7,
+      "p95": 31,
+      "max": 139.3
+    },
+    {
+      "name": "workunits update",
+      "method": "PUT",
+      "path": "/api/v1/workunits/:id",
+      "statusCounts": { "200": 60 },
+      "p50": 16.1,
+      "p95": 21.9,
+      "max": 39.9
+    }
+  ],
+  "sse": {
+    "rounds": 10,
+    "postToSse": {
+      "p50": 0.4,
+      "p95": 0.6
+    },
+    "endToEnd": {
+      "p50": 21.4,
+      "p95": 36.5
+    }
+  }
+}

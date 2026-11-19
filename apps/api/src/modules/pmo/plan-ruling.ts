@@ -26,8 +26,8 @@
  * （只服务存量在飞 decision 单）。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
+import { FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
+import { WorkUnitService, WaitingGate, type WorkUnitData } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { resumeWaitingWorkUnit } from '../workunit/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
@@ -35,7 +35,7 @@ import { projectService, type PmoMap } from './project.service.js';
 import { MAP_OPENING_FOG_MAX } from './map-opening.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 载荷校验失败（路由转 400） */
 export class PlanRulingError extends Error {}
@@ -110,11 +110,7 @@ export async function applyPlanRuling(
   }
 
   // 清裁决标记（waitingReason/planRulings；waitingForInput 由复活原语清除）
-  await fileStore.updateMetadata(workUnitId, latest => ({
-    ...latest,
-    waitingReason: undefined, // JSON 序列化丢弃 undefined → 清除
-    planRulings: undefined,
-  }));
+  await new WaitingGate(new WorkUnitMetadataRepository(fileStore)).apply(workUnitId, { kind: 'clear-plan-ruling' });
 
   // 同会话复活：裁决结果文本进 pendingReplies 注入下一步 prompt（sessionId 不动）
   const replyText = composeRulingReply(items);

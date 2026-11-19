@@ -12,22 +12,26 @@
  *   tier1（in_review 30min / unassigned 15min）→ Web 铃铛（NotificationService 持久通知，
  *     全用户，带 wuId 直链）+ SSE `notification.created` 信封（前端铃铛即时失效 +
  *     触发浏览器原生通知，channel-message.service publishSSE 同款直发 eventBus）；
- *   tier2（两者均 4h）→ notifyAlert('warning')（notifier.ts 既有通路：企微 webhook
+ *   tier2（两者均 4h）→ notifyAlert('warning')（notifications/alert-notifier.ts 既有通路：企微 webhook
  *     未配置自动跳过 + 告警频道 + 行动中心通知）。
  * 行动中心常驻兜底（#468 stateItems）不被动；不自动确认、不改状态机，人闸语义不动。
  *
  * 注意：标记写走 updateMetadata(touchUpdatedAt:false)——催办标记是簿记不是状态迁移，
  * 推进 updatedAt 会重置计时锚让 tier2 永远迟到（#221 认领陈旧守卫同款纪律）。
  */
-import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
+import { eventBus, FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
+import { WaitingGate } from './waiting-gate.js';
 import { v4 as uuidv4 } from 'uuid';
-import { NotificationService } from '@dommaker/studio-notification';
-import { WorkUnitService, type WorkUnitData } from './workunit.service.js';
+import { NotificationService } from '../notifications/index.js';
+// #665（ADR 2026-08-24 落地）：notification.created SSE 负载与 studio-contract 同源
+import type { NotificationCreatedPayload } from '@dommaker/studio-contract';
+import { WorkUnitService } from './workunit-review.js';
+import type { WorkUnitData } from './workunit-crud.js';
 import { MANUAL_GATE_TYPES } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { notifyAlert } from '../../utils/notifier.js';
+import { notifyAlert } from '../notifications/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** tier1 人闸催办阈值：in_review 超 30 分钟 → Web 铃铛提醒 */
 const GATE_REMINDER_THRESHOLD_MS = 30 * 60_000;
@@ -146,7 +150,7 @@ async function escalateOne(
       event_type: 'notification.created',
       event_id: uuidv4(),
       timestamp: now.toISOString(),
-      data: { title: tier1Title, content: kind.tier1Hint, wuId: wu.id, link },
+      data: { title: tier1Title, content: kind.tier1Hint, wuId: wu.id, link } satisfies NotificationCreatedPayload,
     });
     await markTier(fileStore, wu.id, 'gateReminderTier1At', now);
     result.tier1++;
@@ -160,8 +164,7 @@ async function markTier(
   key: 'gateReminderTier1At' | 'gateReminderTier2At',
   now: Date,
 ): Promise<void> {
-  await fileStore.updateMetadata(wuId, latest => ({
-    ...latest,
-    [key]: now.toISOString(),
-  }), { touchUpdatedAt: false });
+  await new WaitingGate(new WorkUnitMetadataRepository(fileStore)).apply(wuId, {
+    kind: 'mark-reminder', field: key, at: now.toISOString(),
+  });
 }

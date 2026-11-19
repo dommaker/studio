@@ -253,9 +253,8 @@ describe('markChannelRead（打开频道即读）', () => {
     const byId = Object.fromEntries(s.notifications.map(n => [n.id, n.read]));
     expect(byId).toEqual({ 'n1': true, 'n2': true, 'n3': false, 'n4': true });
     expect(s.unreadCount).toBe(1);
-    expect(mockApi.post).toHaveBeenCalledTimes(2);
-    expect(mockApi.post).toHaveBeenCalledWith('/notifications/n1/read');
-    expect(mockApi.post).toHaveBeenCalledWith('/notifications/n2/read');
+    expect(mockApi.post).toHaveBeenCalledTimes(1);
+    expect(mockApi.post).toHaveBeenCalledWith('/notifications/read', { ids: ['n1', 'n2'] });
   });
 
   it('无匹配未读 → 零后端调用、unreadCount 不动', () => {

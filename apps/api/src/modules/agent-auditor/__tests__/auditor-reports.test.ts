@@ -83,10 +83,16 @@ function makeSnapshot(overrides: Record<string, unknown> = {}) {
 }
 
 function writeSessionEvents(events: Array<Record<string, unknown>>): void {
-  // D18: 历史扁平形态（字段在顶层）写入统一事件文件 —— 读方需兼容
-  const jsonl = events.map(e => JSON.stringify({
-    source: 'test', ...e,
-  })).join('\n');
+  // 当前形态（session-summary-generator 同款）：payload 嵌套 + createdAt。
+  // 夹具入参沿旧扁平写法，由本助手包成 envelope（timestamp → createdAt，其余进 payload）。
+  const jsonl = events.map(e => {
+    const { type, timestamp, ...fields } = e as { type?: string; timestamp?: string } & Record<string, unknown>;
+    return JSON.stringify({
+      type, source: 'test',
+      payload: JSON.stringify(fields),
+      createdAt: timestamp ?? new Date().toISOString(),
+    });
+  }).join('\n');
   fs.writeFileSync(eventsFile, jsonl + '\n', 'utf-8');
 }
 
@@ -166,7 +172,7 @@ describe('analyzeSessionTrends()', () => {
 
   it('returns empty when no recent session:summary events', async () => {
     writeSessionEvents([
-      { type: 'session:summary', timestamp: new Date(Date.now() - 48 * 3600_000).toISOString(), turnCount: 10 },
+      { type: 'session:summary', timestamp: new Date(Date.now() - 48 * 3600_000).toISOString(), eventCount: 10 },
       { type: 'other:event', timestamp: new Date().toISOString() },
     ]);
     expect(await analyzeSessionTrends(since)).toEqual([]);
@@ -174,8 +180,8 @@ describe('analyzeSessionTrends()', () => {
 
   it('aggregates session metrics and capture rate', async () => {
     writeSessionEvents([
-      { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: true, knowledgeCaptured: true, turnCount: 10 },
-      { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: false, turnCount: 12 },
+      { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: true, knowledgeCaptured: true, eventCount: 10 },
+      { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: false, eventCount: 12 },
     ]);
 
     const insights = await analyzeSessionTrends(since);
@@ -184,7 +190,7 @@ describe('analyzeSessionTrends()', () => {
     expect(insights[0]).toContain('知识捕获率: 100%');
   });
 
-  it('D18: 兼容 StudioEvent 新形态（payload 嵌套 + createdAt + eventCount）', async () => {
+  it('session:summary 当前形态（payload 嵌套 + createdAt + eventCount）聚合', async () => {
     const jsonl = [
       JSON.stringify({
         type: 'session:summary', source: 'claude',
@@ -207,9 +213,9 @@ describe('analyzeSessionTrends()', () => {
 
   it('flags sensitive ops, capture degradation and long sessions', async () => {
     writeSessionEvents([
-      { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: true, knowledgeCaptured: false, sensitiveOpsCount: 3, turnCount: 60 },
-      { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: true, knowledgeCaptured: false, sensitiveOpsCount: 4, turnCount: 55 },
-      { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: true, knowledgeCaptured: false, sensitiveOpsCount: 0, turnCount: 70 },
+      { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: true, knowledgeCaptured: false, sensitiveOpsCount: 3, eventCount: 60 },
+      { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: true, knowledgeCaptured: false, sensitiveOpsCount: 4, eventCount: 55 },
+      { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: true, knowledgeCaptured: false, sensitiveOpsCount: 0, eventCount: 70 },
     ]);
 
     const insights = await analyzeSessionTrends(since);

@@ -2,7 +2,7 @@
  * Process I/O utilities — spawn, session-id persistence, phase bridge
  *
  * Node.js only (uses child_process, fs, crypto).
- * Import via: import { execSh, resolveSessionId } from '@dommaker/studio-shared/node'
+ * Import via: import { execFile, execSh, resolveSessionId } from '@dommaker/studio-shared/node'
  *
  * 注：.progress.json 的读取与 ProgressReport 类型唯一属主在
  * studio-agent services/output-capture.ts（#357 双头收口，此处旧版已删）。
@@ -17,7 +17,10 @@ import * as crypto from 'crypto';
 export interface ExecShOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
+  /** 默认继承宿主环境；受控执行面必须显式关闭并传白名单 env。 */
+  inheritProcessEnv?: boolean;
   timeoutMs: number;
+  /** stdout 与 stderr 的合计 UTF-8 字节上限。 */
   maxBuffer?: number;
   childRef?: { current: ChildProcess | null };
   /** Content to pipe to child's stdin. When set, stdio uses 'pipe' for stdin. */
@@ -58,20 +61,35 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 // ─── Spawn ──────────────────────────────────────────────────────
 
-/**
- * Spawn a shell command via bash -c.
- * Throws on non-zero exit or timeout. Supports maxBuffer and childRef.
- */
+/** Spawn a shell command via bash -c. */
 export function execSh(
   cmd: string,
   opts: ExecShOptions,
 ): Promise<{ stdout: string; stderr: string }> {
+  return execProcess('bash', ['-c', cmd], opts);
+}
+
+/** Spawn a trusted executable directly with an argv array, without a shell. */
+export function execFile(
+  file: string,
+  args: string[],
+  opts: ExecShOptions,
+): Promise<{ stdout: string; stderr: string }> {
+  return execProcess(file, args, opts);
+}
+
+/** Shared timeout, output and process-group policy for shell and argv execution. */
+function execProcess(
+  file: string,
+  args: string[],
+  opts: ExecShOptions,
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn('bash', ['-c', cmd], {
+    const child = spawn(file, args, {
       cwd: opts.cwd,
-      env: { ...process.env, ...opts.env },
+      env: { ...(opts.inheritProcessEnv === false ? {} : process.env), ...opts.env },
       stdio: [opts.stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-      // #171: detached 使 bash 成为进程组组长，kill(-pid) 才能覆盖整组（含孙进程）
+      // #171: detached 使子进程成为进程组组长，kill(-pid) 才能覆盖整组（含孙进程）
       detached: opts.killProcessGroup === true,
     });
 
@@ -81,6 +99,7 @@ export function execSh(
 
     let stdout = '';
     let stderr = '';
+    let bufferedBytes = 0;
     let settled = false;
     let lineBuf = '';
 
@@ -141,6 +160,7 @@ export function execSh(
     child.stdout?.on('data', (data: Buffer) => {
       lastActivityAt = Date.now();
       silenceWarned = false;
+      bufferedBytes += data.length;
       const chunk = data.toString();
       stdout += chunk;
       if (opts.onLine) {
@@ -152,7 +172,7 @@ export function execSh(
           emitLine(line);
         }
       }
-      if (opts.maxBuffer && stdout.length > opts.maxBuffer) {
+      if (opts.maxBuffer && bufferedBytes > opts.maxBuffer) {
         settled = true;
         killChild('SIGTERM');
         if (opts.childRef) opts.childRef.current = null;
@@ -163,7 +183,14 @@ export function execSh(
     child.stderr?.on('data', (data: Buffer) => {
       lastActivityAt = Date.now();
       silenceWarned = false;
+      bufferedBytes += data.length;
       stderr += data.toString();
+      if (opts.maxBuffer && bufferedBytes > opts.maxBuffer) {
+        settled = true;
+        killChild('SIGTERM');
+        if (opts.childRef) opts.childRef.current = null;
+        reject(new Error(`stderr maxBuffer (${opts.maxBuffer / 1024 / 1024}MB) exceeded`));
+      }
     });
 
     // Pipe stdin content if provided, then close stdin

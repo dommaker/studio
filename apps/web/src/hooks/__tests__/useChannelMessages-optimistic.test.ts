@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ChannelMessage } from '../../api/channel';
-import type { WebSocketMessage } from '../../api/websocketHooks';
+import type { SseMessage } from '../../api/sseHooks';
 
 const { mockListMessages, mockSendMessage, mockOnEvent } = vi.hoisted(() => ({
   mockListMessages: vi.fn(),
@@ -16,8 +16,8 @@ vi.mock('../../api/channel', () => ({
   channelApi: { listMessages: mockListMessages, sendMessage: mockSendMessage },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: 'connected' }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, status: 'connected' }),
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
@@ -34,13 +34,13 @@ function serverMsg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessa
     content: '你好',
     replyToId: null,
     workUnitId: null,
-    meta: '{}',
+    meta: {},
     createdAt: iso(10),
     ...over,
   };
 }
 
-function sseMessage(message: ChannelMessage): WebSocketMessage {
+function sseMessage(message: ChannelMessage): SseMessage {
   return {
     event_id: `ev-${message.id}`,
     event_type: 'channel.message_sent',
@@ -50,13 +50,13 @@ function sseMessage(message: ChannelMessage): WebSocketMessage {
 }
 
 describe('useChannelMessages — 乐观回显（#486）', () => {
-  let handler: (msg: WebSocketMessage) => void;
+  let handler: (msg: SseMessage) => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
     useChannelMessageStore.getState().__resetForTests();
     mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
-    mockOnEvent.mockImplementation((h: (msg: WebSocketMessage) => void) => {
+    mockOnEvent.mockImplementation((h: (msg: SseMessage) => void) => {
       handler = h;
       return () => {};
     });

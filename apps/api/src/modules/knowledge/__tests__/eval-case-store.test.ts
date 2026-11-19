@@ -22,7 +22,7 @@ import {
   createEvalCase,
   updateEvalCase,
   invalidateEvalCaseCache,
-} from '../eval-case-store.js';
+} from '../producers/eval-case-store.js';
 
 const mockFs = vi.mocked(fs);
 const fsStore = (fs as any).__store;

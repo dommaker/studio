@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseOpportunities } from '../agent-loop-parsers.js';
-import { INSPECTION_OPPORTUNITIES_MAX } from '../../workunit/workunit.service.js';
+import { INSPECTION_OPPORTUNITIES_MAX } from '../../workunit/workunit.types.js';
 
 describe('parseOpportunities', () => {
   it('解析多条 OPPORTUNITY: 行（含 estimate 可省）', () => {

@@ -22,23 +22,27 @@ import {
   createAgentProfileBodySchema,
   updateAgentProfileBodySchema,
   agentProfileIdParamsSchema,
+  agentProfileListResponseSchema,
+  agentProfileResponseSchema,
+  rolePresetListResponseSchema,
 } from '@dommaker/studio-contract';
 import { AgentProfileService, listRolePresets, type CreateAgentProfileInput, type UpdateAgentProfileInput } from './agent-profile.service.js';
 import { parsePagination } from '../../utils/pagination.js';
-import { defineRoute, HttpError, paginated } from '../../core/http.js';
+import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 
 // P2-e 鉴权声明式统一：open（GET 读）/ write（registry 挂 authNotGuest）拆 router，路由内不再挂鉴权。
 const openRoutes = Router();
 const writeRoutes = Router();
-const service = new AgentProfileService(getStore());
+const getService = createLazyService(() => new AgentProfileService(getStore()));
 
 /** GET / — list AgentProfiles */
-openRoutes.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (req, _res, { query }) => {
+openRoutes.get('/', defineRoute({ query: agentProfileListQuerySchema, response: agentProfileListResponseSchema }, async (req, _res, { query }) => {
   const { page, limit } = parsePagination(req);
 
-  const result = await service.list({
+  const result = await getService().list({
     status: query.status,
     channelId: query.channelId,
     page,
@@ -47,34 +51,29 @@ openRoutes.get('/', defineRoute({ query: agentProfileListQuerySchema }, async (r
     includeSystem: query.includeSystem === 'true',
   });
 
-  return paginated(result.data, {
-    page,
-    limit,
-    total: result.total,
-    totalPages: Math.ceil(result.total / limit),
-  });
+  return paginated(result.data, makePagination(page, limit, result.total));
 }));
 
 /** POST / — create AgentProfile */
 writeRoutes.post('/', defineRoute(
-  { body: createAgentProfileBodySchema },
+  { body: createAgentProfileBodySchema, response: agentProfileResponseSchema },
   {
     status: 201,
     errors: [{ match: 'Unique constraint', status: 409, code: 'DUPLICATE' }],
   },
   async (_req, _res, { body }) => {
     // z.infer 全字段退化可选（仓 strict:false），路由边界收回 service 必填入参
-    return service.create(body as CreateAgentProfileInput);
+    return getService().create(body as CreateAgentProfileInput);
   },
 ));
 
 /** GET /presets — 角色 preset 清单（#633「从模板开始」数据源；只回 name + description，死字段不浮出）。
  *  须注册在 /:id 之前，否则 'presets' 被当 id 匹配。 */
-openRoutes.get('/presets', defineRoute({}, async () => listRolePresets()));
+openRoutes.get('/presets', defineRoute({ response: rolePresetListResponseSchema }, async () => listRolePresets()));
 
 /** GET /:id — get AgentProfile by id */
-openRoutes.get('/:id', defineRoute({ params: agentProfileIdParamsSchema }, async (_req, _res, { params }) => {
-  const profile = await service.getById(params.id);
+openRoutes.get('/:id', defineRoute({ params: agentProfileIdParamsSchema, response: agentProfileResponseSchema }, async (_req, _res, { params }) => {
+  const profile = await getService().getById(params.id);
   if (!profile) {
     throw new HttpError(404, 'NOT_FOUND', `AgentProfile ${params.id} not found`);
   }
@@ -83,7 +82,7 @@ openRoutes.get('/:id', defineRoute({ params: agentProfileIdParamsSchema }, async
 
 /** PATCH /:id — update AgentProfile */
 writeRoutes.patch('/:id', defineRoute(
-  { params: agentProfileIdParamsSchema, body: updateAgentProfileBodySchema },
+  { params: agentProfileIdParamsSchema, body: updateAgentProfileBodySchema, response: agentProfileResponseSchema },
   {
     errors: [
       // #298: 改名冲突与 create 同口径 -> 409 DUPLICATE
@@ -93,7 +92,7 @@ writeRoutes.patch('/:id', defineRoute(
     ],
   },
   async (_req, _res, { params, body }) => {
-    return service.update(params.id, body as UpdateAgentProfileInput);
+    return getService().update(params.id, body as UpdateAgentProfileInput);
   },
 ));
 
@@ -108,7 +107,7 @@ writeRoutes.delete('/:id', defineRoute(
     ],
   },
   async (_req, _res, { params }) => {
-    await service.delete(params.id);
+    await getService().delete(params.id);
   },
 ));
 

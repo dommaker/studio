@@ -28,18 +28,16 @@ vi.mock('../knowledge-singletons.js', async () => {
   const tmpDir = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'ks-wiring-'));
 
   const harness = await vi.importActual<any>('@dommaker/harness');
-  const { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeLinter, ReferenceTracker } = harness;
+  const { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery } = harness;
   // KnowledgeInjector 已收口为 studio 本地模块（harness 侧移除中），mock 与生产同款构造
   const { KnowledgeInjector } = await vi.importActual<any>('../knowledge-injector.js');
 
   const sharedStore = new FileKnowledgeStore({ baseDir: tmpDir });
-  const sharedLifecycle = new KnowledgeLifecycle(sharedStore, {
-    autoPromoteSources: ['triage', 'auditor', 'evolution', 'analyst'],
-  });
+  // harness 3.0.0：autoPromoteSources 死面出清，构造缺省配置（与生产 knowledge-singletons.ts 同款）
+  const sharedLifecycle = new KnowledgeLifecycle(sharedStore);
   const sharedIngest = new KnowledgeIngest(sharedStore);
   const sharedQuery = new KnowledgeQuery(sharedStore, sharedLifecycle);
   const sharedInjector = new KnowledgeInjector(sharedQuery);
-  const sharedLinter = new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore));
 
   return {
     UNIFIED_KNOWLEDGE_DIR: tmpDir,
@@ -48,7 +46,6 @@ vi.mock('../knowledge-singletons.js', async () => {
     sharedIngest,
     sharedQuery,
     sharedInjector,
-    sharedLinter,
     scheduleVectorDbSync: vi.fn(),
     ingestWithQualityGate: vi.fn(),
     appendKnowledgeEvent: vi.fn(),
@@ -70,6 +67,15 @@ function seedEntries() {
     { type: 'guideline', title: 'Alpha wiring probe guideline', content: ACTIVE_MARKER, tags: ['pattern'] },
     { source: 'pattern:wiring-test', layer: 'project', maturity: 'active', tags: ['pattern'], consumptionMode: 'signal' },
   ).entry;
+  sharedStore.update(active.id, {
+    sourceReferences: [{
+      ...active.sourceReferences[0],
+      learning: {
+        scope: { kind: 'global' }, extractionVersion: 'test-1', revision: 1,
+        outcome: { execution: 'succeeded', verification: 'passed', delivery: 'not-required' },
+      },
+    }],
+  });
   const draft = sharedIngest.ingestEntry(
     { type: 'guideline', title: 'Zeta proposal draft pitfall', content: DRAFT_MARKER, tags: ['pattern'] },
     { source: 'pattern:wiring-test', layer: 'project', maturity: 'draft', tags: ['pattern'], consumptionMode: 'signal' },
@@ -103,6 +109,32 @@ describe('R4 regression: production knowledgeService wiring (injectContext)', ()
     // draft 提案被排除（R3 提案闸门：getIndexes draft 过滤 + isInjectableMaturity）
     expect(result.prompt).not.toContain('R4WIRING-DRAFT-CONTENT');
     expect(result.injectedIds).not.toContain(draft.id);
+  });
+
+  it('#715: real injection pauses unknown scope and excludes low_quality or unrelated repo', async () => {
+    const now = new Date().toISOString();
+    const save = (id: string, scope?: { kind: 'global' } | { kind: 'repo'; id: string }, tags: string[] = []) => {
+      sharedStore.save({
+        id, type: 'guideline', title: id, content: id,
+        maturity: 'active', layer: 'project', created: now, lastReferenced: now,
+        contributors: [], projects: [], tags, applicablePhases: [],
+        sourceReferences: [{
+          source: 'test:715', timestamp: now,
+          ...(scope ? { learning: {
+            scope, extractionVersion: 'test-1', revision: 1,
+            outcome: { execution: 'succeeded', verification: 'passed', delivery: 'not-required' },
+          } } : {}),
+        }] as any,
+        referencedBy: [], executionResults: [], consumptionMode: 'signal', origin: 'agent',
+      });
+    };
+    save('legacy-unknown');
+    save('low-quality', { kind: 'global' }, ['low_quality']);
+    save('other-repo', { kind: 'repo', id: '/repo/other' });
+
+    const result = await knowledgeService.injectContext('implement', { scope: { repo: '/repo/current' } });
+
+    expect(result.injectedIds).not.toEqual(expect.arrayContaining(['legacy-unknown', 'low-quality', 'other-repo']));
   });
 
   it('#93: rule/context sections non-empty when rule/preference entries exist (sourceReferences gate)', async () => {

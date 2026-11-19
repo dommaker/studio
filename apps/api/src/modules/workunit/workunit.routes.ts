@@ -51,6 +51,8 @@ import {
   messageParamsSchema,
   listMessagesQuerySchema,
   claimBodySchema,
+  authorizeMandateBodySchema,
+  revokeMandateBodySchema,
   transitionStatusBodySchema,
   reviewPassedBodySchema,
   reviewRejectedBodySchema,
@@ -60,44 +62,89 @@ import {
   ignoreOpportunityBodySchema,
   postMessageBodySchema,
   patchMessageBodySchema,
+  workUnitListResponseSchema,
+  workUnitResponseSchema,
+  lastDoneResponseSchema,
+  changedFilesResponseSchema,
+  treeTokenReportResponseSchema,
+  verifyResultResponseSchema,
+  dispatchReviewResponseSchema,
+  adoptOpportunityResponseSchema,
+  ignoreOpportunityResponseSchema,
+  discussionMessagesResponseSchema,
+  discussionMessageResponseSchema,
+  type DiscussionMessage,
 } from '@dommaker/studio-contract';
-import { WorkUnitService, type WorkUnitData } from './workunit.service.js';
+import { WorkUnitService } from './workunit-review.js';
+import { toWorkUnitWire, type WorkUnitData } from './workunit-crud.js';
 import type { CreateWorkUnitInput, UpdateWorkUnitInput } from './workunit-crud.js';
 import type { WorkUnitMetadata } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { resolveClaimable, buildStatusById } from './wu-dependencies.js';
 import { adoptInspectionOpportunity, ignoreInspectionOpportunity } from './inspection-opportunities.js';
 import { resolveReviewConfirm, ConfirmPayloadError } from './confirm-payload.js';
-// P2-c 拆环：aggregateTreeTokens 转路由处理器内动态 import（workunit→agents 静态边清零）
-import type { MessageMeta } from '../channels/index.js';
-// P2-c 拆环：channelMessageService 值引用转处理器内动态 import（workunit→channels 静态边清零）
+import { workUnitPort } from './workunit-ports.js';
+import {
+  getWorkUnitTreeTokens,
+  listClaimableWorkUnits,
+  submitPlanRuling,
+  validatePlanConfirmation,
+  WorkUnitApplicationError,
+  type WorkUnitApplicationErrorCode,
+} from './workunit-application.js';
+import { listDiscussionMessages, patchDiscussionMessage, postDiscussionMessage } from './workunit-discussion.js';
 import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './waiting-input.js';
-// P2-c 拆环：plan ruling/direction 应用函数与错误类转路由处理器内动态 import
-// （errors 映射改处理器内 try/catch 等价实现；workunit→pmo 静态边清零）
 import { claimWorkUnitAndAnnounce } from './claim-announce.js';
 import { listWorkUnitsChangedFiles } from './wu-changed-files.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { type AuthRequest } from '../../middleware/auth.js';
-import { defineRoute, paginated, HttpError, requireHuman } from '../../core/http.js';
+import { defineRoute, paginated, HttpError, requireHuman, makePagination, withStatus } from '../../core/http.js';
 import { getStore } from '../../core/store.js';
+import { createLazyService } from '../../utils/services.js';
 
 
 // P2-e 鉴权声明式统一：读（open，生产 Lurk Wall 兜底）/ 写（registry 挂 authNotGuest）拆 router，
 // 路由内不再挂 requireAuth/requireNotGuest；requireHuman 守卫（authorType=agent 拒绝）非鉴权声明，保留路由内。
 const openRoutes = Router();
 const writeRoutes = Router();
-const service = new WorkUnitService(getStore());
+const getService = createLazyService(() => new WorkUnitService(getStore()));
 // #387: 单次批量 id 上限（调用方单页规模 ≤ 数十，留余量；超出静默截断）
 const MAX_BATCH_IDS = 100;
 
 /** human-only 端点的 403 文案（A2A §4.4-2，沿用原内联守卫措辞） */
-const REVIEW_HUMAN_ONLY = 'Review actions are human-only (authorType=agent rejected)';
+const REVIEW_HUMAN_ONLY = 'Review actions require Operator authentication';
 
 /** getById 或抛 404——各端点「WU 必须存在」前置守卫的统一写法 */
 async function mustGetWu(id: string): Promise<WorkUnitData> {
-  const wu = await service.getById(id);
+  const wu = await getService().getById(id);
   if (!wu) throw new HttpError(404, 'NOT_FOUND', `WorkUnit ${id} not found`);
   return wu;
+}
+
+const APPLICATION_ERROR_STATUS: Record<WorkUnitApplicationErrorCode, 400 | 404 | 409> = {
+  NOT_FOUND: 404,
+  NOT_BLOCKED: 409,
+  NO_PENDING_RULING: 409,
+  INVALID_RULING: 400,
+  NO_CHANNEL: 400,
+  INVALID_INPUT: 400,
+};
+
+/** 应用用例领域错误 → HTTP；其余异常交给 defineRoute 的既有 500 边界。 */
+function rethrowApplicationError(error: unknown): never {
+  if (error instanceof WorkUnitApplicationError) {
+    throw new HttpError(APPLICATION_ERROR_STATUS[error.code], error.code, error.message);
+  }
+  throw error;
+}
+
+function toDiscussionMessageWire(
+  message: Omit<DiscussionMessage, 'meta' | 'createdAt'> & { meta: unknown; createdAt: Date | string },
+): DiscussionMessage {
+  return {
+    ...message,
+    createdAt: typeof message.createdAt === 'string' ? message.createdAt : message.createdAt.toISOString(),
+    meta: typeof message.meta === 'string' ? message.meta : JSON.stringify(message.meta ?? {}) ?? '{}',
+  };
 }
 
 /** requireAuth 后取署名（本地模式回落 Local User/id），review/verify 落台账 by 字段共用 */
@@ -106,14 +153,23 @@ function callerName(req: Request): string {
   return user?.name ?? user?.email ?? user?.id ?? 'human';
 }
 
+/** Mandate 身份只取认证会话，不读 body、authorType、agentName 或消息 meta。 */
+function callerPrincipal(req: Request): { id: string; type: 'Operator' } {
+  const user = (req as AuthRequest).user;
+  if (!user || user.actorType !== 'Operator') {
+    throw new HttpError(403, 'MANDATE_FORBIDDEN', 'Mandate actions require Operator authentication');
+  }
+  return { id: user.id, type: 'Operator' };
+}
+
 /** GET / — list WorkUnits */
 openRoutes.get('/', defineRoute(
-  { query: listWorkUnitsQuerySchema },
+  { query: listWorkUnitsQuerySchema, response: workUnitListResponseSchema },
   async (req, _res, input) => {
     const { type, status, assigneeId, channelId, parentId, attributed, projectId, q } = input.query;
     const { page, limit } = parsePagination(req);
 
-    const result = await service.list({
+    const result = await listClaimableWorkUnits({
       type,
       status,
       assigneeId,
@@ -127,32 +183,29 @@ openRoutes.get('/', defineRoute(
       q: q?.trim() ? q.trim() : undefined,
       page,
       limit,
-    });
+    }, { service: getService(), fileStore: getStore() });
 
-    // #109：列表项附「可认领」标记（claimable）供 UI 使用 —— unassigned 且
-    // blockedBy 依赖全了结才为 true；profile 无关（认领侧仍由 loop observe 判定）。
-    // 仅当本页含 unassigned 行才读 index 做依赖判定（其余行 claimable 恒 false）
-    const statusById = result.data.some(w => w.status === 'unassigned')
-      ? buildStatusById(await getStore().getIndex())
-      : new Map<string, string>();
-    const data = result.data.map(w => ({ ...w, claimable: resolveClaimable(w, statusById) }));
+    const data = result.data.map(w => ({ ...toWorkUnitWire(w), claimable: w.claimable }));
 
-    return paginated(data, { page, limit, total: result.total, totalPages: Math.ceil(result.total / limit) });
+    return paginated(data, makePagination(page, limit, result.total));
   },
 ));
 
 /** POST / — create WorkUnit */
 writeRoutes.post('/', defineRoute(
-  { body: createWorkUnitBodySchema },
+  { body: createWorkUnitBodySchema, response: workUnitResponseSchema },
   { status: 201 },
-  async (_req, _res, input) =>
+  async (req, _res, input) =>
     // schema 已剥壳收字段（8 键，同原手工解构）；metadata 形状 = WorkUnitMetadata 的超集 Record
-    service.create(input.body as CreateWorkUnitInput),
+    toWorkUnitWire(await getService().create({
+      ...input.body as CreateWorkUnitInput,
+      authorization: { requestedBy: callerPrincipal(req), source: { kind: 'api' } },
+    })),
 ));
 
 /** POST /from-message — convert ChannelMessage to WorkUnit (emergence path) */
 writeRoutes.post('/from-message', defineRoute(
-  { body: fromMessageBodySchema },
+  { body: fromMessageBodySchema, response: workUnitResponseSchema },
   {
     status: 201,
     errors: [
@@ -160,14 +213,18 @@ writeRoutes.post('/from-message', defineRoute(
       { match: 'already linked', status: 409, code: 'ALREADY_CONVERTED' },
     ],
   },
-  async (_req, _res, input) => {
+  async (req, _res, input) => {
     const { messageId, type, metadata, channelId } = input.body;
     // #524 P1-1：body.channelId 可选透传 → 按频道直查，免全频道扫描反查（空串 = 缺省）
-    return service.createFromMessage(messageId, {
+    return toWorkUnitWire(await getService().createFromMessage(messageId, {
       type,
       metadata: metadata as WorkUnitMetadata | undefined,
       channelId: channelId ? channelId : undefined,
-    });
+      authorization: {
+        requestedBy: callerPrincipal(req),
+        source: { kind: 'channel', messageId, ...(channelId ? { channelId } : {}) },
+      },
+    }));
   },
 ));
 
@@ -177,13 +234,14 @@ writeRoutes.post('/from-message', defineRoute(
  * roster 空闲卡「最近完成」专用，消逐实例 GET /workunits?assigneeId= 的 N+1。
  */
 openRoutes.get('/last-done', defineRoute(
-  { query: lastDoneQuerySchema },
+  { query: lastDoneQuerySchema, response: lastDoneResponseSchema },
   async (_req, _res, input) => {
     const ids = input.query.assigneeIds.split(',').map(s => s.trim()).filter(s => s.length > 0);
     if (ids.length === 0) {
       throw new HttpError(400, 'INVALID_INPUT', 'assigneeIds is required (comma-separated ids)');
     }
-    return service.lastDoneByAssignee(ids.slice(0, MAX_BATCH_IDS));
+    const result = await getService().lastDoneByAssignee(ids.slice(0, MAX_BATCH_IDS));
+    return Object.fromEntries(Object.entries(result).map(([id, wu]) => [id, wu ? toWorkUnitWire(wu) : null]));
   },
 ));
 
@@ -194,7 +252,7 @@ openRoutes.get('/last-done', defineRoute(
  * 须注册在 /:id 之前（同 /last-done 先例）。只读，匿名公开（与 GET /:id/changed-files 同口径）。
  */
 openRoutes.get('/changed-files', defineRoute(
-  { query: changedFilesQuerySchema },
+  { query: changedFilesQuerySchema, response: changedFilesResponseSchema },
   async (_req, _res, input) => {
     const ids = (input.query.ids ?? '').split(',').map(s => s.trim()).filter(s => s.length > 0);
     const filesByWu = await listWorkUnitsChangedFiles(ids.slice(0, MAX_BATCH_IDS));
@@ -204,16 +262,16 @@ openRoutes.get('/changed-files', defineRoute(
 
 /** GET /:id — get WorkUnit by id */
 openRoutes.get('/:id', defineRoute(
-  { params: wuIdParamsSchema },
-  async (_req, _res, input) => mustGetWu(input.params.id),
+  { params: wuIdParamsSchema, response: workUnitResponseSchema },
+  async (_req, _res, input) => toWorkUnitWire(await mustGetWu(input.params.id)),
 ));
 
 /** PUT /:id — update WorkUnit */
 writeRoutes.put('/:id', defineRoute(
-  { params: wuIdParamsSchema, body: updateWorkUnitBodySchema },
+  { params: wuIdParamsSchema, body: updateWorkUnitBodySchema, response: workUnitResponseSchema },
   { errors: [{ match: 'not found', status: 404, code: 'NOT_FOUND' }] },
   // metadata/日期字段的 service 侧类型（WorkUnitMetadata/Date）与 wire 形状不同构，边界处一次性断言
-  async (_req, _res, input) => service.update(input.params.id, input.body as unknown as UpdateWorkUnitInput),
+  async (_req, _res, input) => toWorkUnitWire(await getService().update(input.params.id, input.body as unknown as UpdateWorkUnitInput)),
 ));
 
 /**
@@ -227,29 +285,31 @@ const OPPORTUNITY_ERRORS = [
 ] as const;
 
 writeRoutes.post('/:id/opportunities/:oppId/adopt', defineRoute(
-  { params: opportunityParamsSchema },
+  { params: opportunityParamsSchema, response: adoptOpportunityResponseSchema },
   { status: 201, errors: OPPORTUNITY_ERRORS },
-  async (_req, _res, input) => adoptInspectionOpportunity(service, input.params.id, input.params.oppId),
+  async (_req, _res, input) => {
+    const result = await adoptInspectionOpportunity(getService(), input.params.id, input.params.oppId);
+    return { ...result, workUnit: toWorkUnitWire(result.workUnit) };
+  },
 ));
 
 /** #163（T8-E2）：巡检机会忽略——终态，可附理由（body.reason，下轮巡检不重复上报的判据） */
 writeRoutes.post('/:id/opportunities/:oppId/ignore', defineRoute(
-  { params: opportunityParamsSchema, body: ignoreOpportunityBodySchema },
+  { params: opportunityParamsSchema, body: ignoreOpportunityBodySchema, response: ignoreOpportunityResponseSchema },
   { errors: OPPORTUNITY_ERRORS },
   async (_req, _res, input) =>
-    ignoreInspectionOpportunity(service, input.params.id, input.params.oppId, input.body.reason),
+    ignoreInspectionOpportunity(getService(), input.params.id, input.params.oppId, input.body.reason),
 ));
 
 /** GET /:id/tree-tokens - 树级 token 开销聚合（AC-5.4, §8.4.4） */
 openRoutes.get('/:id/tree-tokens', defineRoute(
-  { params: wuIdParamsSchema },
+  { params: wuIdParamsSchema, response: treeTokenReportResponseSchema },
   async (_req, _res, input) => {
-    const wu = await mustGetWu(input.params.id);
-    const meta = parseWuMetadata(wu.metadata);
-    const rootId = meta.collab?.rootId ?? wu.id;
-    // P2-c 拆环：workunit→agents 静态边转函数内动态 import
-    const { aggregateTreeTokens } = await import('../agents/index.js');
-    return aggregateTreeTokens(rootId, getStore());
+    try {
+      return await getWorkUnitTreeTokens(input.params.id, { service: getService(), fileStore: getStore() });
+    } catch (error) {
+      rethrowApplicationError(error);
+    }
   },
 ));
 
@@ -264,15 +324,43 @@ writeRoutes.delete('/:id', defineRoute(
     ],
   },
   async (_req, _res, input) => {
-    await service.delete(input.params.id);
+    await getService().delete(input.params.id);
     return undefined;
   },
 ));
 
+const MANDATE_ERRORS = [
+  { match: 'not found', status: 404, code: 'NOT_FOUND' },
+  { match: 'Mandate expansion forbidden', status: 403, code: 'MANDATE_FORBIDDEN' },
+  { match: 'Mandate authorization required', status: 409, code: 'MANDATE_REQUIRED' },
+] as const;
+
+/** POST /:id/mandate/authorize — 扩仓、扩交付动作、追加预算或重新授权。 */
+writeRoutes.post('/:id/mandate/authorize', requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
+  { params: wuIdParamsSchema, body: authorizeMandateBodySchema, response: workUnitResponseSchema },
+  { errors: MANDATE_ERRORS },
+  async (req, _res, input) => toWorkUnitWire(await getService().authorizeMandate(
+    input.params.id, callerPrincipal(req), input.body,
+  )),
+));
+
+/** POST /:id/mandate/revoke — 撤销后续执行与 Effect 的授权。 */
+writeRoutes.post('/:id/mandate/revoke', requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
+  { params: wuIdParamsSchema, body: revokeMandateBodySchema, response: workUnitResponseSchema },
+  { errors: MANDATE_ERRORS },
+  async (req, _res, input) => toWorkUnitWire(await getService().revokeMandate(
+    input.params.id, callerPrincipal(req), input.body.reason,
+  )),
+));
+
 /** POST /:id/claim — claim WorkUnit（flock 悲观互斥锁）；#445：认领即发声原语接入（与 loop 自动认领同路径） */
 writeRoutes.post('/:id/claim', defineRoute(
-  { params: wuIdParamsSchema, body: claimBodySchema },
-  { errors: [{ match: 'Claim failed', status: 409, code: 'CLAIM_FAILED' }] },
+  { params: wuIdParamsSchema, body: claimBodySchema, response: workUnitResponseSchema },
+  { errors: [
+    { match: 'Claim failed', status: 409, code: 'CLAIM_FAILED' },
+    { match: 'Mandate revoked', status: 409, code: 'MANDATE_REVOKED' },
+    { match: 'Mandate authorization required', status: 409, code: 'MANDATE_REQUIRED' },
+  ] },
   async (req, _res, input) => {
     // #445：agentId 可省略——缺省 = 当前登录用户（人工引导片认领，身份诚实归因会话用户）；
     // 显式传入保持旧契约（认领给指定 id）。requireAuth 保证 req.user 存在（none 模式注入 local）。
@@ -284,20 +372,20 @@ writeRoutes.post('/:id/claim', defineRoute(
     // 发声署名：人工认领署用户显示名；显式 agentId 旧契约无法廉价解析角色名 → 退化为 id
     const claimerName = bodyAgentId ?? req.user?.name ?? req.user?.email ?? claimerId;
 
-    return claimWorkUnitAndAnnounce(input.params.id, claimerId, claimerName, { wuService: service, fileStore: getStore() });
+    return toWorkUnitWire(await claimWorkUnitAndAnnounce(input.params.id, claimerId, claimerName, { wuService: getService(), fileStore: getStore() }));
   },
 ));
 
 /** POST /:id/unclaim — unclaim WorkUnit */
 writeRoutes.post('/:id/unclaim', defineRoute(
-  { params: wuIdParamsSchema },
+  { params: wuIdParamsSchema, response: workUnitResponseSchema },
   { errors: [{ match: 'not found', status: 404, code: 'NOT_FOUND' }] },
-  async (_req, _res, input) => service.unclaim(input.params.id),
+  async (_req, _res, input) => toWorkUnitWire(await getService().unclaim(input.params.id)),
 ));
 
 /** POST /:id/review-passed — review approved (in_review → done) */
 writeRoutes.post('/:id/review-passed', requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
-  { params: wuIdParamsSchema, body: reviewPassedBodySchema },
+  { params: wuIdParamsSchema, body: reviewPassedBodySchema, response: workUnitResponseSchema },
   {
     errors: [
       { match: ConfirmPayloadError, status: 400, code: 'INVALID_CONFIRM' },
@@ -313,6 +401,9 @@ writeRoutes.post('/:id/review-passed', requireHuman(REVIEW_HUMAN_ONLY), defineRo
     // l3.summary（存储契约不变，人不接触魔法行）；与裸 summary 并存时 confirm 优先；
     // analysis 的 tasks 经 options.analysisTasks 透传覆写 metadata.analysisTasks。
     const confirm = resolveReviewConfirm(input.body.confirm);
+    if (input.body.confirm?.kind === 'plan' && confirm.analysisTaskDetails?.length) {
+      await validatePlanConfirmation(await mustGetWu(input.params.id), confirm.analysisTaskDetails);
+    }
     const rawSummary = input.body.summary;
     const summary = confirm.summary
       ?? (typeof rawSummary === 'string' && rawSummary.trim() ? rawSummary : undefined);
@@ -323,18 +414,19 @@ writeRoutes.post('/:id/review-passed', requireHuman(REVIEW_HUMAN_ONLY), defineRo
       ...(typeof defaultAssigneeId === 'string' && defaultAssigneeId.trim()
         ? { defaultTaskAssigneeId: defaultAssigneeId.trim() } : {}),
       ...(confirm.analysisTasks !== undefined ? { analysisTasks: confirm.analysisTasks } : {}),
+      ...(confirm.analysisTaskDetails !== undefined ? { analysisTaskDetails: confirm.analysisTaskDetails } : {}),
     };
-    return service.reviewPassed(input.params.id, {
+    return toWorkUnitWire(await getService().reviewPassed(input.params.id, {
       by: callerName(req),
       kind: 'human-confirm',
       ...(summary ? { summary } : {}),
-    }, Object.keys(options).length > 0 ? options : undefined);
+    }, Object.keys(options).length > 0 ? options : undefined));
   },
 ));
 
 /** POST /:id/review-rejected — review rejected (in_review → active, or blocked after 3) */
 writeRoutes.post('/:id/review-rejected', requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
-  { params: wuIdParamsSchema, body: reviewRejectedBodySchema },
+  { params: wuIdParamsSchema, body: reviewRejectedBodySchema, response: workUnitResponseSchema },
   {
     errors: [
       { match: 'not found', status: 404, code: 'NOT_FOUND' },
@@ -342,27 +434,26 @@ writeRoutes.post('/:id/review-rejected', requireHuman(REVIEW_HUMAN_ONLY), define
     ],
   },
   // F6（决策 1）：人工否决同样落台账 l3（rejected 留痕）
-  async (req, _res, input) => service.reviewRejected(input.params.id, input.body.reason, {
+  async (req, _res, input) => toWorkUnitWire(await getService().reviewRejected(input.params.id, input.body.reason, {
     by: callerName(req),
     kind: 'human-confirm',
-  }),
+  })),
 ));
 
 /**
  * POST /:id/verify — F6-c（断点 2）：人工重跑 L1 自动验证（human-only，验收权只在人同 A2A §4.4）。
- * 仅代码类 WU（task/bug/feature/refactor）且有 worktree 落档；body.commands 可选
- * （传了视为 metadata.verifyCommands 覆盖）。只补写台账 l1/verifyReport，不动 WU status；
+ * 仅代码类 WU（task/bug/feature/refactor）且有受信 worktree 落档；只运行服务端固定模板。
+ * 只补写台账 l1/verifyReport，不动 WU status；
  * 写完发 status_changed（状态值不变也发）让 pmo rollup 按证据齐备度重估。
  * #551：业务下沉 WorkUnitService.verifyManually（脱 HTTP 可直测），本层只映射 kind → 响应。
- * no-commands 是 422 业务结果（非异常），handler 自写响应（同样包 { data } 壳）。
+ * no-commands 是 422 业务结果（非异常），withStatus 走同一响应校验与 OpenAPI 派生。
  */
-writeRoutes.post('/:id/verify', requireHuman('Verify actions are human-only (authorType=agent rejected)'), defineRoute(
-  { params: wuIdParamsSchema, body: verifyBodySchema },
-  async (req, res, input) => {
-    const bodyCommands = (input.body.commands ?? []).filter(c => c.trim().length > 0);
-    const result = await service.verifyManually(input.params.id, {
+writeRoutes.post('/:id/verify', requireHuman('Verify actions require Operator authentication'), defineRoute(
+  { params: wuIdParamsSchema, body: verifyBodySchema, response: verifyResultResponseSchema },
+  { responses: { 422: verifyResultResponseSchema } },
+  async (req, _res, input) => {
+    const result = await getService().verifyManually(input.params.id, {
       by: callerName(req),
-      ...(bodyCommands.length > 0 ? { commands: bodyCommands } : {}),
     });
     switch (result.kind) {
       case 'not-found':
@@ -371,15 +462,14 @@ writeRoutes.post('/:id/verify', requireHuman('Verify actions are human-only (aut
         throw new HttpError(400, 'INVALID_INPUT', `仅代码类 WU（task/bug/feature/refactor）支持 L1 验证（当前 type=${result.wuType}）`);
       case 'no-worktree':
         throw new HttpError(409, 'NO_WORKTREE', 'WU 无 worktree 落档（metadata.worktreePath 为空），无法验证');
+      case 'invalid-worktree':
+        throw new HttpError(409, 'INVALID_WORKTREE', 'WU worktree 落档未通过受控根与归属校验，无法验证');
       case 'no-commands':
-        res.status(422).json({
-          data: {
-            verified: false,
-            reason: 'no-commands',
-            hint: '请在 WU metadata.verifyCommands 或 worktree 的 package.json scripts(test/typecheck/lint)中配置验证命令',
-          },
+        return withStatus(422, {
+          verified: false,
+          reason: 'no-commands',
+          hint: '请在 worktree 的 package.json scripts(test/typecheck/lint)中启用服务端登记检查',
         });
-        return undefined;
       case 'failed':
         return { verified: false, failed: [result.failure] };
       case 'verified':
@@ -394,7 +484,7 @@ writeRoutes.post('/:id/verify', requireHuman('Verify actions are human-only (aut
  * 走与 ReviewDispatcher 路径 A 相同的未指派涌现 + excludeAssignee/自评兜底逻辑。
  */
 writeRoutes.post('/:id/dispatch-review', requireHuman(REVIEW_HUMAN_ONLY), defineRoute(
-  { params: wuIdParamsSchema },
+  { params: wuIdParamsSchema, response: dispatchReviewResponseSchema },
   {
     errors: [
       { match: 'not found', status: 404, code: 'NOT_FOUND' },
@@ -405,9 +495,7 @@ writeRoutes.post('/:id/dispatch-review', requireHuman(REVIEW_HUMAN_ONLY), define
     ],
   },
   async (_req, _res, input) => {
-    // 与 index.ts 启动时同款动态 import：避免路由模块加载时拉起整个 agents 模块图
-    const { getReviewDispatcher } = await import('../agent-loop/index.js') as typeof import('../agent-loop/index.js');
-    const child = await getReviewDispatcher().dispatchReviewNow(input.params.id);
+    const child = await (await workUnitPort('review')).dispatchReviewNow(input.params.id);
     return { reviewWorkUnitId: child.id };
   },
 ));
@@ -419,17 +507,17 @@ writeRoutes.post('/:id/dispatch-review', requireHuman(REVIEW_HUMAN_ONLY), define
  * 分类型显示是 UI 层决策（D3），端点不设类型门槛；归属等待型按回复语义不被纯授权复活 → 409。
  */
 writeRoutes.post('/:id/resume', defineRoute(
-  { params: wuIdParamsSchema },
-  async (_req, _res, input) => {
+  { params: wuIdParamsSchema, response: workUnitResponseSchema },
+  async (req, _res, input) => {
     const wu = await mustGetWu(input.params.id);
     if (wu.status !== 'blocked') {
       throw new HttpError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked 可继续执行`);
     }
-    const resumed = await resumeBlockedWorkUnitFromWeb(input.params.id, getStore());
+    const resumed = await resumeBlockedWorkUnitFromWeb(input.params.id, getStore(), callerPrincipal(req));
     if (!resumed) {
       throw new HttpError(409, 'RESUME_REJECTED', '复活未完成（等待工程归属的任务请在频道回复工程名或路径）');
     }
-    return service.getById(input.params.id);
+    return toWorkUnitWire(await mustGetWu(input.params.id));
   },
 ));
 
@@ -441,24 +529,14 @@ writeRoutes.post('/:id/resume', defineRoute(
  * 前置守卫：仅 blocked 且 metadata.planRulings 非空（裁决轮挂起中）；载荷非法 → 400。
  */
 writeRoutes.post('/:id/ruling', defineRoute(
-  { params: wuIdParamsSchema, body: planRulingPayloadSchema },
+  { params: wuIdParamsSchema, body: planRulingPayloadSchema, response: workUnitResponseSchema },
   async (_req, _res, input) => {
-    // P2-c 拆环：动态 import + try/catch 等价原 errors 映射（PlanRulingError → 400 INVALID_RULING）
-    const { applyPlanRuling, validateRulingItems, PlanRulingError } = await import('../pmo/index.js');
     try {
-      const wu = await mustGetWu(input.params.id);
-      if (wu.status !== 'blocked') {
-        throw new HttpError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked（裁决轮挂起）可提交裁决`);
-      }
-      const meta = parseWuMetadata(wu.metadata);
-      if (!Array.isArray(meta.planRulings) || meta.planRulings.length === 0) {
-        throw new HttpError(409, 'NO_PENDING_RULING', '该任务无待裁的裁决轮（planRulings 为空）');
-      }
-      const items = validateRulingItems(input.body.items);
-      return applyPlanRuling(input.params.id, items, getStore());
-    } catch (err) {
-      if (err instanceof PlanRulingError) throw new HttpError(400, 'INVALID_RULING', (err as Error).message);
-      throw err;
+      return toWorkUnitWire(await submitPlanRuling(input.params.id, input.body.items, {
+        service: getService(), fileStore: getStore(),
+      }));
+    } catch (error) {
+      rethrowApplicationError(error);
     }
   },
 ));
@@ -471,10 +549,9 @@ writeRoutes.post('/:id/ruling', defineRoute(
  * 前置守卫：仅 blocked 且 metadata.planDirections 非空（方向锁定挂起中）；载荷非法 → 400。
  */
 writeRoutes.post('/:id/direction', defineRoute(
-  { params: wuIdParamsSchema, body: planDirectionPayloadSchema },
+  { params: wuIdParamsSchema, body: planDirectionPayloadSchema, response: workUnitResponseSchema },
   async (_req, _res, input) => {
-    // P2-c 拆环：动态 import + try/catch 等价原 errors 映射（PlanDirectionError → 400 INVALID_DIRECTION）
-    const { applyPlanDirection, validateDirectionPick, PlanDirectionError } = await import('../pmo/index.js');
+    const review = await workUnitPort('review');
     try {
       const wu = await mustGetWu(input.params.id);
       if (wu.status !== 'blocked') {
@@ -484,10 +561,10 @@ writeRoutes.post('/:id/direction', defineRoute(
       if (!meta.planDirections || !Array.isArray(meta.planDirections.options) || meta.planDirections.options.length === 0) {
         throw new HttpError(409, 'NO_PENDING_DIRECTION', '该任务无待选的方向锁定（planDirections 为空）');
       }
-      const pick = validateDirectionPick(input.body, meta.planDirections);
-      return applyPlanDirection(input.params.id, pick, getStore());
+      const pick = review.validateDirectionPick(input.body, meta.planDirections);
+      return toWorkUnitWire(await review.applyPlanDirection(input.params.id, pick, getStore()));
     } catch (err) {
-      if (err instanceof PlanDirectionError) throw new HttpError(400, 'INVALID_DIRECTION', (err as Error).message);
+      if (review.isPlanDirectionError(err)) throw new HttpError(400, 'INVALID_DIRECTION', (err as Error).message);
       throw err;
     }
   },
@@ -499,7 +576,7 @@ writeRoutes.post('/:id/direction', defineRoute(
  * decision/spec 裁剪状态机无 closed → 409 NO_CLOSED_STATE（拒绝说明已同步发到频道）。
  */
 writeRoutes.post('/:id/close', defineRoute(
-  { params: wuIdParamsSchema },
+  { params: wuIdParamsSchema, response: workUnitResponseSchema },
   async (_req, _res, input) => {
     const wu = await mustGetWu(input.params.id);
     if (wu.status !== 'blocked') {
@@ -512,7 +589,7 @@ writeRoutes.post('/:id/close', defineRoute(
     if (outcome !== 'closed') {
       throw new HttpError(409, 'NOT_BLOCKED', 'WorkUnit 状态已变化，关闭未完成');
     }
-    return service.getById(input.params.id);
+    return toWorkUnitWire(await mustGetWu(input.params.id));
   },
 ));
 
@@ -523,8 +600,8 @@ writeRoutes.post('/:id/close', defineRoute(
  * reviewPassed/reviewRejected 落账），故收口。agent 内部合法迁移走服务层
  * transitionStatus，不经 REST，不受影响。
  */
-writeRoutes.post('/:id/status', requireHuman('Status transitions are human-only (authorType=agent rejected)'), defineRoute(
-  { params: wuIdParamsSchema, body: transitionStatusBodySchema },
+writeRoutes.post('/:id/status', requireHuman('Status transitions require Operator authentication'), defineRoute(
+  { params: wuIdParamsSchema, body: transitionStatusBodySchema, response: workUnitResponseSchema },
   {
     errors: [
       { match: 'Invalid status transition', status: 400, code: 'INVALID_TRANSITION' },
@@ -532,98 +609,53 @@ writeRoutes.post('/:id/status', requireHuman('Status transitions are human-only 
     ],
   },
   async (req, _res, input) =>
-    service.transitionStatus(input.params.id, input.body.status, { id: req.user?.id ?? 'unknown', type: 'human' }),
+    toWorkUnitWire(await getService().transitionStatus(input.params.id, input.body.status, { id: req.user?.id ?? 'unknown', type: 'human' })),
 ));
 
 // ── 讨论空间 (AS-025 §5.16) ──
 
 /** GET /:id/messages — list messages in discussion space (workUnitId grouping) */
 openRoutes.get('/:id/messages', defineRoute(
-  { params: wuIdParamsSchema, query: listMessagesQuerySchema },
+  { params: wuIdParamsSchema, query: listMessagesQuerySchema, response: discussionMessagesResponseSchema },
   async (_req, _res, input) => {
-    const take = Math.min(Number(input.query.limit ?? '50'), 100);
-    const beforeDate = input.query.before ? new Date(input.query.before) : undefined;
-
-    // #529：从 WU 解析频道归属（一等列 channelId，与写侧 POST /:id/messages 同字段、
-    // 读写对称）传给直查；wu 不存在或无 channelId（legacy/手工单）→ undefined 走扇出 fallback。
-    const wu = await service.getById(input.params.id);
-    const { channelMessageService } = await import('../channels/index.js'); // P2-c 拆环
-    const result = await channelMessageService.listByWorkUnitId(input.params.id, {
-      channelId: wu?.channelId ?? undefined,
-      before: beforeDate,
-      limit: take,
-    });
-
-    return {
-      messages: result.data,
-      total: result.total,
-      hasMore: result.data.length < result.total,
-    };
+    const result = await listDiscussionMessages(input.params.id, {
+      limit: Math.min(Number(input.query.limit ?? '50'), 100),
+      before: input.query.before ? new Date(input.query.before) : undefined,
+    }, { service: getService(), fileStore: getStore() });
+    return { ...result, messages: result.messages.map(toDiscussionMessageWire) };
   },
 ));
 
 /** POST /:id/messages — send message in discussion space (auto-associate workUnitId) */
 writeRoutes.post('/:id/messages', defineRoute(
-  { params: wuIdParamsSchema, body: postMessageBodySchema },
+  { params: wuIdParamsSchema, body: postMessageBodySchema, response: discussionMessageResponseSchema },
   { status: 201 },
   async (_req, _res, input) => {
-    const { content, replyToId, authorType = 'human', agentName } = input.body;
-
-    // Verify WorkUnit exists
-    const wu = await mustGetWu(input.params.id);
-
-    // Need a channelId — use WorkUnit's channelId or fallback to system channel
-    let channelId = wu.channelId;
-    if (!channelId) {
-      const rndChannels = await getStore().listChannels({ type: 'rnd' });
-      const sysChannel = rndChannels.length > 0 ? rndChannels[0] : null;
-      if (!sysChannel) {
-        throw new HttpError(400, 'NO_CHANNEL', 'No channel available for discussion messages');
-      }
-      channelId = sysChannel.id;
+    try {
+      return toDiscussionMessageWire(await postDiscussionMessage(input.params.id, input.body, {
+        service: getService(), fileStore: getStore(),
+      }));
+    } catch (error) {
+      rethrowApplicationError(error);
     }
-
-    const { channelMessageService } = await import('../channels/index.js'); // P2-c 拆环
-    if (authorType === 'agent' && agentName) {
-      return channelMessageService.createAgentMessage(
-        channelId, agentName, content,
-        { replyToId, workUnitId: input.params.id },
-      );
-    }
-    return channelMessageService.createHumanMessage(
-      channelId, content, replyToId, input.params.id,
-    );
   },
 ));
 
 /** PATCH /:id/messages/:messageId — edit message in discussion space */
 writeRoutes.patch('/:id/messages/:messageId', defineRoute(
-  { params: messageParamsSchema, body: patchMessageBodySchema },
+  { params: messageParamsSchema, body: patchMessageBodySchema, response: discussionMessageResponseSchema },
   { errors: [{ match: 'not found', status: 404, code: 'NOT_FOUND' }] },
   async (_req, _res, input) => {
-    const { content, meta } = input.body;
-
-    if (content === undefined && meta === undefined) {
-      throw new HttpError(400, 'INVALID_INPUT', 'content or meta is required');
+    try {
+      return toDiscussionMessageWire(await patchDiscussionMessage(
+        input.params.id,
+        input.params.messageId,
+        input.body,
+        { service: getService(), fileStore: getStore() },
+      ));
+    } catch (error) {
+      rethrowApplicationError(error);
     }
-
-    // Verify message belongs to this WorkUnit
-    // B2（#529 同款口径）：从 WU 解析频道归属直查，消全频道扇出；
-    // wu 不存在或无 channelId（legacy/手工单）→ undefined 走扇出 fallback
-    const wu = await service.getById(input.params.id);
-    const found = await getStore().getMessageById(input.params.messageId, wu?.channelId ?? undefined);
-    if (!found) {
-      throw new HttpError(404, 'NOT_FOUND', `Message ${input.params.messageId} not found`);
-    }
-    if (found.message.workUnitId !== input.params.id) {
-      throw new HttpError(400, 'INVALID_INPUT', 'Message does not belong to this WorkUnit');
-    }
-
-    const { channelMessageService } = await import('../channels/index.js'); // P2-c 拆环
-    return channelMessageService.updateMessage(input.params.messageId, {
-      content,
-      meta: meta as MessageMeta | undefined,
-    }, found.channelId);
   },
 ));
 

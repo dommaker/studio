@@ -6,12 +6,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const calls = vi.hoisted(() => [] as string[]);
+const flags = vi.hoisted(() => ({ failOnMonitor: false }));
 
-vi.mock('../../modules/agent-monitor/index.js', () => ({
-  monitorService: { start: () => calls.push('monitor'), stop: vi.fn() },
+// #683：monitorService 与 createOpsService 同归 ops barrel，合并为一个 mock
+vi.mock('../../modules/ops/index.js', () => ({
+  getMonitorService: () => ({
+    start: () => {
+      if (flags.failOnMonitor) throw new Error('monitor boom');
+      calls.push('monitor');
+    },
+    stop: vi.fn(),
+  }),
+  createOpsService: () => ({ start: () => calls.push('ops') }),
 }));
 vi.mock('../../modules/agent-auditor/index.js', () => ({
-  auditorService: { start: () => calls.push('auditor'), stop: vi.fn() },
+  getAuditorService: () => ({ start: () => calls.push('auditor'), stop: vi.fn() }),
 }));
 vi.mock('../../modules/requirements/rollup.js', () => ({
   initRequirementRollup: () => calls.push('requirement-rollup'),
@@ -19,25 +28,39 @@ vi.mock('../../modules/requirements/rollup.js', () => ({
 vi.mock('../../modules/pmo/progress-rollup.js', () => ({
   initPmoProgressRollup: () => calls.push('pmo-rollup'),
 }));
-vi.mock('../../modules/agent-ops/index.js', () => ({
-  createOpsService: () => ({ start: () => calls.push('ops') }),
-}));
-vi.mock('../../modules/knowledge/evolution-scheduler.js', () => ({
+vi.mock('../../modules/knowledge/scheduling/evolution-scheduler.js', () => ({
   startEvolutionScheduler: () => calls.push('evolution-scheduler'),
   stopEvolutionScheduler: vi.fn(),
+}));
+vi.mock('../../modules/workunit/index.js', () => ({
+  WorkUnitService: class {},
+  migrateLegacyWorkUnits: async () => { calls.push('legacy-migration'); },
+  recoverWorktreeMerges: async () => { calls.push('merge-recovery'); },
+}));
+vi.mock('../../modules/channels/index.js', () => ({
+  recoverExternalReplies: async () => { calls.push('external-reply-recovery'); },
 }));
 
 import { startCoreServices } from '../services.js';
 
 beforeEach(() => {
   calls.length = 0;
+  flags.failOnMonitor = false;
 });
 
 describe('startCoreServices', () => {
   it('按原 index.ts 顺序启动全部核心服务', async () => {
     await startCoreServices();
     expect(calls).toEqual([
-      'monitor', 'auditor', 'requirement-rollup', 'pmo-rollup', 'ops', 'evolution-scheduler',
+      'monitor', 'auditor', 'requirement-rollup', 'pmo-rollup', 'ops', 'legacy-migration', 'merge-recovery', 'external-reply-recovery', 'evolution-scheduler',
+    ]);
+  });
+
+  it('monitor 启动失败只 warn 不拒启，后续服务照常启动（#686 纪律固化）', async () => {
+    flags.failOnMonitor = true;
+    await expect(startCoreServices()).resolves.toBeUndefined();
+    expect(calls).toEqual([
+      'auditor', 'requirement-rollup', 'pmo-rollup', 'ops', 'legacy-migration', 'merge-recovery', 'external-reply-recovery', 'evolution-scheduler',
     ]);
   });
 });

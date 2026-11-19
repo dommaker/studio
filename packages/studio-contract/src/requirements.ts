@@ -14,77 +14,50 @@ import { dataBodySchema } from './envelope.js';
 export const requirementStatusSchema = z.enum(['open', 'in-progress', 'done', 'archived']);
 export type RequirementStatus = z.infer<typeof requirementStatusSchema>;
 
-/**
- * Requirement wire 形状（含 B3a projectId：挂接的 PMO 项目 id；决策 4 别名视图同形返回）。
- * 手写 interface（z.infer 在本仓 strict:false 下全字段退化可选，见 workunit.ts 说明）；
- * parity 测试见 __tests__/requirements.test.ts。
- */
-export interface Requirement {
-  id: string; // REQ-<zero-padded seq>，如 REQ-0042
-  seq: number;
-  title: string;
-  status: RequirementStatus;
-  channelId?: string | null; // 来源频道（手动创建可无）
-  createdAt: string; // ISO 8601
-  createdBy: string; // mention | convert | manual | api | pmo-alias
-  docs?: string[]; // 关联文档（需求文档 / SDD 路径）
-  description?: string;
-  projectId?: string | null; // B3a：挂接的 PMO 项目 id
-}
-
+/** Requirement wire 形状（含 B3a projectId：挂接的 PMO 项目 id；决策 4 别名视图同形返回）。 */
 export const requirementSchema = z.object({
+  /** REQ-<zero-padded seq>，如 REQ-0042 */
   id: z.string(),
   seq: z.number(),
   title: z.string(),
   status: requirementStatusSchema,
+  /** 来源频道（手动创建可无） */
   channelId: z.string().nullable().optional(),
+  /** ISO 8601 */
   createdAt: z.string(),
+  /** 词表：mention | convert | manual | api | pmo-alias */
   createdBy: z.string(),
+  /** 关联文档（需求文档 / SDD 路径） */
   docs: z.array(z.string()).optional(),
   description: z.string().optional(),
+  /** B3a：挂接的 PMO 项目 id */
   projectId: z.string().nullable().optional(),
 });
+export type Requirement = z.infer<typeof requirementSchema>;
 
-/** getChain 返回的 WorkUnit 摘要（§10：自带 type/时间戳，消前端 N+1 详情补全）。
- *  手写 interface（消费方要求必填字段——WorkUnitDrawer/ProjectDetailPage 管道直接消费）；
- *  parity 测试见 __tests__/requirements.test.ts。 */
-export interface RequirementChainWorkUnit {
-  id: string;
-  title: string;
-  status: string;
-  assigneeId: string | null;
-  assigneeRoleId?: string | null; // 认领时的 roleId 快照（旧快照无 → null）
-  metadata: string | null; // F6-b：链路节点徽章走 deriveDisplayState
-  type: string;
-  createdAt: string;
-  claimedAt: string | null;
-  completedAt: string | null;
-}
-
+/** getChain 返回的 WorkUnit 摘要（§10：自带 type/时间戳，消前端 N+1 详情补全）。 */
 export const requirementChainWorkUnitSchema = z.object({
   id: z.string(),
   title: z.string(),
   status: z.string(),
   assigneeId: z.string().nullable(),
+  /** 认领时的 roleId 快照（旧快照无 → null） */
   assigneeRoleId: z.string().nullable().optional(),
+  /** F6-b：链路节点徽章走 deriveDisplayState */
   metadata: z.string().nullable(),
   type: z.string(),
   createdAt: z.string(),
   claimedAt: z.string().nullable(),
   completedAt: z.string().nullable(),
 });
+export type RequirementChainWorkUnit = z.infer<typeof requirementChainWorkUnitSchema>;
 
-/** 需求全链路（需求 + WorkUnit 摘要列表）。手写 interface（z.infer 退化可选，管道页按必填消费）；
- *  parity 测试见 __tests__/requirements.test.ts。 */
-export interface RequirementChain {
-  requirement: Requirement;
-  workunits: RequirementChainWorkUnit[];
-}
-
+/** 需求全链路（需求 + WorkUnit 摘要列表）。 */
 export const requirementChainSchema = z.object({
   requirement: requirementSchema,
   workunits: z.array(requirementChainWorkUnitSchema),
 });
+export type RequirementChain = z.infer<typeof requirementChainSchema>;
 
 // ── 请求 ──
 
@@ -139,14 +112,9 @@ export const requirementResponseSchema = dataBodySchema(requirementSchema);
 /** GET /:id/chain：`{ data: RequirementChain }` */
 export const requirementChainResponseSchema = dataBodySchema(requirementChainSchema);
 
-/** GET /chain-stats：`{ data: Record<reqId, { finished, total }> }`（不存在的需求 key 缺省）。
- *  ChainStatEntry 手写 interface（PMO 徽章按必填消费）；parity 测试见 __tests__。 */
-export interface ChainStatEntry {
-  finished: number;
-  total: number;
-}
-export type ChainStatsResult = Record<string, ChainStatEntry>;
-
+/** GET /chain-stats：`{ data: Record<reqId, { finished, total }> }`（不存在的需求 key 缺省）。 */
 export const chainStatEntrySchema = z.object({ finished: z.number(), total: z.number() });
+export type ChainStatEntry = z.infer<typeof chainStatEntrySchema>;
+export type ChainStatsResult = Record<string, ChainStatEntry>;
 export const chainStatsResultSchema = z.record(z.string(), chainStatEntrySchema);
 export const chainStatsResponseSchema = dataBodySchema(chainStatsResultSchema);

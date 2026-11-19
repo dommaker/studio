@@ -35,7 +35,10 @@ beforeEach(async () => {
   fileStore = new FileStore(path.join(hoistedHome.dir, '.studio', 'data'));
   service = new EvolutionService({
     fileStore,
-    paths: resolveEvolutionPaths({ repoRoot: hoistedHome.dir, eventsDir: path.join(hoistedHome.dir, 'events') }),
+    paths: resolveEvolutionPaths({
+      repoRoot: hoistedHome.dir,
+      studioEventsFile: path.join(hoistedHome.dir, '.studio', 'data', 'test-events.jsonl'),
+    }),
     postCard: false,
   });
   // 造一个待审提案
@@ -83,6 +86,222 @@ describe('EvolutionService.decide', () => {
     expect(p?.status).toBe('stale');
     expect(p?.staledAt).toBeTruthy();
     await expect(service.decide('EP-0001', 'reject')).rejects.toThrow(/stale/);
+  });
+
+  it('approve 持久化目标 revision、内容 hash、观察窗口和前窗指标', async () => {
+    const previous = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+    process.env.STUDIO_PROMPT_OVERRIDES_DIR = path.join(hoistedHome.dir, '.studio', 'prompt-overrides');
+    try {
+      await fileStore.createEvolutionProposal({
+        id: 'EP-0002', seq: 2, targetType: 'prompt-template', targetRepo: hoistedHome.dir,
+        targetId: 'knowledge.rules-section', action: 'amend', currentText: '旧', proposedText: '新模板',
+        rationale: 'test', evidence: { windowHours: 24, eventCounts: {} }, status: 'pending',
+        source: 'test', createdAt: new Date().toISOString(),
+      });
+
+      const applied = await service.decide('EP-0002', 'approve', { decidedBy: 'human' });
+
+      expect(applied.status).toBe('applied');
+      expect(applied.observation).toMatchObject({
+        windowHours: 24,
+        beforeMetrics: { sampleCount: 0, failureCount: 0, failureRate: 0 },
+      });
+      expect(applied.observation?.beforeContentHash).toBeNull();
+      expect(applied.observation?.afterContentHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(applied.observation?.targetRevision).toBe(applied.observation?.afterContentHash);
+      expect(Date.parse(applied.observation!.endsAt) - Date.parse(applied.observation!.startedAt)).toBe(24 * 3600_000);
+    } finally {
+      if (previous === undefined) delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+      else process.env.STUDIO_PROMPT_OVERRIDES_DIR = previous;
+    }
+  });
+});
+
+describe('EvolutionService.settleObservations', () => {
+  async function approvePrompt(outcomes: boolean[]): Promise<void> {
+    await fileStore.createEvolutionProposal({
+      id: 'EP-0002', seq: 2, targetType: 'prompt-template', targetRepo: hoistedHome.dir,
+      targetId: 'knowledge.rules-section', action: 'amend', currentText: '旧', proposedText: '新模板',
+      rationale: 'test', evidence: { windowHours: 24, eventCounts: {} }, status: 'pending',
+      source: 'test', createdAt: new Date().toISOString(),
+    });
+    const eventsFile = path.join(hoistedHome.dir, '.studio', 'data', 'test-events.jsonl');
+    fs.writeFileSync(eventsFile, outcomes.map(success => JSON.stringify({
+      type: `knowledge:outcome:${success ? 'success' : 'failure'}`,
+      payload: JSON.stringify({ success, consumedKnowledge: [] }),
+      createdAt: new Date(Date.now() - 2000).toISOString(),
+    })).join('\n') + '\n', 'utf-8');
+    await service.decide('EP-0002', 'approve', { decidedBy: 'human' });
+  }
+
+  async function expireObservation(knowledgeEntryIds?: string[]): Promise<void> {
+    const applied = await service.get('EP-0002');
+    await fileStore.updateEvolutionProposal('EP-0002', {
+      observation: {
+        ...applied!.observation!,
+        endsAt: new Date(Date.now() - 1000).toISOString(),
+        ...(knowledgeEntryIds ? { knowledgeEntryIds } : {}),
+      },
+    });
+  }
+
+  it('观察结束指标未恶化则 keep，并保留前后指标', async () => {
+    const previous = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+    process.env.STUDIO_PROMPT_OVERRIDES_DIR = path.join(hoistedHome.dir, '.studio', 'prompt-overrides');
+    try {
+      await approvePrompt([false, false, true, true]);
+      await expireObservation();
+      // 观察截止后迟到的事件不得混入后窗指标。
+      const eventsFile = path.join(hoistedHome.dir, '.studio', 'data', 'test-events.jsonl');
+      fs.appendFileSync(eventsFile, JSON.stringify({
+        type: 'knowledge:outcome:failure',
+        payload: JSON.stringify({ success: false, consumedKnowledge: [] }),
+        createdAt: new Date().toISOString(),
+      }) + '\n', 'utf-8');
+
+      const result = await service.settleObservations();
+
+      expect(result).toEqual({ kept: ['EP-0002'], rolledBack: [] });
+      const decided = await service.get('EP-0002');
+      expect(decided?.observation).toMatchObject({
+        decision: 'keep',
+        beforeMetrics: { sampleCount: 4, failureCount: 2, failureRate: 0.5 },
+        afterMetrics: { sampleCount: 4, failureCount: 2, failureRate: 0.5 },
+      });
+      expect(fs.readFileSync(decided!.observation!.targetPath, 'utf-8')).toBe('新模板');
+    } finally {
+      if (previous === undefined) delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+      else process.env.STUDIO_PROMPT_OVERRIDES_DIR = previous;
+    }
+  });
+
+  it('指标恶化则 rollback，恢复原内容并归档关联知识', async () => {
+    const previous = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+    process.env.STUDIO_PROMPT_OVERRIDES_DIR = path.join(hoistedHome.dir, '.studio', 'prompt-overrides');
+    const knowledgeStore = {
+      get: vi.fn(() => ({ id: 'knowledge-1', maturity: 'verified', tags: [] })),
+      update: vi.fn(),
+    };
+    service = new EvolutionService({
+      fileStore,
+      paths: resolveEvolutionPaths({
+        repoRoot: hoistedHome.dir,
+        studioEventsFile: path.join(hoistedHome.dir, '.studio', 'data', 'test-events.jsonl'),
+      }),
+      postCard: false,
+      knowledgeStore,
+    });
+    try {
+      await approvePrompt([false, true, true, true]);
+      await expireObservation(['knowledge-1']);
+      const eventsFile = path.join(hoistedHome.dir, '.studio', 'data', 'test-events.jsonl');
+      fs.writeFileSync(eventsFile, [false, false, false, true].map(success => JSON.stringify({
+        type: `knowledge:outcome:${success ? 'success' : 'failure'}`,
+        payload: JSON.stringify({ success, consumedKnowledge: [] }),
+        createdAt: new Date(Date.now() - 2000).toISOString(),
+      })).join('\n') + '\n', 'utf-8');
+
+      const result = await service.settleObservations();
+
+      expect(result).toEqual({ kept: [], rolledBack: ['EP-0002'] });
+      const decided = await service.get('EP-0002');
+      expect(decided?.observation).toMatchObject({
+        decision: 'rollback',
+        beforeMetrics: { sampleCount: 4, failureCount: 1, failureRate: 0.25 },
+        afterMetrics: { sampleCount: 4, failureCount: 3, failureRate: 0.75 },
+      });
+      expect(decided?.observation?.restoredAt).toBeTruthy();
+      expect(fs.existsSync(decided!.observation!.targetPath)).toBe(false);
+      expect(knowledgeStore.update).toHaveBeenCalledWith('knowledge-1', expect.objectContaining({ maturity: 'archived' }));
+    } finally {
+      if (previous === undefined) delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+      else process.env.STUDIO_PROMPT_OVERRIDES_DIR = previous;
+    }
+  });
+
+  it('约束退役后按整体执行结果评估，避免自身 trace 消失造成假 keep', async () => {
+    await fileStore.createEvolutionProposal({
+      id: 'EP-0002', seq: 2, targetType: 'guideline', targetRepo: hoistedHome.dir,
+      targetId: 'governance_presence', constraintChange: 'retire', action: 'amend',
+      currentText: '旧', proposedText: '退役', rationale: 'test',
+      evidence: { windowHours: 24, eventCounts: {} }, status: 'applied', source: 'test',
+      createdAt: new Date().toISOString(), appliedAt: new Date().toISOString(),
+      observation: {
+        targetPath: path.join(hoistedHome.dir, '.harness', 'config.yml'), backupPath: null,
+        targetRevision: 'rev-1', beforeContentHash: null, afterContentHash: 'not-present',
+        startedAt: new Date(Date.now() - 24 * 3600_000).toISOString(),
+        endsAt: new Date(Date.now() - 1000).toISOString(), windowHours: 24,
+        beforeMetrics: { sampleCount: 4, failureCount: 1, failureRate: 0.25 },
+      },
+    });
+    const eventsFile = path.join(hoistedHome.dir, '.studio', 'data', 'test-events.jsonl');
+    fs.writeFileSync(eventsFile, [false, false, false, true].map(success => JSON.stringify({
+      type: `knowledge:outcome:${success ? 'success' : 'failure'}`,
+      payload: JSON.stringify({ success, consumedKnowledge: [] }),
+      createdAt: new Date(Date.now() - 2000).toISOString(),
+    })).join('\n') + '\n', 'utf-8');
+
+    const result = await service.settleObservations();
+
+    expect(result).toEqual({ kept: [], rolledBack: ['EP-0002'] });
+    expect((await service.get('EP-0002'))?.observation?.afterMetrics)
+      .toEqual({ sampleCount: 4, failureCount: 3, failureRate: 0.75 });
+  });
+
+  it('第三方改动阻止覆盖时仍记录 rollback 失败，不中断结算', async () => {
+    const previous = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+    process.env.STUDIO_PROMPT_OVERRIDES_DIR = path.join(hoistedHome.dir, '.studio', 'prompt-overrides');
+    try {
+      await approvePrompt([false, true]);
+      await expireObservation();
+      const applied = await service.get('EP-0002');
+      fs.writeFileSync(applied!.observation!.targetPath, '人工后续改动', 'utf-8');
+      const eventsFile = path.join(hoistedHome.dir, '.studio', 'data', 'test-events.jsonl');
+      fs.writeFileSync(eventsFile, [false, false, true].map(success => JSON.stringify({
+        type: `knowledge:outcome:${success ? 'success' : 'failure'}`,
+        payload: JSON.stringify({ success, consumedKnowledge: [] }),
+        createdAt: new Date(Date.now() - 2000).toISOString(),
+      })).join('\n') + '\n', 'utf-8');
+
+      const result = await service.settleObservations();
+
+      expect(result).toEqual({ kept: [], rolledBack: ['EP-0002'] });
+      const decided = await service.get('EP-0002');
+      expect(decided?.observation?.decision).toBe('rollback');
+      expect(decided?.observation?.rollbackError).toContain('target changed');
+      expect(fs.readFileSync(decided!.observation!.targetPath, 'utf-8')).toBe('人工后续改动');
+    } finally {
+      if (previous === undefined) delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+      else process.env.STUDIO_PROMPT_OVERRIDES_DIR = previous;
+    }
+  });
+});
+
+describe('EvolutionService.runScan', () => {
+  it('requires an explicitly selected target repository', async () => {
+    await expect((service.runScan as () => Promise<unknown>)()).rejects.toThrow(/repoRoot|target repository/);
+  });
+
+  it('角色扫描只在调用方显式点名时把既有 AgentProfile 写入待审目标', async () => {
+    fs.mkdirSync(path.join(hoistedHome.dir, '.agents', 'roles'), { recursive: true });
+    fs.writeFileSync(path.join(hoistedHome.dir, '.agents', 'roles', 'developer.yaml'), 'id: developer\npersona: 旧角色\n', 'utf-8');
+    const eventsFile = path.join(hoistedHome.dir, '.studio', 'data', 'test-events.jsonl');
+    const calls = [
+      ...Array.from({ length: 5 }, () => false),
+      ...Array.from({ length: 2 }, () => true),
+    ];
+    fs.writeFileSync(eventsFile, calls.map(success => JSON.stringify({
+      type: 'tool:call', timestamp: Date.now(), caller: 'developer', tool: 'bash', success,
+    })).join('\n') + '\n', 'utf-8');
+
+    const result = await service.runScan(hoistedHome.dir, {
+      roleProfileTargets: { developer: ['profile-1'] },
+    });
+
+    expect(result.created).toHaveLength(1);
+    expect(result.created[0]).toMatchObject({
+      targetType: 'role-preset', targetRepo: hoistedHome.dir, targetProfileIds: ['profile-1'],
+    });
   });
 });
 

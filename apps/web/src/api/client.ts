@@ -63,11 +63,25 @@ function flushQueue(error: unknown, token: string | null) {
   failedQueue = [];
 }
 
-/** Refresh access token using a refresh token. Uses standalone axios — no interceptor recursion. */
-export async function refreshToken(refreshTokenValue: string): Promise<{ accessToken: string; refreshToken: string }> {
+async function postRefreshToken(refreshTokenValue: string): Promise<{ accessToken: string; refreshToken: string }> {
   // 契约驱动迁移（2026-10 批次 6/7）：响应统一 { data } 壳
   const { data } = await axios.post<{ data: AuthRefreshResult }>(`${API_BASE}/auth/refresh`, { refreshToken: refreshTokenValue });
   return { accessToken: data.data.accessToken, refreshToken: data.data.refreshToken };
+}
+
+/** Refresh access token using a refresh token. Uses standalone axios — no interceptor recursion. */
+export async function refreshToken(refreshTokenValue: string): Promise<{ accessToken: string; refreshToken: string }> {
+  try {
+    return await postRefreshToken(refreshTokenValue);
+  } catch (error) {
+    if ((error as { response?: { status?: number } }).response?.status !== 409) throw error;
+    // Another API worker may have won the rotation. Let the winning tab persist its result,
+    // then reuse that credential pair instead of rotating it again or logging this tab out.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const latest = getStoredAuth();
+    if (!latest.token || !latest.refreshToken || latest.refreshToken === refreshTokenValue) throw error;
+    return { accessToken: latest.token, refreshToken: latest.refreshToken };
+  }
 }
 
 // Response interceptor: catch 401 → refresh → retry
@@ -125,7 +139,8 @@ api.interceptors.response.use(
       return api.request(originalRequest);
     } catch (refreshError) {
       flushQueue(refreshError, null);
-      localStorage.removeItem('auth-storage');
+      const status = (refreshError as { response?: { status?: number } }).response?.status;
+      if (status !== 409) localStorage.removeItem('auth-storage');
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

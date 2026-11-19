@@ -1,5 +1,5 @@
 // 频道未读面共享 store（#413）——自 useChannelList hook 实例私有 state 提升：
-// ① 断点跨越（<768 内联 ChannelRail 卸载、SidebarNew 挂另一实例）计数不丢；
+// ① 断点跨越（<768 内联 ChannelRail 卸载、Sidebar 挂另一实例）计数不丢；
 // ② 「正在看」语义：activeChannelId 由频道页（ChannelDetailPage）写入，active 频道不涨未读，
 //    进频道即清零（打开即读，对齐 notificationStore.markChannelRead 先例）。
 // SSE 增量接线在 useUnreadStoreSync（引用计数单例），事件处理逻辑唯一一份在本 store action。

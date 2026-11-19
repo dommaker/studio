@@ -23,7 +23,7 @@ import {
   fmtRelTime,
   type ActivityRowData,
   type ChannelActivityItem,
-} from './activityRail';
+} from '../../utils/activityRail';
 
 interface Props {
   channelId: string;
@@ -43,9 +43,12 @@ function useReqChains(reqs: Requirement[]): Record<string, RequirementChain> {
   useEffect(() => {
     if (!idsKey) return;
     // REQ 集合变化只 ensure 新集合：缓存内的 chain 零请求（旧实现 idsKey 一变全量重拉）
-    for (const id of idsKey.split(',')) {
+    const releases = idsKey.split(',').map(id => {
+      const release = useRequirementChainStore.getState().subscribeChain(id);
       void useRequirementChainStore.getState().ensureChain(id);
-    }
+      return release;
+    });
+    return () => { for (const release of releases) release(); };
   }, [idsKey]);
   return useMemo(() => {
     const next: Record<string, RequirementChain> = {};

@@ -3,7 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ChannelMessage } from '../../api/channel';
-import type { WebSocketMessage } from '../../api/websocketHooks';
+import type { SseMessage } from '../../api/sseHooks';
 
 const { mockListMessages, mockOnEvent, mockSink } = vi.hoisted(() => ({
   mockListMessages: vi.fn(),
@@ -15,8 +15,8 @@ vi.mock('../../api/channel', () => ({
   channelApi: { listMessages: mockListMessages, sendMessage: vi.fn() },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: 'connected' }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, status: 'connected' }),
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
@@ -27,12 +27,12 @@ import { setClientPerfSink, resetClientPerfSink, emitReceiptRendered } from '../
 function msg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessage {
   return {
     id, channelId: 'ch-1', authorType: 'agent', content: `内容-${id}`,
-    replyToId: null, workUnitId: null, meta: '{}',
+    replyToId: null, workUnitId: null, meta: {},
     createdAt: new Date(1000).toISOString(), ...over,
   };
 }
 
-function sseMessage(message: ChannelMessage): WebSocketMessage {
+function sseMessage(message: ChannelMessage): SseMessage {
   return {
     event_id: `ev-${message.id}`,
     event_type: 'channel.message_sent',
@@ -42,7 +42,7 @@ function sseMessage(message: ChannelMessage): WebSocketMessage {
 }
 
 describe('useChannelMessages — #520 回执渲染计时起点', () => {
-  let handler: (msg: WebSocketMessage) => void;
+  let handler: (msg: SseMessage) => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -50,7 +50,7 @@ describe('useChannelMessages — #520 回执渲染计时起点', () => {
     useChannelMessageStore.getState().__resetForTests();
     setClientPerfSink(mockSink);
     mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
-    mockOnEvent.mockImplementation((h: (msg: WebSocketMessage) => void) => {
+    mockOnEvent.mockImplementation((h: (msg: SseMessage) => void) => {
       handler = h;
       return () => {};
     });

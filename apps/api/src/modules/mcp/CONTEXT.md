@@ -48,16 +48,17 @@
 
 ### 依赖关系
 
-- 依赖：`@dommaker/studio-shared`（logger, FileStore）、`@dommaker/studio-skill`（skillLoader）、`../../utils/studio-events.js`（D18 统一事件写入，emitEvent / tool:call traces）
+- 依赖：`@dommaker/studio-shared`（logger, FileStore）、`@dommaker/studio-skill`（skillLoader）、`@dommaker/studio-shared` studio-events（D18 统一事件写入，emitEvent / tool:call traces）
 - 依赖：各业务模块（workunit, pmo, knowledge, skills）
 - 被依赖：`routes.ts` / `server.ts`（HTTP 与 JSON-RPC 入口）
 
 ### 注意事项
 
 - tools.ts 是门面，不包含 tool 定义。新增 tool 在对应域 *.tools.ts 中添加，并在 tools.ts 的 allTools 数组中展开（注册顺序即数组顺序）。
+- **三件套复查结论（#689，2026-10-09，保留）**：tools.ts / tool-registry.ts / tool-store.ts 各有活消费方与独立职责，非多余间接层——tools.ts 承载注册组装 + 风险级别标注 + 权限种子 + executeTool 执行包装（限流/权限/审计/追踪），被 server.ts 与 routes.ts 消费；tool-registry.ts 承载注册表本体 + 健康/统计/限流/故障检测，被 routes.ts/admin.routes.ts/index.ts 直用；tool-store.ts 是 6 个域 tools 文件与单测 mock 锚点的共享存储助手。收敛为三合一反而把装配、机制、存储三种关注点糊成一团，维持现状。
 - 风险级别按工具名前缀自动分配（create/store/extract/approve/assign/update 等 → medium，delete/drop/truncate → high，其余 → low）。
 - 权限模型默认 executor（本地 Agent）可调用普通 tool；**危险工具收口（2026-08-25）**：publishPackage 仅 admin/deploy 默认允许，其余系统角色 seed 为 allowed:false，且历史过度授权记录启动时强制纠正（permission.service.ts seedDefaultPermissions，旧 seed 只增不改不会自愈）。publishPackage 本体同步收口：bumpType 白名单 fail-fast + 全部 execFileSync 数组参数 + git tag 前 semver 校验；dist 完整性校验调 @dommaker/harness 的 verifyReleaseArtifacts 自检（清单由包声明面运行时推导，不硬编码，#425）。
-- **HTTP 端点鉴权分层（2026-07-24 收紧；2026-08-25 补洞）**：`GET /tools`、`GET /health` 保持公开（Lurk）；`POST /tools/:name` → `requireAuth+requireAdmin`；`POST /messages`、`GET /sse`、**`POST /`（完整 JSON-RPC 面，2026-08-25 补挂）** → `requireLocalhost`（真实客户端为本机 agent，`STUDIO_MCP_URL` 默认 localhost SSE）；`/admin/*` → `requireAuth+requireAdmin`。permission.service 的 RBAC 是 agent 角色维度，与 HTTP 用户鉴权是两层。**requireLocalhost 语义（2026-08-25 修复）**：拒绝携带 X-Forwarded-For/CF-Connecting-IP 的请求——同机反代下公网流量 TCP 对端也是 127.0.0.1，单靠 IP 判不出，须靠转发头识别（middleware/auth.ts）。
+- **HTTP 端点鉴权分层（2026-07-24 收紧；2026-08-25 补洞）**：`GET /tools`、`GET /health` 保持公开（Lurk）；`POST /tools/:name` → `requireAuth+requireAdmin`；`POST /messages`、`GET /sse`、**`POST /`（完整 JSON-RPC 面，2026-08-25 补挂）** → `requireLocalhost`（legacy 本机客户端）；`/admin/*` → `requireAuth+requireAdmin`。permission.service 的 RBAC 是 agent 角色维度，与 HTTP 用户鉴权是两层。**requireLocalhost 语义（2026-08-25 修复）**：拒绝携带 X-Forwarded-For/CF-Connecting-IP 的请求——同机反代下公网流量 TCP 对端也是 127.0.0.1，单靠 IP 判不出，须靠转发头识别（middleware/auth.ts）。**SEC-05 起 broker `sab_` 来源标记与 `sta_` Agent 服务身份均不属于 localhost 信任，app 全局 allowlist 在 MCP handler 前拒绝；省略/换非 sta token 也不会降回本机面。Agent 唯一 HTTP 回调是 `/api/v1/executions/events`，不得以回环地址代替授权。**
 - **对外只读入口（#566，2026-09-16，方案 docs/plans/2026-09-mcp-installer.md）**：tool 定义加 `exposure?: 'internal'|'external'`（缺省 internal，D1 default-deny 同构），`GET /external/sse` + `POST /external/messages` 挂 requireLocalhost 并钉死 `roleId='external'`（忽略自声明，D2）+ tools/list 只出 external 子集；RBAC seed 的 external 角色权限由 exposure 标记派生且双向纠正漂移。外放子集 = 8 个既有读 tool（listProjects/getProjectStatus/getTaskBoard/getTaskStats/getSpecStatus/listSpecs/systemHealth/loadSkill）+ P2 新增 5 个只读 tool；getBalance/checkConstraint 不外放（Q1 决策）。内部入口（/sse /messages /）行为不变。配套 CLI：`studio mcp install`（cli/mcp-install.ts）。
 - tool-store.ts（#362，2026-08-27）：`listJsonFiles`/`getEntity`/`writeEntity` 全部委托 FileStore 原语（`listJsonInDir`/`readJson`/`writeJson`），不再自持 readdir 副本；本地 ensureDir 已删（writeJson 自带建目录）。行为差异：list 走读穿缓存 + 并发读、目录不存在返回 [] 且不建目录。
 - **契约驱动迁移（2026-10 批次 7/8）**：REST 管理面（GET /tools、POST /tools/:name、GET /health + admin 六端点）走 defineRoute（schema = studio-contract mcp.ts）——列表壳内层 data 键改名词键进 `{ data }` 壳（GET /tools 与 admin/tools 均 `{ data: { tools, total } }`，避免 data.data 双包）；PATCH enabled boolean、permissions roleId/三件套、audit success 词表收进 zod（原手写 400 退役）；POST /tools/:name 抛错由清一色 500 细分（Unknown tool→404、Permission denied→403、Rate limit→429）；GET /health 的 unhealthy 503 保持裸健康体例外（handler 自写 res）。协议面（POST / JSON-RPC、/sse、/messages、/external/*）不在 REST 契约范围，保持原样。

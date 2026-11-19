@@ -1,9 +1,11 @@
 /**
- * knowledge-types — KnowledgeService 的 Studio 侧类型与类型映射
+ * knowledge-types — KnowledgeService 的 Studio 侧类型与类型映射（类型正本，#669 归位）
  *
  * 自 knowledge-service.ts 整块抽出（纯代码移动）：Studio-side 接口类型、
  * KnowledgeServiceDeps 依赖接口、ENTRY_TYPE_MAP 类型映射。
  * knowledge-service.ts 以 re-export 保持既有导出面不变。
+ * Measure 类型（FlywheelMetrics/HealthReport/AuditReport/AccuracyReport 等）
+ * 正本在 knowledge-metrics.ts，本文件不再重复定义。
  */
 
 import type {
@@ -11,10 +13,13 @@ import type {
   KnowledgeStore,
   KnowledgeIngest,
   KnowledgeLifecycle,
-  KnowledgeLinter,
   MaturityLevel,
   KnowledgeSubsystem,
+  KnowledgeOrigin,
 } from '@dommaker/harness';
+import type { EventEmitter } from 'node:events';
+import type { UnifiedQuery } from './engine/unified-query.js';
+import type { KnowledgeScopeContext, LearningMetadata } from './learning-metadata.js';
 
 // ── Type mapping (absorbed from KnowledgeBus) ──
 
@@ -43,6 +48,14 @@ export interface PatternEntry {
   content: string;
   tags: string[];
   maturity?: MaturityLevel;
+  /**
+   * 条目来源（#371）：缺省 'system'。蒸馏 topic 信号只认 agent/human（#366），
+   * 机器流（monitor/knowledge-sync/auditor/triage/模板兜底）落默认即可；
+   * 真会话沉淀（session-summary）必须显式 origin:'agent' 才计入信号。
+   */
+  origin?: KnowledgeOrigin;
+  /** #715：可靠来源才声明；缺省保持 unknown，不参与自动注入。 */
+  learning?: LearningMetadata;
 }
 
 export interface IncidentEntry {
@@ -57,14 +70,6 @@ export interface TrendEntry {
   content: string;
   metric: string;
   tags: string[];
-}
-
-export interface AccuracyData {
-  analystId: string;
-  prediction: string;
-  actual: string;
-  accurate: boolean;
-  timestamp: string;
 }
 
 export interface AnalystAccuracyInput {
@@ -88,35 +93,45 @@ export interface ExtractionResult {
   consumedKnowledge: string[];
   /** 来源 execution ID，用于 AC-3.2 来源追溯 */
   sourceExecutionId?: string;
+  learning?: LearningMetadata;
 }
 
-/** R3: extractFromConversation 的可选上下文（来源追溯 / 事件归因） */
-export interface ConversationExtractionCtx {
+/** R3: extractFromConversation 的可选上下文（来源追溯 / 事件归因 / #715 学习元数据） */
+export interface ConversationExtractionCtx extends Partial<LearningMetadata> {
   workUnitId?: string;
   source?: string;
 }
 
 export interface ExecutionOutcome {
   executionId: string;
+  workUnitId?: string;
+  assignmentId?: string;
+  stepRecordId?: string;
+  verification?: 'passed' | 'failed' | 'not-run';
+  final?: boolean;
   agentType: string;
   consumedKnowledge: string[];
   success: boolean;
   details: string;
   timestamp: string;
   mode?: 'external_agent' | 'channel';
-  /** #90: 失败步的错误类型（execution_failed 等） */
+  /** #90: 失败步的错误类型（execution_failed 等）；success=false 时落 payload 供失败分析 */
   errorType?: string;
 }
 
 export interface InjectContextResult {
   prompt: string;
   injectedIds: string[];
+  /** #91: 注入尺寸（originalTokens > keptTokens 即发生了段内截断），供调用方落 prompt:section_trimmed 事件 */
+  usage?: { originalTokens: number; keptTokens: number };
 }
 
 export interface InjectOpts {
   tags?: string[];
   maxTokens?: number;
   includeRules?: boolean;
+  /** #715：当前 WU 的适用范围；候选过滤先于成熟度与预算。 */
+  scope?: KnowledgeScopeContext;
 }
 
 export interface SearchOpts {
@@ -124,6 +139,7 @@ export interface SearchOpts {
   tags?: string[];
   type?: string;
   mode?: 'keyword' | 'semantic' | 'hybrid';
+  scope?: KnowledgeScopeContext;
 }
 
 export interface SemanticSearchResult {
@@ -141,100 +157,14 @@ export interface SearchResult {
   highlights: string[];
 }
 
-export interface FlywheelMetrics {
-  quality: number;
-  hitRate: number;
-  improvement: number;
-  freshness: number;
-  timestamp: string;
-  /**
-   * R1: 事件衍生指标（hitRate/improvement）的数据来源标记。
-   * 'events' = 滚动窗口内有 outcome 事件，指标为实算；
-   * 'insufficient-data' = 窗口内无 outcome 事件（或读取失败），hitRate/improvement 为 0 占位而非编造。
-   * quality/freshness 始终由 KnowledgeStore 实算，不受此标记影响。
-   */
-  source?: 'events' | 'insufficient-data';
-}
-
-export interface HealthReport {
-  score: number;
-  totalEntries: number;
-  staleEntries: number;
-  orphanEntries: number;
-  duplicateEntries: number;
-  timestamp: string;
-}
-
-export interface AuditReport {
-  findings: AuditFinding[];
-  trend: string;
-  timestamp: string;
-  /** M1: 事件流计数（滚动窗口，默认 30 天）。窗口内无任何相关事件 → 计数为显式 0 且 source='insufficient-data'（不编造）。 */
-  eventCounts: {
-    windowDays: number;
-    /** knowledge:consumption 事件数（lifecycle recordReference 驱动的消费记录） */
-    consumption: number;
-    /** knowledge:outcome:success 事件数 */
-    outcomeSuccess: number;
-    /** knowledge:outcome:failure 事件数 */
-    outcomeFailure: number;
-    /** knowledge:extraction 事件数（R3 LLM 提取） */
-    extraction: number;
-    source: 'events' | 'insufficient-data';
-  };
-  /** M1: 知识库条目按成熟度分布（store 实算，数据源恒为 store） */
-  entries: {
-    total: number;
-    byMaturity: Record<string, number>;
-    source: 'store';
-  };
-  /**
-   * M1: 引用次数最多的条目（top 5）。
-   * 数据源 = store 条目的 referencedBy 计数（harness KnowledgeLifecycle.recordReference 维护；
-   * 注意 recordReference 并不维护 ~/.studio/knowledge/.consumption-stats.json —— 该文件是
-   * monitor.service 写的每日聚合摘要 {date,dailyEvents,searchHits}，不含条目级数据）。
-   */
-  topReferenced: Array<{ id: string; title: string; references: number }>;
-  /** M1: 近 30 天 LLM 提取活动（knowledge:extraction 事件实算） */
-  extractionActivity: {
-    count: number;
-    totalTokens: number;
-    lastAt: string | null;
-    source: 'events' | 'insufficient-data';
-  };
-}
-
-export interface AuditFinding {
-  type: string;
-  severity: 'low' | 'medium' | 'high';
-  description: string;
-  entryId?: string;
-}
-
-/**
- * M1 诚实契约：系统中不存在 analyst 预测 vs 实际结果的结构化数据源
- * （recordAnalystAccuracy 仅被知识总线旧壳/测试引用，生产无调用方），
- * 因此 getAnalystAccuracy 返回 available:false + reason，而不是假空 stub。
- * 若未来接入真实数据源，返回 available:true 并填充度量字段。
- */
-export interface AccuracyReport {
-  available: boolean;
-  reason?: string;
-  overallAccuracy?: number;
-  byAnalyst?: Record<string, number>;
-  recentPredictions?: AccuracyData[];
-  timestamp: string;
-}
-
 // ── Dependencies interface ──
 
 export interface KnowledgeServiceDeps {
   store: KnowledgeStore;
   lifecycle: KnowledgeLifecycle;
   ingest: KnowledgeIngest;
-  linter: KnowledgeLinter;
-  query: any;  // UnifiedQuery
-  eventEmitter: any; // EventEmitter
+  query: UnifiedQuery;
+  eventEmitter: EventEmitter;
 }
 
 export { ENTRY_TYPE_MAP };

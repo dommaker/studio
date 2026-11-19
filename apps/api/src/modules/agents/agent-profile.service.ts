@@ -13,12 +13,9 @@ import path from 'node:path';
 import yaml from 'js-yaml';
 import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData, type ChannelData } from '@dommaker/studio-shared';
 import { clearCache } from '../../middleware/api-cache.js';
-import { resolveDefaultProvider } from './default-provider.js';
+import { resolveDefaultProviderAsync } from './default-provider.js';
 import { summarizeRoleStates } from './agent-instance.service.js';
-import { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';
-
-// #631: 系统角色断言收口于 system-role.ts；此处 re-export 保持既有 import 路径不破
-export { isSystemRole, STUDIO_ROLE_NAME } from './system-role.js';
+import { isSystemRole, STUDIO_ROLE_NAME } from '../../core/system-role.js';
 
 /** B4a: studio 角色定位描述（种子默认值；用户自定义后不覆盖） */
 export const STUDIO_ROLE_DESCRIPTION = '系统角色：系统维护任务执行身份（挂 loop，仅消费指名给它的 WU）+ 平台维护性 LLM 直调与系统提醒署名';
@@ -240,8 +237,9 @@ export class AgentProfileService {
       description: input.description ?? preset?.description ?? null,
       channels: stringifyChannels(input.channels),
       // F1: provider 缺省时打戳为本机扫描到的默认 CLI（不再留 null 靠运行时隐式兜底）；
-      // 一个都没扫到 → null + warning（resolveDefaultProvider 内部），启动健康探测会显性失败
-      provider: input.provider || resolveDefaultProvider(),
+      // 一个都没扫到 → null + warning（resolveDefaultProviderAsync 内部），启动健康探测会显性失败；
+      // 2026-10-03：换 async 扫描变体——请求路径上 sync 全扫会冻结事件循环（见 default-provider.ts）
+      provider: input.provider || await resolveDefaultProviderAsync(),
       status: input.status ?? 'active',
       createdAt: now,
       updatedAt: now,
@@ -292,14 +290,11 @@ export class AgentProfileService {
     // When filtering by channelId, fetch all (no pagination) to avoid missing members across pages
     const fetchAll = !!channelId;
 
-    // Filter by channelId (Channel.members contains AgentProfile IDs)
+    // Filter by channelId (Channel.members contains AgentProfile IDs; empty = no members, #699)
     if (channelId) {
       const channel = await this.fileStore.getChannel(channelId);
       const memberIds: string[] = channel?.members ? JSON.parse(channel.members) : [];
-      if (memberIds.length > 0) {
-        profiles = profiles.filter(p => memberIds.includes(p.id));
-      }
-      // Fallback: if channel has no members configured, return all (empty members fallback)
+      profiles = profiles.filter(p => memberIds.includes(p.id));
     }
 
     // Filter by provider (exact match; null matches only null-provider profiles)

@@ -1,36 +1,14 @@
-# @agent-studio/shared
+# @dommaker/studio-shared
 
-Studio 共享工具和 CLI 框架。
+跨 apps/packages 的共享层：FileStore（文件存储）、eventBus（事件总线）、provider 注册表（agent CLI 定义与 spawn 模板）、共享类型与工具。
 
-## 安装
+## 入口
 
-```bash
-pnpm install @agent-studio/shared
-```
+- `@dommaker/studio-shared`：通用入口（前端可引，无 fs/path/yaml 依赖）
+- `@dommaker/studio-shared/web`：前端专用入口（纯逻辑/类型）
+- `@dommaker/studio-shared/node`：Node-only 能力（loadConfigEnv 等运行时配置）
 
-## 功能
-
-### CLI 共享能力
-
-- **参数解析** (`parser.ts`): 支持 `-c --company --format=json`
-- **输出格式化** (`formatter.ts`): table/json/csv 三种格式
-- **配置加载** (`config.ts`): 加载 `.studio/config.yaml`
-- **命令注册** (`command.ts`): 统一命令注册框架
-
-## 使用示例
-
-```typescript
-import { parseArgs, formatOutput } from '@agent-studio/shared/cli';
-
-// 参数解析
-const args = parseArgs(['balance', '--company=1', '--format=json']);
-console.log(args.command); // 'balance'
-console.log(args.options.company); // '1'
-
-// 输出格式化
-const data = [{ id: 1, name: 'Alice' }];
-console.log(formatOutput(data, { format: 'table' }));
-```
+模块细节见 `CONTEXT.md` 与 `src/CONTEXT.md`。
 
 ## 开发
 

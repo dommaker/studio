@@ -1,7 +1,7 @@
 # WorkUnit 写路径单口（2026-09-15）
 
 > 来源：架构评审候选 C1（写路径 seam 泄漏收口）grilling 定稿。
-> 状态：**accepted**（实现未落地——按票执行，见「实施切票」）。
+> 状态：**accepted，已落地**（实施链见文末「落地回写」，2026-10-08 #667 盘点确认）。
 
 ## 背景
 
@@ -36,3 +36,17 @@
 
 1. **C4 前置票（机械）**：workunit-api.test 的 CI skip 根因排查 + 复活；workunit.types.ts L244-306 死 DTO 副本删除（三轴 grep 验证零消费）；两个占位桩测试文件处理。
 2. **C1 主票**：四点按点 phase commit。测试面：service.delete 不变式（墓碑 + workunit:removed + reason）；trigger-update 既有「可写 status」断言随决策 6 反转（语义变更非删测试）；discord 按钮两路径从零补测试；system-health 测试补 WU 删除分支断言（现状未断言）。
+
+## 落地回写（2026-10-08，#667 盘点）
+
+决策 1–7 已全部落地，实施链：
+
+| 票 | 兑现 |
+|---|---|
+| #537 | C4 前置票：死 DTO 副本删除 + workunit 核心域测试 CI 复活 |
+| #538 | C1 主票：四绕过点收口（discord 按钮 retry/abandon 与 `/studio stop`、monitor TTL、ops GC、trigger UPDATE）+ service.delete 加 reason / 墓碑单点构造 / workunit:removed + SSE 桥白名单 + web 两 store 删行分支 |
+| #540 | 「不修」项 2 的后续裁决落地：monitor TTL 加终态守卫，仅删 done/closed |
+| #550 | 关闭单口深化：wu-closure 收编为 `WorkUnitService.close()`（决策 2 的 closeWorkUnitWithNotice 形态演进），迁移类写路径统一尾部 persistSnapshot |
+| #554 | `WorkUnitService.updateMetadata(id, patch)` 语义口补齐，discord retry 与 trigger UPDATE 两处跨模块 FileStore 原语直调收口（决策 1/2/6） |
+
+**与决策 1 的偏差注明**：「业务模块直调 FileStore 写原语即违规」对 **metadata 簿记 mutator 直调**的存量未完全成立——agent-loop（recordResult 簿记 / dispatch-reconciliation）、pmo（plan-ruling / plan-direction / analysis-handoff）、channels（message-routing）、agent-monitor（monitor-probes 沉睡守卫）等约 12 处仍直调 `fileStore.updateMetadata(id, mutator)`。这些调用依赖锁内 mutator（基于最新值计算/尾部追加，个别带 `touchUpdatedAt` 选项），service 语义口的 patch 浅并入形态承接不了；#554 已裁决「存量收口另议」（收口需先把 service 口扩为可承接锁内 mutator 的形态，属设计变更）——跟踪票 #676。现状权威记录见 workunit CONTEXT.md「写单口与并发收口」。

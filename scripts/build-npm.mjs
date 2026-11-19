@@ -48,9 +48,11 @@ console.log('[build-npm] bundling CLI + server...');
 const rootPkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
 const externals = Object.keys(rootPkg.dependencies ?? {}).flatMap((d) => [d, `${d}/*`]);
 
+// 注：banner 必须用别名（__studioCR）——被 bundle 的源文件可能自身顶层 import createRequire
+// （先例：apps/api/src/modules/evolution/applier.ts），同名会撞标识符导致 bundle 无法解析。
 const banner = [
-  "import { createRequire } from 'node:module';",
-  'const require = createRequire(import.meta.url);',
+  "import { createRequire as __studioCR } from 'node:module';",
+  'const require = __studioCR(import.meta.url);',
 ].join('\n');
 
 const result = await esbuild.build({
@@ -93,3 +95,10 @@ console.log(`[build-npm] done:
   bundle:   ${(bundleSize / 1024 / 1024).toFixed(2)} MB (dist-npm/apps/api/dist/studio-cli.mjs)
   frontend: ${(dirSize(path.join(API_OUT, 'frontend', 'dist')) / 1024).toFixed(0)} KB
   skills:   ${(dirSize(path.join(API_OUT, 'skills')) / 1024).toFixed(0)} KB`);
+
+// 5. 产物冒烟：bundle 必须能被 Node 解析并跑通 --help。
+// CI/测试全部跑源码，无任何环节执行 dist-npm 产物——此处兜底"包能构建但起不来"的盲区
+// （先例：banner createRequire 撞名导致 bundle 解析即 SyntaxError，#571 后长期无人发现）。
+console.log('[build-npm] smoke: node bin/studio --help ...');
+execSync(`node "${path.join(ROOT, 'bin', 'studio')}" --help`, { cwd: ROOT, stdio: 'inherit' });
+console.log('[build-npm] smoke passed');

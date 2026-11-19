@@ -207,6 +207,19 @@ describe('WorkUnitListPage', () => {
     unmount();
     expect(mockStore.setListOnScreen).toHaveBeenLastCalledWith(false);
   });
+
+  it('merge running 行在主状态旁展示交付徽标，主状态仍为待验收', () => {
+    mockStore.workunits = [makeWu({
+      id: 'wu-delivery', type: 'task', status: 'in_review',
+      metadata: JSON.stringify({ mergeIntent: { id: 'merge-1', state: 'running' } }),
+    })];
+    render(<WorkUnitListPage />);
+
+    const badge = screen.getByText('合并与目标验证中');
+    const row = badge.closest('.wu-row') as HTMLElement;
+    expect(row.getAttribute('data-status')).toBe('in_review');
+    expect(row.textContent).toContain('待验收');
+  });
 });
 
 // #280：统计条口径覆盖（总数反映列表条数 + pending 单列「待确认」不再计入「待人工」）

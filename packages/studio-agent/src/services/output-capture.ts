@@ -11,8 +11,9 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import { logger, writeStudioEvent } from '@dommaker/studio-shared';
+import { writeStudioEvent } from '@dommaker/studio-shared';
 import { parseSessionMetrics } from '@dommaker/studio-shared/harness';
+import { logger } from '@dommaker/studio-shared/node';
 
 // .progress.json 结构
 export interface ProgressReport {

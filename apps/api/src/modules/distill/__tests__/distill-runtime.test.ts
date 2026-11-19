@@ -19,9 +19,12 @@ describe('distill-runtime 装配', () => {
     expect(getDistillService()).toBe(getDistillService());
   });
 
-  it('initDistillLoop 订阅 workunit.status_changed → done；非 done 忽略；重复 init 不重复订阅', () => {
-    const service = initDistillLoop();
+  it('initDistillLoop 恢复未完成 run，并订阅 done；重复 init 不重复订阅', () => {
+    const service = getDistillService();
+    const recover = vi.spyOn(service, 'recoverPendingRuns').mockResolvedValue(undefined);
+    initDistillLoop();
     initDistillLoop(); // 幂等
+    expect(recover).toHaveBeenCalled();
     const spy = vi.spyOn(service, 'maybePropose').mockResolvedValue(undefined);
 
     eventBus.publish('workunit.status_changed', { workunit: { id: 'wu-1', status: 'in_progress' } });

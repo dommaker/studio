@@ -22,7 +22,7 @@ import os from 'node:os';
 import express from 'express';
 import type { Server } from 'node:http';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -214,12 +214,15 @@ describe('认领即发声两入口同路径契约（AC1）', () => {
 
   it('loop 自动认领入口：AgentLoop.claimAndAnnounce 经同一原语，效果一致（active + 一条发声）', async () => {
     const wu = await wuService.create({ scope: '实现某个功能', channelId, type: 'task', status: 'unassigned' });
-    const agentLoop = new AgentLoop(mockRole, fileStore);
-    (agentLoop as unknown as { instance: unknown }).instance = { id: 'instance-445' };
+    const agentLoop = new AgentLoop(mockRole, fileStore, {
+      instance: {
+        id: 'instance-445', roleId: mockRole.id, sessionId: null, status: 'idle',
+        currentWorkUnitId: null, startedAt: nowIso(), terminatedAt: null,
+        lastHeartbeat: null, metadata: null,
+      },
+    });
 
-    const ok = await (agentLoop as unknown as {
-      claimAndAnnounce(workUnit: unknown): Promise<boolean>;
-    }).claimAndAnnounce(wu);
+    const ok = await agentLoop.claimAndAnnounce(wu);
 
     expect(ok).toBe(true);
     expect(claimSpy).toHaveBeenCalledTimes(1);

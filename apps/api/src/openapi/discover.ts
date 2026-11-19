@@ -2,8 +2,8 @@
  * openapi/discover.ts — 路由发现：从 route-registry 路由表 + Express Router 栈
  * 还原「方法 + 完整路径 + defineRoute schema + 鉴权姿态」，作为 OpenAPI 文档的端点源。
  *
- * 只收 defineRoute 路由（handler 带 ROUTE_SCHEMA_META）——协议面（discord/deploy/lark/
- * dingtalk 回调、SSE、MCP 消息面）是原始 handler，自然落在 skipped 里，不进文档。
+ * 只收 defineRoute 路由（handler 带 ROUTE_SCHEMA_META）——协议面（discord/deploy
+ * 回调、SSE、MCP 消息面）是原始 handler，自然落在 skipped 里，不进文档。
  * 非 defineRoute 路由记入 skipped（x-studio-undocumented 输出），覆盖缺口如实可见。
  */
 

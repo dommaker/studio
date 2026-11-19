@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
 
 describe('WorkUnitService.list q 过滤（批次 D-2 项4）', () => {
   let tmpDir: string;

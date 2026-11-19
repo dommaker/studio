@@ -13,8 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit.service.js';
-import { channelMessageService } from '../../channels/channel-message.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import { getChannelMessageService } from '../../channels/channel-message.service.js';
 
 describe('Phase 2 Verification Scenarios', () => {
   let service: WorkUnitService;
@@ -29,7 +29,7 @@ describe('Phase 2 Verification Scenarios', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase2-verify-'));
     fileStore = new FileStore(tmpDir);
     service = new WorkUnitService(fileStore);
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
 
     // Create channel in FileStore (for message ops)
     const channelName = `#phase2-verify-${Date.now()}`;
@@ -58,7 +58,7 @@ describe('Phase 2 Verification Scenarios', () => {
 
   it('Scenario 1: message → WorkUnit → claim → discussion → in_review → approve → done', async () => {
     // Human sends message
-    const msg = await channelMessageService.createHumanMessage(
+    const msg = await getChannelMessageService().createHumanMessage(
       testChannelId, '需要优化登录页面的加载速度',
     );
     messageIds.push(msg.id);
@@ -82,7 +82,7 @@ describe('Phase 2 Verification Scenarios', () => {
     expect(claimed.assigneeId).toBe('agent-optimizer');
 
     // Agent updates progress in discussion space
-    const progressMsg = await channelMessageService.createAgentMessage(
+    const progressMsg = await getChannelMessageService().createAgentMessage(
       testChannelId, 'Optimizer', '正在分析页面加载瓶颈...', { workUnitId: wu.id },
     );
     messageIds.push(progressMsg.id);
@@ -97,7 +97,7 @@ describe('Phase 2 Verification Scenarios', () => {
     expect(done.completedAt).not.toBeNull();
 
     // Discussion space has both messages
-    const discussion = await channelMessageService.listByWorkUnitId(wu.id);
+    const discussion = await getChannelMessageService().listByWorkUnitId(wu.id);
     expect(discussion.total).toBeGreaterThanOrEqual(2);
   });
 

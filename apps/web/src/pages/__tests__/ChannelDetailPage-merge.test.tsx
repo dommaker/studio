@@ -30,7 +30,7 @@ vi.mock('../../hooks/useChannelEvents', () => ({
 
 vi.mock('../../api/workunit', () => ({ workunitApi: { list: mockListWorkunits } }));
 vi.mock('../../api/requirements', () => ({ requirementApi: { list: mockListReqs } }));
-vi.mock('../../api/websocketHooks', () => ({ useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }) }));
+vi.mock('../../api/sseHooks', () => ({ useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }) }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => <div data-testid="channel-rail" /> }));
 // #394：右栏「频道动态」——与本测试无关，隔离其 chain/PMO/agent API 依赖
@@ -52,7 +52,7 @@ const iso = (offsetMin: number) => new Date(t0 + offsetMin * 60000).toISOString(
 
 const msg = (id: string, over: Partial<ChannelMessage>): ChannelMessage => ({
   id, channelId: 'ch-1', authorType: 'agent', agentName: 'pm',
-  content: `内容-${id}`, replyToId: null, meta: '{}', createdAt: iso(0), ...over,
+  content: `内容-${id}`, replyToId: null, meta: {}, createdAt: iso(0), ...over,
 });
 
 let currentMessages: ChannelMessage[] = [];

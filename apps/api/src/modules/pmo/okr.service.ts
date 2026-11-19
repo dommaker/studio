@@ -1,15 +1,16 @@
 // OKR Service - PMO 模块核心服务
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
+import { isValidOkrQuarter, type Okr, type OkrDetail, type OkrMutationResult } from '@dommaker/studio-contract';
 import { studioDir } from '@dommaker/studio-shared/studio-dir';
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getStore } from '../../core/store.js';
-
+import { createLazyService } from '../../utils/services.js';
+import { projectService } from './project.service.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 // ─── 路径常量 ───
 const STUDIO_DIR = studioDir();
 const OKR_DIR = path.join(STUDIO_DIR, 'okr');
-const EXECUTIONS_JSONL = path.join(STUDIO_DIR, 'logs', 'executions.jsonl');
 
 export interface OKRObjective {
   id: string;
@@ -54,16 +55,6 @@ export function getCurrentQuarter(): string {
   return `${year}-Q${quarter}`;
 }
 
-interface ExecutionRow {
-  id: string;
-  okrId?: string | null;
-  status?: string;
-  startTime?: string;
-  endTime?: string;
-  createdAt?: string;
-  progress?: number;
-}
-
 /**
  * OKR 服务
  */
@@ -90,6 +81,35 @@ export class OKRService {
     return null;
   }
 
+  private stringMeta(meta: Record<string, unknown>, field: string): string {
+    const value = meta[field];
+    if (typeof value !== 'string') throw new Error(`Invalid OKR ${field}`);
+    return value;
+  }
+
+  private numberMeta(meta: Record<string, unknown>, field: string): number {
+    const value = meta[field];
+    if (typeof value !== 'number') throw new Error(`Invalid OKR ${field}`);
+    return value;
+  }
+
+  private mutationWire(
+    meta: Record<string, unknown>,
+    parsed: { objectives: OKRObjective[]; keyResults: OKRKeyResult[] },
+  ): OkrMutationResult {
+    return {
+      id: this.stringMeta(meta, 'id'),
+      companyId: this.stringMeta(meta, 'companyId'),
+      title: this.stringMeta(meta, 'title'),
+      quarter: this.stringMeta(meta, 'quarter'),
+      status: this.stringMeta(meta, 'status'),
+      progress: this.numberMeta(meta, 'progress'),
+      createdAt: this.stringMeta(meta, 'createdAt'),
+      updatedAt: this.stringMeta(meta, 'updatedAt'),
+      ...parsed,
+    };
+  }
+
   /** 解析 meta 中的 objectives/keyResults JSON 字符串 */
   private parseOKRMeta(meta: Record<string, unknown>): { objectives: OKRObjective[]; keyResults: OKRKeyResult[] } {
     const objectives: OKRObjective[] = typeof meta.objectives === 'string'
@@ -102,7 +122,10 @@ export class OKRService {
   /**
    * 创建 OKR
    */
-  async create(input: CreateOKRInput) {
+  async create(input: CreateOKRInput): Promise<OkrMutationResult> {
+    if (!isValidOkrQuarter(input.quarter)) {
+      throw new Error('quarter must match ^\\d{4}-Q[1-4]$');
+    }
     // 检查是否已存在相同 quarter 的 OKR
     const existing = await this.readOKR(input.quarter);
     if (existing) {
@@ -136,13 +159,13 @@ export class OKRService {
     await this.fileStore.writeDoc(OKR_DIR, input.quarter, meta, body);
 
     logger.info('OKR created', { okrId: id, quarter: input.quarter });
-    return { id, ...meta, objectives: input.objectives, keyResults: input.keyResults };
+    return this.mutationWire(meta, { objectives: input.objectives, keyResults: input.keyResults });
   }
 
   /**
    * 获取 OKR 列表
    */
-  async list(companyId: string, options?: { status?: string }) {
+  async list(companyId: string, options?: { status?: string }): Promise<Okr[]> {
     const keys = await this.fileStore.listDocs(OKR_DIR);
     const docs: { meta: Record<string, unknown>; body: string; key: string }[] = [];
 
@@ -157,29 +180,14 @@ export class OKRService {
     // orderBy createdAt desc
     docs.sort((a, b) => new Date(b.meta.createdAt as string).getTime() - new Date(a.meta.createdAt as string).getTime());
 
-    // 批量读取 executions jsonl 计算每个 OKR 的项目数
-    const allExecs = await this.fileStore.readJsonl<ExecutionRow>(EXECUTIONS_JSONL);
-    const execCountByOkr = new Map<string, number>();
-    for (const e of allExecs) {
-      if (e.okrId) {
-        execCountByOkr.set(e.okrId, (execCountByOkr.get(e.okrId) || 0) + 1);
-      }
-    }
+    // 项目计数改由 pmo 自身项目存储供应（executions.jsonl 越域深读已随 executions 模块整删退役）
+    const countByOkr = await projectService.countByOkr();
 
     return docs.map(d => {
       const parsed = this.parseOKRMeta(d.meta);
       return {
-        id: d.meta.id,
-        companyId: d.meta.companyId,
-        title: d.meta.title,
-        quarter: d.meta.quarter,
-        status: d.meta.status,
-        progress: d.meta.progress,
-        objectives: parsed.objectives,
-        keyResults: parsed.keyResults,
-        createdAt: d.meta.createdAt,
-        updatedAt: d.meta.updatedAt,
-        projectCount: execCountByOkr.get(d.meta.id as string) || 0,
+        ...this.mutationWire(d.meta, parsed),
+        projectCount: countByOkr.get(this.stringMeta(d.meta, 'id')) || 0,
       };
     });
   }
@@ -187,7 +195,7 @@ export class OKRService {
   /**
    * 获取 OKR 详情
    */
-  async get(id: string) {
+  async get(id: string): Promise<OkrDetail> {
     const key = await this.findOKRKey(id);
     if (!key) {
       throw new Error('OKR not found');
@@ -196,34 +204,30 @@ export class OKRService {
     if (!doc) throw new Error('OKR not found');
 
     const parsed = this.parseOKRMeta(doc.meta);
-    const allExecs = await this.fileStore.readJsonl<ExecutionRow>(EXECUTIONS_JSONL);
-    const recentExecs = allExecs
-      .filter(e => e.okrId === id)
-      .sort((a, b) => new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime())
+    // Execution/_count.Execution 为 Prisma 时代遗留键名（契约形状不变）；
+    // 内容改由 pmo 自身项目存储供应（最近 10 个关联项目 + 关联项目总数）
+    const linkedProjects = await projectService.listByOkrId(id);
+    const recentExecs = linkedProjects
       .slice(0, 10)
-      .map(e => ({ id: e.id, status: e.status, startTime: e.startTime, endTime: e.endTime }));
+      .map(p => ({
+        id: p.id,
+        status: p.status,
+        startTime: p.startedAt ?? undefined,
+        endTime: p.completedAt ?? undefined,
+      }));
 
     return {
-      id: doc.meta.id,
-      companyId: doc.meta.companyId,
-      title: doc.meta.title,
-      quarter: doc.meta.quarter,
-      status: doc.meta.status,
-      progress: doc.meta.progress,
-      objectives: parsed.objectives,
-      keyResults: parsed.keyResults,
-      createdAt: doc.meta.createdAt,
-      updatedAt: doc.meta.updatedAt,
+      ...this.mutationWire(doc.meta, parsed),
       Company: null,
       Execution: recentExecs,
-      _count: { Execution: allExecs.filter(e => e.okrId === id).length },
+      _count: { Execution: linkedProjects.length },
     };
   }
 
   /**
    * 更新 OKR
    */
-  async update(id: string, input: UpdateOKRInput) {
+  async update(id: string, input: UpdateOKRInput): Promise<OkrMutationResult> {
     const key = await this.findOKRKey(id);
     if (!key) {
       throw new Error('OKR not found');
@@ -271,7 +275,7 @@ export class OKRService {
     await this.fileStore.writeDoc(OKR_DIR, key, meta, bodyLines.join('\n'));
 
     logger.info('OKR updated', { okrId: id });
-    return { id, ...meta, objectives: updatedObj, keyResults: updatedKR };
+    return this.mutationWire(meta, { objectives: updatedObj, keyResults: updatedKR });
   }
 
   /**
@@ -283,20 +287,14 @@ export class OKRService {
       throw new Error('OKR not found');
     }
 
-    // 从 executions jsonl 中解除关联
-    const allExecs = await this.fileStore.readJsonl<ExecutionRow>(EXECUTIONS_JSONL);
-    const linked = allExecs.filter(e => e.okrId === id);
-    if (linked.length > 0) {
-      const updated = allExecs.map(e => e.okrId === id ? { ...e, okrId: null } : e);
-      // P2-e：全量重写走 FileStore writeJsonl（原子写：tmp+rename），替代裸 fs.writeFile
-      await this.fileStore.writeJsonl(EXECUTIONS_JSONL, updated);
-    }
+    // 解除项目关联（改由 pmo 自身项目存储：executions.jsonl 解关联已随 executions 模块整删退役）
+    const unlinked = await projectService.unlinkOkr(id);
 
-    // 删除 OKR 文件
-    await fs.promises.unlink(path.join(OKR_DIR, `${key}.md`));
+    // 删除 OKR 文件（与读写共用 FileStore 文档键/no-follow 边界）
+    await this.fileStore.deleteDoc(OKR_DIR, key);
 
-    logger.info('OKR deleted', { okrId: id, executionCount: linked.length });
-    return { success: true, unlinkedProjects: linked.length };
+    logger.info('OKR deleted', { okrId: id, executionCount: unlinked });
+    return { success: true, unlinkedProjects: unlinked };
   }
 
   /**
@@ -333,4 +331,6 @@ export class OKRService {
 
 }
 
-export const okrService = new OKRService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getOkrService = createLazyService(() => new OKRService());

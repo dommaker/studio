@@ -78,6 +78,7 @@ vi.mock('../../components/monitoring/NeedsAttentionSection', () => ({
 }));
 
 import { MonitoringPage } from '../MonitoringPage';
+import { useMonitoringStore } from '../../stores/monitoringStore';
 
 /** 默认 overview 响应：evidence + roles + humanIntervention 三段（#398 起消费） */
 function defaultOverview() {
@@ -86,6 +87,7 @@ function defaultOverview() {
       evidence: {
         engaged: 6, l1Approved: 5, l2Approved: 4, l3Approved: 2,
         selfReviewCount: 1, needsHuman: 3, derivedMismatch: 0,
+        mergeDivergence: 1, doneWithoutReceipt: 2,
         derivedByColumn: { done: 3, in_review: 2, active: 1 },
       },
       roles: {
@@ -132,6 +134,7 @@ async function openMetrics() {
 describe('MonitoringPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useMonitoringStore.getState().__resetForTests();
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
     mockListPendingReview.mockResolvedValue({
@@ -221,6 +224,8 @@ describe('MonitoringPage', () => {
     expect(screen.queryByText('已介入 WU')).toBeNull();
     // 2/6 = 33%
     expect(screen.getByTestId('evidence-stat').textContent).toBe('33%');
+    expect(screen.getByText(/合并记录分歧 1/)).toBeDefined();
+    expect(screen.getByText(/完成缺合并回执 2/)).toBeDefined();
   });
 
   it('#472：「待人工确认」用 warning 不用 error 红（红留给真错误 blocked/failed）', async () => {
@@ -505,6 +510,7 @@ describe('MonitoringPage', () => {
 describe('MonitoringPage — 告警下钻（E4）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useMonitoringStore.getState().__resetForTests();
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
     mockListPendingReview.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });
@@ -549,6 +555,7 @@ describe('MonitoringPage — 告警下钻（E4）', () => {
 describe('MonitoringPage — 子拉取失败错误行（web-ux-optional-fixes Step 1）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useMonitoringStore.getState().__resetForTests();
     mockGetOverview.mockResolvedValue(defaultOverview());
     mockGetEfficiency.mockResolvedValue(emptyEfficiency());
     mockListPendingReview.mockResolvedValue({ data: { data: { entries: [], total: 0 } } });

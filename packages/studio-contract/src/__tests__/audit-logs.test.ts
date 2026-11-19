@@ -1,6 +1,7 @@
 /**
- * audit-logs 域契约测试：行/stats parity + 查询边界 + 响应壳。
- * 正本 = apps/api/src/modules/audit-logs/routes.ts +
+ * audit-logs 域契约测试：行/stats schema wire 行为 + 查询边界 + 响应壳。
+ * schema 即正本（手写 interface 已退役为 z.infer 同源 + 编译期锚定）；
+ * wire 参照 = apps/api/src/modules/audit-logs/routes.ts +
  * packages/studio-audit audit-service.ts + proposal-source.ts。
  */
 
@@ -8,15 +9,12 @@ import { describe, it, expect } from 'vitest';
 import {
   auditLogRowSchema,
   type AuditLog,
-  auditLogStatsSchema,
   type AuditLogStats,
   auditLogListQuerySchema,
   auditLogStatsQuerySchema,
   auditLogExportQuerySchema,
-  auditLogCreateBodySchema,
   auditLogListResponseSchema,
   auditLogStatsResponseSchema,
-  auditLogGetResponseSchema,
 } from '../audit-logs.js';
 import * as contractIndex from '../index.js';
 
@@ -43,10 +41,6 @@ const stats: AuditLogStats = {
 };
 
 describe('auditLogRowSchema', () => {
-  it('parity：归一后 fixture 通过校验（details/changes 对象形态）', () => {
-    expect(auditLogRowSchema.parse(normalizedRow)).toEqual(normalizedRow);
-  });
-
   it('wire 原形态：details/changes 为 JSON 串或 null 合法', () => {
     const wireRow = {
       id: 'a2', action: 'propose', resource: 'distill', status: 'executed',
@@ -71,15 +65,7 @@ describe('auditLogRowSchema', () => {
   });
 });
 
-describe('auditLogStatsSchema parity', () => {
-  it('fixture 通过校验；缺必填段抛错', () => {
-    expect(auditLogStatsSchema.parse(stats)).toEqual(stats);
-    expect(() => auditLogStatsSchema.parse({ ...stats, totalLogs: undefined })).toThrow();
-    expect(() => auditLogStatsSchema.parse({ ...stats, dailyStats: undefined })).toThrow();
-  });
-});
-
-describe('查询/创建边界', () => {
+describe('查询边界', () => {
   it('list query：全可选；actorType/source 收紧词表（原任意串透传）', () => {
     expect(auditLogListQuerySchema.parse({})).toEqual({});
     expect(auditLogListQuerySchema.parse({ source: 'all', actorType: 'agent', page: '2' }).source).toBe('all');
@@ -93,15 +79,6 @@ describe('查询/创建边界', () => {
     expect((parsed as Record<string, unknown>).page).toBeUndefined();
     expect(parsed.action).toBe('login');
   });
-
-  it('create body：action/resource 必填收紧（原透传落废行）；status/actorType 词表；passthrough 放行', () => {
-    expect(auditLogCreateBodySchema.parse({ action: 'create', resource: 'user' }))
-      .toEqual({ action: 'create', resource: 'user' });
-    expect(() => auditLogCreateBodySchema.parse({ resource: 'user' })).toThrow();
-    expect(() => auditLogCreateBodySchema.parse({ action: 'create', resource: 'user', status: 'ok' })).toThrow();
-    const withExtra = auditLogCreateBodySchema.parse({ action: 'a', resource: 'r', customKey: true });
-    expect((withExtra as Record<string, unknown>).customKey).toBe(true);
-  });
 });
 
 describe('响应壳', () => {
@@ -113,9 +90,8 @@ describe('响应壳', () => {
     expect(auditLogListResponseSchema.parse(body).pagination.total).toBe(1);
   });
 
-  it('GET /stats 与 /:id → { data } 壳', () => {
+  it('GET /stats → { data } 壳', () => {
     expect(auditLogStatsResponseSchema.parse({ data: stats }).data.totalLogs).toBe(100);
-    expect(auditLogGetResponseSchema.parse({ data: normalizedRow }).data.id).toBe('a1');
   });
 });
 
@@ -123,6 +99,5 @@ describe('index.ts 出口', () => {
   it('audit-logs 域 schema 经 index 导出', () => {
     expect(contractIndex.auditLogRowSchema).toBeDefined();
     expect(contractIndex.auditLogListQuerySchema).toBeDefined();
-    expect(contractIndex.auditLogCreateBodySchema).toBeDefined();
   });
 });

@@ -38,7 +38,7 @@ import {
   type NextActionCandidate,
   type PmoMap,
   type FogItem,
-} from '../components/pmo/mapUtils';
+} from '../utils/mapUtils';
 import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
 import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
@@ -107,9 +107,11 @@ export function ProjectDetailPage() {
   const chainError = useRequirementChainStore((s) => (reqAlias ? s.errors[reqAlias] : undefined));
   useEffect(() => {
     if (!reqAlias) return;
+    const release = useRequirementChainStore.getState().subscribeChain(reqAlias);
     void useRequirementChainStore.getState().ensureChain(reqAlias);
     // #346：agent 名册走 rosterStore TTL 缓存（ensureFresh 永不 reject，错误落 store 状态）
     void useRosterStore.getState().ensureFresh();
+    return release;
   }, [reqAlias]);
   const chainWus = chainData?.workunits ?? [];
   const chainLoading = !!reqAlias && !chainError && !chainData;
@@ -390,4 +392,3 @@ export function ProjectDetailPage() {
   );
 }
 
-export default ProjectDetailPage;

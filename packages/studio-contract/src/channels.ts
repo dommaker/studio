@@ -24,67 +24,46 @@ export const channelRoutingSchema = z.object({
 });
 export type ChannelRouting = z.infer<typeof channelRoutingSchema>;
 
-/**
- * Channel wire 形状（= studio-shared ChannelData 全字段）。
- * 手写 interface（z.infer 在本仓 strict:false 下全字段退化可选，见 workunit.ts 说明）；
- * parity 测试见 __tests__/channels.test.ts。
- */
-export interface Channel {
-  id: string;
-  name: string;
-  type: string; // rnd | decision | system
-  defaultWorkspaceId: string | null;
-  defaultPath: string | null;
-  discordChannelId: string | null;
-  discordWebhookUrl: string | null;
-  members: string; // JSON: AgentProfile ID[]
-  routing?: ChannelRouting;
-  createdAt: string; // ISO 8601
-  updatedAt: string; // ISO 8601
-}
-
+/** Channel wire 形状（= studio-shared ChannelData 全字段）。 */
 export const channelSchema = z.object({
   id: z.string(),
   name: z.string(),
+  /** 词表：rnd | decision | system */
   type: z.string(),
   defaultWorkspaceId: z.string().nullable(),
   defaultPath: z.string().nullable(),
   discordChannelId: z.string().nullable(),
   discordWebhookUrl: z.string().nullable(),
+  /** JSON 串：AgentProfile ID[] */
   members: z.string(),
   routing: channelRoutingSchema.optional(),
+  /** ISO 8601 */
   createdAt: z.string(),
+  /** ISO 8601 */
   updatedAt: z.string(),
 });
+export type Channel = z.infer<typeof channelSchema>;
 
 /**
  * 频道消息 wire 形状（ChannelMessageData；REST 出口 meta 已 JSON.parse 为 object）。
- * meta 双型：REST 恒 object；string 为 SSE 原始/存量形态，前端消费侧双型兼容。
- * 手写 interface + parity（同 Channel）。
+ * meta 恒 object（#693 收窄）：后端 REST/SSE 出口全走 shapeMessageData 单点解析，
+ * string 形态是存储层 JSON 串的存量兼容位，无活写入方，契约不再声明。
  */
-export interface ChannelMessage {
-  id: string;
-  channelId: string;
-  workUnitId: string | null;
-  authorType: string; // human | agent
-  agentName: string | null;
-  content: string; // Markdown
-  replyToId: string | null;
-  meta: Record<string, unknown> | string;
-  createdAt: string; // ISO 8601（路由层 Date 序列化回 string）
-}
-
 export const channelMessageSchema = z.object({
   id: z.string(),
   channelId: z.string(),
   workUnitId: z.string().nullable(),
+  /** 词表：human | agent */
   authorType: z.string(),
   agentName: z.string().nullable(),
+  /** Markdown */
   content: z.string(),
   replyToId: z.string().nullable(),
-  meta: z.union([z.record(z.unknown()), z.string()]),
+  meta: z.record(z.string(), z.unknown()),
+  /** ISO 8601（路由层 Date 序列化回 string） */
   createdAt: z.string(),
 });
+export type ChannelMessage = z.infer<typeof channelMessageSchema>;
 
 // ── 派生读形状 ──
 
@@ -273,19 +252,13 @@ export const channelSuggestionsResponseSchema = dataBodySchema(channelSuggestion
 /** GET /:id/merge-target：`{ data: MergeTargetPreview }` */
 export const mergeTargetResponseSchema = dataBodySchema(mergeTargetPreviewSchema);
 
-/** GET /:id/messages：`{ data: { messages, total, hasMore } }`（cursor 分页，非 page/limit 壳）。
- *  ChannelMessagesResult 手写 interface（消息面 store 按必填消费）；parity 测试见 __tests__。 */
-export interface ChannelMessagesResult {
-  messages: ChannelMessage[];
-  total: number;
-  hasMore: boolean;
-}
-
+/** GET /:id/messages：`{ data: { messages, total, hasMore } }`（cursor 分页，非 page/limit 壳）。 */
 export const channelMessagesResultSchema = z.object({
   messages: z.array(channelMessageSchema),
   total: z.number(),
   hasMore: z.boolean(),
 });
+export type ChannelMessagesResult = z.infer<typeof channelMessagesResultSchema>;
 export const channelMessagesResponseSchema = dataBodySchema(channelMessagesResultSchema);
 
 /** POST /:id/messages：`{ data: ChannelMessage }`（201） */

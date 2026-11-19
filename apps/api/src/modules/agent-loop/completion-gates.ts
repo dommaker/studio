@@ -19,7 +19,8 @@
 
 import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
-import { logger, withAttestation } from '@dommaker/studio-shared';
+import { withAttestation } from '@dommaker/studio-shared';
+import { withDirectoryCapability } from '@dommaker/studio-shared/node';
 import { execFileAsync } from '../../core/exec-async.js';
 import {
   verifyTddChain,
@@ -31,10 +32,11 @@ import {
 import { CODE_WORKTREE_TYPES, runWuVerification, type WuVerifyOutcome } from './wu-verification.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
 import type { StepResult } from './agent-loop.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** §10.5 提交守卫：worktree 是否有未提交改动（异步，不阻塞事件循环）。
- *  git 调用失败返回 false —— 守卫静默跳过，绝不因基础设施故障阻断完成。 */
+ * 普通 git 调用失败返回 false；调用方负责在目录 capability 内执行。 */
 export async function hasUncommittedChanges(cwd: string): Promise<boolean> {
   try {
     const out = await execFileAsync('git', ['status', '--porcelain'], { cwd, timeout: 5000 });
@@ -44,7 +46,7 @@ export async function hasUncommittedChanges(cwd: string): Promise<boolean> {
   }
 }
 
-/** §10.5: 读取 worktree 当前 HEAD hash（失败返回 null —— 无提交监视静默跳过） */
+/** §10.5: 读取 worktree 当前 HEAD hash（普通失败返回 null；调用方负责 capability） */
 export async function readHeadHash(cwd: string): Promise<string | null> {
   try {
     return (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: 5000 })).trim() || null;
@@ -54,33 +56,37 @@ export async function readHeadHash(cwd: string): Promise<string | null> {
 }
 
 /** 收口闸 1（产出实）: git rev-list --count <base>..HEAD —— 提交守卫已保证无未提交改动，
- *  这里判「有没有提交内容」。git 失败返回 null —— 静默跳过（基础设施故障不阻断完成）。 */
+ *  这里判「有没有提交内容」。capability 内普通 git 失败返回 null。 */
 export async function countBranchCommits(cwd: string, baseBranch: string): Promise<number | null> {
-  try {
-    const out = (await execFileAsync('git', ['rev-list', '--count', `${baseBranch}..HEAD`], {
-      cwd, timeout: 5000,
-    })).trim();
-    const n = Number.parseInt(out, 10);
-    return Number.isFinite(n) ? n : null;
-  } catch {
-    return null;
-  }
+  return withDirectoryCapability(cwd, async capabilityCwd => {
+    try {
+      const out = (await execFileAsync('git', ['rev-list', '--count', `${baseBranch}..HEAD`], {
+        cwd: capabilityCwd, timeout: 5000,
+      })).trim();
+      const n = Number.parseInt(out, 10);
+      return Number.isFinite(n) ? n : null;
+    } catch {
+      return null;
+    }
+  });
 }
 
 /** 收口闸 2（analysis）：契约报告落盘检查 —— <root>/.studio/research/ 下存在非空文件
  * （inspection 巡检变体只认 inspection-*.md）。目录不存在/读取失败 = 无产物（false）。 */
 export async function hasAnalysisReport(workspaceRoot: string, inspection: boolean): Promise<boolean> {
-  try {
-    const dir = join(workspaceRoot, '.studio', 'research');
-    for (const name of await readdir(dir)) {
-      if (inspection && !/^inspection-.+\.md$/.test(name)) continue;
-      const st = await stat(join(dir, name));
-      if (st.isFile() && st.size > 0) return true;
+  return withDirectoryCapability(workspaceRoot, async capabilityRoot => {
+    try {
+      const dir = join(capabilityRoot, '.studio', 'research');
+      for (const name of await readdir(dir)) {
+        if (inspection && !/^inspection-.+\.md$/.test(name)) continue;
+        const st = await stat(join(dir, name));
+        if (st.isFile() && st.size > 0) return true;
+      }
+      return false;
+    } catch {
+      return false;
     }
-    return false;
-  } catch {
-    return false;
-  }
+  });
 }
 
 /** 闸 2 锚点分派（按 wu.type）：返回缺失产物的人话描述；null = 产物在或本类型不进闸。
@@ -138,6 +144,8 @@ export interface CompletionGuardDeps {
   listUnfinishedChildren: (wuId: string) => Promise<string[]>;
   hasUncommittedChanges?: (cwd: string) => Promise<boolean>;
   readHeadHash?: (cwd: string) => Promise<string | null>;
+  /** 提交守卫 dirty/HEAD 共用目录 capability；生产默认 withDirectoryCapability。 */
+  withDirectory?: <T>(cwd: string, callback: (capabilityPath: string) => Promise<T>) => Promise<T>;
   /** 收口闸 1: git rev-list --count <base>..HEAD（默认 execFileAsync；失败返回 null = 静默跳过） */
   countBranchCommits?: (cwd: string, baseBranch: string) => Promise<number | null>;
   /** 收口闸 2: analysis 契约报告落盘检查（默认 fs.promises 实现；inspection 变体只认 inspection-*.md） */
@@ -249,22 +257,24 @@ export function parseWuGitLog(output: string): CommitInput[] {
   return commits.reverse(); // git log 为降序（新→旧），harness 输入约定 base..HEAD 升序
 }
 
-/** 默认：一次 git log 拉 base..HEAD 有序提交集（2s 超时；任何失败 → null = fail-open） */
+/** 默认：capability 内一次 git log 拉 base..HEAD；普通失败 → null = fail-open。 */
 async function defaultReadWuCommits(worktreePath: string, baseBranch: string): Promise<CommitInput[] | null> {
-  try {
-    const out = await execFileAsync('git', [
-      'log', `${baseBranch}..HEAD`,
-      "--format=%x1e%H%x1f%s%x1f%P%x1f%(trailers)",
-      '--name-only',
-    ], {
-      cwd: worktreePath,
-      timeout: SOFT_CHECK_GIT_TIMEOUT_MS,
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    return parseWuGitLog(out);
-  } catch {
-    return null;
-  }
+  return withDirectoryCapability(worktreePath, async capabilityPath => {
+    try {
+      const out = await execFileAsync('git', [
+        'log', `${baseBranch}..HEAD`,
+        "--format=%x1e%H%x1f%s%x1f%P%x1f%(trailers)",
+        '--name-only',
+      ], {
+        cwd: capabilityPath,
+        timeout: SOFT_CHECK_GIT_TIMEOUT_MS,
+        maxBuffer: 8 * 1024 * 1024,
+      });
+      return parseWuGitLog(out);
+    } catch {
+      return null;
+    }
+  });
 }
 
 /** 默认：台账事件落 studio-events.jsonl（writeStudioEvent 永不抛出，.catch 双保险） */
@@ -390,6 +400,7 @@ export async function runCompletionGuards(
   const dirty = deps.hasUncommittedChanges ?? hasUncommittedChanges;
   const headHash = deps.readHeadHash ?? readHeadHash;
   const verify = deps.runVerification ?? runWuVerification;
+  const withDirectory = deps.withDirectory ?? withDirectoryCapability;
 
   let action = ctx.action;
   const guardUpdates: Partial<WorkUnitMetadata> = {};
@@ -403,36 +414,39 @@ export async function runCompletionGuards(
   };
 
   // §10.5 提交守卫（发生在状态迁移之前，与 stepCount 守卫同层 —— 不动 VALID_TRANSITIONS）。
-  // 路径解析或 git 调用失败一律静默跳过，绝不因基础设施故障阻断完成。
+  // capability 创建失败（symlink/真实父目录改道）向外抛出，危险替换不得静默放行；
+  // capability 内普通 git 调用失败仍按原口径静默跳过。
   // B3b-i: cwd 走 resolveExecutionCwd —— 代码类 WU 在专属 worktree 下跑 git status。
   // review WU 整体豁免：评审职责是读不是写（cwd 解析到父 WU worktree，dev 的提交/
   // 工具产物与评审无关），工作区洁净不是它的责任——否则 COMPLETE 被反复打回空转。
   const workspaceRoot = wu.type === 'review' ? null : await deps.resolveExecutionCwd(wu, metadata);
   if (workspaceRoot) {
-    if (action === 'complete' && (await dirty(workspaceRoot))) {
-      // COMPLETE 守卫：有未提交改动 → 打回按 PROGRESS 处理，提示注入下一轮 prompt
-      action = 'progress';
-      guardUpdates.commitGuardHint = '有未提交改动，请先 git add/commit 再报告完成';
-      logger.info(`[AgentLoop] Commit guard: COMPLETE downgraded for ${wuId} (uncommitted changes)`);
-    }
-    if (action === 'progress') {
-      // PROGRESS 无提交监视：HEAD 不变 → 累计；连续 3 步发一次频道提醒并归零
-      const head = await headHash(workspaceRoot);
-      if (head) {
-        if (metadata.lastCommitHash === head) {
-          const next = (metadata.noCommitSteps ?? 0) + 1;
-          if (next >= 3) {
-            notices.noCommit = true;
-            guardUpdates.noCommitSteps = 0;
+    await withDirectory(workspaceRoot, async capabilityRoot => {
+      if (action === 'complete' && (await dirty(capabilityRoot))) {
+        // COMPLETE 守卫：有未提交改动 → 打回按 PROGRESS 处理，提示注入下一轮 prompt
+        action = 'progress';
+        guardUpdates.commitGuardHint = '有未提交改动，请先 git add/commit 再报告完成';
+        logger.info(`[AgentLoop] Commit guard: COMPLETE downgraded for ${wuId} (uncommitted changes)`);
+      }
+      if (action === 'progress') {
+        // PROGRESS 无提交监视：HEAD 不变 → 累计；连续 3 步发一次频道提醒并归零
+        const head = await headHash(capabilityRoot);
+        if (head) {
+          if (metadata.lastCommitHash === head) {
+            const next = (metadata.noCommitSteps ?? 0) + 1;
+            if (next >= 3) {
+              notices.noCommit = true;
+              guardUpdates.noCommitSteps = 0;
+            } else {
+              guardUpdates.noCommitSteps = next;
+            }
           } else {
-            guardUpdates.noCommitSteps = next;
+            guardUpdates.lastCommitHash = head;
+            guardUpdates.noCommitSteps = 0;
           }
-        } else {
-          guardUpdates.lastCommitHash = head;
-          guardUpdates.noCommitSteps = 0;
         }
       }
-    }
+    });
   }
 
   // §6-2 父 complete 守卫（与提交守卫同层，同一降级为 progress 的模式）：

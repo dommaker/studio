@@ -3,7 +3,9 @@
 // 纯类型模块，零运行时依赖；agent-loop.ts re-export 保持对外导出语义不变。
 // KnowledgeSearchAnalysis 零生产调用方，工单 43 随 knowledge-search-analysis 一并删除。
 import type { WorkUnitMetadata, WorkUnitData } from '../workunit/index.js';
-import type { ChannelMessageData } from '@dommaker/studio-shared';
+import type { ChannelMessageData, PresentedContextCursor, StepRecordDetails } from '@dommaker/studio-shared';
+import type { PromptContextMetrics } from './prompt-composer.js';
+import type { ExecutionResult } from '@dommaker/studio-agent';
 
 /** Agent output action after parsing */
 export interface StepResult {
@@ -31,6 +33,20 @@ export interface StepResult {
   /** §4.2 发言层新鲜度检查：step 开始时捕获的频道版本（agentStep 写入，recordResult 比对）。
    *  #319：行号口径退役（压实会压缩行数），以最后一行消息 id 为锚 */
   channelVersion?: { lastMessageId: string | null };
+  /** #705：本结果所属的 Assignment；迟到结果按此 fencing。 */
+  assignmentId?: string;
+  /** 本步真实 billed tokens 与 transcript 落档事实，供 Assignment/WU 聚合。 */
+  tokenCount?: number;
+  transcriptRecorded?: boolean;
+  /** #711：Agent 报告与工具事件派生的结构化步骤详情。 */
+  stepRecord?: StepRecordDetails;
+  /** #715：学习在最终守卫与 StepRecord 落库后消费原始执行结果和实际知识曝光。 */
+  learningConversation?: { role: string; content: string }[];
+  executionResult?: ExecutionResult;
+  consumedKnowledge?: string[];
+  /** #714：成功步已呈现的段游标与 full/delta 度量，供 Assignment 落账和事件对照。 */
+  contextCursor?: PresentedContextCursor;
+  context?: PromptContextMetrics;
   /** Metadata fields to merge into WorkUnit.metadata (set by agentStep, written atomically by recordResult) */
   metadataUpdates?: Partial<WorkUnitMetadata>;
 }
@@ -46,6 +62,11 @@ export interface Observations {
 export interface Target {
   workUnit: WorkUnitData;
   newReplies?: ChannelMessageData[];
+}
+
+/** 单步不可变输入：实例身份由 AgentLoop 在调用边界快照，而非由执行段回读 Host。 */
+export interface StepContext extends Target {
+  readonly instance: RuntimeInstanceRow | null;
 }
 
 export interface RuntimeInstanceRow {

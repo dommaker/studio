@@ -3,7 +3,7 @@
  *
  * analysis 类型有专门路径（analysis-handoff 决议 2，trigger 巡检单免确认直转 +
  * 其余投收件箱）；其余类型无频道卡 in_review 此前零痕迹
- * （仓内 cleanup-stuck-in-review-no-channel 脚本说明是已知积压源）。
+ * （2026-08 曾跑过一次存量清理脚本，此类积压是已知来源）。
  *
  * 机制：订阅 workunit.status_changed，命中 in_review ∧ 无频道 ∧ 非 analysis
  * 即 dispatchMonitorAlerts（warning 级既有管线：monitor:alert 事件 + notifyAlert
@@ -13,9 +13,9 @@
  * source 用独立的 in_review_orphan——与 #181 review_stagnation 滞留探针同名不同义
  * （单次入口出声 vs 聚合滞留提醒），下游按 source 分组/去重不混淆。
  */
-import { eventBus } from '@dommaker/studio-shared';
-// P2-c 拆环：dispatchMonitorAlerts 转订阅回调内动态 import（workunit→agents 静态边清零）
+import { deriveDisplayState, eventBus } from '@dommaker/studio-shared';
 import type { WorkUnitData } from './workunit-crud.js';
+import { workUnitPort } from './workunit-ports.js';
 
 /** analysis 走 analysis-handoff 既有收件箱路径，本订阅不重复出声 */
 const HANDLED_ELSEWHERE = new Set(['analysis']);
@@ -30,11 +30,11 @@ export function initInReviewInbox(): void {
   eventBus.subscribe('workunit.status_changed', async (payload: { workunit: WorkUnitData }) => {
     const wu = payload?.workunit;
     if (!wu || wu.status !== 'in_review') return;
+    const delivery = deriveDisplayState({ status: wu.status, metadata: wu.metadata }).delivery;
+    if (delivery === 'merge-queued' || delivery === 'merge-running') return;
     if (wu.channelId || HANDLED_ELSEWHERE.has(wu.type)) return;
 
-    // P2-c 拆环：workunit→agents 静态边转动态 import（回调转 async，fire-and-forget 语义不变）
-    const { dispatchMonitorAlerts } = await import('../agent-monitor/index.js');
-    dispatchMonitorAlerts([{
+    (await workUnitPort('alert')).dispatch([{
       source: 'in_review_orphan',
       level: 'warning',
       subject: wu.id,

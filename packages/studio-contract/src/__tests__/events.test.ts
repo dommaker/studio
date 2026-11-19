@@ -1,6 +1,6 @@
 /**
- * events 域契约测试：StudioEventItem/EventSearchResult parity + 请求边界 + 响应壳。
- * 正本 = apps/api/src/modules/events/event.routes.ts + utils/studio-events.ts 写口。
+ * events 域契约测试：事件行/游标壳行为 + 请求边界 + 响应壳。
+ * schema 即正本；同名类型为 z.infer alias / import type 同源，由编译期断言锚定，无 parity 互验层。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -8,15 +8,11 @@ import {
   studioEventItemSchema,
   type StudioEventItem,
   eventSearchResultSchema,
-  type EventSearchResult,
   createStudioEventBodySchema,
   createStudioEventResultSchema,
   listStudioEventsQuerySchema,
-  agentEventSchema,
-  agentEventBatchBodySchema,
   createStudioEventResponseSchema,
   eventSearchResponseSchema,
-  ingestAgentEventsResponseSchema,
 } from '../events.js';
 import * as contractIndex from '../index.js';
 
@@ -29,8 +25,7 @@ const eventRow: StudioEventItem = {
 };
 
 describe('studioEventItemSchema', () => {
-  it('parity：StudioEventItem fixture 通过校验；扩展键透传（历史行 timestamp 等）', () => {
-    expect(studioEventItemSchema.parse(eventRow)).toEqual(eventRow);
+  it('扩展键透传（历史行 timestamp 等）；缺 type 即拒', () => {
     const withExtra = { ...eventRow, timestamp: 123, extra: 'x' };
     expect(studioEventItemSchema.parse(withExtra)).toEqual(withExtra);
     expect(() => studioEventItemSchema.parse({ ...eventRow, type: undefined })).toThrow();
@@ -42,8 +37,8 @@ describe('studioEventItemSchema', () => {
 });
 
 describe('eventSearchResultSchema（游标壳）', () => {
-  it('parity：EventSearchResult fixture；nextCursor null = 没有更旧的', () => {
-    const result: EventSearchResult = { events: [eventRow], total: 1, nextCursor: null };
+  it('nextCursor null = 没有更旧的；缺 nextCursor 即拒', () => {
+    const result = { events: [eventRow], total: 1, nextCursor: null };
     expect(eventSearchResultSchema.parse(result)).toEqual(result);
     expect(eventSearchResponseSchema.parse({ data: result }).data.nextCursor).toBeNull();
     expect(() => eventSearchResultSchema.parse({ ...result, nextCursor: undefined })).toThrow();
@@ -74,32 +69,9 @@ describe('listStudioEventsQuerySchema', () => {
   });
 });
 
-describe('agentEventBatchBodySchema（B9-014）', () => {
-  const ev = { sessionId: 's1', agentId: 'a1', timestamp: 1000, type: 'session:start' };
-
-  it('单条四字段必填（原逐条手写校验收进 zod）', () => {
-    expect(agentEventSchema.parse(ev)).toEqual(ev);
-    expect(() => agentEventSchema.parse({ ...ev, type: undefined })).toThrow();
-    expect(() => agentEventSchema.parse({ ...ev, timestamp: 'bad' })).toThrow();
-  });
-
-  it('非空数组 + ≤500 上限（原手写 400 收进 zod）', () => {
-    expect(agentEventBatchBodySchema.parse([ev])).toHaveLength(1);
-    expect(() => agentEventBatchBodySchema.parse([])).toThrow();
-    expect(() => agentEventBatchBodySchema.parse({ not: 'array' })).toThrow();
-    expect(() => agentEventBatchBodySchema.parse(Array.from({ length: 501 }, () => ev))).toThrow();
-    expect(agentEventBatchBodySchema.parse(Array.from({ length: 500 }, () => ev))).toHaveLength(500);
-  });
-
-  it('201 响应 { ingested } 壳', () => {
-    expect(ingestAgentEventsResponseSchema.parse({ data: { ingested: 2 } }).data.ingested).toBe(2);
-  });
-});
-
 describe('index.ts 出口', () => {
   it('events 域 schema 经 index 导出', () => {
     expect(contractIndex.studioEventItemSchema).toBeDefined();
     expect(contractIndex.eventSearchResponseSchema).toBeDefined();
-    expect(contractIndex.agentEventBatchBodySchema).toBeDefined();
   });
 });

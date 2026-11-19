@@ -195,9 +195,9 @@ describe('useChannelCardActions — action → api 映射', () => {
     await expect(dispatch()('m1', 'knowledge_proposal_approve')).rejects.toThrow('该提案已被审核，不可重复操作');
   });
 
-  it('meta 为 string（存量/夹具形态）同样解析 cardData', async () => {
+  it('meta 原位赋值（object）同样解析 cardData', async () => {
     const m = msg('m1');
-    m.meta = JSON.stringify({ cardType: 'x', cardData: { proposalId: 'p-9' } });
+    m.meta = { cardType: 'x', cardData: { proposalId: 'p-9' } };
     const { dispatch } = setup([m]);
     await expect(dispatch()('m1', 'distill_proposal_reject')).resolves.toBe(true);
     expect(mockDistillReject).toHaveBeenCalledWith('p-9');

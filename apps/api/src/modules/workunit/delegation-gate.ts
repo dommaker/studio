@@ -5,8 +5,7 @@
  * 循环是输入校验问题（创建时刻拦截），运行时不需要兜底。
  *
  * 校验项（任一不满足即拒绝，附人类可读原因）：
- *  1. 目标 profile 存在、active、且是父 WU 频道成员（members 为空 → 允许任意 active profile，
- *     与 message-routing 的过渡期口径一致）；
+ *  1. 目标 profile 存在、active、且是父 WU 频道显式成员（members 为空 = 无可委派成员，#699）；
  *  2. 目标 ≠ 派出方（禁止自派生）；
  *  3. 深度：父 collab.depth（根=0）+ 1 ≤ MAX_DEPTH（P1 = 1，STUDIO_COLLAB_MAX_DEPTH 覆盖）；
  *  4. 宽度：父 collab.delegationCount < 3；
@@ -17,11 +16,13 @@
  */
 import * as os from 'os';
 import * as path from 'path';
-import { FileStore, logger, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
-import type { WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
+import { FileStore, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
+import type { WorkUnitMetadata } from './workunit.types.js';
+import type { WorkUnitData } from './workunit-crud.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
-import { syncTokenLedger } from '../../utils/token-ledger.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
+import { syncTokenLedger } from './token-ledger.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 协作元数据（WorkUnitMetadata.collab 的具象类型） */
 export type CollabMeta = NonNullable<WorkUnitMetadata['collab']>;
@@ -75,17 +76,11 @@ export interface DelegationCheckResult {
   target?: AgentProfileData;
 }
 
-/**
- * TODO(§4.3 P2): 树级预算闸门 —— 按 collab.rootId 聚合 studio-events.jsonl 的
- * workunit:tokens（executionTokens），`树已耗 + 子 WU 预估 ≤ TREE_TOKEN_BUDGET(400K)`。
- * P1 留桩恒通过。
- */
 /** §4.3 树级 token 预算上限 */
 export const TREE_TOKEN_BUDGET = 400_000;
 
 /**
- * §4.3 P2 树级预算闸门：树已耗 ≤ TREE_TOKEN_BUDGET(400K)。
- * 子 WU 预估取 0（TODO 后续基于历史均值）。
+ * §4.3 树级预算闸门：树已耗 ≤ TREE_TOKEN_BUDGET(400K)，子 WU 预估取 0。
  * #320：树已耗改读 token 账本（per-WU 累计，O(树内 WU 数)），不再每次委派全扫
  * studio-events.jsonl 逐行 parse payload；账本落后由 syncTokenLedger 增量补扫自愈。
  * 兜底语义不变：事件文件不存在/同步失败 -> treeTotal=0，pass。
@@ -135,11 +130,11 @@ export async function checkDelegation(input: DelegationCheckInput): Promise<Dele
     return { pass: false, reason: `目标 @${targetName} 不存在或未激活` };
   }
 
-  // 1b. 频道成员约束（members 为空 → 过渡期放行任意 active profile，同 message-routing）
+  // 1b. 频道成员约束（members 为空 = 无可委派成员，不回退全量 active profile）
   if (parent.channelId) {
     const channel = await fileStore.getChannel(parent.channelId);
     const memberIds = parseChannels(channel?.members);
-    if (memberIds.length > 0 && !memberIds.includes(target.id)) {
+    if (!memberIds.includes(target.id)) {
       return { pass: false, reason: `目标 @${targetName} 不是本频道成员` };
     }
   }

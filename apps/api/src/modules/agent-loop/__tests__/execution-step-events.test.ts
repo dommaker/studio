@@ -156,6 +156,18 @@ describe('buildExecutionStepEvent', () => {
     })).toBeNull();
   });
 
+  it('#714: full/delta 度量透传，即使无文本也保留对照样本', () => {
+    const payload = buildExecutionStepEvent({
+      workUnitId: 'w', executionId: 'e', step: 2, sessionResumed: false, recoveredFrom: 'delta',
+      context: { mode: 'full', presentedTokens: 120, repeatedTokens: 0, humanInputs: 1, recovery: true },
+    });
+
+    expect(payload).toMatchObject({
+      recoveredFrom: 'delta',
+      context: { mode: 'full', presentedTokens: 120, repeatedTokens: 0, humanInputs: 1, recovery: true },
+    });
+  });
+
   it('toolCalls 超 30 条截断到 30', () => {
     const calls = Array.from({ length: 40 }, (_, i) => ({ type: 'tool_use', name: 'Read', input: { file_path: `/f${i}` } }));
     const payload = buildExecutionStepEvent({

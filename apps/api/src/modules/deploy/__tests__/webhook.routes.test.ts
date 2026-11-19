@@ -1,6 +1,6 @@
 // Deploy Webhook 路由测试 — HMAC-SHA256 校验 / 事件与分支过滤 / 异步触发部署脚本
 // 风格同 knowledge-service.routes.test.ts：挂载真实 router 起 HTTP 服务，fetch 验证。
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import express from 'express';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -72,10 +72,11 @@ afterAll(async () => {
 
 describe('deploy webhook', () => {
   it('签名正确 + push master → 202 accepted 并异步触发部署脚本', async () => {
-    const payload = JSON.stringify({ ref: 'refs/heads/master' });
+    const payload = JSON.stringify({ ref: 'refs/heads/master', after: 'a'.repeat(40) });
     const { status, json } = await post(payload, {
       'x-hub-signature-256': sign(payload),
       'x-github-event': 'push',
+      'x-github-delivery': 'delivery-initial',
     });
     expect(status).toBe(202);
     expect(json.accepted).toBe(true);
@@ -89,10 +90,11 @@ describe('deploy webhook', () => {
   });
 
   it('部署脚本 stdout/stderr 落 DEPLOY_LOG（stdio 不得为 ignore）', async () => {
-    const payload = JSON.stringify({ ref: 'refs/heads/master' });
+    const payload = JSON.stringify({ ref: 'refs/heads/master', after: 'b'.repeat(40) });
     const { status } = await post(payload, {
       'x-hub-signature-256': sign(payload),
       'x-github-event': 'push',
+      'x-github-delivery': 'delivery-logging',
     });
     expect(status).toBe(202);
 
@@ -105,6 +107,134 @@ describe('deploy webhook', () => {
       await new Promise(r => setTimeout(r, 100));
     }
     expect(content).toContain('deploy-output-line');
+  });
+
+  it('同 delivery 重放不再次部署，也不改部署日志或重放台账', async () => {
+    const payload = JSON.stringify({ ref: 'refs/heads/master', after: 'c'.repeat(40) });
+    const headers = {
+      'x-hub-signature-256': sign(payload),
+      'x-github-event': 'push',
+      'x-github-delivery': 'delivery-replayed',
+    };
+    expect((await post(payload, headers)).status).toBe(202);
+    const deadline = Date.now() + 5000;
+    while ((!fs.existsSync(marker) || !fs.existsSync(deployLog)) && Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 50));
+    }
+    await new Promise(r => setTimeout(r, 100));
+    const markerBefore = fs.readFileSync(marker, 'utf8');
+    const logBefore = fs.readFileSync(deployLog, 'utf8');
+    const { getStore } = await import('../../../core/store.js');
+    const ledgerPath = path.join(getStore().getDataDir(), 'webhook-replays.json');
+    const ledgerBefore = fs.readFileSync(ledgerPath, 'utf8');
+
+    const replay = await post(payload, headers);
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(replay.status).toBe(202);
+    expect(replay.json.ignored).toBe('duplicate request');
+    expect(fs.readFileSync(marker, 'utf8')).toBe(markerBefore);
+    expect(fs.readFileSync(deployLog, 'utf8')).toBe(logBefore);
+    expect(fs.readFileSync(ledgerPath, 'utf8')).toBe(ledgerBefore);
+  });
+
+  it('不同 delivery 携带同 commit 也不重复部署', async () => {
+    const payload = JSON.stringify({ ref: 'refs/heads/master', after: 'd'.repeat(40) });
+    const firstHeaders = {
+      'x-hub-signature-256': sign(payload),
+      'x-github-event': 'push',
+      'x-github-delivery': 'delivery-commit-first',
+    };
+    expect((await post(payload, firstHeaders)).status).toBe(202);
+    await new Promise(r => setTimeout(r, 200));
+    const markerBefore = fs.readFileSync(marker, 'utf8');
+
+    const replay = await post(payload, { ...firstHeaders, 'x-github-delivery': 'delivery-commit-second' });
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(replay.status).toBe(202);
+    expect(replay.json.ignored).toBe('duplicate request');
+    expect(fs.readFileSync(marker, 'utf8')).toBe(markerBefore);
+  });
+
+  it('超过 24h 后不同 delivery 同 commit 仍零 spawn、零日志、零台账写', async () => {
+    const realNow = Date.now;
+    let now = realNow();
+    Date.now = () => now;
+    try {
+      const payload = JSON.stringify({ ref: 'refs/heads/master', after: 'f'.repeat(40) });
+      const headers = {
+        'x-hub-signature-256': sign(payload),
+        'x-github-event': 'push',
+        'x-github-delivery': 'delivery-permanent-first',
+      };
+      expect((await post(payload, headers)).status).toBe(202);
+      await new Promise(r => setTimeout(r, 200));
+      const markerBefore = fs.readFileSync(marker, 'utf8');
+      const logBefore = fs.readFileSync(deployLog, 'utf8');
+      const { getStore } = await import('../../../core/store.js');
+      const ledgerPath = path.join(getStore().getDataDir(), 'webhook-replays.json');
+      const ledgerBefore = fs.readFileSync(ledgerPath, 'utf8');
+
+      now += 24 * 60 * 60 * 1000 + 1;
+      const replay = await post(payload, { ...headers, 'x-github-delivery': 'delivery-permanent-second' });
+      await new Promise(r => setTimeout(r, 200));
+
+      expect(replay.status).toBe(202);
+      expect(replay.json.ignored).toBe('duplicate request');
+      expect(fs.readFileSync(marker, 'utf8')).toBe(markerBefore);
+      expect(fs.readFileSync(deployLog, 'utf8')).toBe(logBefore);
+      expect(fs.readFileSync(ledgerPath, 'utf8')).toBe(ledgerBefore);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it('spawn 后 complete 失败返回 503 且保留占位，重试零副作用', async () => {
+    const { ReplayGuard } = await import('../../../core/replay-guard.js');
+    const complete = vi.spyOn(ReplayGuard.prototype, 'complete').mockRejectedValueOnce(new Error('complete failed'));
+    try {
+      const payload = JSON.stringify({ ref: 'refs/heads/master', after: '1'.repeat(40) });
+      const headers = {
+        'x-hub-signature-256': sign(payload),
+        'x-github-event': 'push',
+        'x-github-delivery': 'delivery-complete-failed',
+      };
+      const first = await post(payload, headers);
+      await new Promise(r => setTimeout(r, 200));
+      const markerBefore = fs.readFileSync(marker, 'utf8');
+      const logBefore = fs.readFileSync(deployLog, 'utf8');
+
+      const replay = await post(payload, headers);
+      await new Promise(r => setTimeout(r, 200));
+
+      expect(first.status).toBe(503);
+      expect(replay.status).toBe(202);
+      expect(replay.json.ignored).toBe('duplicate request');
+      expect(fs.readFileSync(marker, 'utf8')).toBe(markerBefore);
+      expect(fs.readFileSync(deployLog, 'utf8')).toBe(logBefore);
+      expect(complete).toHaveBeenCalledTimes(1);
+    } finally {
+      complete.mockRestore();
+    }
+  });
+
+  it('并发同 delivery 仅一个请求产生部署副作用', async () => {
+    const payload = JSON.stringify({ ref: 'refs/heads/master', after: 'e'.repeat(40) });
+    const headers = {
+      'x-hub-signature-256': sign(payload),
+      'x-github-event': 'push',
+      'x-github-delivery': 'delivery-concurrent',
+    };
+    const markerBefore = fs.readFileSync(marker, 'utf8');
+
+    const responses = await Promise.all([post(payload, headers), post(payload, headers)]);
+    await new Promise(r => setTimeout(r, 300));
+
+    expect(responses.filter(response => response.json.accepted === true)).toHaveLength(1);
+    expect(responses.filter(response => response.json.ignored === 'duplicate request')).toHaveLength(1);
+    const markerAfter = fs.readFileSync(marker, 'utf8');
+    expect(markerAfter.slice(markerBefore.length).trim().split('\n').filter(Boolean)).toHaveLength(1);
   });
 
   it('签名错误 → 401', async () => {

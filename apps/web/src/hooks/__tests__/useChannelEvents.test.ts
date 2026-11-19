@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ChannelMessage } from '../../api/channel';
-import type { WebSocketMessage } from '../../api/websocketHooks';
+import type { SseMessage } from '../../api/sseHooks';
 
 const { mockListMessages, mockSendMessage, mockOnEvent, mockCtx } = vi.hoisted(() => ({
   mockListMessages: vi.fn(),
@@ -18,8 +18,8 @@ vi.mock('../../api/channel', () => ({
   channelApi: { listMessages: mockListMessages, sendMessage: mockSendMessage },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
@@ -37,13 +37,13 @@ function msg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessage {
     content: `内容-${id}`,
     replyToId: null,
     workUnitId: null,
-    meta: '{}',
+    meta: {},
     createdAt: iso(seq++),
     ...over,
   };
 }
 
-function sseMessage(message: ChannelMessage): WebSocketMessage {
+function sseMessage(message: ChannelMessage): SseMessage {
   return {
     event_id: `ev-${message.id}`,
     event_type: 'channel.message_sent',
@@ -53,14 +53,14 @@ function sseMessage(message: ChannelMessage): WebSocketMessage {
 }
 
 describe('useChannelMessages', () => {
-  let handler: (msg: WebSocketMessage) => void;
+  let handler: (msg: SseMessage) => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
     seq = 0;
     useChannelMessageStore.getState().__resetForTests();
     mockListMessages.mockResolvedValue({ data: { data: { messages: [], hasMore: false } } });
-    mockOnEvent.mockImplementation((h: (msg: WebSocketMessage) => void) => {
+    mockOnEvent.mockImplementation((h: (msg: SseMessage) => void) => {
       handler = h;
       return () => {};
     });
@@ -135,12 +135,12 @@ describe('useChannelMessages', () => {
 
   // #315（ADR 2026-08-24 D1/D2）：消费端迁移读全量 message 本体，旧形状回退增量 patch
   describe('channel.message_updated', () => {
-    function sseUpdate(data: Record<string, unknown>): WebSocketMessage {
+    function sseUpdate(data: Record<string, unknown>): SseMessage {
       return { event_id: 'ev-upd', event_type: 'channel.message_updated', timestamp: iso(99), data };
     }
 
     it('replaces the message in place with the full message body when present', async () => {
-      const m1 = msg('m1', { content: '旧内容', meta: '{"k1":"a"}', createdAt: iso(0) });
+      const m1 = msg('m1', { content: '旧内容', meta: { k1: 'a' }, createdAt: iso(0) });
       const result = await renderLoaded([m1]);
 
       const full = { ...m1, content: '新内容', meta: { k1: 'a', k2: 'b' } };
@@ -153,7 +153,7 @@ describe('useChannelMessages', () => {
     });
 
     it('meta-only update keeps old meta keys via merged message.meta truth', async () => {
-      const m1 = msg('m1', { meta: '{"k1":"a"}', createdAt: iso(0) });
+      const m1 = msg('m1', { meta: { k1: 'a' }, createdAt: iso(0) });
       const result = await renderLoaded([m1]);
 
       // 模拟 updateMessage 仅传 meta：顶层 meta 是增量输入原值，message.meta 才是合并真值
@@ -164,7 +164,7 @@ describe('useChannelMessages', () => {
     });
 
     it('falls back to incremental patch for legacy shape without message field', async () => {
-      const m1 = msg('m1', { content: '旧内容', meta: '{"k1":"a"}', createdAt: iso(0) });
+      const m1 = msg('m1', { content: '旧内容', meta: { k1: 'a' }, createdAt: iso(0) });
       const result = await renderLoaded([m1]);
 
       act(() => handler(sseUpdate({ channelId: 'ch-1', messageId: 'm1', meta: { k2: 'b' } })));

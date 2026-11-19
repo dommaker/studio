@@ -17,6 +17,7 @@ const { routes, authCtl, service } = vi.hoisted(() => ({
     getUserNotifications: vi.fn().mockResolvedValue([]),
     getUnreadCount: vi.fn().mockResolvedValue(3),
     markAsRead: vi.fn().mockResolvedValue(undefined),
+    markManyAsRead: vi.fn().mockResolvedValue(undefined),
     markAllAsRead: vi.fn().mockResolvedValue(undefined),
   },
 }));
@@ -53,9 +54,15 @@ vi.mock('../../../middleware/auth.js', () => ({
   },
 }));
 
-vi.mock('@dommaker/studio-notification', () => ({
-  NotificationService: vi.fn().mockImplementation(function (this: unknown) { return service; }),
+vi.mock('../notification-service.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../notification-service.js')>(),
+  getNotificationService: () => service,
 }));
+
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+});
 
 vi.mock('@dommaker/studio-shared', () => ({
   FileStore: vi.fn().mockImplementation(function (this: unknown) { return {}; }),
@@ -157,6 +164,12 @@ describe('#274 身份取 JWT claims（req.user.id），不再读 x-user-id', () 
   it('POST /:id/read 用 req.user.id 标记已读', async () => {
     const { res } = await invoke('post', '/n1/read', { params: { id: 'n1' }, headers: { 'x-user-id': 'spoofed' } });
     expect(service.markAsRead).toHaveBeenCalledWith('n1', 'user-a');
+    expect(res.json).toHaveBeenCalledWith({ data: { success: true } });
+  });
+
+  it('POST /read 批量 id 只透传登录用户身份', async () => {
+    const { res } = await invoke('post', '/read', { body: { ids: ['n1', 'n2'] }, headers: { 'x-user-id': 'spoofed' } });
+    expect(service.markManyAsRead).toHaveBeenCalledWith(['n1', 'n2'], 'user-a');
     expect(res.json).toHaveBeenCalledWith({ data: { success: true } });
   });
 

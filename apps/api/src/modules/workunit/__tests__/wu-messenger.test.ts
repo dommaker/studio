@@ -3,14 +3,15 @@
 //       anchor 选择（最早根消息，AC-C2 迁移自 agent-loop-v2.test.ts）、显式 replyToId 跳过 anchor、
 //       空 content / 无 channelId 守卫、eventBus + SSE 发布、agentName 默认/覆盖。
 // 约定与 waiting-input.test.ts 一致：真实 FileStore（tmpdir）+ 真实 WorkUnitService；
-// pmo-branch-resolver mock（wu-messenger 内 lazy import，同一模块绝对路径被 vi.mock 拦截）。
+// project-read 实现经测试组合步骤装配，pmo-branch-resolver mock 仍验证同一归因口径。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, eventBus, type ChannelMessageData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitData } from '../workunit-crud.js';
 
 const { mockResolvePmoProjectId } = vi.hoisted(() => ({
   mockResolvePmoProjectId: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock('../../requirements/pmo-branch-resolver', () => ({
 }));
 
 import { postWuSystemMessage } from '../wu-messenger.js';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../../notifications/index.js';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 let tmpDir: string;

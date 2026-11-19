@@ -26,7 +26,7 @@ const parentMessage: ChannelMessage = {
   agentName: 'pm-agent',
   content: '上游结论：用方案 A',
   replyToId: null,
-  meta: '{}',
+  meta: {},
   createdAt: new Date().toISOString(),
 };
 
@@ -37,7 +37,7 @@ const replyMessage: ChannelMessage = {
   authorType: 'human',
   content: '同意，就这么办',
   replyToId: 'm-parent',
-  meta: '{}',
+  meta: {},
   createdAt: new Date().toISOString(),
 };
 

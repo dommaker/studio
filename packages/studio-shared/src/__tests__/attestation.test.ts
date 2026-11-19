@@ -130,6 +130,63 @@ describe('deriveDisplayState（双轨期规则）', () => {
     expect(d.column).toBe('done');
   });
 
+  it('merge queued/running 保持待验收并展示交付进度，不误报待人工', () => {
+    for (const state of ['queued', 'running']) {
+      const d = deriveDisplayState({
+        status: 'in_review',
+        metadata: { mergeIntent: { id: `merge-${state}`, state } },
+      });
+      expect(d.column).toBe('in_review');
+      expect(d.delivery).toBe(`merge-${state}`);
+      expect(d.needsHuman).toBe(false);
+      expect(d.workFinished).toBe(false);
+    }
+  });
+
+  it('blocked 的未合并失败不再显示 merge running', () => {
+    const d = deriveDisplayState({
+      status: 'blocked',
+      metadata: { mergeIntent: { id: 'merge-1', state: 'running' } },
+    });
+    expect(d.delivery).toBeNull();
+  });
+
+  it('已合并但目标验证失败保留 merged-with-failed-verification', () => {
+    const d = deriveDisplayState({
+      status: 'blocked',
+      metadata: {
+        mergeReceipt: {
+          id: 'merge-1',
+          merged: true,
+          mergeCommit: 'abc123',
+          verification: { status: 'failed' },
+        },
+      },
+    });
+    expect(d.column).toBe('blocked');
+    expect(d.delivery).toBe('merged-with-failed-verification');
+  });
+
+  it('目标验证 unavailable 等待人工 L3，确认后不再待人工', () => {
+    const receipt = {
+      id: 'merge-1',
+      merged: true,
+      mergeCommit: 'abc123',
+      verification: { status: 'unavailable' },
+    };
+    const waiting = deriveDisplayState({ status: 'in_review', metadata: { mergeReceipt: receipt } });
+    expect(waiting.delivery).toBe('verification-unavailable');
+    expect(waiting.needsHuman).toBe(true);
+
+    const confirmed = deriveDisplayState({
+      status: 'done',
+      metadata: { mergeReceipt: receipt, attestations: { l3: l3Approved } },
+    });
+    expect(confirmed.delivery).toBeNull();
+    expect(confirmed.needsHuman).toBe(false);
+    expect(confirmed.column).toBe('done');
+  });
+
   it('未知状态兜底 active，不放大异常数据', () => {
     expect(deriveDisplayState({ status: 'whatever' }).column).toBe('active');
   });

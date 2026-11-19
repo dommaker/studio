@@ -13,6 +13,11 @@ import { Router } from 'express';
 // ── Hoisted mocks ─────────────────────────────────────────────────────
 const mockReadJsonl = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   // #361：transcript-archive 经 utils 薄壳引用 testTmpRoot 等真实函数，需 spread actual

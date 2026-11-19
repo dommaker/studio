@@ -22,6 +22,11 @@ const { mockLogger } = vi.hoisted(() => ({
 }));
 
 // importOriginal：skill-selector 还依赖 normalizeToStage，不能整包替换
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: mockLogger };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return { ...orig, logger: mockLogger };

@@ -1,17 +1,17 @@
 /**
- * Workspace Routes — 本机 workspace 记录的只读与删除面
+ * Workspace Routes — 本机 workspace 记录的只读面
  *
  * Storage: ~/.studio/workspaces/{id}.json (merged JSON with nested tokens/runtimes/repos)
  *
  * Endpoints:
- *   GET    /api/v1/workspaces               — List workspaces (JWT auth)
- *   GET    /api/v1/workspaces/runtimes      — 本机 CLI 清单 (JWT auth)
- *   GET    /api/v1/workspaces/:id           — Get one (JWT auth)
- *   GET    /api/v1/workspaces/:id/runtimes  — List one workspace's runtimes (JWT auth)
- *   DELETE /api/v1/workspaces/:id           — Delete workspace (JWT auth)
+ *   GET    /api/v1/workspaces          — List workspaces (JWT auth)
+ *   GET    /api/v1/workspaces/runtimes — 本机 CLI 清单 (JWT auth)
+ *   GET    /api/v1/workspaces/:id      — Get one (JWT auth)
  *
- * POST /register 与 PUT /:id/heartbeat 已随远程节点方向删除（2026-09-10，
- * 判死出处 bdaf0dd3 2026-08-04：无 daemon 客户端、无 WS 客户端、nodeId 无创建路径）。
+ * POST /register、PUT /:id/heartbeat 已随远程节点方向删除（2026-09-10，
+ * 判死出处 bdaf0dd3 2026-08-04：无 daemon 客户端、无 WS 客户端、nodeId 无创建路径）；
+ * DELETE /:id 与 GET /:id/runtimes 已随 P4.6（2026-10-17）删除——仓内无消费方
+ * （前端 workspaces.ts 只打 GET / 与 GET /runtimes，useDetectedProviders 走 /runtimes）。
  *
  * 契约驱动迁移（2026-10 批次 2/7）：全部端点走 core/http.ts defineRoute——
  * 统一 envelope（{ data }；原 `{ success, data, total }` 的 total 与平铺错误壳
@@ -24,10 +24,11 @@ import {
   workspaceIdParamsSchema,
   ERROR_CODES,
   type Workspace,
-  type WorkspaceRuntime,
+  workspaceListResponseSchema,
+  workspaceResponseSchema,
+  workspaceRuntimesResponseSchema,
 } from '@dommaker/studio-contract';
 
-import { logger } from '../../utils/logger.js';
 import { apiCache } from '../../middleware/api-cache.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -71,29 +72,17 @@ async function listWorkspaces(): Promise<Workspace[]> {
   return results;
 }
 
-async function deleteWorkspaceDir(id: string): Promise<void> {
-  const tasksDir = path.join(WORKSPACES_DIR, id);
-  const eventsPath = path.join(tasksDir, 'events.jsonl');
-  const tasksPath = path.join(tasksDir, 'tasks.jsonl');
-  // Clean up task/event files
-  try { await fs.promises.unlink(eventsPath); } catch { /* not exist */ }
-  try { await fs.promises.unlink(tasksPath); } catch { /* not exist */ }
-  try { await fs.promises.rmdir(tasksDir); } catch { /* not empty or not exist */ }
-  // Delete workspace file
-  try { await fs.promises.unlink(wsPath(id)); } catch { /* not exist */ }
-}
-
 // ─── GET /api/v1/workspaces ───
 // List all workspaces (JWT auth)
 
-router.get('/', defineRoute({}, async () => {
+router.get('/', defineRoute({ response: workspaceListResponseSchema }, async () => {
   return listWorkspaces();
 }));
 
 // ─── GET /api/v1/workspaces/runtimes ───
 // （须注册在 /:id 之前——'runtimes' 单段会被 :id 吞掉，旧路由顺序如此）
 
-router.get('/runtimes', apiCache(60), defineRoute({}, async () => {
+router.get('/runtimes', apiCache(60), defineRoute({ response: workspaceRuntimesResponseSchema }, async () => {
   // 本机 CLI 清单，供角色创建候选列表使用（原 AC-2.6「聚合所有 workspace」语义已废弃，见下）
   // 2026-07：聚合前先重扫本地 CLI（best-effort），保证本地 runtime 新鲜可见
   // #403（缓存 seam 决策树第 2 问）：响应为 HTTP GET、秒级陈旧可接受 → 挂 apiCache 60s。
@@ -127,34 +116,9 @@ router.get('/runtimes', apiCache(60), defineRoute({}, async () => {
   return { runtimes };
 }));
 
-// ─── DELETE /api/v1/workspaces/:id ───
-
-router.delete('/:id', defineRoute({ params: workspaceIdParamsSchema }, async (_req, _res, { params }) => {
-  const workspace = await readWorkspace(params.id);
-  if (!workspace) {
-    throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Workspace not found');
-  }
-  await deleteWorkspaceDir(params.id);
-  logger.info({ workspaceId: params.id }, '[Workspace] Deleted');
-  return { deleted: true };
-}));
-
-// ─── GET /api/v1/workspaces/:id/runtimes ───
-
-router.get('/:id/runtimes', defineRoute({ params: workspaceIdParamsSchema }, async (_req, _res, { params }) => {
-  const workspace = await readWorkspace(params.id);
-  if (!workspace) {
-    throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Workspace not found');
-  }
-  const runtimes = ((workspace.runtimes ?? []) as WorkspaceRuntime[]).slice().sort((a, b) =>
-    (a.provider as string).localeCompare(b.provider as string),
-  );
-  return runtimes;
-}));
-
 // ─── GET /api/v1/workspaces/:id ───
 
-router.get('/:id', defineRoute({ params: workspaceIdParamsSchema }, async (_req, _res, { params }) => {
+router.get('/:id', defineRoute({ params: workspaceIdParamsSchema, response: workspaceResponseSchema }, async (_req, _res, { params }) => {
   const workspace = await readWorkspace(params.id);
   if (!workspace) {
     throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Workspace not found');

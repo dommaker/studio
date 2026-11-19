@@ -5,14 +5,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
-import { syncTokenLedger, emptyTokenLedger, type TokenLedgerRow } from '../../../utils/token-ledger.js';
+import { syncTokenLedger, emptyTokenLedger, type TokenLedgerRow } from '../token-ledger.js';
 import { vi } from 'vitest';
 
 // #320：闸门预算用例以 syncTokenLedger 为单测 seam（mock 注入账本），
 // 规避共享 studio-test-logs 目录下并行测试文件重写事件/账本文件的竞态；
 // 账本自身的文件级行为由 utils/__tests__/token-ledger.test.ts 覆盖。
-vi.mock('../../../utils/token-ledger.js', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('../../../utils/token-ledger.js')>();
+vi.mock('../token-ledger.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../token-ledger.js')>();
   return { ...orig, syncTokenLedger: vi.fn() };
 });
 const mockSyncTokenLedger = vi.mocked(syncTokenLedger);
@@ -25,7 +25,9 @@ function ledgerWithRow(wuId: string, executionTokens: number) {
   };
   return { ...emptyTokenLedger(), byWorkUnit: { [wuId]: row } };
 }
-import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
+import type { WorkUnitData } from '../workunit-crud.js';
 import {
   checkDelegation,
   checkTreeBudget,
@@ -122,11 +124,13 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
     expect(result.reason).toContain('不是本频道成员');
   });
 
-  it('members 为空：过渡期放行任意 active profile（同 message-routing 口径）', async () => {
+  it('#699: members 为空：频道无可委派成员，即使目标 active 也拒绝', async () => {
     await fileStore.updateChannel(channelId, { members: '[]' });
     const parent = await makeParent();
     const result = await check(parent, 'AgentB');
-    expect(result.pass).toBe(true);
+    expect(result.pass).toBe(false);
+    expect(result.reason).toContain('不是本频道成员');
+    expect(result.target).toBeUndefined();
   });
 
   it('目标 = 派出方自己 → 拒绝（禁止自派生）', async () => {

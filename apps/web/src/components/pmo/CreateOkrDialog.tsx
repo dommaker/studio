@@ -9,7 +9,7 @@ import {
   METRIC_META,
   validateKRTarget,
   type KR,
-} from './okrMetric';
+} from '../../utils/okrMetric';
 import { IconCheck, IconX } from '../ui/icons';
 
 interface CreateOkrDialogProps {

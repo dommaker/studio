@@ -13,13 +13,15 @@
  * 频道系统消息走 wu-messenger 统一出口（eventBus + SSE，挂 anchor 线程）。
  */
 import fs from 'node:fs';
-import { logger, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
+import { FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
+import { WorkUnitService } from './workunit-review.js';
+import { ExecutionJournal } from './execution-journal.js';
+import type { WorkUnitMetadata } from './workunit.types.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { withBlockedCta } from './blocked-cta.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 同一 WU 的超时释放上限：达到后转 blocked，等待人工介入 */
 export const MAX_TIMEOUT_RELEASES = 3;
@@ -117,6 +119,7 @@ export async function scanTimedOutWorkUnits(fs?: FileStore, now: Date = new Date
 
       if (releases >= MAX_TIMEOUT_RELEASES) {
         // 释放次数用尽 → blocked，不再自动回池（清 timeoutAt 避免重复命中）
+        await new ExecutionJournal(new WorkUnitMetadataRepository(fileStore)).cancelUnresolved(wu.id);
         await wuService.update(wu.id, { timeoutAt: null, metadata: nextMetadata });
         await wuService.transitionStatus(wu.id, 'blocked');
         // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman

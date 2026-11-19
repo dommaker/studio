@@ -13,13 +13,12 @@ import {
   sharedIngest,
   sharedQuery,
   sharedInjector,
-  sharedLinter,
   verifyConsumptionChain,
   CONSUMPTION_PROBE_ENTRY_ID,
   isVectorDbSyncing,
   ingestWithQualityGate,
 } from '../knowledge-singletons.js';
-import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { resolveStudioLogFile } from '@dommaker/studio-shared';
 import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 import { setSegmentMetricsSink, type SegmentMetricEvent } from '@dommaker/studio-shared/read-metrics';
 
@@ -30,8 +29,8 @@ describe('knowledge-singletons (R4)', () => {
     expect(UNIFIED_KNOWLEDGE_DIR).toBe(path.join(studioRoot, 'knowledge'));
   });
 
-  it('exposes all six shared singletons wired to the same store', () => {
-    for (const s of [sharedStore, sharedLifecycle, sharedIngest, sharedQuery, sharedInjector, sharedLinter]) {
+  it('exposes all five shared singletons wired to the same store', () => {
+    for (const s of [sharedStore, sharedLifecycle, sharedIngest, sharedQuery, sharedInjector]) {
       expect(s).toBeDefined();
     }
     // lifecycle/ingest/query 都挂在同一个 sharedStore 上（harness 对象持有 store 引用）

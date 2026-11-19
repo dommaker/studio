@@ -4,11 +4,11 @@
 // API 启动时批量挂载 active profile 也走同一入口。
 // mount 幂等且绝不抛错：单个 profile 的 loop 启动失败不影响其他 profile（失败记录见 F2）。
 
-import { eventBus, logger, FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { eventBus, FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { AgentLoop } from './agent-loop.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface MountedLoop {
   profileId: string;

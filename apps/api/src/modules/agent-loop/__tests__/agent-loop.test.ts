@@ -7,27 +7,35 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 
-const { mockExecSync, mockProcessKill } = vi.hoisted(() => ({
-  mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
-  mockProcessKill: vi.fn(),
-}));
+const { mockExec, mockExecSync, mockProcessKill, execSuccess } = vi.hoisted(() => {
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  const execSuccess = (cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  };
+  return {
+    mockExec: vi.fn(execSuccess),
+    mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
+    mockProcessKill: vi.fn(),
+    execSuccess,
+  };
+});
 
-vi.mock('child_process', () => ({ exec: vi.fn(),
+vi.mock('child_process', () => ({ exec: mockExec,
   execSync: mockExecSync,
 }));
 
 // vi.hoisted() ensures these are available when vi.mock factories run
-const { mockWuClaim, mockWuUnclaim, mockWuTransitionStatus } = vi.hoisted(() => ({
-  mockWuClaim: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'active' }),
-  mockWuUnclaim: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'unassigned' }),
-  mockWuTransitionStatus: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'in_review' }),
-}));
-
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
 }));
 
 // Mock dependencies
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return {
@@ -47,15 +55,6 @@ vi.mock('@dommaker/studio-agent', () => ({
   agentRunner: {
     executeLightweight: mockExecuteLightweight,
   },
-}));
-
-vi.mock('../../workunit/workunit.service', () => ({
-  WorkUnitService: vi.fn().mockImplementation(function () { return {
-    claim: mockWuClaim,
-    unclaim: mockWuUnclaim,
-    transitionStatus: mockWuTransitionStatus,
-  }; }),
-  snapshotToData: (s: unknown) => s,
 }));
 
 vi.mock('../../triggers/trigger-scheduler', () => ({
@@ -87,15 +86,20 @@ const { mockInjectContext, mockRecordOutcome, mockExtractFromExecution } = vi.ho
   mockExtractFromExecution: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: mockInjectContext,
     recordOutcome: mockRecordOutcome,
     extractFromExecution: mockExtractFromExecution,
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 import { AgentLoop } from '../agent-loop';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 import { isProcessAlive } from '../agent-loop-parsers';
 import { writeToolCallEvents, resolveToolTraceFile } from '../agent-loop-events';
 
@@ -103,6 +107,7 @@ describe('AgentLoop', () => {
   let agentLoop: AgentLoop;
   let testDir: string;
   let fileStore: FileStore;
+  let wuService: WorkUnitService;
 
   const mockRole = {
     id: 'role-1',
@@ -118,8 +123,10 @@ describe('AgentLoop', () => {
     vi.clearAllMocks();
     // mockImplementation from prior test persists through clearAllMocks; reset explicitly
     mockExecSync.mockReturnValue('Claude Code CLI version 1.0.0');
+    mockExec.mockImplementation(execSuccess);
     testDir = path.join(os.tmpdir(), `agent-loop-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
     fileStore = new FileStore(testDir);
+    wuService = new WorkUnitService(fileStore);
   });
 
   afterEach(async () => {
@@ -134,6 +141,16 @@ describe('AgentLoop', () => {
     }
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }, 5000);
+
+  // #705 起 agentStep 要求持久化快照（ExecutionJournal.beginStep 读 store 内记录）
+  async function persistTarget(metadata: Record<string, unknown> | null = null) {
+    const created = await wuService.create({
+      scope: 'test', type: 'task', status: 'unassigned', assigneeId: 'agent-1', channelId: 'ch-1',
+      metadata: metadata ?? undefined,
+    });
+    const claimed = await wuService.claim(created.id, 'agent-1');
+    return { workUnit: claimed };
+  }
 
   describe('start()', () => {
     it('creates RuntimeInstance with idle status', async () => {
@@ -205,17 +222,9 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       expect(mockInjectContext).toHaveBeenCalledWith('task', expect.any(Object));
     });
@@ -229,17 +238,9 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       expect(mockExecuteLightweight).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -260,24 +261,16 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await expect(
-        (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target)
+        agentLoop.agentStep(target)
       ).resolves.toBeDefined();
     });
   });
 
   describe('GAP-6: recordOutcome + extractFromExecution', () => {
-    it('calls recordOutcome and does not block', async () => {
+    it('defers successful recordOutcome until recordResult persists the StepRecord', async () => {
       mockExecuteLightweight.mockResolvedValue({
         success: true, outputText: 'ACTION: COMPLETE:done',
         logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
@@ -286,27 +279,16 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      const result = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      const result = await agentLoop.agentStep(target);
 
-      // recordOutcome was called (verification works)
-      expect(mockRecordOutcome).toHaveBeenCalledWith(
-        expect.objectContaining({ success: true, agentType: 'claude' })
-      );
+      expect(mockRecordOutcome).not.toHaveBeenCalled();
       // StepResult is returned normally
       expect(result).toHaveProperty('action');
     });
 
-    it('R1: threads injectContext injectedIds into outcome records as consumedKnowledge', async () => {
+    it('R1: does not record injected knowledge before final outcome persistence', async () => {
       // mockInjectContext default: { prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] }
       mockExecuteLightweight.mockResolvedValue({
         success: true, outputText: 'ACTION: COMPLETE:done',
@@ -316,32 +298,16 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
-      // recordExecutionOutcome 是 fire-and-forget：extractFromExecution 在
-      // recordOutcome 之后的 microtask 链上，先让事件循环排空再断言
-      await new Promise(r => setImmediate(r));
+      await agentLoop.agentStep(target);
 
-      // R1 反馈环: 注入的知识条目 id 必须贯穿到 outcome/extraction（不再硬编码 []）
       expect(mockInjectContext).toHaveBeenCalled();
-      expect(mockRecordOutcome).toHaveBeenCalledWith(
-        expect.objectContaining({ consumedKnowledge: ['rule-1'] })
-      );
-      expect(mockExtractFromExecution).toHaveBeenCalledWith(
-        expect.objectContaining({ consumedKnowledge: ['rule-1'] })
-      );
+      expect(mockRecordOutcome).not.toHaveBeenCalled();
+      expect(mockExtractFromExecution).not.toHaveBeenCalled();
     });
 
-    it('R1: reports empty consumedKnowledge when nothing was injected', async () => {
+    it('R1: does not record an empty outcome before final persistence', async () => {
       mockInjectContext.mockResolvedValueOnce({ prompt: '', injectedIds: [] });
       mockExecuteLightweight.mockResolvedValue({
         success: true, outputText: 'ACTION: PROGRESS:working',
@@ -351,45 +317,27 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
-      expect(mockRecordOutcome).toHaveBeenCalledWith(
-        expect.objectContaining({ consumedKnowledge: [] })
-      );
+      expect(mockRecordOutcome).not.toHaveBeenCalled();
     });
 
     it('does not block when recordOutcome fails', async () => {
       mockRecordOutcome.mockRejectedValueOnce(new Error('DB timeout'));
       mockExecuteLightweight.mockResolvedValue({
-        success: true, outputText: 'ACTION: PROGRESS:working',
+        success: false, error: 'boom',
         logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
       });
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       await expect(
-        (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target)
+        agentLoop.agentStep(target)
       ).resolves.toBeDefined();
     });
   });
@@ -404,17 +352,9 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       const callArg = mockExecuteLightweight.mock.calls[0][0];
       expect(callArg.provider).toBe('claude');
@@ -432,17 +372,9 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(roleWithCodex, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       const callArg = mockExecuteLightweight.mock.calls[0][0];
       expect(callArg.provider).toBe('codex');
@@ -459,17 +391,9 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(roleWithNullProvider, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       const callArg = mockExecuteLightweight.mock.calls[0][0];
       expect(callArg.provider).toBe('claude');
@@ -484,17 +408,9 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       expect(mockExecuteLightweight).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -514,17 +430,9 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       const params = mockExecuteLightweight.mock.calls[0][0].parameters;
       expect(params).not.toHaveProperty('sessionFlags');
@@ -551,21 +459,13 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
       // First call: creates session, returns high tokens
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       // Second call: should get a fresh sessionId (档案仍无 sessionId → 新建路径)
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
 
       const secondCallParams = mockExecuteLightweight.mock.calls[1][0].parameters;
       // #94: checkSessionTruncation 只留观测日志、不再清会话；但 agentStep 不落库 metadata
@@ -593,18 +493,10 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const target = {
-        workUnit: {
-          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
+      const target = await persistTarget();
 
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      await agentLoop.agentStep(target);
+      await agentLoop.agentStep(target);
 
       const secondCallParams = mockExecuteLightweight.mock.calls[1][0].parameters;
       expect(secondCallParams.sessionId).toBeDefined();
@@ -613,7 +505,7 @@ describe('AgentLoop', () => {
 
   describe('AC-4.5: Health probe', () => {
     it('start() continues normally when claude CLI is available', async () => {
-      mockExecSync.mockReturnValue('Claude Code CLI version 1.0.0');
+      mockExec.mockImplementation(execSuccess);
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
@@ -621,11 +513,12 @@ describe('AgentLoop', () => {
       const agentStates = await fileStore.listStates();
       const match = agentStates.find(s => s.roleId === 'role-1');
       expect(match).toBeDefined();
-      expect(mockExecSync).toHaveBeenCalledWith('claude --version', expect.objectContaining({ timeout: 5000 }));
+      expect(mockExec).toHaveBeenCalledWith('claude --version', expect.objectContaining({ timeout: 5000 }), expect.any(Function));
     });
 
     it('start() does not start the loop when claude CLI is not available (F2: records error state)', async () => {
-      mockExecSync.mockImplementation(() => { throw new Error('ENOENT'); });
+      mockExec.mockImplementation((cmd: any, opts: any, cb: any) =>
+        (typeof opts === 'function' ? opts : cb)(new Error('ENOENT'), '', ''));
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       const started = await agentLoop.start();
@@ -878,15 +771,7 @@ describe('AgentLoop', () => {
   describe('R2-fix: agentStep tool:call 接线（rawOutput 优先于 outputText）', () => {
     let prevStudioEventsFile: string | undefined;
 
-    const makeTarget = (metadata: Record<string, unknown> | null = null) => ({
-      workUnit: {
-        id: 'wu-r2-wiring', type: 'task', scope: 'test', channelId: 'ch-1',
-        status: 'active', assigneeId: 'agent-1', parentId: null,
-        failureType: null, retryCount: 0, timeoutAt: null,
-        projectPath: null, metadata: metadata ? JSON.stringify(metadata) : null, claimedAt: null,
-        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-      },
-    });
+    const makeTarget = (metadata: Record<string, unknown> | null = null) => persistTarget(metadata);
 
     const traceFile = () => path.join(testDir, 'studio-events.jsonl');
 
@@ -916,14 +801,15 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+      await agentLoop.agentStep(await makeTarget());
 
       expect(fs.existsSync(traceFile())).toBe(true);
-      const lines = fs.readFileSync(traceFile(), 'utf-8').trim().split('\n');
-      expect(lines.length).toBe(2);
+      // 同一事件文件还有 workunit:tokens 记账行（每次执行必写），只筛 tool:call
+      const events = fs.readFileSync(traceFile(), 'utf-8').trim().split('\n').map(l => JSON.parse(l));
+      const toolCalls = events.filter(e => e.type === 'tool:call');
+      expect(toolCalls.length).toBe(2);
 
-      const first = JSON.parse(lines[0]);
-      expect(first.type).toBe('tool:call');
+      const first = toolCalls[0];
       expect(first.source).toBe('agent-loop');
       const firstPayload = JSON.parse(first.payload);
       expect(firstPayload.tool).toBe('Read');
@@ -933,8 +819,7 @@ describe('AgentLoop', () => {
       expect(typeof firstPayload.timestamp).toBe('number');
       expect(typeof first.createdAt).toBe('string');
 
-      const second = JSON.parse(lines[1]);
-      expect(second.type).toBe('tool:call');
+      const second = toolCalls[1];
       expect(JSON.parse(second.payload).tool).toBe('Edit');
     });
 
@@ -947,25 +832,21 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+      await agentLoop.agentStep(await makeTarget());
 
-      // 0 条 tool:call → writeToolCallEvents 提前返回，不落盘
-      expect(fs.existsSync(traceFile())).toBe(false);
+      // 0 条 tool:call → writeToolCallEvents 提前返回；文件里只允许有 workunit:tokens 记账行
+      const toolCalls = fs.existsSync(traceFile())
+        ? fs.readFileSync(traceFile(), 'utf-8').trim().split('\n')
+          .map(l => JSON.parse(l)).filter(e => e.type === 'tool:call')
+        : [];
+      expect(toolCalls.length).toBe(0);
     });
   });
 
   describe('#453: 成功路径 stream-json 全量解析一次（3→1）', () => {
     let prevStudioEventsFile: string | undefined;
 
-    const makeTarget = () => ({
-      workUnit: {
-        id: 'wu-parse-once', type: 'task', scope: 'test', channelId: 'ch-1',
-        status: 'active', assigneeId: 'agent-1', parentId: null,
-        failureType: null, retryCount: 0, timeoutAt: null,
-        projectPath: null, metadata: null, claimedAt: null,
-        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-      },
-    });
+    const makeTarget = () => persistTarget();
 
     const traceFile = () => path.join(testDir, 'studio-events.jsonl');
 
@@ -993,7 +874,7 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+      await agentLoop.agentStep(await makeTarget());
 
       // 验收核心：成功路径全量解析恰好 1 次（tool:call 与 execution_step 共享解析产物）
       expect(vi.mocked(parseStreamEvents).mock.calls.length).toBe(1);
@@ -1012,15 +893,7 @@ describe('AgentLoop', () => {
   });
 
   describe('wireup④: metadata._cumulativeTokens 累计写回', () => {
-    const makeTarget = (metadata: Record<string, unknown> | null = null) => ({
-      workUnit: {
-        id: 'wu-cumulative-tokens', type: 'task', scope: 'test', channelId: 'ch-1',
-        status: 'active', assigneeId: 'agent-1', parentId: null,
-        failureType: null, retryCount: 0, timeoutAt: null,
-        projectPath: null, metadata: metadata ? JSON.stringify(metadata) : null, claimedAt: null,
-        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-      },
-    });
+    const makeTarget = (metadata: Record<string, unknown> | null = null) => persistTarget(metadata);
 
     it('本次 executionTokens 累加到既有 _cumulativeTokens', async () => {
       mockExecuteLightweight.mockResolvedValue({
@@ -1032,7 +905,7 @@ describe('AgentLoop', () => {
 
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
-      const result = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget({ _cumulativeTokens: 70 }));
+      const result = await agentLoop.agentStep(await makeTarget({ _cumulativeTokens: 70 }));
       const { metadataUpdates } = result as { metadataUpdates?: Record<string, unknown> };
       expect(metadataUpdates).toBeDefined();
       expect(metadataUpdates!._cumulativeTokens).toBe(220);
@@ -1048,10 +921,10 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, fileStore);
       await agentLoop.start();
 
-      const withExisting = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget({ _cumulativeTokens: 70 }));
+      const withExisting = await agentLoop.agentStep(await makeTarget({ _cumulativeTokens: 70 }));
       expect((withExisting as { metadataUpdates?: Record<string, unknown> }).metadataUpdates!._cumulativeTokens).toBe(70);
 
-      const fresh = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+      const fresh = await agentLoop.agentStep(await makeTarget());
       expect((fresh as { metadataUpdates?: Record<string, unknown> }).metadataUpdates!._cumulativeTokens).toBe(0);
     });
   });

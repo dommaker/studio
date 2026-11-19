@@ -8,7 +8,7 @@ const { mockList } = vi.hoisted(() => ({
   mockList: vi.fn(),
 }));
 
-vi.mock('../workunit.service.js', () => ({
+vi.mock('../workunit-review.js', () => ({
   WorkUnitService: class {
     list = mockList;
   },

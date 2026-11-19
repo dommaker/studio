@@ -1,5 +1,5 @@
 /**
- * notify-channels 域契约——正本以 apps/api/src/modules/notify-channels/
+ * notify-channels 域契约——正本以 apps/api/src/modules/notifications/channels/
  * routes.ts 实测 wire 为准（#525 P2-6，/settings「通知渠道」配置区服务端支撑；
  * route-registry 挂 admin）。
  *
@@ -28,41 +28,30 @@ import { dataBodySchema } from './envelope.js';
 
 // ── 实体：渠道状态段（脱敏后形状）──
 
-/** 手写 interface（前端 NotifyChannelsSection 按必填消费）；parity 测试见 __tests__ */
-export interface WecomChannelState {
-  configured: boolean;
-  maskedUrl: string | null;
-  /** 配置来源：settings = 配置存储 / env = 仅环境变量（部署默认） */
-  source: 'settings' | 'env' | null;
-}
+/** 企微渠道状态段（脱敏后形状；前端 NotifyChannelsSection 按必填消费） */
 export const wecomChannelStateSchema = z.object({
   configured: z.boolean(),
   maskedUrl: z.string().nullable(),
+  /** 配置来源：settings = 配置存储 / env = 仅环境变量（部署默认） */
   source: z.enum(['settings', 'env']).nullable(),
 });
+export type WecomChannelState = z.infer<typeof wecomChannelStateSchema>;
 
-/** 手写 interface（前端 NotifyChannelsSection 按必填消费）；parity 测试见 __tests__ */
-export interface ClawbotChannelState {
-  bound: boolean;
-  /** 脱敏后的 ilinkUserId（maskValue） */
-  ilinkUserId: string | null;
-  boundAt: string | null;
-}
+/** ClawBot 渠道状态段（脱敏后形状；前端 NotifyChannelsSection 按必填消费） */
 export const clawbotChannelStateSchema = z.object({
   bound: z.boolean(),
+  /** 脱敏后的 ilinkUserId（maskValue） */
   ilinkUserId: z.string().nullable(),
   boundAt: z.string().nullable(),
 });
+export type ClawbotChannelState = z.infer<typeof clawbotChannelStateSchema>;
 
-/** GET / 响应 data（手写：含手写实体子树） */
+/** GET / 响应 data */
 export const notifyChannelsStateSchema = z.object({
   wecom: wecomChannelStateSchema,
   clawbot: clawbotChannelStateSchema,
 });
-export interface NotifyChannelsState {
-  wecom: WecomChannelState;
-  clawbot: ClawbotChannelState;
-}
+export type NotifyChannelsState = z.infer<typeof notifyChannelsStateSchema>;
 
 // ── 派生读形状 ──
 

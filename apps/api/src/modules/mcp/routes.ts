@@ -15,12 +15,13 @@ import { Router, Request, Response } from 'express';
 import { mcpServer, type MCPRequestContext } from './server.js';
 import { getToolSchemas, executeTool } from './tools.js';
 import { toolRegistry } from './tool-registry.js';
-import { logger } from '@dommaker/studio-shared';
-import { mcpToolCallBodySchema, mcpToolNameParamsSchema } from '@dommaker/studio-contract';
+
+import { mcpToolCallBodySchema, mcpToolNameParamsSchema, mcpToolListResponseSchema, mcpToolCallResponseSchema, mcpHealthResponseSchema } from '@dommaker/studio-contract';
 import { defineRoute } from '../../core/http.js';
 import { requireAuth, requireAdmin, requireLocalhost } from '../../middleware/auth.js';
 import { mcpRateLimit } from '../../middleware/rate-limit.js';
 import adminRoutes from './admin.routes.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const router = Router();
 
@@ -145,7 +146,7 @@ router.post('/', requireLocalhost(), async (req: Request, res: Response) => {
  * GET /api/v1/mcp/tools
  * 列出所有可用 tools（简化接口）
  */
-router.get('/tools', defineRoute({}, async () => {
+router.get('/tools', defineRoute({ response: mcpToolListResponseSchema }, async () => {
   const tools = getToolSchemas();
   return { tools, total: tools.length };
 }));
@@ -160,6 +161,7 @@ router.post('/tools/:name', requireAuth(), requireAdmin(), defineRoute(
   {
     params: mcpToolNameParamsSchema,
     body: mcpToolCallBodySchema,
+    response: mcpToolCallResponseSchema,
   },
   {
     errors: [
@@ -180,7 +182,7 @@ router.post('/tools/:name', requireAuth(), requireAdmin(), defineRoute(
  * Health check — returns tool availability status
  * unhealthy → 503 裸健康体（机器面例外，handler 自写 res 不进壳）
  */
-router.get('/health', defineRoute({}, async (_req, res) => {
+router.get('/health', defineRoute({ response: mcpHealthResponseSchema }, async (_req, res) => {
   const health = toolRegistry.getHealth();
   if (health.status === 'unhealthy') {
     res.status(503).json(health);

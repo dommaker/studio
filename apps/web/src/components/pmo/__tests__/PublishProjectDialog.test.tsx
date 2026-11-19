@@ -162,7 +162,7 @@ describe('PublishProjectDialog #290 空成员语义与频道选项', () => {
     expect(screen.getByRole('option', { name: '#dev' })).toBeTruthy();
   });
 
-  it('真无响应者时警告出现，且文案写明「空成员 = 所有 Agent 可见」判定口径', async () => {
+  it('真无响应者时警告出现，且文案写明「仅频道成员可响应」判定口径', async () => {
     mockListChannels.mockResolvedValue({ data: { data: EMPTY_MEMBER_CHANNEL } });
     mockListAllAgents.mockResolvedValue({ data: { data: [] } }); // 无任何 active Agent
     renderDialogWith(EMPTY_MEMBER_CHANNEL);
@@ -170,12 +170,12 @@ describe('PublishProjectDialog #290 空成员语义与频道选项', () => {
     fireEvent.click(await screen.findByRole('button', { name: '目标频道' }));
     fireEvent.click(screen.getByRole('option', { name: '#ops' }));
     const warn = await screen.findByText(/没有可响应的 Agent/);
-    expect(warn.textContent).toContain('频道成员为空 = 所有未限定频道的 Agent 可见');
+    expect(warn.textContent).toContain('仅频道成员可响应，成员为空 = 无人响应');
   });
 
-  it('空成员频道但有可见 Agent 时：不警告，列出会响应的 Agent（与成员面板口径一致）', async () => {
+  it('空成员频道即使有 active Agent 也警告无响应者（#696 严格口径：不再回退 profile.channels）', async () => {
     mockListChannels.mockResolvedValue({ data: { data: EMPTY_MEMBER_CHANNEL } });
-    // active Agent 未限定频道（channels 为空）→ 空成员频道下全员可响应
+    // active Agent 未限定频道（channels 为空）——旧口径下全频道可见，#696 起不再计入
     mockListAllAgents.mockResolvedValue({
       data: { data: [{ id: 'p1', name: 'dev', status: 'active', channels: '[]' }] },
     });
@@ -183,7 +183,7 @@ describe('PublishProjectDialog #290 空成员语义与频道选项', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '目标频道' }));
     fireEvent.click(screen.getByRole('option', { name: '#ops' }));
-    await screen.findByText(/会响应的 Agent（1）：dev/);
-    expect(screen.queryByText(/没有可响应的 Agent/)).toBeNull();
+    await screen.findByText(/没有可响应的 Agent/);
+    expect(screen.queryByText(/会响应的 Agent/)).toBeNull();
   });
 });

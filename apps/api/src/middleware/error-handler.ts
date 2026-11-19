@@ -1,6 +1,8 @@
 // 错误处理中间件
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger.js';
+import { redactSensitive } from '../utils/redact.js';
+import { ensureRequestId } from './audit-logger.js';
 
 export function errorHandler(
   error: any,
@@ -8,12 +10,14 @@ export function errorHandler(
   res: Response,
   next: NextFunction
 ) {
+  const requestId = ensureRequestId(req);
   logger.error({
-    error,
+    error: redactSensitive(error),
     method: req.method,
     path: req.path,
-    body: req.body,
-    query: req.query,
+    body: redactSensitive(req.body),
+    query: redactSensitive(req.query),
+    requestId,
   }, 'Unhandled error');
 
   // 验证错误
@@ -28,9 +32,16 @@ export function errorHandler(
   }
 
   // 默认错误
-  res.status(error.status || 500).json({
+  const status = error.status || 500;
+  const code = error.code || 'INTERNAL_ERROR';
+  if (process.env.NODE_ENV === 'production' && status >= 500) {
+    return res.status(status).json({
+      error: { code, message: 'Internal server error', requestId },
+    });
+  }
+  res.status(status).json({
     error: {
-      code: error.code || 'INTERNAL_ERROR',
+      code,
       message: error.message || 'An unexpected error occurred',
     },
   });

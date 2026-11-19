@@ -15,7 +15,7 @@
  *
  * 降级口径：
  *   - reject 零副作用（原料不动、无产物、无运行记录）
- *   - LLM 失败 / JSON 解析失败 → 原料不消费、WU 收尾不阻塞（失败也落运行记录触发 7 天熔断）
+ *   - LLM 失败 / JSON 解析失败 → 原料不消费，run 落 retry-after 并调度；达到上限才 failed
  *   - daily-token-budget 守卫照挂（预算耗尽 → 跳过执行，提案保持 pending 可次日重试）
  *   - 发卡失败静默跳过（提案标记 card-failed，不阻塞后续提案）
  *   - 已有 pending 提案 → 不重复发卡（人去频道处理即可）
@@ -37,10 +37,10 @@
  * #617 拆除：审计对象 custom 纯文本约束已随 ADR-0029 灭绝，无可审对象。
  */
 import { randomUUID } from 'node:crypto';
-import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
+import { eventBus, FileStore } from '@dommaker/studio-shared';
 import type { KnowledgeStore, KnowledgeEntry, SourceRef } from '@dommaker/harness';
 import { evaluateDistillThreshold, EXITED_MATURITY } from './distill-threshold.js';
-import { DistillRunsStore, type DistillRun, type DistillRunLandings } from './distill-runs.js';
+import { DistillRunsStore, type DistillRun, type DistillRunLandings, type DistillRunProduct } from './distill-runs.js';
 import {
   registerDistillReviewAdapters,
   rejectedGcEntryIds,
@@ -48,7 +48,7 @@ import {
   type DistillReviewAdapters,
   type GcProposal,
 } from './review-adapters.js';
-import { submitProposal } from '../review-proposal/index.js';
+import { approveProposal, submitProposal } from '../review-proposal/index.js';
 import type { ApproveOutcome } from '../review-proposal/index.js';
 import type { ReviewProposalRecord } from '../review-proposal/index.js';
 import { generateGcCandidates } from './gc-candidates.js';
@@ -58,9 +58,10 @@ import {
   resolveDailyTokenBudget,
   getDailyTokenUsage,
 } from '../agent-loop/index.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import type { WorkUnitData } from '../workunit/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export type { DistillRun } from './distill-runs.js';
 export type { GcCandidate } from './gc-candidates.js';
@@ -104,8 +105,12 @@ export interface DistillServiceDeps {
   eventsFile: string;
   /** 产物入库后的回调（运行时装配 scheduleVectorDbSync）；可选 */
   onProductsSaved?: (productIds: string[]) => void;
-  /** #145 产物落地通道（运行时装配 distill-landings）；缺省/失败/返回 null → 回落知识条目 */
+  /** #145 产物落地通道（运行时装配 distill-landings）；缺省/返回 null → 回落知识条目 */
   landings?: DistillLandings;
+  /** 临时失败最多执行次数（含首次），默认 3 */
+  maxAttempts?: number;
+  /** retry-after 到下次唤醒的间隔，默认 30s；进程重启由启动恢复接管 */
+  retryDelayMs?: number;
 }
 
 /** #145 产物类型：双通道 + knowledge 回落 */
@@ -119,15 +124,27 @@ export interface NormalizedDistillProduct {
   tags: string[];
 }
 
-/** 落地通道上下文：sourceReferences 原料指针 + 提案/运行回指 */
+/** 落地通道上下文：稳定产物身份 + 已落地 id（供恢复认养/重发卡） */
 export interface DistillLandingCtx {
   materialIds: string[];
   proposalId: string;
   runId: string;
+  productId: string;
+  landingId?: string;
+  recovery: boolean;
 }
 
-/** 落地通道：返回落地产物 id；返回 null / 抛错 → 调用方回落知识条目（产物不丢） */
-export type DistillLanding = (product: NormalizedDistillProduct, ctx: DistillLandingCtx) => Promise<string | null>;
+export interface DistillLandingResult {
+  id: string;
+  /** pending/executed 提案或知识条目可恢复；card-failed 必须为 false */
+  durable: boolean;
+}
+
+/** 返回 null 表示通道不可用可回落；抛错与 durable=false 均进入 retry-after。 */
+export type DistillLanding = (
+  product: NormalizedDistillProduct,
+  ctx: DistillLandingCtx,
+) => Promise<string | DistillLandingResult | null>;
 
 export interface DistillLandings {
   skill?: DistillLanding;
@@ -181,6 +198,8 @@ export class DistillService {
   private subscribed = false;
   private runsStore: DistillRunsStore;
   private reviewAdapters: DistillReviewAdapters;
+  private readonly retries = new Set<string>();
+  private readonly inFlight = new Map<string, Promise<ApproveOutcome>>();
 
   constructor(private deps: DistillServiceDeps) {
     this.runsStore = new DistillRunsStore(deps.fileStore, deps.dataDir);
@@ -203,9 +222,9 @@ export class DistillService {
     if (this.subscribed) return;
     this.subscribed = true;
 
-    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
+    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData; previousStatus?: string }) => {
       const wu = payload.workunit;
-      if (!wu || wu.status !== 'done') return;
+      if (!wu || wu.status !== 'done' || payload.previousStatus === 'done') return;
       // fire-and-forget：门槛检测 + 发卡绝不能阻塞 WU 收尾订阅链
       void this.maybePropose({ workUnitId: wu.id }).catch(err =>
         logger.warn('[Distill] maybePropose failed (non-blocking)', { wuId: wu.id, error: String(err) }),
@@ -273,105 +292,209 @@ export class DistillService {
   }
 
   /**
-   * adapter.onApprove（kind=distill）：预算守卫 → 收集原料 → system-executor 一次蒸馏调用 →
-   * 产物入库（sourceReferences 指向全部原料 id）→ 原料归档 → 运行记录 + 事件。
-   * 墓碑（executed/failed）由 review-proposal 正本按返回 outcome 落；
-   * LLM/解析失败：原料不消费，落 failed 运行记录（同样触发 7 天熔断）。
+   * adapter.onApprove（kind=distill）：先落 triggered/running，再调用模型与落地。
+   * 临时失败落 retry-after，提案保持 pending；达到上限才返回 failed 并由正本落终态墓碑。
    */
   async executeDistill(proposal: ReviewProposalRecord<DistillProposal>): Promise<ApproveOutcome> {
-    const proposalId = proposal.id;
+    const existing = this.inFlight.get(proposal.id);
+    if (existing) return existing;
+    const promise = this.performDistill(proposal).finally(() => this.inFlight.delete(proposal.id));
+    this.inFlight.set(proposal.id, promise);
+    return promise;
+  }
 
-    // 熔断：每日 token 预算超限 → 跳过执行（不消费、不报错；提案保持 pending 可次日重试）
+  private async performDistill(proposal: ReviewProposalRecord<DistillProposal>): Promise<ApproveOutcome> {
+    const proposalId = proposal.id;
     if (await this.isBudgetExhausted()) {
       logger.warn('[Distill] approve skipped: daily token budget exhausted', { proposalId });
       await this.emitEvent({ stage: 'skipped', reason: 'budget-exhausted', proposalId });
       return { status: 'pending', skipped: 'budget-exhausted' };
     }
 
-    // 以库内最新状态为准（提案后原料可能已被其它路径归档/删除）
+    const unfinished = (await this.runsStore.listRuns()).find(run =>
+      run.proposalId === proposalId && ['triggered', 'running', 'retry-after'].includes(run.outcome),
+    );
     const materials = proposal.materialIds
       .map(id => this.deps.store.get(id))
-      .filter((e): e is KnowledgeEntry => !!e && !EXITED_MATURITY.has(e.maturity));
+      .filter((e): e is KnowledgeEntry => !!e && (!EXITED_MATURITY.has(e.maturity) || unfinished !== undefined));
     if (materials.length === 0) {
       await this.emitEvent({ stage: 'failed', reason: 'no-materials', proposalId });
       return { status: 'failed', error: 'no-materials' };
     }
 
     const startMs = Date.now();
-    const runId = randomUUID();
+    let run = unfinished ?? this.buildRun(proposal, 'triggered', [], { id: randomUUID(), attempts: 0 });
+    if (!unfinished) {
+      try {
+        await this.runsStore.appendRun(run);
+      } catch (err) {
+        const nextAttemptAt = new Date(Date.now() + (this.deps.retryDelayMs ?? 30_000)).toISOString();
+        this.scheduleRetry(proposalId, nextAttemptAt);
+        logger.warn('[Distill] failed to persist triggered run', { proposalId, error: String(err) });
+        return { status: 'pending', skipped: 'run-store-unavailable' };
+      }
+    }
+
+    run = {
+      ...run,
+      executedAt: new Date().toISOString(),
+      outcome: 'running',
+      attempts: (run.attempts ?? 0) + 1,
+      nextAttemptAt: undefined,
+      lastError: undefined,
+      error: undefined,
+    };
     try {
-      const parsed = await getSystemExecutor().runJson<{ products?: unknown }>(
-        buildDistillPrompt(materials),
-        // 重 prompt 源：120s 由 SystemExecutor 按源注册表提供（#369）
-        { systemPrompt: DISTILL_SYSTEM_PROMPT, eventSource: 'knowledge-distill' },
-      );
-      const products = normalizeDistillProducts(parsed);
-      const now = new Date().toISOString();
-      const materialIds = materials.map(m => m.id);
+      // 模型调用前必须先持久化 running，崩溃后由启动恢复认养这次尝试。
+      await this.runsStore.appendRun(run);
+      if (run.products === undefined) {
+        const parsed = await getSystemExecutor().runJson<{ products?: unknown }>(
+          buildDistillPrompt(materials),
+          { systemPrompt: DISTILL_SYSTEM_PROMPT, eventSource: 'knowledge-distill' },
+        );
+        run = {
+          ...run,
+          products: normalizeDistillProducts(parsed).map(p => ({
+            ...p, id: randomUUID(), status: 'pending' as const,
+          })),
+        };
+        // 任何产物副作用前先持久化完整清单；后续尝试绝不重跑模型改写身份。
+        await this.runsStore.appendRun(run);
+      }
+      const products = run.products ?? [];
+      const materialIds = run.materialIds;
+      const summarize = (items: DistillRunProduct[]): { productIds: string[]; landings: DistillRunLandings } => {
+        const landings: DistillRunLandings = { knowledge: [], skill: [], memory: [] };
+        for (const item of items) {
+          if (item.landingId) landings[item.bucket ?? this.landingBucket(item.type)].push(item.landingId);
+        }
+        return { productIds: items.flatMap(item => item.landingId ? [item.landingId] : []), landings };
+      };
 
-      // #145 产物落地：按产物类型路由到对应通道；通道未接线/返回 null/抛错 → 回落知识条目
-      const productIds: string[] = [];
-      const landings: DistillRunLandings = { knowledge: [], skill: [], memory: [] };
-      for (const p of products) {
-        const bucket = this.landingBucket(p.type);
+      for (const product of products) {
+        if (product.status === 'durable') continue;
+        const bucket = product.bucket ?? this.landingBucket(product.type);
         const landing = bucket === 'knowledge' ? null : this.deps.landings?.[bucket];
-        let landedId: string | null = null;
+        let landed: { id: string; durable: boolean } | null = null;
         if (landing) {
-          try {
-            landedId = await landing(p, { materialIds, proposalId, runId });
-          } catch (err) {
-            logger.warn('[Distill] landing failed, fallback to knowledge entry', {
-              proposalId, type: p.type, title: p.title, error: String(err),
-            });
-          }
+          const result = await landing(product, {
+            materialIds,
+            proposalId,
+            runId: run.id,
+            productId: product.id,
+            landingId: product.landingId,
+            recovery: unfinished !== undefined,
+          });
+          landed = typeof result === 'string' ? { id: result, durable: true } : result;
+        } else if (product.landingId && bucket !== 'knowledge') {
+          // 已有分类产物但恢复时通道未装配，禁止另落 knowledge 后误归档。
+          throw new Error(`landing-unavailable-for-recovery:${product.landingId}`);
         }
-        if (landedId) {
-          landings[bucket].push(landedId);
-          productIds.push(landedId);
+
+        if (landed) {
+          product.landingId = landed.id;
+          product.bucket = bucket;
+          product.status = landed.durable ? 'durable' : 'pending';
         } else {
-          if (bucket !== 'knowledge') {
-            logger.warn('[Distill] landing unavailable, fallback to knowledge entry', { proposalId, type: p.type, title: p.title });
+          const existing = product.landingId ? this.deps.store.get(product.landingId) : null;
+          if (!existing) {
+            const entry = this.buildProductEntry(product, materials, new Date().toISOString(), product.id);
+            this.deps.store.save(entry);
           }
-          const entry = this.buildProductEntry(p, materials, now);
-          this.deps.store.save(entry);
-          landings.knowledge.push(entry.id);
-          productIds.push(entry.id);
+          product.landingId = product.landingId ?? product.id;
+          product.bucket = 'knowledge';
+          product.status = 'durable';
         }
+        run = { ...run, products: [...products], ...summarize(products) };
+        // 每个产物独立落账：恢复只处理 pending，durable 产物绝不重复调用通道。
+        await this.runsStore.appendRun(run);
+        if (product.status !== 'durable') throw new Error(`landing-card-failed:${product.landingId}`);
       }
 
-      // 蒸馏即消费：有产物才归档原料（空产出不消费，原料留待下轮）
-      if (productIds.length > 0) {
-        for (const m of materials) {
-          this.deps.store.update(m.id, { maturity: 'archived' });
-        }
+      const { productIds, landings } = summarize(products);
+      if (products.length > 0) {
+        if (!products.every(product => product.status === 'durable')) throw new Error('products-not-durable');
+        for (const m of materials) this.deps.store.update(m.id, { maturity: 'archived' });
       }
 
-      const run = this.buildRun(proposal, 'executed', productIds, { id: runId, landings });
+      run = {
+        ...run,
+        executedAt: new Date().toISOString(),
+        outcome: 'succeeded',
+        productIds,
+        landings,
+        nextAttemptAt: undefined,
+        lastError: undefined,
+        error: undefined,
+      };
       await this.runsStore.appendRun(run);
       this.deps.onProductsSaved?.(productIds);
-
-      logger.info('[Distill] run executed', {
+      logger.info('[Distill] run succeeded', {
         proposalId, materialCount: materials.length, productCount: productIds.length, landings, durationMs: Date.now() - startMs,
       });
       await this.emitEvent({
-        stage: 'executed',
-        proposalId,
-        materialIds,
-        productIds,
-        landings,
-        durationMs: Date.now() - startMs,
+        stage: 'executed', proposalId, materialIds, productIds, landings, durationMs: Date.now() - startMs,
       });
-      // 蒸馏运行 = GC 事件源（#144）：每次执行成功的运行后按周期计龄出候选清单（永不抛）
       await this.runGcCheck(run);
       return { status: 'executed', data: { productIds } };
     } catch (err) {
       const message = getErrorMessage(err);
-      logger.warn('[Distill] run failed (materials not consumed)', { proposalId, error: message });
-      const run = this.buildRun(proposal, 'failed', [], { error: message });
-      await this.runsStore.appendRun(run);
-      await this.emitEvent({ stage: 'failed', reason: message, proposalId, durationMs: Date.now() - startMs });
-      // 失败运行不构成蒸馏周期（同 #143 消费基线「失败不推进」口径）→ 不触发 GC
+      const retry = (run.attempts ?? 1) < (this.deps.maxAttempts ?? 3);
+      const nextAttemptAt = retry
+        ? new Date(Date.now() + (this.deps.retryDelayMs ?? 30_000)).toISOString()
+        : undefined;
+      run = {
+        ...run,
+        executedAt: new Date().toISOString(),
+        outcome: retry ? 'retry-after' : 'failed',
+        lastError: message,
+        nextAttemptAt,
+      };
+      try {
+        await this.runsStore.appendRun(run);
+      } catch (storeErr) {
+        logger.warn('[Distill] failed to persist run failure', { proposalId, runId: run.id, error: String(storeErr) });
+      }
+      if (retry) {
+        this.scheduleRetry(proposalId, nextAttemptAt);
+        await this.emitEvent({ stage: 'retry-after', reason: message, proposalId, runId: run.id, nextAttemptAt });
+        return { status: 'pending', skipped: 'retry-after' };
+      }
+      await this.emitEvent({ stage: 'failed', reason: message, proposalId, runId: run.id, durationMs: Date.now() - startMs });
       return { status: 'failed', error: message };
+    }
+  }
+
+  /** 到点重试复用正本审批生命周期，由正本统一写成功/失败墓碑。 */
+  private async retryProposal(proposalId: string): Promise<void> {
+    await approveProposal('distill', proposalId);
+  }
+
+  private scheduleRetry(proposalId: string, nextAttemptAt?: string): void {
+    if (this.retries.has(proposalId)) return;
+    this.retries.add(proposalId);
+    const delay = Math.max(0, (nextAttemptAt ? Date.parse(nextAttemptAt) : Date.now()) - Date.now());
+    const timer = setTimeout(() => {
+      this.retries.delete(proposalId);
+      void this.retryProposal(proposalId).catch(err =>
+        logger.warn('[Distill] scheduled retry failed', { proposalId, error: String(err) }),
+      );
+    }, delay);
+    timer.unref?.();
+  }
+
+  /** 启动恢复磁盘上的未完成 run，并为未到期的 retry-after 重建定时器。 */
+  async recoverPendingRuns(): Promise<void> {
+    const runs = await this.runsStore.listRuns();
+    for (const run of runs) {
+      if (!['triggered', 'running', 'retry-after'].includes(run.outcome)) continue;
+      const proposal = await this.reviewAdapters.distill.store.getProposal(run.proposalId);
+      if (!proposal || proposal.status !== 'pending') continue;
+      if (run.nextAttemptAt && Date.parse(run.nextAttemptAt) > Date.now()) {
+        this.scheduleRetry(run.proposalId, run.nextAttemptAt);
+        continue;
+      }
+      await this.retryProposal(run.proposalId);
     }
   }
 
@@ -398,7 +521,7 @@ export class DistillService {
     try {
       // 蒸馏周期 = 执行成功的运行（失败运行不构成周期，同 #143 消费基线「失败不推进」口径）
       const runs = await this.runsStore.listRuns();
-      const cycles = runs.filter(r => r.outcome === 'executed').map(r => r.executedAt);
+      const cycles = runs.filter(r => r.outcome === 'succeeded' || r.outcome === 'executed').map(r => r.executedAt);
       const result = generateGcCandidates(this.deps.store.list(), cycles);
       if (result.candidates.length === 0) {
         logger.debug('[Distill] GC: no candidates', { runId: triggerRun.id, mainAreaCount: result.mainAreaCount });
@@ -500,6 +623,7 @@ export class DistillService {
     p: { title: string; content: string; tags: string[] },
     materials: KnowledgeEntry[],
     now: string,
+    id: string,
   ): KnowledgeEntry {
     // SourceRef.entryId（harness#23）已落地，直接以 SourceRef[] 构造，去掉强转（#148）
     const sourceReferences: SourceRef[] = materials.map(m => ({
@@ -508,7 +632,7 @@ export class DistillService {
       timestamp: now,
     }));
     return {
-      id: randomUUID(),
+      id,
       type: 'guideline',
       title: p.title,
       content: p.content,
@@ -539,7 +663,7 @@ export class DistillService {
     proposal: DistillProposal,
     outcome: DistillRun['outcome'],
     productIds: string[],
-    extra?: { id?: string; landings?: DistillRunLandings; error?: string },
+    extra?: { id?: string; landings?: DistillRunLandings; error?: string; attempts?: number },
   ): DistillRun {
     return {
       id: extra?.id ?? randomUUID(),
@@ -549,6 +673,7 @@ export class DistillService {
       signals: proposal.signals,
       materialIds: proposal.materialIds,
       productIds,
+      attempts: extra?.attempts ?? 0,
       ...(extra?.landings ? { landings: extra.landings } : {}),
       ...(extra?.error ? { error: extra.error } : {}),
     };

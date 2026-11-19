@@ -7,11 +7,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 
 // Mock @dommaker/studio-shared/node 的 execSh + provider helpers
-const { mockExecSh } = vi.hoisted(() => ({
+const { mockExecSh, mockPrepareAgentSandbox } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
+  mockPrepareAgentSandbox: vi.fn(),
 }));
 const { mockResolveProvider } = vi.hoisted(() => ({
   mockResolveProvider: vi.fn(),
@@ -20,17 +21,22 @@ const { mockBuildArgs } = vi.hoisted(() => ({
   mockBuildArgs: vi.fn(),
 }));
 
-vi.mock('@dommaker/studio-shared/node', () => ({ resolveWorkspacesDir: () => '/tmp/studio-test-workspaces',
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@dommaker/studio-shared/node')>(),
+  resolveWorkspacesDir: () => '/tmp/studio-test-workspaces',
   execSh: mockExecSh,
+  prepareAgentSandbox: mockPrepareAgentSandbox,
   resolveProviderDefinition: mockResolveProvider,
   buildArgsFromTemplate: mockBuildArgs,
   // F1: default-provider → cli-scanner 模块初始化需要（返回空 = 本测试不涉及 CLI 探测）
   listScanProviders: vi.fn(() => []),
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
 import { SystemExecutor, StudioRoleNotConfiguredError, SystemExecutorJsonParseError } from '../system-executor.js';
 import { ensureStudioProfile } from '../agent-profile.service.js';
-import { isSystemRole } from '../system-role.js';
+import { isSystemRole } from '../../../core/system-role.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'system-executor-test-'));
@@ -60,6 +66,10 @@ describe('SystemExecutor', () => {
       promptViaStdin: true,
     });
     mockExecSh.mockReset();
+    mockPrepareAgentSandbox.mockReset();
+    mockPrepareAgentSandbox.mockImplementation(async ({ command, env }) => ({
+      command, env: { ...env, STUDIO_AGENT_TOKEN: 'sta_fake_sec05' }, dispose: vi.fn().mockResolvedValue(undefined),
+    }));
   });
 
   afterEach(() => {
@@ -274,7 +284,8 @@ describe('SystemExecutor', () => {
       await withStudioClaude();
       mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
 
-      const infoSpy = vi.spyOn(logger, 'info');
+      // logger 是模块级共享 mock：spyOn 复用同一 vi.fn，先清掉前序用例的累积调用
+      const infoSpy = vi.spyOn(logger, 'info').mockClear();
       try {
         await executor.run('test', { eventSource: 'knowledge-maintenance' });
         expect(infoSpy).toHaveBeenCalledTimes(1);
@@ -310,7 +321,7 @@ describe('SystemExecutor', () => {
       fs.mkdirSync(dirAsEventsFile);
       const badExecutor = new SystemExecutor(fileStore, dirAsEventsFile);
 
-      const warnSpy = vi.spyOn(logger, 'warn');
+      const warnSpy = vi.spyOn(logger, 'warn').mockClear();
       try {
         const result = await badExecutor.run('test');
         expect(result.output).toBe(stdout);
@@ -331,7 +342,7 @@ describe('SystemExecutor', () => {
       fs.mkdirSync(dirAsEventsFile);
       const badExecutor = new SystemExecutor(fileStore, dirAsEventsFile);
 
-      const warnSpy = vi.spyOn(logger, 'warn');
+      const warnSpy = vi.spyOn(logger, 'warn').mockClear();
       try {
         await badExecutor.run('test', { eventSource: 'knowledge-distill' });
         expect(warnSpy).toHaveBeenCalledWith(
@@ -359,6 +370,33 @@ describe('SystemExecutor', () => {
         expect.any(String),
         expect.objectContaining({ cwd: '/tmp/test-cwd' }),
       );
+    });
+
+    it('SEC-05：SystemExecutor 不继承控制面秘密，且关闭 execSh 隐式环境继承', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => isSystemRole(p))!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+      const saved = { ...process.env };
+      process.env.JWT_SECRET = 'fake-jwt-secret-sec05';
+      process.env.DEPLOY_WEBHOOK_SECRET = 'fake-deploy-secret-sec05';
+      process.env.ANTHROPIC_API_KEY = 'fake-provider-secret-sec05';
+      try {
+        await executor.run('test');
+        const opts = mockExecSh.mock.calls[0][1];
+        expect(opts.inheritProcessEnv).toBe(false);
+        expect(opts.env.JWT_SECRET).toBeUndefined();
+        expect(opts.env.DEPLOY_WEBHOOK_SECRET).toBeUndefined();
+        expect(opts.env.ANTHROPIC_API_KEY).toBe('fake-provider-secret-sec05');
+        expect(opts.env.STUDIO_AGENT_TOKEN).toBe('sta_fake_sec05');
+        expect(Object.values(opts.env)).not.toContain('fake-jwt-secret-sec05');
+        expect(mockPrepareAgentSandbox).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude' }));
+        const sandbox = await mockPrepareAgentSandbox.mock.results[0].value;
+        expect(sandbox.dispose).toHaveBeenCalledTimes(1);
+      } finally {
+        process.env = saved;
+      }
     });
 
     it('env 注入 IS_SANDBOX=1（root guard 放行；host 已设则尊重 host）', async () => {

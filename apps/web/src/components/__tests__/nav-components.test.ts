@@ -14,8 +14,8 @@ describe('MR-007 导航组件导入', () => {
     expect(typeof MoreDropdown).toBe('function');
   });
 
-  it('SidebarNew 应能正常导入', async () => {
-    const { Sidebar } = await import('../SidebarNew');
+  it('Sidebar 应能正常导入', async () => {
+    const { Sidebar } = await import('../Sidebar');
     expect(Sidebar).toBeDefined();
     expect(typeof Sidebar).toBe('function');
   });

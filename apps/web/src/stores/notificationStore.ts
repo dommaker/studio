@@ -215,8 +215,6 @@ export const useNotificationStore = create<ActionCenterState>((set, get) => ({
         (!n.read && n.channelId === channelId) ? { ...n, read: true } : n),
       unreadCount: Math.max(0, state.unreadCount - targets.length),
     }));
-    for (const t of targets) {
-      api.post(`/notifications/${t.id}/read`).catch(() => { /* 本地已乐观更新 */ });
-    }
+    api.post('/notifications/read', { ids: targets.map(t => t.id) }).catch(() => { /* 本地已乐观更新 */ });
   },
 }));

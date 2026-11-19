@@ -82,7 +82,7 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
           messages.map(msg => (
             <div key={msg.id} className="text-xs">
               <div className="flex items-center gap-1.5">
-                <AuthorAvatar isHuman={msg.authorType !== 'agent'} agentName={msg.agentName} />
+                <AuthorAvatar isHuman={msg.authorType !== 'agent'} agentName={msg.agentName ?? undefined} />
                 <span className={`font-medium ${msg.authorType === 'agent' ? 'u-accent' : 'u-accent'}`}>
                   {msg.authorType === 'agent' ? (msg.agentName || 'Agent') : 'Human'}
                 </span>

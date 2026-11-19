@@ -239,6 +239,87 @@ describe('getLibraryDoc', () => {
     expect(await getLibraryDoc('proj-a:legacy-sdd/../specs')).toBeNull();
     expect(await getLibraryDoc('proj-a:legacy-sdd/a/b')).toBeNull();
   });
+
+  it('legacy symlink 按缺文档降级：详情 null，列表不整仓跳过且不泄露越界内容', async () => {
+    const requirement = path.join(repoA, '.studio/legacy-sdd/old-doc/requirement.md');
+    const original = path.join(repoA, '.studio/legacy-sdd/old-doc/requirement-original.md');
+    const outside = path.join(tmpRoot, 'legacy-outside.md');
+    write(outside, 'legacy outside sentinel');
+    fs.renameSync(requirement, original);
+    fs.symlinkSync(outside, requirement);
+    try {
+      expect(await getLibraryDoc('proj-a:legacy-sdd/old-doc')).toBeNull();
+      const docs = await listLibraryDocs({ projectId: 'proj-a' });
+      expect(docs.some(d => d.id === 'proj-a:specs/spec-a.md')).toBe(true);
+      expect(docs.some(d => d.id === 'proj-a:legacy-sdd/old-doc')).toBe(false);
+      expect(fs.readFileSync(outside, 'utf8')).toBe('legacy outside sentinel');
+    } finally {
+      fs.rmSync(requirement, { force: true });
+      fs.renameSync(original, requirement);
+    }
+  });
+
+  it('最终文档 symlink 不读取越界内容', async () => {
+    const outside = path.join(tmpRoot, 'library-outside.md');
+    const linked = path.join(repoA, '.studio/specs/outside-link.md');
+    write(outside, 'outside sentinel');
+    fs.symlinkSync(outside, linked);
+    try {
+      expect(await getLibraryDoc('proj-a:specs/outside-link.md')).toBeNull();
+      expect((await listLibraryDocs({})).some(d => d.id === 'proj-a:specs/outside-link.md')).toBe(false);
+      expect(fs.readFileSync(outside, 'utf8')).toBe('outside sentinel');
+    } finally {
+      fs.rmSync(linked, { force: true });
+    }
+  });
+
+  it('真实父目录为 symlink 时列表和详情均不读取越界内容', async () => {
+    const specs = path.join(repoA, '.studio/specs');
+    const original = path.join(repoA, '.studio/specs-original');
+    const outside = path.join(tmpRoot, 'library-outside-specs');
+    write(path.join(outside, 'outside.md'), 'outside sentinel');
+    fs.renameSync(specs, original);
+    fs.symlinkSync(outside, specs);
+    try {
+      expect(await getLibraryDoc('proj-a:specs/outside.md')).toBeNull();
+      expect((await listLibraryDocs({})).some(d => d.id === 'proj-a:specs/outside.md')).toBe(false);
+      expect(fs.readFileSync(path.join(outside, 'outside.md'), 'utf8')).toBe('outside sentinel');
+    } finally {
+      fs.rmSync(specs, { force: true });
+      fs.renameSync(original, specs);
+    }
+  });
+
+  it('检查后文档被替换为 symlink 时不返回越界内容', async () => {
+    const target = path.join(repoA, '.studio/specs/race.md');
+    const original = path.join(repoA, '.studio/specs/race-original.md');
+    const outside = path.join(tmpRoot, 'library-race-outside.md');
+    write(target, '# 合法正文');
+    write(outside, 'outside sentinel');
+    const replaceWithSymlink = () => {
+      if (fs.existsSync(original)) return;
+      fs.renameSync(target, original);
+      fs.symlinkSync(outside, target);
+    };
+    const realpath = fs.promises.realpath.bind(fs.promises);
+    const readFile = fs.promises.readFile.bind(fs.promises);
+    vi.spyOn(fs.promises, 'realpath').mockImplementation(async targetPath => {
+      replaceWithSymlink();
+      return realpath(targetPath);
+    });
+    vi.spyOn(fs.promises, 'readFile').mockImplementation(async (...args) => {
+      replaceWithSymlink();
+      return readFile(...args);
+    });
+    try {
+      expect(await getLibraryDoc('proj-a:specs/race.md')).toBeNull();
+      expect(fs.readFileSync(outside, 'utf8')).toBe('outside sentinel');
+    } finally {
+      vi.restoreAllMocks();
+      fs.rmSync(target, { force: true });
+      if (fs.existsSync(original)) fs.renameSync(original, target);
+    }
+  });
 });
 
 // ── #321：FileStore 读穿 seam 行为 ──

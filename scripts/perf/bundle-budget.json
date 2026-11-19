@@ -1,0 +1,18 @@
+{
+  "comment": "bundle 预算正本（#674）：vite build 产物 size 断言，CI 超预算即红。阈值 = 基线实测 + ~20-25% 余量；原始字节口径（非 gzip），KB = 1024 B。基线测量 commit 2f34b4e2（2026-11-19，重钉；上一版 8e415aa9/2026-10-08）。调预算 = 改本文件，在 commit message 说明理由。",
+  "measured": {
+    "commit": "2f34b4e2",
+    "totalJsKb": 1096.5,
+    "entryJsKb": 128.2,
+    "maxChunkKb": 286.6,
+    "maxChunkName": "vendor-utils-*.js",
+    "totalCssKb": 96.8,
+    "jsFileCount": 64
+  },
+  "budget": {
+    "totalJsKb": 1370,
+    "entryJsKb": 160,
+    "maxChunkKb": 360,
+    "totalCssKb": 125
+  }
+}

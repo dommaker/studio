@@ -1,14 +1,15 @@
 /**
- * specs 域契约——正本字段以 packages/studio-spec 的 types/change.types.ts
+ * specs 域契约——字段正本在 apps/api/src/modules/specs 的 types/change.types.ts
  * （AnalyzeChangeResult/ChangeRecord/SpecContent）与 types/gate.types.ts
- * （ValidateChangeResult/GatePolicy/CheckResult）、services/change-history.service.ts
- * （getStats）为准。studio-spec 引 harness/Node 依赖，契约包只重声明 wire 形状不 import。
+ * （ValidateChangeResult/GatePolicy/CheckResult）、change-history.service.ts
+ * （getStats）。正本引 harness/Node 依赖，contract 不可反向 import，
+ * 故 schema 即 wire 正本（无第二声明）。
  *
  * wire 形状（defineRoute 统一壳后）：
  * - 全部 JSON 端点 `{ data: T }`（原已带壳，形状不变）
  * - GET /:id/changes 走统一分页壳 `{ data, pagination }`（原 sendPaginated 同形状）
  * - GET /:id/changes/export 为附件下载（Content-Disposition），handler 自写 res，不进壳
- * - ChangeRecord 的 Date 字段（submittedAt/approvedAt/appliedAt）wire 上为 ISO 串
+ * - ChangeRecord 与内存型有意不同构：Date 字段（submittedAt/approvedAt/appliedAt）wire 上为 ISO 串
  */
 
 import { z } from 'zod';
@@ -39,9 +40,9 @@ export const specContentSchema = z.object({
       request: z.string().optional(),
       response: z.string().optional(),
     }).passthrough()).optional(),
-    schemas: z.record(z.object({
+    schemas: z.record(z.string(), z.object({
       type: z.string(),
-      properties: z.record(z.unknown()).optional(),
+      properties: z.record(z.string(), z.unknown()).optional(),
     }).passthrough()).optional(),
   }).passthrough().optional(),
   acceptance_criteria: z.array(z.object({
@@ -93,7 +94,7 @@ export const changeRecordSchema = z.object({
   summary: z.string(),
   status: z.enum(['pending', 'auto_approved', 'approved', 'rejected', 'applied']),
   submittedBy: z.string(),
-  /** Date 序列化为 ISO 串 */
+  /** Date 序列化为 ISO 串（与内存型有意不同构） */
   submittedAt: z.string(),
   approvedBy: z.string().optional(),
   approvedAt: z.string().optional(),
@@ -108,7 +109,7 @@ export type ChangeRecordWire = z.infer<typeof changeRecordSchema>;
 export const changeStatsSchema = z.object({
   total: z.number(),
   byLevel: z.object({ L1: z.number(), L2: z.number(), L3: z.number(), L4: z.number() }),
-  byStatus: z.record(z.number()),
+  byStatus: z.record(z.string(), z.number()),
   recentChanges: z.array(changeRecordSchema),
 });
 export type ChangeStatsWire = z.infer<typeof changeStatsSchema>;
@@ -119,7 +120,7 @@ export const checkResultSchema = z.object({
   type: z.string(),
   passed: z.boolean(),
   message: z.string(),
-  details: z.record(z.unknown()).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
 });
 export type CheckResultWire = z.infer<typeof checkResultSchema>;
 
@@ -177,13 +178,54 @@ export const analyzeChangeBodySchema = z.object({
 });
 export type AnalyzeChangeBody = z.infer<typeof analyzeChangeBodySchema>;
 
+/**
+ * harness 通用检查按 type 的必填 config 字段（harness 4.0.0 CheckConfig 判别联合口径，
+ * 对齐 harness assertCheckpointShape fail-fast）：缺字段入站 400 点名，
+ * 不再落到运行时 || '' 静默兜底。
+ */
+const HARNESS_CHECK_REQUIRED_FIELDS: Record<string, readonly string[]> = {
+  file_exists: ['path'],
+  file_contains: ['path', 'content'],
+  command_success: ['command'],
+  output_matches: ['pattern'],
+};
+
 /** POST /changes/:changeId/validate（全可选；checkpoints 缺省按变更级别取策略） */
 export const validateChangeBodySchema = z.object({
   checkpoints: z.array(z.string()).optional(),
   harnessConfigs: z.array(z.object({
     type: z.string(),
-    harness: z.record(z.unknown()).optional(),
-  }).passthrough()).optional(),
+    harness: z.record(z.string(), z.unknown()).optional(),
+  }).passthrough().superRefine((entry, ctx) => {
+    if (entry.type === 'command_success') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['type'],
+        message: 'Spec HTTP 门禁不接受宿主命令检查',
+      });
+    }
+    for (const field of ['command', 'workdir'] as const) {
+      if (entry.harness && field in entry.harness) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['harness', field],
+          message: `Spec HTTP 门禁不接受 harness.${field}`,
+        });
+      }
+    }
+    const required = HARNESS_CHECK_REQUIRED_FIELDS[entry.type];
+    if (!required) return;
+    for (const field of required) {
+      const value = entry.harness?.[field];
+      if (typeof value !== 'string' || value === '') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['harness', field],
+          message: `${entry.type} 检查缺少必填配置项 harness.${field}`,
+        });
+      }
+    }
+  })).optional(),
   strictMode: z.boolean().optional(),
 });
 export type ValidateChangeBody = z.infer<typeof validateChangeBodySchema>;
@@ -200,7 +242,7 @@ export const analyzeChangeResponseSchema = dataBodySchema(analyzeChangeResultSch
 export const changeRecordResponseSchema = dataBodySchema(changeRecordSchema);
 export const validateChangeResponseSchema = dataBodySchema(validateChangeResultSchema);
 export const gatePolicyResponseSchema = dataBodySchema(gatePolicySchema);
-export const gatePolicyMapResponseSchema = dataBodySchema(z.record(gatePolicySchema));
+export const gatePolicyMapResponseSchema = dataBodySchema(z.record(z.string(), gatePolicySchema));
 export const specChangeListResponseSchema = paginatedBodySchema(changeRecordSchema);
 export const changeStatsResponseSchema = dataBodySchema(changeStatsSchema);
 export const importChangesResponseSchema = dataBodySchema(importChangesResultSchema);

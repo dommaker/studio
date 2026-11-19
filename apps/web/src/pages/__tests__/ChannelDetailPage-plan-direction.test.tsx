@@ -36,8 +36,8 @@ vi.mock('../../api/requirements', () => ({
   requirementApi: { list: mockListReqs },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => null }));
@@ -57,7 +57,7 @@ const MESSAGES = [
   {
     id: 'msg-pd-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'Planner',
     content: '需要输入: 方向锁定——请选定本票方向', workUnitId: 'wu-plan-1', replyToId: null,
-    meta: JSON.stringify({ cardType: 'plan_direction' }),
+    meta: { cardType: 'plan_direction' },
     createdAt: new Date().toISOString(),
   },
 ];

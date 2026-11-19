@@ -6,7 +6,7 @@
 
 ### 目录结构
 
-- `knowledge-curator.service.ts` — 门面（冷启动 + 每日维护调度；`knowledgeCurator` 单例 + `getExtractFromTextSystemPrompt` 提取 prompt 单一来源）
+- `knowledge-curator.service.ts` — 门面（冷启动 + 每日维护调度；`getKnowledgeCurator()` 单例（createLazyService 惰性，禁 import 期捕获） + `getExtractFromTextSystemPrompt` 提取 prompt 单一来源）
 - `knowledge-cold-start.ts` — 四源导入（docs/code/git/manual）
 - `knowledge-extraction.ts` — 提取 prompt 单一来源
 - `knowledge-maintenance.ts` — 语义去重/质量评估/过期验证/矛盾审查
@@ -14,12 +14,12 @@
 
 ### 核心导出
 
-- `index.ts` — 模块公共出口 barrel：`knowledgeCurator`、`getExtractFromTextSystemPrompt`
+- `index.ts` — 模块公共出口 barrel：`getKnowledgeCurator`、`getExtractFromTextSystemPrompt`
 
 ### 依赖关系
 
-- 上游：`modules/agents`（barrel：getSystemExecutor，轻量 LLM 直调）、`modules/knowledge`（引擎本体）、`core/store`、`utils/discord-notifier`
-- 下游：`bootstrap/warmup.ts`（冷启动导入）、`modules/knowledge`（maintenance.routes 每日维护触发 / knowledge-service 复用提取 prompt，均动态 import）、`modules/agent-monitor`（monitor-system-probes 知识健康检查，动态 import）
+- 上游：`modules/agents`（barrel：getSystemExecutor，轻量 LLM 直调）、`modules/knowledge`（引擎本体）、`core/store`、`modules/notifications`（discordNotifier）
+- 下游：`bootstrap/warmup.ts`（冷启动导入）、`modules/knowledge`（maintenance.routes 每日维护触发 / knowledge-service 复用提取 prompt，均动态 import）、`modules/ops`（monitor-system-probes 知识健康检查，动态 import；#683 起 monitor 并入 ops）
 
 ### 注意事项
 

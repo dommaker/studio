@@ -10,7 +10,7 @@ const iso = (offsetMin: number) => new Date(t0 + offsetMin * 60000).toISOString(
 
 const msg = (id: string, over: Partial<ChannelMessage> = {}): ChannelMessage => ({
   id, channelId: 'ch-1', authorType: 'agent', agentName: 'pm',
-  content: `内容-${id}`, replyToId: null, meta: '{}', createdAt: iso(0), ...over,
+  content: `内容-${id}`, replyToId: null, meta: {}, createdAt: iso(0), ...over,
 });
 
 const ui = (over: Partial<StreamUiState> = {}): StreamUiState => ({
@@ -24,7 +24,7 @@ const ui = (over: Partial<StreamUiState> = {}): StreamUiState => ({
 });
 
 const doneMsg = (id: string, offsetMin: number) =>
-  msg(id, { meta: JSON.stringify({ status: 'done' }), createdAt: iso(offsetMin) });
+  msg(id, { meta: { status: 'done' }, createdAt: iso(offsetMin) });
 
 const itemsOf = (view: { items: StreamItem[] }) => view.items;
 const messageItems = (view: { items: StreamItem[] }) =>
@@ -61,7 +61,7 @@ describe('deriveStreamView — 可见性（已完成折叠）', () => {
   it('completed 判定覆盖全部终态 status', () => {
     const statuses = ['done', 'confirmed', 'rejected', 'deprecated', 'error'];
     const view = deriveStreamView(
-      statuses.map((s, i) => msg(`s${i}`, { meta: JSON.stringify({ status: s }), createdAt: iso(i) })),
+      statuses.map((s, i) => msg(`s${i}`, { meta: { status: s }, createdAt: iso(i) })),
       ui(),
     );
     expect(view.completedCount).toBe(5);
@@ -264,7 +264,7 @@ describe('deriveStreamView — 连续合并（compact）', () => {
       msg('m1', { createdAt: iso(2) }),
       msg('card', {
         createdAt: iso(3),
-        meta: JSON.stringify({ cardType: 'knowledge_proposal', status: 'ready' }),
+        meta: { cardType: 'knowledge_proposal', status: 'ready' },
       }),
       msg('m2', { createdAt: iso(4) }),
     ], ui());
@@ -318,7 +318,7 @@ describe('deriveStreamView — 线程内过程消息折叠', () => {
       ...[6, 7, 8].map(i => msg(`p${i}`, { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(i - 1) })),
       msg('card9', {
         workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(8),
-        meta: JSON.stringify({ cardType: 'knowledge_proposal', status: 'ready' }),
+        meta: { cardType: 'knowledge_proposal', status: 'ready' },
       }),
       ...[10, 11, 12].map(i => msg(`p${i}`, { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(i - 1) })),
       msg('w13', { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(12) }),
@@ -481,7 +481,7 @@ describe('isMonitorAlert（Phase 3 AC3 判定）', () => {
     expect(isMonitorAlert(msg('b1', { agentName: 'pm', content: '[CRITICAL] x' }), noWait)).toBe(false);
     expect(isMonitorAlert(msg('b2', {
       agentName: 'Studio', content: '[CRITICAL] x',
-      meta: JSON.stringify({ cardType: 'knowledge_proposal' }),
+      meta: { cardType: 'knowledge_proposal' },
     }), noWait)).toBe(false);
     expect(isMonitorAlert(msg('b3', { agentName: 'Studio', content: '[CRITICAL] x' }), () => true)).toBe(false);
     expect(isMonitorAlert(msg('b4', { agentName: 'Studio', content: '[INFO] x' }), noWait)).toBe(false);
@@ -544,7 +544,7 @@ describe('deriveStreamView — 性能特征（F1 防回归）', () => {
     const messages = Array.from({ length: 2000 }, (_, i) => {
       const base = msg(`p1-${i}`, { createdAt: iso(i) });
       if (i % 7 === 3) return { ...base, replyToId: `p1-${i - 2}`, workUnitId: 'WU-x' };
-      return i % 2 === 0 ? { ...base, meta: JSON.stringify({ status: 'done' }) } : base;
+      return i % 2 === 0 ? { ...base, meta: { status: 'done' } } : base;
     });
     // 生产场景 = 每条消息到达全量重算、绝大部分消息已见过 → 先跑一趟温热日期串缓存，
     // 基准量第二趟（温热态）；旧实现无缓存，温热 ≈ 冷态（本机实测 ~195ms），本断言对其为 RED

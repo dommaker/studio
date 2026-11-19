@@ -13,7 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { createRequirementRoutes } from '../requirement.routes.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 let tmpDir: string;
 let fileStore: FileStore;

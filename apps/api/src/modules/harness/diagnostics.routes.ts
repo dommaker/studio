@@ -15,7 +15,7 @@
 
 import { Router } from 'express';
 import { defineRoute, HttpError } from '../../core/http.js';
-import { classifyBodySchema, failureRecordBodySchema } from '@dommaker/studio-contract';
+import { classifyBodySchema, failureRecordBodySchema, classifyResponseSchema, failureRecordResponseSchema } from '@dommaker/studio-contract';
 import { loadHarness, harnessModule } from './runtime.js';
 
 export const diagnosticsRoutes = Router();
@@ -29,7 +29,7 @@ const HARNESS_UNAVAILABLE = () => new HttpError(503, 'SERVICE_UNAVAILABLE', 'Har
  * Classify an error using harness ErrorClassifier
  */
 diagnosticsRoutes.post('/classify', defineRoute(
-  { body: classifyBodySchema },
+  { body: classifyBodySchema, response: classifyResponseSchema },
   async (_req, _res, { body }) => {
     const loaded = await loadHarness();
     if (!loaded) throw HARNESS_UNAVAILABLE();
@@ -51,7 +51,7 @@ diagnosticsRoutes.post('/classify', defineRoute(
  * Record a failure
  */
 diagnosticsRoutes.post('/failures', defineRoute(
-  { body: failureRecordBodySchema },
+  { body: failureRecordBodySchema, response: failureRecordResponseSchema },
   async (_req, _res, { body }) => {
     const loaded = await loadHarness();
     if (!loaded) throw HARNESS_UNAVAILABLE();

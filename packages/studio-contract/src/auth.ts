@@ -1,9 +1,11 @@
 /**
- * auth 域契约（批次 6/7；敏感域）——正本以 apps/api/src/modules/auth/
- * routes.ts + service.ts（AuthResult/SafeUser/SessionData）实测 wire 与
- * 前端 authStore 实际消费双端核对为准。
+ * auth 域契约（批次 6/7；敏感域）——本文件 schema 即 wire 正本（#685 归一：
+ * 手写 interface 双写层退役，z.infer alias 与 apps/api/src/modules/auth/
+ * service.ts 的 SafeUser/SessionData/AuthResult 对齐，经 routes.ts 实测 wire
+ * 与前端 authStore 实际消费双端核对）。
  *
- * 八个端点（route-registry /api/v1/auth 公开挂载，路由内自挂中间件）：
+ * 九个端点（route-registry /api/v1/auth 公开挂载，路由内自挂中间件）：
+ *   POST /stream-ticket  requireAuth + requireRole('Admin')；短期资源绑定票据
  *   GET  /status         optionalAuth；STUDIO_AUTH=none 短路本地用户
  *   POST /guest-session  创建或复用 Guest Session
  *   POST /register       authRateLimit；REGISTER_ENABLED!=true → 403
@@ -28,74 +30,43 @@ import { dataBodySchema } from './envelope.js';
 
 // ── 实体 ──
 
-/** SafeUser wire（service.sanitizeUser = UserData 去 passwordHash）。
- * 手写 interface（前端 authStore 按必填消费 id/email/role）；parity 测试见 __tests__ */
-export interface AuthUser {
-  id: string;
-  email: string;
-  name: string | null;
-  avatar: string | null;
-  /** 数据文件原值（实测词表 Guest/User/Admin；契约不收窄，前端 as 收回） */
-  role: string;
-  emailVerified: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+/** SafeUser wire（service.sanitizeUser = UserData 去 passwordHash）；
+ * 前端 authStore 按必填消费 id/email/role */
 export const authUserSchema = z.object({
   id: z.string(),
   email: z.string(),
   name: z.string().nullable(),
   avatar: z.string().nullable(),
+  /** 数据文件原值（实测词表 Guest/User/Admin；契约不收窄，前端 as 收回） */
   role: z.string(),
   emailVerified: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+export type AuthUser = z.infer<typeof authUserSchema>;
 
-/** SessionData wire（AuthResult.session / GET /me 的 session）。
- * 手写 interface（前端 authStore 按必填消费 id/expiresAt）；parity 测试见 __tests__ */
-export interface AuthSession {
-  id: string;
-  userId: string | null;
-  token: string;
-  guestId: string | null;
-  ipAddress: string | null;
-  userAgent: string | null;
-  expiresAt: string;
-  createdAt: string;
-  /** 响应面恒 null（refreshToken 落最近 session 存储，不回读进响应对象） */
-  refreshToken: string | null;
-}
+/** PublicSession wire：只含元数据，凭证仅走约定顶层字段。 */
 export const authSessionSchema = z.object({
   id: z.string(),
   userId: z.string().nullable(),
-  token: z.string(),
   guestId: z.string().nullable(),
-  ipAddress: z.string().nullable(),
-  userAgent: z.string().nullable(),
   expiresAt: z.string(),
   createdAt: z.string(),
-  refreshToken: z.string().nullable(),
 });
+export type AuthSession = z.infer<typeof authSessionSchema>;
 
-/** login/register/guest-session 响应 data（service AuthResult）。
- * 手写 interface（含手写实体子树；前端 authStore 按必填消费 token/session） */
-export interface AuthResult {
-  /** guest-session 新建 guest 时无 user；login/register 恒有 */
-  user?: AuthUser;
-  session: AuthSession;
-  token: string;
-  isNewUser?: boolean;
-  /** 仅 login/register 返回（guest-session 无） */
-  refreshToken?: string;
-}
+/** login/register/guest-session 响应 data（service AuthResult）；
+ * 前端 authStore 按必填消费 token/session */
 export const authResultSchema = z.object({
+  /** guest-session 新建 guest 时无 user；login/register 恒有 */
   user: authUserSchema.optional(),
   session: authSessionSchema,
   token: z.string(),
   isNewUser: z.boolean().optional(),
+  /** 仅 login/register 返回（guest-session 无） */
   refreshToken: z.string().optional(),
 });
+export type AuthResult = z.infer<typeof authResultSchema>;
 
 /** GET /status 响应 data 的 user 段（{ id, name, role } 投影，非完整 AuthUser） */
 export const authStatusUserSchema = z.object({
@@ -112,27 +83,20 @@ export const authStatusResultSchema = z.object({
 });
 export type AuthStatusResult = z.infer<typeof authStatusResultSchema>;
 
-/** GET /me 响应 data（手写：含手写实体子树） */
+/** GET /me 响应 data */
 export const authMeResultSchema = z.object({
   user: authUserSchema.nullable(),
   session: authSessionSchema.nullable(),
 });
-export interface AuthMeResult {
-  user: AuthUser | null;
-  session: AuthSession | null;
-}
+export type AuthMeResult = z.infer<typeof authMeResultSchema>;
 
-/** POST /refresh 响应 data（手写：前端拦截器按必填消费 accessToken/refreshToken） */
+/** POST /refresh 响应 data（前端拦截器按必填消费 accessToken/refreshToken） */
 export const authRefreshResultSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
   userId: z.string(),
 });
-export interface AuthRefreshResult {
-  accessToken: string;
-  refreshToken: string;
-  userId: string;
-}
+export type AuthRefreshResult = z.infer<typeof authRefreshResultSchema>;
 
 // ── 请求 ──
 
@@ -161,11 +125,23 @@ export const refreshBodySchema = z.object({
 });
 export type RefreshBody = z.infer<typeof refreshBodySchema>;
 
+export const streamTicketBodySchema = z.object({
+  resource: z.string().min(1),
+});
+export type StreamTicketBody = z.infer<typeof streamTicketBodySchema>;
+
+export const streamTicketResultSchema = z.object({
+  token: z.string(),
+  expiresIn: z.number().int().positive(),
+});
+export type StreamTicketResult = z.infer<typeof streamTicketResultSchema>;
+
 // ── 响应（统一 `{ data }` 壳）──
 
 export const authStatusResponseSchema = dataBodySchema(authStatusResultSchema);
 export const authResultResponseSchema = dataBodySchema(authResultSchema);
 export const authMeResponseSchema = dataBodySchema(authMeResultSchema);
 export const authRefreshResponseSchema = dataBodySchema(authRefreshResultSchema);
+export const streamTicketResponseSchema = dataBodySchema(streamTicketResultSchema);
 export const logoutResponseSchema = dataBodySchema(z.object({ success: z.boolean() }));
 export const cleanupResponseSchema = dataBodySchema(z.object({ cleaned: z.number() }));

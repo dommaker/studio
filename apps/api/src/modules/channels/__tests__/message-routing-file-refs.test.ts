@@ -12,8 +12,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
-import { readStudioEvents, parseStudioEventPayload } from '../../../utils/studio-events.js';
+import { getChannelMessageService } from '../channel-message.service.js';
+import { WorkUnitService } from '../../workunit/index.js';
+import { readStudioEvents, parseStudioEventPayload } from '@dommaker/studio-shared';
 import {
   invalidateFileRefVocabularyCache,
   type FileRefVocabularyDeps,
@@ -61,7 +62,7 @@ beforeEach(async () => {
     discordChannelId: null, discordWebhookUrl: null,
     members: '[]', createdAt: now(), updatedAt: now(),
   });
-  channelMessageService.setFileStore(fileStore);
+  getChannelMessageService().setFileStore(fileStore);
   invalidateFileRefVocabularyCache();
 });
 
@@ -187,6 +188,26 @@ describe('路由层文件引用校验（#281）', () => {
       fileRefDeps: makeDeps(),
     });
     expect(parseMeta(reply.meta).files).toEqual([{ repo: '/repo/default', path: 'src/a.ts' }]);
+  });
+
+  it('线程回复与文件引用只追加上下文，不扩大既有 Mandate', async () => {
+    await createDevProfile();
+    const requestedBy = { id: 'operator-1', type: 'Operator' } as const;
+    const dispatch = await routeMessage(channelId, '@dev 实现功能', undefined, {
+      fs: fileStore, requestedBy,
+    });
+    const before = await new WorkUnitService(fileStore).getById(dispatch.workUnitId!);
+
+    await routeMessage(channelId, '补充这个文件的上下文', dispatch.id, {
+      fs: fileStore,
+      requestedBy,
+      files: [{ repo: '/repo/default', path: 'src/a.ts' }],
+      fileRefDeps: makeDeps(),
+    });
+
+    const after = await new WorkUnitService(fileStore).getById(dispatch.workUnitId!);
+    expect(after?.mandate).toEqual(before?.mandate);
+    expect(after?.mandate?.requestedBy).toEqual(requestedBy);
   });
 });
 

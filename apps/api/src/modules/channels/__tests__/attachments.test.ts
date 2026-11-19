@@ -15,6 +15,11 @@ import * as os from 'node:os';
 import express from 'express';
 import type { Server } from 'node:http';
 import { FileStore } from '@dommaker/studio-shared';
+import jwt from 'jsonwebtoken';
+import { studioDir } from '@dommaker/studio-shared/studio-dir';
+import { getStore } from '../../../core/store.js';
+import { issueStreamTicket } from '../../../middleware/stream-ticket.js';
+import { JWT_SECRET } from '../../auth/service.js';
 
 let tmpDir: string;
 let server: Server;
@@ -33,7 +38,9 @@ beforeAll(async () => {
 
   const { channelReadRoutes, channelWriteRoutes, channelAttachmentRoutes } = await import('../channel.routes.js');
   const { requireAuth, requireNotGuest } = await import('../../../middleware/auth.js');
+  const { streamTicketAuth } = await import('../../../middleware/stream-ticket.js');
   const app = express();
+  app.use('/api/v1', streamTicketAuth);
   // P2-e：镜像 route-registry 挂载姿态（attachment 先挂 + read 挂 requireAuth + write 挂 authNotGuest）
   app.use('/api/v1/channels', channelAttachmentRoutes, requireAuth(), channelReadRoutes, requireNotGuest(), channelWriteRoutes);
   await new Promise<void>(resolve => {
@@ -123,6 +130,31 @@ describe('GET /channels/:id/attachments/:attachmentId', () => {
     expect(res.headers.get('content-type')).toBe('image/png');
     const buf = Buffer.from(await res.arrayBuffer());
     expect(buf.equals(PNG_BYTES)).toBe(true);
+  });
+
+  it('短期资源票据取图成功，重放/跨资源/长期 JWT query 均 401', async () => {
+    const up = await upload({ mime: 'image/png', dataBase64: PNG_BYTES.toString('base64') });
+    const { data } = await up.json();
+    const resource = `/api/v1/channels/${CH}/attachments/${data.id}`;
+    const operatorJwt = jwt.sign({ sid: 'operator-session', uid: 'operator-1' }, JWT_SECRET);
+    await getStore().writeJson(path.join(studioDir(), 'users.json'), [{
+      id: 'operator-1', email: 'owner@example.test', passwordHash: 'not-projected', name: 'Owner', avatar: null,
+      role: 'Admin', emailVerified: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    }]);
+    await getStore().writeJson(path.join(studioDir(), 'sessions.json'), [{
+      id: 'operator-session', userId: 'operator-1', token: operatorJwt, guestId: null, ipAddress: null, userAgent: null,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(), createdAt: new Date().toISOString(), refreshToken: null,
+    }]);
+    process.env.STUDIO_AUTH = 'on';
+    const ticket = issueStreamTicket({ sessionId: 'operator-session', resource });
+    const res = await fetch(`${baseUrl}/${CH}/attachments/${data.id}?token=${encodeURIComponent(ticket)}`);
+    expect(res.status).toBe(200);
+    expect(Buffer.from(await res.arrayBuffer()).equals(PNG_BYTES)).toBe(true);
+    expect((await fetch(`${baseUrl}/${CH}/attachments/${data.id}?token=${encodeURIComponent(ticket)}`)).status).toBe(401);
+
+    const other = issueStreamTicket({ sessionId: 'operator-session', resource: `/api/v1/channels/${CH}/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png` });
+    expect((await fetch(`${baseUrl}/${CH}/attachments/${data.id}?token=${other}`)).status).toBe(401);
+    expect((await fetch(`${baseUrl}/${CH}/attachments/${data.id}?token=${encodeURIComponent(operatorJwt)}`)).status).toBe(401);
   });
 
   it('非法 id（路径穿越形态）→ 400', async () => {

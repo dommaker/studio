@@ -18,7 +18,8 @@ import {
   type SoftCheckEvent,
 } from '../completion-gates';
 import type { CommitInput } from '@dommaker/harness';
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 const COMMIT_HINT = '有未提交改动，请先 git add/commit 再报告完成';
 const ROLE_ID = 'role-dev';
@@ -46,6 +47,7 @@ function makeDeps(overrides: Partial<CompletionGuardDeps> = {}): CompletionGuard
     listUnfinishedChildren: vi.fn().mockResolvedValue([]),
     hasUncommittedChanges: vi.fn().mockResolvedValue(false),
     readHeadHash: vi.fn().mockResolvedValue('h1'),
+    withDirectory: async <T>(cwd: string, callback: (capabilityPath: string) => Promise<T>): Promise<T> => callback(cwd),
     runVerification: vi.fn().mockResolvedValue({ ran: [], source: 'convention' }),
     ...overrides,
   } as ReturnType<typeof makeDeps>;

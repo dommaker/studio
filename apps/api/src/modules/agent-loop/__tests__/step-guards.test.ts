@@ -10,7 +10,8 @@ import {
   type StepGuardDeps,
 } from '../step-guards';
 import { PLAN_STEP_LIMIT } from '../../workunit/workunit.types';
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 function makeWu(overrides: Partial<WorkUnitData> = {}): WorkUnitData {
   return {

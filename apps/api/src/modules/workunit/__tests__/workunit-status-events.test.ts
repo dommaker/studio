@@ -10,7 +10,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitData } from '../workunit-crud.js';
 
 let tmpDir: string;
 let fileStore: FileStore;

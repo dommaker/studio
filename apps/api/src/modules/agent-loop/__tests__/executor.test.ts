@@ -25,6 +25,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 }));
 
 import { AgentLoop } from '../agent-loop';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 import { LocalExecutor } from '../executor.js';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 
@@ -58,11 +59,43 @@ describe('LocalExecutor', () => {
     expect(mockExecuteLightweight).toHaveBeenCalledWith(task);
     expect(out).toBe(result); // 同一引用 — 结果形状原样透传，零行为变化
   });
+
+  it('defaultPath 执行期间持固定目录 capability，返回路径不泄露已关闭 fd', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'local-executor-capability-'));
+    const repo = path.join(root, 'repo');
+    const original = path.join(root, 'repo-original');
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(repo);
+    fs.mkdirSync(outside);
+    try {
+      mockExecuteLightweight.mockImplementation(async (task: AgentTask) => {
+        const capabilityPath = task.parameters!.workspaceRoot as string;
+        expect(capabilityPath).toMatch(new RegExp(`^/proc/${process.pid}/fd/\\d+$`));
+        fs.renameSync(repo, original);
+        fs.symlinkSync(outside, repo);
+        fs.writeFileSync(path.join(capabilityPath, 'safe.txt'), 'safe');
+        return makeResult({ worktree: capabilityPath, logFile: path.join(capabilityPath, '.agent.log') });
+      });
+      const task = {
+        id: 't-cap', executionId: 'e-cap', provider: 'claude', prompt: 'do it',
+        parameters: { workspaceRoot: repo }, timeoutMs: 1000,
+      } as unknown as AgentTask;
+      const out = await new LocalExecutor().execute(task);
+
+      expect(fs.existsSync(path.join(outside, 'safe.txt'))).toBe(false);
+      expect(fs.readFileSync(path.join(original, 'safe.txt'), 'utf8')).toBe('safe');
+      expect(out.worktree).toBe(repo);
+      expect(out.logFile).toBe(path.join(repo, '.agent.log'));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('AgentLoop agentStep via Executor interface', () => {
   let testDir: string;
   let fileStore: FileStore;
+  let wuService: WorkUnitService;
 
   const mockRole = {
     id: 'role-exec',
@@ -78,6 +111,7 @@ describe('AgentLoop agentStep via Executor interface', () => {
     vi.clearAllMocks();
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-executor-'));
     fileStore = new FileStore(testDir);
+    wuService = new WorkUnitService(fileStore);
   });
 
   afterEach(() => {
@@ -89,47 +123,32 @@ describe('AgentLoop agentStep via Executor interface', () => {
     const spy = vi.spyOn(LocalExecutor.prototype, 'execute');
     mockExecuteLightweight.mockResolvedValue(makeResult());
 
-    const agentLoop = new AgentLoop(mockRole, fileStore);
-    // FileStore 里建 state，让 agentStep 内 updateState 不抛 "not found"
-    await fileStore.createState('instance-exec', {
-      id: 'instance-exec', roleId: mockRole.id, sessionId: null,
-      status: 'active', currentWorkUnitId: null,
-      startedAt: new Date().toISOString(), terminatedAt: null,
-      lastHeartbeat: null, metadata: null, pid: process.pid,
-    });
     // #94: 续用判定只信档案 metadata.sessionId（不再读 instance 槽位）；本用例 WU 无
     // workspaceId/workspaceRoot → cwd=null → claude 无法校验会话文件按续用处理，
     // 避开新建分支的会话签发，保持既有 exec 逻辑断言聚焦 Executor 接口形状。
-    (agentLoop as unknown as { instance: unknown }).instance = {
-      id: 'instance-exec',
-      roleId: mockRole.id,
-      sessionId: 'sess-existing',
-      status: 'active',
-      currentWorkUnitId: 'wu-exec-1',
-      startedAt: new Date().toISOString(),
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
+    const instance = {
+      id: 'instance-exec', roleId: mockRole.id, sessionId: 'sess-existing',
+      status: 'active', currentWorkUnitId: 'wu-exec-1',
+      startedAt: new Date().toISOString(), terminatedAt: null,
+      lastHeartbeat: null, metadata: null, pid: process.pid,
     };
+    await fileStore.createState(instance.id, instance);
+    const agentLoop = new AgentLoop(mockRole, fileStore, { instance });
 
-    const target = {
-      workUnit: {
-        id: 'wu-exec-1', type: 'task', scope: 'test', channelId: 'ch-1',
-        status: 'active', assigneeId: 'instance-exec', parentId: null,
-        failureType: null, retryCount: 0, timeoutAt: null,
-        projectPath: null, metadata: JSON.stringify({ sessionId: 'sess-existing' }), claimedAt: null,
-        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-      },
-    };
+    // #705 起 agentStep 要求持久化快照（ExecutionJournal.beginStep 读 store 内记录）
+    const created = await wuService.create({
+      scope: 'test', type: 'task', status: 'unassigned', assigneeId: 'instance-exec', channelId: 'ch-1',
+      metadata: { sessionId: 'sess-existing' },
+    });
+    const wu = await wuService.claim(created.id, 'instance-exec');
+    const target = { workUnit: wu };
 
-    const step = await (agentLoop as unknown as {
-      agentStep(t: unknown): Promise<{ action: string }>;
-    }).agentStep(target);
+    const step = await agentLoop.agentStep(target);
 
     // 经 Executor 接口调用一次，task 为 agent-loop 构建的 AgentTask 形状
     expect(spy).toHaveBeenCalledTimes(1);
     const task = spy.mock.calls[0][0] as unknown as AgentTask;
-    expect(task).toMatchObject({ id: 'wu-exec-1', provider: 'claude' });
+    expect(task).toMatchObject({ id: wu.id, provider: 'claude' });
     // LocalExecutor 把同一 task 原样传给 agentRunner.executeLightweight
     expect(mockExecuteLightweight).toHaveBeenCalledWith(task);
     // 结果形状与旧路径一致（ExecutionResult.outputText → ACTION 解析）

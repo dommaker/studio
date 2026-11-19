@@ -6,7 +6,7 @@
 // 通配路由保持 Express 5 写法 `GET /*splat`——splat 段数组不进 zod params
 // （zod params 是对象形状），query 照常校验。
 import { Router } from 'express';
-import { listLibraryDocsQuerySchema, ERROR_CODES } from '@dommaker/studio-contract';
+import { listLibraryDocsQuerySchema, ERROR_CODES, libraryListResponseSchema, libraryDocDetailResponseSchema } from '@dommaker/studio-contract';
 import { listLibraryDocs, getLibraryDoc } from './library.service.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 
@@ -16,7 +16,7 @@ export const libraryRoutes = Router();
  * GET /api/v1/library
  * 聚合列表：?project=<projectId> 收窄单项目，?search= 匹配 title/正文
  */
-libraryRoutes.get('/', defineRoute({ query: listLibraryDocsQuerySchema }, async (_req, _res, { query }) => {
+libraryRoutes.get('/', defineRoute({ query: listLibraryDocsQuerySchema, response: libraryListResponseSchema }, async (_req, _res, { query }) => {
   return listLibraryDocs({
     projectId: query.project,
     search: query.search,
@@ -32,7 +32,7 @@ libraryRoutes.get('/', defineRoute({ query: listLibraryDocsQuerySchema }, async 
  * req.params.splat 是已解码的段数组（v8 行为），join('/') 还原多段 id；
  * 禁止再手动 decodeURIComponent（双重解码）。
  */
-libraryRoutes.get('/*splat', defineRoute({}, async (req) => {
+libraryRoutes.get('/*splat', defineRoute({ response: libraryDocDetailResponseSchema }, async (req) => {
   const id = (req.params.splat as unknown as string[]).join('/');
   const doc = await getLibraryDoc(id);
   if (!doc) {

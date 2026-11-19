@@ -4,8 +4,8 @@ import { renderHook, act } from '@testing-library/react';
 
 const { ctx } = vi.hoisted(() => ({ ctx: { status: 'disconnected' as string } }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ctx,
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ctx,
 }));
 
 import { useGatedPoll } from '../useGatedPoll';

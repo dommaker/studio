@@ -56,8 +56,10 @@ export const channelApi = {
     api.patch<{ data: Channel }>(`/channels/${channelId}`, data),
 
   listMessages: (channelId: string, params?: { before?: string; limit?: number }) =>
-    // 响应里的 total 后端 2026-09 起恒 0（默认跳过节流扫描，?includeTotal=true 才实算）且前端无消费方
-    api.get<{ data: ChannelMessagesResult }>(
+    // 响应里的 total 后端 2026-09 起恒 0（默认跳过节流扫描，?includeTotal=true 才实算）且前端无消费方；
+    // messages 覆盖为本地 ChannelMessage（契约形状 + degraded/pending 本地标记；#693 起契约 meta 已收窄
+    // 为 object，此处 Omit 只为挂本地标记，不再是 meta 补丁）
+    api.get<{ data: Omit<ChannelMessagesResult, 'messages'> & { messages: ChannelMessage[] } }>(
       `/channels/${channelId}/messages`,
       { params }
     ),
@@ -76,7 +78,7 @@ export const channelApi = {
   getFileVocabulary: (channelId: string) =>
     api.get<{ data: ChannelFileVocabulary }>(`/channels/${channelId}/file-vocabulary`),
 
-  /** 2026-09 截图粘贴：频道图片上传（JSON base64；返回相对 URL，渲染时现拼 ?token=） */
+  /** 频道图片上传（JSON base64；返回相对 URL，渲染时异步换取单用途票据） */
   uploadAttachment: (channelId: string, data: { mime: string; dataBase64: string }) =>
     api.post<{ data: SavedImage }>(
       `/channels/${channelId}/attachments`,

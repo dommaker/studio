@@ -43,9 +43,8 @@ function createKS() {
   };
   const ks = new KnowledgeService({
     store: { list: vi.fn(() => []), get: vi.fn(), save: vi.fn(), update: vi.fn(), delete: vi.fn() } as any,
-    lifecycle: { recordReference: vi.fn(), shouldAutoPromote: vi.fn(() => false) } as any,
+    lifecycle: { recordReference: vi.fn() } as any,
     ingest: { ingestEntry: vi.fn() } as any,
-    linter: { validateEntry: vi.fn(() => []) } as any,
     query: query as any,
     eventEmitter: { emit: vi.fn() } as any,
   });

@@ -11,7 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 const { mockExecuteLightweight, mockRunWuVerification, mockPostWuSystemMessage } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -39,6 +40,10 @@ vi.mock('../../requirements/pmo-branch-resolver', () => ({
 }));
 
 vi.mock('../wu-verification', () => ({
+  CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
+  runWuVerification: mockRunWuVerification,
+}));
+vi.mock('../../core/wu-verification', () => ({
   CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
   runWuVerification: mockRunWuVerification,
 }));
@@ -110,7 +115,7 @@ describe('AgentLoop 里程碑消息委托 wu-messenger（2026-07 §6-3）', () =
   it('COMPLETE 完成汇报 → milestone: true + role.name 署名 + loop fileStore，消息文本不变', async () => {
     const wu = await setupActiveWorkUnit();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '登录功能已完成' },
     );
@@ -130,7 +135,7 @@ describe('AgentLoop 里程碑消息委托 wu-messenger（2026-07 §6-3）', () =
   it('里程碑 wu 参数为持久化 wu 本体（2026-08 归因统一：解析链只读创建期落档，不再传本 step 合并视图）', async () => {
     const wu = await setupActiveWorkUnit({ title: '登录' });
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '登录功能已完成', metadataUpdates: { lastCommitHash: 'abc123' } },
     );
@@ -145,7 +150,7 @@ describe('AgentLoop 里程碑消息委托 wu-messenger（2026-07 §6-3）', () =
   it('NEED_INPUT → milestone: true，消息文本不变', async () => {
     const wu = await setupActiveWorkUnit();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'need_input', summary: '使用 OAuth 还是账号密码？' },
     );
@@ -161,9 +166,11 @@ describe('AgentLoop 里程碑消息委托 wu-messenger（2026-07 §6-3）', () =
       source: 'convention',
       failure: { command: 'pnpm run test', tail: '1 failing test' },
     });
-    const wu = await setupActiveWorkUnit({ worktreePath: '/tmp/wt-ms', verifyFailCount: 2 });
+    const worktreePath = path.join(testDir, 'wt-ms');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const wu = await setupActiveWorkUnit({ worktreePath, verifyFailCount: 2 });
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'complete', summary: '登录功能已完成' },
     );
@@ -177,7 +184,7 @@ describe('AgentLoop 里程碑消息委托 wu-messenger（2026-07 §6-3）', () =
   it('blocked 转人工（连续 3 步无进展）→ milestone: true', async () => {
     const wu = await setupActiveWorkUnit({ consecutiveStuck: 2 });
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'need_input', summary: '又卡住了' },
     );
@@ -191,7 +198,7 @@ describe('AgentLoop 里程碑消息委托 wu-messenger（2026-07 §6-3）', () =
   it('普通 progress 消息不带里程碑标记', async () => {
     const wu = await setupActiveWorkUnit();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'progress', summary: '已完成第一步' },
     );

@@ -20,14 +20,13 @@ import {
   eventBus,
   FileStore,
   formatRequirementId,
-  logger,
   deriveDisplayState,
   type RequirementData,
   type RequirementStatus,
   type WorkUnitSnapshot,
 } from '@dommaker/studio-shared';
-import type { ProjectData } from '../pmo/index.js';
-// P2-c 拆环：projectService 值引用转闭包内动态 import（requirements→pmo 静态值边清零，类型边保留）
+import { logger } from '@dommaker/studio-shared/node';
+import { projectReadPort, type ProjectReadData } from './project-read-port.js';
 import { parseWuPmoId } from './wu-pmo-attribution.js';
 import { deriveChannelReqPmo } from './channel-req-pmo.js';
 import { getStore } from '../../core/store.js';
@@ -47,16 +46,16 @@ export type RequirementWithProject = RequirementData & {
 /** RequirementService 可注入依赖（测试用 stub 隔离 PMO 依赖） */
 export interface RequirementServiceDeps {
   projectExists?: (projectId: string) => Promise<boolean>;
-  /** 决策 4 别名层：REQ id → 统一编号 PMO（默认 projectService.getByReqAlias） */
-  getProjectByAlias?: (reqId: string) => Promise<ProjectData | null>;
-  /** 决策 2：频道杂务 PMO 只查不建（默认 projectService.findChoreProject；零副作用） */
-  findChoreProject?: (channelId: string) => Promise<ProjectData | null>;
-  /** 决策 4：全量别名对象扫描（默认 projectService.list 大页；list 合并用） */
-  listAliasProjects?: () => Promise<ProjectData[]>;
-  /** 决策 4：#PMO-n token 解析（默认 projectService.getByPmoNumber；req-binding 用） */
-  getProjectByPmoNumber?: (pmoNumber: string) => Promise<ProjectData | null>;
+  /** 决策 4 别名层：REQ id → 统一编号 PMO（默认 ProjectReadPort.getByReqAlias） */
+  getProjectByAlias?: (reqId: string) => Promise<ProjectReadData | null>;
+  /** 决策 2：频道杂务 PMO 只查不建（默认 ProjectReadPort.findChoreProject；零副作用） */
+  findChoreProject?: (channelId: string) => Promise<ProjectReadData | null>;
+  /** 决策 4：全量别名对象扫描（默认 ProjectReadPort.list 大页；list 合并用） */
+  listAliasProjects?: () => Promise<ProjectReadData[]>;
+  /** 决策 4：#PMO-n token 解析（默认 ProjectReadPort.getByPmoNumber；req-binding 用） */
+  getProjectByPmoNumber?: (pmoNumber: string) => Promise<ProjectReadData | null>;
   /** #636：频道当前 PMO 第一级派生（默认 deriveChannelReqPmo 查本频道最近挂接 REQ 所属 PMO；只查不建、零副作用） */
-  deriveChannelProject?: (channelId: string) => Promise<ProjectData | null>;
+  deriveChannelProject?: (channelId: string) => Promise<ProjectReadData | null>;
 }
 
 /** PMO 状态 → REQ 状态视图映射（别名层只读投影） */
@@ -75,7 +74,7 @@ function projectStatusToReqStatus(status: string): RequirementStatus {
 }
 
 /** 决策 4：统一编号 PMO → REQ 只读别名视图（projectId = PMO 自身 id，归属/回写链不变） */
-export function toRequirementAliasView(p: ProjectData): RequirementWithProject {
+export function toRequirementAliasView(p: ProjectReadData): RequirementWithProject {
   return {
     id: p.reqAlias!,
     seq: parseInt(p.reqAlias!.slice(4), 10),
@@ -92,9 +91,10 @@ export function toRequirementAliasView(p: ProjectData): RequirementWithProject {
 
 /**
  * WorkUnit 终态集合 — 全部到达时 Requirement 汇总为 done。
- * in_review 视同工作完成（待人类确认）；completed/failed 兼容外部写入的状态值。
+ * #703：in_review 不再视同完成（merge queued/running 与人工确认均未收口）；
+ * completed/failed 兼容外部写入的状态值。
  */
-export const TERMINAL_WORKUNIT_STATUSES = ['in_review', 'done', 'completed', 'failed', 'closed'];
+export const TERMINAL_WORKUNIT_STATUSES = ['done', 'completed', 'failed', 'closed'];
 
 /** #457：maybeRollUpToDone 的 memo 直供快照最小字段集（rollup.ts 事件负载喂入，按 reqId 预 scope） */
 export type ReqRollupSnapshot = Pick<WorkUnitSnapshot, 'id' | 'status' | 'reqId'>;
@@ -146,21 +146,20 @@ export function deriveTitle(message: string): string {
 export class RequirementService {
   private fileStore: FileStore;
   private projectExists: (projectId: string) => Promise<boolean>;
-  private getProjectByAlias: (reqId: string) => Promise<ProjectData | null>;
-  private findChoreProject: (channelId: string) => Promise<ProjectData | null>;
-  private listAliasProjects: () => Promise<ProjectData[]>;
-  private getProjectByPmoNumber: (pmoNumber: string) => Promise<ProjectData | null>;
-  private deriveChannelProject: (channelId: string) => Promise<ProjectData | null>;
+  private getProjectByAlias: (reqId: string) => Promise<ProjectReadData | null>;
+  private findChoreProject: (channelId: string) => Promise<ProjectReadData | null>;
+  private listAliasProjects: () => Promise<ProjectReadData[]>;
+  private getProjectByPmoNumber: (pmoNumber: string) => Promise<ProjectReadData | null>;
+  private deriveChannelProject: (channelId: string) => Promise<ProjectReadData | null>;
 
   constructor(fileStore?: FileStore, deps?: RequirementServiceDeps) {
     this.fileStore = fileStore ?? getStore();
-    // P2-c 拆环：requirements→pmo 静态边转闭包内动态 import（DI 缺省值，签名不变）
-    const pmo = () => import('../pmo/index.js');
-    this.projectExists = deps?.projectExists ?? (async id => (await (await pmo()).projectService.get(id)) !== null);
-    this.getProjectByAlias = deps?.getProjectByAlias ?? (async id => (await pmo()).projectService.getByReqAlias(id));
-    this.findChoreProject = deps?.findChoreProject ?? (async id => (await pmo()).projectService.findChoreProject(id));
-    this.listAliasProjects = deps?.listAliasProjects ?? (async () => (await pmo()).projectService.list({ limit: 100000 }));
-    this.getProjectByPmoNumber = deps?.getProjectByPmoNumber ?? (async n => (await pmo()).projectService.getByPmoNumber(n));
+    // ARCH-04：缺省读路径仅经已装配端口；deps 注入口与既有测试签名不变。
+    this.projectExists = deps?.projectExists ?? (async id => (await (await projectReadPort()).get(id)) !== null);
+    this.getProjectByAlias = deps?.getProjectByAlias ?? (async id => (await projectReadPort()).getByReqAlias(id));
+    this.findChoreProject = deps?.findChoreProject ?? (async id => (await projectReadPort()).findChoreProject(id));
+    this.listAliasProjects = deps?.listAliasProjects ?? (async () => (await projectReadPort()).list({ limit: 100000 }));
+    this.getProjectByPmoNumber = deps?.getProjectByPmoNumber ?? (async n => (await projectReadPort()).getByPmoNumber(n));
     this.deriveChannelProject = deps?.deriveChannelProject
       ?? (async id => deriveChannelReqPmo(id, { fileStore: this.fileStore }));
   }
@@ -207,7 +206,7 @@ export class RequirementService {
    */
   async createFromDispatch(message: string, channelId: string | null, createdBy: string): Promise<RequirementData> {
     if (channelId) {
-      let derived: ProjectData | null = null;
+      let derived: ProjectReadData | null = null;
       try {
         derived = await this.deriveChannelProject(channelId);
       } catch (err) {

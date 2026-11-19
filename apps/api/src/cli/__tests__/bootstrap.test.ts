@@ -85,4 +85,21 @@ describe('ensureDaemonSecrets', () => {
     expect(r).toEqual({ jwt: 'env', encryption: 'loaded' });
     expect(env.ENCRYPTION_KEY).toBe('file-enc');
   });
+
+  it('umask 022 下新密钥 0600/目录 0700，并修复既有宽松权限', () => {
+    const previousUmask = process.umask(0o022);
+    try {
+      const existingDir = path.join(tmp, 'existing');
+      fs.mkdirSync(existingDir, { mode: 0o755 });
+      fs.chmodSync(existingDir, 0o755);
+      fs.writeFileSync(path.join(existingDir, 'jwt-secret'), 'existing-jwt', { mode: 0o644 });
+      fs.chmodSync(path.join(existingDir, 'jwt-secret'), 0o644);
+      ensureDaemonSecrets(existingDir, {});
+      expect(fs.statSync(existingDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(path.join(existingDir, 'jwt-secret')).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(path.join(existingDir, 'encryption-key')).mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(previousUmask);
+    }
+  });
 });

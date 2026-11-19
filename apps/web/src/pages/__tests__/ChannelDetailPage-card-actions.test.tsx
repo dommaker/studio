@@ -37,9 +37,9 @@ vi.mock('../../api/requirements', () => ({
   requirementApi: { list: mockListReqs },
 }));
 
-// #242：页面新增 live 状态条走 WebSocketContext——测试环境无 Provider，置空订阅
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
+// #242：页面新增 live 状态条走 SseContext——测试环境无 Provider，置空订阅
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => null }));
@@ -58,7 +58,7 @@ const MESSAGES = [
   {
     id: 'msg-aud-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'Auditor',
     content: '审计建议 — 1 条', workUnitId: null, replyToId: null,
-    meta: JSON.stringify({
+    meta: {
       cardType: 'auditor_suggestion',
       status: 'ready',
       cardData: {
@@ -67,17 +67,17 @@ const MESSAGES = [
           { type: 'param_tuning', risk: 'low', agentType: 'developer', detail: '调低重试上限到 2' },
         ],
       },
-    }),
+    },
     createdAt: new Date().toISOString(),
   },
   {
     id: 'msg-rc-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'KK',
     content: '撤回确认: Skill legacy-x', workUnitId: null, replyToId: null,
-    meta: JSON.stringify({
+    meta: {
       cardType: 'retract_confirm',
       status: 'ready',
       cardData: { skillId: 'skill-1', skillName: 'legacy-x' },
-    }),
+    },
     createdAt: new Date().toISOString(),
   },
 ];

@@ -9,9 +9,10 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '@dommaker/studio-shared';
+
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { loadManifest, invalidateManifestCache } from './manifest-loader.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const SKILLS_DIR = process.env.SKILLS_DIR || studioPath('skills');
 

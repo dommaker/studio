@@ -18,6 +18,8 @@ vi.mock('../../../api/channel', () => ({
 
 import { ConvertToTaskDialog } from '../ConvertToTaskDialog';
 import { useProjectsStore } from '../../../stores/projectsStore';
+import { useChannelDataStore } from '../../../stores/channelDataStore';
+import { useRosterStore } from '../../../stores/rosterStore';
 
 function renderDialog(messageContent: string) {
   render(
@@ -37,6 +39,12 @@ describe('ConvertToTaskDialog', () => {
   beforeEach(() => {
     mockSuggestTask.mockReset().mockResolvedValue({ data: { data: {} } });
     useProjectsStore.getState().__resetForTests();
+    useChannelDataStore.getState().__resetForTests();
+    useChannelDataStore.getState().setMembers('ch-1', []);
+    useRosterStore.setState({
+      profiles: [{ id: 'a1', name: 'dev-agent', description: null, status: 'active' }],
+      loadedAt: Date.now(), inflight: null, forbidden: false, lastToken: null,
+    });
   });
 
   it('renders nothing when open=false', () => {
@@ -109,5 +117,16 @@ describe('ConvertToTaskDialog', () => {
     resolveSuggest({ data: { data: { title: 'LLM 建议标题' } } });
     await waitFor(() => expect(screen.queryByText('正在获取建议...')).toBeNull());
     expect(title.value).toBe('用户改的标题');
+  });
+
+  it('#699: 空频道不接受 LLM 建议的非成员，分配给候选也为空', async () => {
+    mockSuggestTask.mockResolvedValue({ data: { data: { suggestedAssigneeId: 'a1' } } });
+    renderDialog('修复登录 bug');
+    await waitFor(() => expect(screen.queryByText('正在获取建议...')).toBeNull());
+
+    expect(screen.getByText('未分配')).toBeTruthy();
+    fireEvent.click(screen.getByText('未分配'));
+    expect(screen.queryByRole('option', { name: 'dev-agent' })).toBeNull();
+    expect(screen.getByRole('option', { name: '未分配' })).toBeTruthy();
   });
 });

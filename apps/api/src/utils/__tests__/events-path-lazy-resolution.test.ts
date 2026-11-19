@@ -105,9 +105,16 @@ describe('#654 事件文件路径惰性解析（import 后改 STUDIO_EVENTS_FILE
       payload: JSON.stringify({ consumedKnowledge: ['k-lazy-654'] }),
       createdAt: new Date().toISOString(),
     });
+    // #718 起 source='events' 要求「有知识/无知识」两组均有样本（效果对比口径）
+    appendEvent({
+      type: 'knowledge:outcome:success',
+      payload: JSON.stringify({ consumedKnowledge: [] }),
+      createdAt: new Date().toISOString(),
+    });
     const metrics = await computeOutcomeMetrics();
     expect(metrics.source).toBe('events');
-    expect(metrics.hitRate).toBe(100);
+    expect(metrics.withKnowledge.total).toBe(1);
+    expect(metrics.hitRate).toBe(50);
   });
 
   it('delegation-gate: checkTreeBudget 的账本源读 env 指定文件', async () => {

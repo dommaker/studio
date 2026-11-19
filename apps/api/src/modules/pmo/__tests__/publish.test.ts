@@ -7,6 +7,7 @@ const {
   mockCreateHumanMessage,
   mockCreateAgentMessage,
   mockUpdateMessageMeta,
+  mockLinkWorkUnit,
   mockWuCreate,
   mockGetChannel,
   mockGetProfile,
@@ -29,6 +30,11 @@ const {
     id: 'msg-1',
     meta: { pmoId: 'proj-1' },
   }),
+  mockLinkWorkUnit: vi.fn().mockResolvedValue({
+    id: 'msg-1',
+    workUnitId: 'wu-1',
+    meta: { pmoId: 'proj-1' },
+  }),
   mockWuCreate: vi.fn().mockResolvedValue({
     id: 'wu-1',
     type: 'plan',
@@ -41,14 +47,21 @@ const {
 }));
 
 // Mock FileStore
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {
     ...actual,
     FileStore: vi.fn().mockImplementation(function () { return {
       readJson: mockReadJson,
+      readJsonUncached: mockReadJson,
       writeJson: mockWriteJson,
       readJsonl: vi.fn().mockResolvedValue([]),
+      withLock: async (_lockDir: string, fn: () => Promise<unknown>) => fn(),
       getChannel: mockGetChannel,
       getProfile: mockGetProfile,
     }; }),
@@ -72,15 +85,16 @@ vi.mock('node:fs', async () => {
 
 // Mock channelMessageService
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: {
+  getChannelMessageService: () => ({
     createHumanMessage: (...args: unknown[]) => mockCreateHumanMessage(...args),
     createAgentMessage: (...args: unknown[]) => mockCreateAgentMessage(...args),
     updateMessageMeta: (...args: unknown[]) => mockUpdateMessageMeta(...args),
-  },
+    linkWorkUnit: (...args: unknown[]) => mockLinkWorkUnit(...args),
+  }),
 }));
 
 // Mock WorkUnitService
-vi.mock('../../workunit/workunit.service.js', () => ({
+vi.mock('../../workunit/workunit-review.js', () => ({
   WorkUnitService: vi.fn().mockImplementation(function () { return {
     create: (...args: unknown[]) => mockWuCreate(...args),
   }; }),
@@ -90,7 +104,7 @@ vi.mock('../../utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { projectService } from '../project.service.js';
+import { publishProject } from '../publish-project.js';
 
 function sampleProject(overrides: Record<string, unknown> = {}) {
   return {
@@ -126,7 +140,7 @@ describe('AC-5: PMO Publish API', () => {
   });
 
   it('pending PMO publish creates ChannelMessage + WorkUnit + status→active', async () => {
-    const result = await projectService.publish({
+    const result = await publishProject({
       projectId: 'proj-1',
       channelId: 'ch-1',
     });
@@ -140,36 +154,77 @@ describe('AC-5: PMO Publish API', () => {
     );
   });
 
+  it('publish 把认证请求人与来源消息写入 plan Mandate 授权输入', async () => {
+    await publishProject({
+      projectId: 'proj-1', channelId: 'ch-1', requestedBy: { id: 'operator-1', type: 'Operator' },
+    });
+
+    expect(mockWuCreate).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: {
+        requestedBy: { id: 'operator-1', type: 'Operator' },
+        source: { kind: 'channel', channelId: 'ch-1', messageId: expect.any(String) },
+        repositories: [],
+      },
+    }));
+  });
+
+  it('多仓 plan 使用仓库级 Mandate，允许派生 WU 再收紧到具体腿', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({
+      gitRepo: '/repo-a',
+      deliveries: [
+        { gitRepo: '/repo-a', branch: 'PMO-1-a', status: 'pending' },
+        { gitRepo: '/repo-b', branch: 'PMO-1-b', status: 'pending' },
+      ],
+    }));
+
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    expect(mockWuCreate).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: expect.objectContaining({
+        repositories: [
+          { repo: '/repo-a', leg: null },
+          { repo: '/repo-b', leg: null },
+        ],
+      }),
+    }));
+  });
+
   it('#177：可选 assigneeId 落 plan WU（留空 = 不带该字段，回池涌现）', async () => {
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1', assigneeId: 'profile-7' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1', assigneeId: 'profile-7' });
     expect(mockWuCreate).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'plan', assigneeId: 'profile-7' })
     );
 
     mockWuCreate.mockClear();
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
     const input = mockWuCreate.mock.calls[0][0] as Record<string, unknown>;
     expect('assigneeId' in input).toBe(false);
   });
 
-  it('non-pending PMO → error', async () => {
+  it('non-pending PMO → error，且不发消息、不建 WU、不写项目', async () => {
     mockReadJson.mockResolvedValue(sampleProject({ status: 'active' }));
 
     await expect(
-      projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' })
+      publishProject({ projectId: 'proj-1', channelId: 'ch-1' })
     ).rejects.toThrow();
+    expect(mockCreateHumanMessage).not.toHaveBeenCalled();
+    expect(mockWuCreate).not.toHaveBeenCalled();
+    expect(mockWriteJson).not.toHaveBeenCalled();
   });
 
-  it('project not found → error', async () => {
+  it('project not found → error，且不发消息、不建 WU、不写项目', async () => {
     mockReadJson.mockResolvedValue(null);
 
     await expect(
-      projectService.publish({ projectId: 'nope', channelId: 'ch-1' })
+      publishProject({ projectId: 'nope', channelId: 'ch-1' })
     ).rejects.toThrow();
+    expect(mockCreateHumanMessage).not.toHaveBeenCalled();
+    expect(mockWuCreate).not.toHaveBeenCalled();
+    expect(mockWriteJson).not.toHaveBeenCalled();
   });
 
   it('WorkUnit metadata contains pmoId and pmoNumber', async () => {
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     expect(mockWuCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -182,8 +237,20 @@ describe('AC-5: PMO Publish API', () => {
     );
   });
 
+  it('#700：PMO 原消息与 plan WU 双向关联，plan 携带 REQ 与消息锚点', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({ reqAlias: 'REQ-0001' }));
+
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    expect(mockWuCreate).toHaveBeenCalledWith(expect.objectContaining({
+      reqId: 'REQ-0001',
+      metadata: expect.objectContaining({ anchorMessageId: 'msg-1' }),
+    }));
+    expect(mockLinkWorkUnit).toHaveBeenCalledWith('msg-1', 'wu-1', 'ch-1');
+  });
+
   it('#471：plan WU scope 首行钉 +requirement-clarify +to-tickets（方法论跟活走）', async () => {
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
     const firstLine = scope.split('\n')[0]!;
@@ -195,7 +262,7 @@ describe('AC-5: PMO Publish API', () => {
     const prev = process.env.STUDIO_PLAN_TOKEN_BUDGET;
     try {
       delete process.env.STUDIO_PLAN_TOKEN_BUDGET;
-      await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+      await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
       expect(mockWuCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           metadata: expect.objectContaining({ tokenBudget: 1_000_000 }),
@@ -204,7 +271,7 @@ describe('AC-5: PMO Publish API', () => {
 
       mockWuCreate.mockClear();
       process.env.STUDIO_PLAN_TOKEN_BUDGET = '250000';
-      await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+      await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
       expect(mockWuCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           metadata: expect.objectContaining({ tokenBudget: 250_000 }),
@@ -217,28 +284,32 @@ describe('AC-5: PMO Publish API', () => {
   });
 
   it('B3a 归属链：gitRepo 落 metadata.workspaceRoot；无 gitRepo 不带该字段', async () => {
-    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/root/projects/demo' }));
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/repo/demo' }));
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
     expect(mockWuCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({ workspaceRoot: '/root/projects/demo' }),
+        metadata: expect.objectContaining({ workspaceRoot: '/repo/demo' }),
       })
     );
 
     mockWuCreate.mockClear();
     mockReadJson.mockResolvedValue(sampleProject({ gitRepo: null }));
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
     const meta = mockWuCreate.mock.calls[0][0].metadata as Record<string, unknown>;
     expect('workspaceRoot' in meta).toBe(false);
   });
 
   it('#471：plan scope 含一脉会话契约 + TASK 输出约定 + FOG/DESTINATION 待决清单约定（不再是只读分析）', async () => {
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
     expect(scope).toContain('一脉会话');
     expect(scope).toContain('.studio/specs/');
-    expect(scope).toContain('TASK:');
+    expect(scope).toContain('TASK: <任务描述> | LEG: <gitRepo> | AC: <验收标准> | BLOCKEDBY: <wuId,...>');
+    expect(scope).toContain('每条 TASK 必须且只能归属一条 LEG、至少一条 AC');
+    expect(scope).toContain('无依赖时写 BLOCKEDBY: none');
+    expect(scope).toContain('ACTION: NEED_INPUT');
+    expect(scope).toContain('不得默认选择第一仓');
     expect(scope).toContain('FOG:');
     expect(scope).toContain('DESTINATION:');
     expect(scope).not.toContain('只读分析');
@@ -246,7 +317,7 @@ describe('AC-5: PMO Publish API', () => {
   });
 
   it('ChannelMessage meta contains pmoId', async () => {
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     expect(mockUpdateMessageMeta).toHaveBeenCalledWith(
       'msg-1',
@@ -256,7 +327,7 @@ describe('AC-5: PMO Publish API', () => {
   });
 
   it('#273（#251 决议）：publish 回写 project.channelId 并持久化（发布即绑定，1 PMO : 1 频道）', async () => {
-    const result = await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    const result = await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     expect(result.project.channelId).toBe('ch-1');
     expect(mockWriteJson).toHaveBeenCalledWith(
@@ -266,7 +337,7 @@ describe('AC-5: PMO Publish API', () => {
   });
 
   it('PMO status transitions to active', async () => {
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     // publish calls updateStatus which calls writeJson with status='active'
     expect(mockWriteJson).toHaveBeenCalledWith(
@@ -277,7 +348,7 @@ describe('AC-5: PMO Publish API', () => {
 
   it('#282：新项目只有 description（requirement=null）→ 消息正文与分析单 scope 回退用 description', async () => {
     mockReadJson.mockResolvedValue(sampleProject({ requirement: null, description: '需求背景与验收标准' }));
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     expect(mockCreateHumanMessage).toHaveBeenCalledWith(
       'ch-1',
@@ -289,7 +360,7 @@ describe('AC-5: PMO Publish API', () => {
 
   it('#282：存量项目 requirement 有值 → 仍用 requirement（既有数据读取兼容不变）', async () => {
     mockReadJson.mockResolvedValue(sampleProject({ requirement: '旧需求正文', description: '新描述' }));
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     expect(mockCreateHumanMessage).toHaveBeenCalledWith(
       'ch-1',
@@ -300,42 +371,45 @@ describe('AC-5: PMO Publish API', () => {
     expect(scope).not.toContain('新描述');
   });
 
-  it('#112 多腿：显式 deliveries 多腿 → plan 单 scope 含全部仓库路径（腿调研只读约束不变）', async () => {
+  it('#701 多腿：plan 输入逐腿包含仓库路径与 delivery branch', async () => {
     mockReadJson.mockResolvedValue(sampleProject({
-      gitRepo: '/root/projects/leg-a',
+      gitRepo: '/repo/leg-a',
       deliveries: [
-        { gitRepo: '/root/projects/leg-a', branch: 'PMO-1', status: 'pending' },
-        { gitRepo: '/root/projects/leg-b', branch: 'PMO-1', status: 'pending' },
-        { gitRepo: '/root/projects/leg-c', branch: null, status: 'pending' },
+        { gitRepo: '/repo/leg-a', branch: 'PMO-1-a', status: 'pending' },
+        { gitRepo: '/repo/leg-b', branch: 'PMO-1-b', status: 'pending' },
+        { gitRepo: '/repo/leg-c', branch: null, status: 'pending' },
       ],
     }));
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
-    expect(scope).toContain('/root/projects/leg-a');
-    expect(scope).toContain('/root/projects/leg-b');
-    expect(scope).toContain('/root/projects/leg-c');
+    expect(scope).toContain('- LEG: /repo/leg-a | DELIVERY BRANCH: PMO-1-a');
+    expect(scope).toContain('- LEG: /repo/leg-b | DELIVERY BRANCH: PMO-1-b');
+    expect(scope).toContain('- LEG: /repo/leg-c | DELIVERY BRANCH: （未设置交付分支）');
     expect(scope).toContain('只读');
   });
 
-  it('#112 单腿回归：无 deliveries 字段 → plan 单 scope 不注多腿段（一脉会话契约在场）', async () => {
-    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/root/projects/demo' }));
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+  it('#701 单腿：无 deliveries 字段也注入合成腿的仓库与 delivery branch', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({
+      gitRepo: '/repo/demo',
+      gitBranch: 'PMO-custom',
+    }));
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
-    expect(scope).not.toContain('多交付腿');
+    expect(scope).toContain('## 交付腿');
+    expect(scope).toContain('- LEG: /repo/demo | DELIVERY BRANCH: PMO-custom');
     expect(scope).toContain('一脉会话');
-    expect(scope).toContain('TASK:');
   });
 
-  it('#112 单腿回归：显式单腿 deliveries → 同样不注入多腿段', async () => {
+  it('#701 单腿：显式 deliveries 同样注入仓库与 delivery branch', async () => {
     mockReadJson.mockResolvedValue(sampleProject({
-      deliveries: [{ gitRepo: '/root/projects/only', branch: 'PMO-1', status: 'pending' }],
+      deliveries: [{ gitRepo: '/repo/only', branch: 'PMO-1', status: 'pending' }],
     }));
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
-    expect(scope).not.toContain('多交付腿');
+    expect(scope).toContain('- LEG: /repo/only | DELIVERY BRANCH: PMO-1');
   });
 
   // ── #466: 频道路由表 plan 档 ──
@@ -347,7 +421,7 @@ describe('AC-5: PMO Publish API', () => {
     mockGetProfile.mockResolvedValue({
       id: 'p-planner', name: 'planner', status: 'active', channels: '[]',
     });
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
     expect(mockWuCreate).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'plan', assigneeId: 'p-planner' })
     );
@@ -360,7 +434,7 @@ describe('AC-5: PMO Publish API', () => {
     mockGetProfile.mockResolvedValue({
       id: 'p-planner', name: 'planner', status: 'active', channels: '[]',
     });
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1', assigneeId: 'profile-7' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1', assigneeId: 'profile-7' });
     expect(mockWuCreate).toHaveBeenCalledWith(
       expect.objectContaining({ assigneeId: 'profile-7' })
     );
@@ -373,7 +447,7 @@ describe('AC-5: PMO Publish API', () => {
     mockGetProfile.mockResolvedValue({
       id: 'p-planner', name: 'planner', status: 'inactive', channels: '[]',
     });
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
     const input = mockWuCreate.mock.calls[0][0] as Record<string, unknown>;
     expect('assigneeId' in input).toBe(false);
     expect(mockCreateAgentMessage).toHaveBeenCalledWith(
@@ -388,7 +462,7 @@ describe('AC-5: PMO Publish API', () => {
     mockGetProfile.mockResolvedValue({
       id: 'p-planner', name: 'planner', status: 'active', channels: '[]',
     });
-    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    await publishProject({ projectId: 'proj-1', channelId: 'ch-1' });
     const input = mockWuCreate.mock.calls[0][0] as Record<string, unknown>;
     expect('assigneeId' in input).toBe(false);
     expect(mockCreateAgentMessage).toHaveBeenCalledWith(

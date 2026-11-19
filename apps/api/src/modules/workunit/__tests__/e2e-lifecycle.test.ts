@@ -20,8 +20,8 @@ import * as os from 'os';
 import { FileStore } from '@dommaker/studio-shared';
 import { TriggerStore } from '../../triggers/trigger-store.js';
 import { executeCreateAction, setTriggerActionFileStore } from '../../triggers/trigger-action.js';
-import { WorkUnitService } from '../workunit.service.js';
-import { channelMessageService } from '../../channels/channel-message.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import { getChannelMessageService } from '../../channels/channel-message.service.js';
 import { selectSkills } from '../../skills/skill-selector.js';
 import type { TriggerConfig } from '../../triggers/trigger.types.js';
 import type { SkillEntry } from '../../skills/manifest-loader.js';
@@ -73,7 +73,7 @@ describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
     workUnitService = new WorkUnitService(fileStore);
     // trigger-action / channelMessageService 的模块级单例同样注入 tmp store
     setTriggerActionFileStore(fileStore);
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
 
     // 1. Create test Channel in FileStore (for message ops)
     const channelName = `#e2e-lifecycle-${Date.now()}`;
@@ -196,7 +196,7 @@ describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
 
   // ── AC5: 执行结果写入 Channel（workUnitId 关联） ──
   it('AC5: 执行结果写入 Channel（workUnitId 关联）', async () => {
-    const msg = await channelMessageService.createAgentMessage(
+    const msg = await getChannelMessageService().createAgentMessage(
       testChannelId,
       'Executor',
       '执行完成：E2E 流程验证通过',
@@ -225,7 +225,7 @@ describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
   // ── AC7: 讨论空间可查询 ──
   it('AC7: 讨论空间可查询（listByWorkUnitId）', async () => {
     // Add a human message to the discussion space
-    const humanMsg = await channelMessageService.createHumanMessage(
+    const humanMsg = await getChannelMessageService().createHumanMessage(
       testChannelId,
       '请处理这个需求',
       undefined,
@@ -233,7 +233,7 @@ describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
     );
     messageIds.push(humanMsg.id);
 
-    const result = await channelMessageService.listByWorkUnitId(workUnitId);
+    const result = await getChannelMessageService().listByWorkUnitId(workUnitId);
 
     expect(result.total).toBeGreaterThanOrEqual(2);
     expect(result.data.every(m => m.workUnitId === workUnitId)).toBe(true);
@@ -262,7 +262,7 @@ describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
     expect(meta.triggeredAt).toBeDefined();
 
     // Verify messages linked to WorkUnit
-    const messages = await channelMessageService.listByWorkUnitId(workUnitId);
+    const messages = await getChannelMessageService().listByWorkUnitId(workUnitId);
     expect(messages.total).toBeGreaterThanOrEqual(2);
 
     // Verify trigger YAML exists for audit trail

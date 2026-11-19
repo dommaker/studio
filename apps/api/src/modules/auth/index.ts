@@ -6,3 +6,6 @@
  */
 export { hashPassword, verifyToken } from './service.js';
 export type { SessionData, UserData } from './service.js';
+// Phase 5 SCC 第一刀 #1：审计出口缝（SEC-010）。接口与注册口在调用方，bootstrap 装配期注入 audit-logs 实现
+export { logAuthAudit, registerAuthAuditSink } from './audit-sink.js';
+export type { AuthAuditEntry, AuthAuditSink } from './audit-sink.js';

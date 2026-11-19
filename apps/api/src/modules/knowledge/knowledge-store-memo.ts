@@ -1,14 +1,14 @@
 /**
- * MtimeMemoKnowledgeStore — FileKnowledgeStore 的 mtime 校验聚合 memo 包装（#343）。
+ * MtimeMemoKnowledgeStore — FileKnowledgeStore 的 manifest generation 聚合 memo 包装（#343 / PERF-04）。
  *
  * 缓存 seam 定位（ADR docs/adr/2026-08-24-cache-seam-decision-rules.md「外部包存储栈」条款）：
  * 真源是磁盘文件，但管理它的存储栈来自外部包（harness FileKnowledgeStore，npm 固定版本），
  * 进不了 studio-shared FileStore 读穿 seam → 决策树第 3 问「聚合 memo」，贴着
  * knowledge-singletons 的 sharedStore 组装点放置。失效口径（写在构造处）：
  *   - 本进程写穿透：save/saveAll/applyAll/update/delete/rebuildIndex 同步失效全部 memo；
- *   - 跨进程外部写：每次读前重算指纹（readdir + 逐文件 stat，mtimeMs+size），
- *     指纹不变 → memo 有效；有变 → 全量重扫。残余风险与 FileStore seam 的 mtime
- *     兜底同量级：外部同毫秒且等长改写不可见（本进程写不受此限）。
+ *   - 跨进程外部写：FileKnowledgeStore 每次条目写都重写 index.json；读前只 stat 这一份
+ *     manifest，以 dev/ino/mtimeNs/ctimeNs/size 组成 generation。generation 不变则复用
+ *     只读 memo 快照，有变则全量重扫；稳态校验 O(1)，不再 readdir 或逐条目 stat。
  *
  * 读语义基线：底层 list()/get() 每次返回全新对象，调用方（recordOutcome 等）
  * 会原地改嵌套数组——memo 命中一律 structuredClone 后返回，保持该既有契约。
@@ -26,8 +26,8 @@ type IndexEntries = ReturnType<KnowledgeStore['readIndex']>;
 
 export class MtimeMemoKnowledgeStore implements KnowledgeStore {
   private readonly underlying: KnowledgeStore;
-  /** 指纹 → memo（指纹变或写穿透即整体清空；key = filter JSON / 条目 id） */
-  private fingerprint: string | null = null;
+  /** manifest generation → 只读 memo 快照（generation 变或写穿透即整体清空） */
+  private generation: string | null = null;
   private readonly memo = new Map<string, unknown>();
 
   constructor(underlying: KnowledgeStore) {
@@ -114,24 +114,21 @@ export class MtimeMemoKnowledgeStore implements KnowledgeStore {
   // ── memo 内核 ──────────────────────────────────────────
 
   private invalidate(): void {
-    this.fingerprint = null;
+    this.generation = null;
     this.memo.clear();
   }
 
   /**
-   * 目录指纹：readdir 顶层 + 逐文件 stat（.md 与 index.json），名称/mtimeMs/size 全参与比较。
-   * 每次读口调用都会重算一次；N 为条目数（生产 ~200），stat 代价比 read+YAML.parse 低两个量级。
+   * FileKnowledgeStore 的所有条目写都同步重写 index.json，因此它就是 store manifest。
+   * 每次读只 stat 这一份 manifest，以纳秒 mtime/ctime + inode + size 组成 generation；
+   * 同一 generation 复用 memo，稳态校验为 O(1)，与条目数无关。
    */
-  private scanFingerprint(baseDir: string): string {
-    const names = fs.readdirSync(baseDir).filter(n => n.endsWith('.md') || n === 'index.json').sort();
-    const parts: string[] = [];
-    for (const name of names) {
-      try {
-        const st = fs.statSync(path.join(baseDir, name));
-        parts.push(`${name}:${st.mtimeMs}:${st.size}`);
-      } catch { /* 读口竞态：文件刚被删 → 视为指纹组成缺席 */ }
-    }
-    return parts.join('|');
+  private readManifestGeneration(baseDir: string): string {
+    try {
+      const st = fs.statSync(path.join(baseDir, 'index.json'), { bigint: true });
+      return `${st.dev}:${st.ino}:${st.mtimeNs}:${st.ctimeNs}:${st.size}`;
+    } catch { /* manifest 暂缺/读口竞态：按独立 generation 处理，创建后必失效 */ }
+    return 'missing';
   }
 
   private readThrough<T>(key: string, load: () => T): T {
@@ -139,10 +136,10 @@ export class MtimeMemoKnowledgeStore implements KnowledgeStore {
     const baseDir = this.underlying.getBaseDir();
 
     const tStat0 = timer?.() ?? 0;
-    const fp = this.scanFingerprint(baseDir);
+    const generation = this.readManifestGeneration(baseDir);
     const statMs = (timer?.() ?? 0) - tStat0;
-    if (fp !== this.fingerprint) {
-      this.fingerprint = fp;
+    if (generation !== this.generation) {
+      this.generation = generation;
       this.memo.clear();
     }
 

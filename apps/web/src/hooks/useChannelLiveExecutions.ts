@@ -10,7 +10,7 @@
 //   - workunit.status_changed：仅作终态 step 条目清理（防内存残留，不限频道）
 // 展示模型推导 = execution-rows.deriveLiveExecutions（#240 推导层复用）。
 import { useEffect, useMemo, useState } from 'react';
-import { useWebSocketContext } from '../api/websocketHooks';
+import { useSseContext } from '../api/sseHooks';
 import { useChannelWorkStore } from '../stores/channelWorkStore';
 import {
   deriveLiveExecutions,
@@ -20,7 +20,7 @@ import {
 } from '../components/workunit/execution-rows';
 
 export function useChannelLiveExecutions(channelId: string | null): LiveExecution[] {
-  const { onEvent } = useWebSocketContext();
+  const { onEvent } = useSseContext();
   const wus = useChannelWorkStore(s => (channelId ? s.wus[channelId] : undefined));
   const [steps, setSteps] = useState<Record<string, { step: number; action?: string }>>({});
 
@@ -44,7 +44,7 @@ export function useChannelLiveExecutions(channelId: string | null): LiveExecutio
         const ref = parseLiveStepRef(msg.data);
         if (!ref) return;
         // 决策 4：负载带 channelId → 他频道步事件直接丢弃（不再产生他频道条目）；
-        // channelId 缺省（旧后端）不过滤，向后兼容
+        // channelId 缺省 = 无频道 WU（后端 wu.channelId 透传，null 则缺省该键），不过滤
         if (ref.channelId && ref.channelId !== channelId) return;
         setSteps(prev => {
           const cur = prev[ref.workUnitId];

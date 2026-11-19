@@ -7,10 +7,10 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { STUDIO_DIR } from './shared.js';
 import { ensureDataDirs, ensureDaemonSecrets } from './bootstrap.js';
-import { defaultKnowledgeDir } from '../utils/runtime-paths.js';
+import { defaultKnowledgeDir } from '../bootstrap/runtime-paths.js';
 import { scanAllProviders, KNOWN_PROVIDERS, type DetectedRuntime } from '../daemon/cli-scanner.js';
 import { resolvePort, explicitPortFromEnv } from './port-probe.js';
-import { resolveListenHost } from '../utils/listen-host.js';
+import { resolveListenHost } from './listen-host.js';
 
 // ESM 形态（esbuild bundle / tsc ESNext）无 CJS __dirname，与 app.ts 同法自取
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -119,7 +119,7 @@ export async function studioUp(configPath?: string) {
   // ── Ops Pre-flight Guard ──
   // 存储/前端产物/进程/磁盘等启动检查；端口检查已收编 cli/port-probe（#573）
   try {
-    const { createOpsService } = await import('../modules/agent-ops/index.js');
+    const { createOpsService } = await import('../modules/ops/index.js');
     const ops = createOpsService(port);
     const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
     const preflight = await ops.preflight(process.env.REPO_DIR, frontendDist);
@@ -199,7 +199,7 @@ export async function studioStatus() {
   // 5. G4: Trajectory eval（D18: 统一事件文件，StudioEvent 形态）
   try {
     const fs = await import('fs');
-    const { resolveStudioEventsFile, parseStudioEventPayload } = await import('../utils/studio-events.js');
+    const { resolveStudioEventsFile, parseStudioEventPayload } = await import('@dommaker/studio-shared');
     const sf = resolveStudioEventsFile();
     if (fs.existsSync(sf)) {
       const lines = fs.readFileSync(sf, 'utf-8').split('\n').filter(Boolean);

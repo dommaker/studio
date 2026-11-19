@@ -4,12 +4,13 @@
 // → monitor.stop → auditor.stop → server.close → 5s 强制 exit 兜底。
 import { createServer, type Server } from 'http';
 import type { Express } from 'express';
-import { logger } from '@dommaker/studio-shared';
+
 import { stopEvolutionScheduler } from '../modules/knowledge/index.js';
-import { monitorService } from '../modules/agent-monitor/index.js';
-import { auditorService } from '../modules/agent-auditor/index.js';
-import { handleServerListenError } from '../utils/listen-error.js';
+import { getMonitorService } from '../modules/ops/index.js';
+import { getAuditorService } from '../modules/agent-auditor/index.js';
+import { handleServerListenError } from './listen-error.js';
 import { stopTunnel } from './tunnel.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export function createHttpServer(app: Express): Server {
   return createServer(app);
@@ -64,8 +65,8 @@ export function registerShutdown(server: Server): void {
 
     stopTunnel();
     stopEvolutionScheduler();
-    monitorService.stop();
-    auditorService.stop();
+    getMonitorService().stop();
+    getAuditorService().stop();
     server.close(() => process.exit(0));
     // Fallback: force exit if server.close() hangs (lingering connections/handles)
     setTimeout(() => process.exit(0), 5000).unref();

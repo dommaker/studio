@@ -1,6 +1,6 @@
 /**
- * projects 域契约测试：实体/请求/响应 schema 的接受-拒绝边界 + LocalProject parity。
- * 正本 = project-discovery.service.ts LocalProject + project.routes.ts 实测 wire 行为。
+ * projects 域契约测试：实体/请求/响应 schema 的接受-拒绝边界。
+ * schema 即正本（原 LocalProject 手写 interface 双写互验 parity 层已退役，类型同源由编译期断言锚定）。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -23,12 +23,10 @@ const projectRow: LocalProject = {
 };
 
 describe('localProjectSchema', () => {
-  // strict:false 仓 z.infer 全字段退化可选 → LocalProject 是手写 interface；parity 兜漂移
-  it('parity：LocalProject interface fixture 全键 = schema.shape 键；必填字段删除即拒', () => {
-    const full: LocalProject = { ...projectRow, language: 'typescript' };
-    expect(localProjectSchema.parse(full)).toEqual(full);
+  it('必填字段删除即拒；language 可选', () => {
+    expect(localProjectSchema.parse({ ...projectRow, language: 'typescript' }))
+      .toEqual({ ...projectRow, language: 'typescript' });
     expect(localProjectSchema.parse(projectRow)).toEqual(projectRow);
-    expect(Object.keys(localProjectSchema.shape).sort()).toEqual(Object.keys(full).sort());
     for (const key of Object.keys(projectRow)) {
       const { [key]: _drop, ...rest } = projectRow as unknown as Record<string, unknown>;
       expect(localProjectSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);

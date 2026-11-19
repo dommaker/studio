@@ -32,7 +32,7 @@ import { ChannelActivityRail } from '../ChannelActivityRail';
 import { useChannelDataStore } from '../../../stores/channelDataStore';
 import { useRequirementChainStore } from '../../../stores/requirementChainStore';
 import type { Requirement } from '../../../api/requirements';
-import type { ChannelActivityItem } from '../activityRail';
+import type { ChannelActivityItem } from '../../../utils/activityRail';
 
 function req(id: string, over: Partial<Requirement> = {}): Requirement {
   return {

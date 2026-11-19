@@ -6,12 +6,12 @@
 // 页面 visible 才轮询，TTL 门禁保证多消费方错峰计时器不放大请求数）。
 // 事件处理逻辑唯一一份在 store action；本 hook 只做接线。
 import { useEffect, useRef } from 'react';
-import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';
+import { useSseContext, type SseMessage } from '../api/sseHooks';
 import { useGatedPoll } from './useGatedPoll';
 
 export interface DataPlaneSyncOptions {
   /** SSE 事件处理器（引用稳定——引用计数单例按首挂载注册的实例退订） */
-  handleEvent: (msg: WebSocketMessage) => void;
+  handleEvent: (msg: SseMessage) => void;
   /** 重连强刷与兜底轮询的目标（ensureFresh 自带 TTL 门禁；引用稳定） */
   ensureFresh: (opts?: { maxAgeMs?: number }) => Promise<void>;
   /** 兜底轮询周期；<= 0 = 停用轮询兜底（#549：只接 SSE + 重连的 store 维持无轮询现状） */
@@ -22,7 +22,7 @@ let syncRefCount = 0;
 let detachEvent: (() => void) | null = null;
 
 export function useDataPlaneSync({ handleEvent, ensureFresh, pollIntervalMs }: DataPlaneSyncOptions): void {
-  const { onEvent, onReconnect } = useWebSocketContext();
+  const { onEvent, onReconnect } = useSseContext();
   const onEventRef = useRef(onEvent);
   useEffect(() => {
     onEventRef.current = onEvent;

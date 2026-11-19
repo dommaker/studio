@@ -8,11 +8,12 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { AgentProfileService, ensureStudioProfile, listRolePresets, STUDIO_ROLE_DESCRIPTION, STUDIO_ROLE_DEFAULT_PROVIDER, STUDIO_ROLE_LEGACY_DESCRIPTION } from '../agent-profile.service.js';
-import { isSystemRole } from '../system-role.js';
+import { isSystemRole } from '../../../core/system-role.js';
 
 // F1: provider 缺省打戳的扫描结果 mock 为固定 'claude'（真机扫描结果随机器漂移，测试要确定）
+// 2026-10-03：角色创建路径换 resolveDefaultProviderAsync（async 变体），mock 出口同步换名
 vi.mock('../default-provider.js', () => ({
-  resolveDefaultProvider: vi.fn(() => 'claude'),
+  resolveDefaultProviderAsync: vi.fn(async () => 'claude'),
 }));
 
 function createTempDir(): string {
@@ -113,14 +114,14 @@ describe('AgentProfile CRUD', () => {
     expect(onDisk!.channels).toBe('["ch-1"]');
   });
 
-  it('update normalizes double-encoded channels input', async () => {
+  it('update 对双重编码的 channels 输入落 []（#696：双层解码容错已退役）', async () => {
     const created = await service.create({ name: 'test-normalize-update' });
     testProfileIds.push(created.id);
 
     const updated = await service.update(created.id, {
       channels: JSON.stringify(JSON.stringify(['ch-2'])) as unknown as string[],
     });
-    expect(updated.channels).toBe('["ch-2"]');
+    expect(updated.channels).toBe('[]');
   });
 
   it('delete', async () => {
@@ -309,7 +310,7 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
     await fileStore.deleteChannel(ch1Id);
   });
 
-  it('list({ channelId }) returns all active agents when Channel.members=[]', async () => {
+  it('#699: list({ channelId }) returns no agents when Channel.members=[]', async () => {
     const ch2Id = `ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const now = new Date().toISOString();
     await fileStore.createChannel({
@@ -323,8 +324,8 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
     testProfileIds.push(agent3.id);
 
     const result = await service.list({ channelId: ch2Id });
-    // Empty members → returns all active agents (fallback)
-    expect(result.data.length).toBeGreaterThanOrEqual(1);
+    expect(result.data).toEqual([]);
+    expect(result.total).toBe(0);
 
     await fileStore.deleteChannel(ch2Id);
   });

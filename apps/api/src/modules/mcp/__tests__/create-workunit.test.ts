@@ -9,7 +9,7 @@ const mockCreate = vi.fn().mockResolvedValue({
 });
 
 // Mock WorkUnitService
-vi.mock('../../workunit/workunit.service.js', () => ({
+vi.mock('../../workunit/workunit-review.js', () => ({
   WorkUnitService: vi.fn().mockImplementation(function () { return {
     create: mockCreate,
   }; }),

@@ -9,9 +9,7 @@ import {
   type Requirement,
   requirementStatusSchema,
   requirementChainWorkUnitSchema,
-  type RequirementChainWorkUnit,
   chainStatEntrySchema,
-  type ChainStatEntry,
   requirementChainSchema,
   listRequirementsQuerySchema,
   chainStatsQuerySchema,
@@ -26,7 +24,7 @@ import {
 } from '../requirements.js';
 import * as contractIndex from '../index.js';
 
-/** 后端 RequirementWithProject 全字段形状（interface 类型即 parity 被测对象） */
+/** 后端 RequirementWithProject 全字段形状（类型 = z.infer 同源，编译期锚定） */
 const reqRow: Requirement = {
   id: 'REQ-0001',
   seq: 1,
@@ -50,28 +48,6 @@ describe('requirementSchema', () => {
     expect(requirementSchema.safeParse({ ...reqRow, status: 'bogus' }).success).toBe(false);
     for (const s of ['open', 'in-progress', 'done', 'archived'] as const) {
       expect(requirementStatusSchema.parse(s)).toBe(s);
-    }
-  });
-
-  // strict:false 仓 z.infer 全字段退化可选 → Requirement 是手写 interface；parity 兜漂移
-  it('parity：Requirement interface fixture 全键 = schema.shape 键且通过校验', () => {
-    const full: Requirement & Required<Pick<Requirement, 'channelId' | 'docs' | 'description' | 'projectId'>> = {
-      ...reqRow, channelId: null, docs: [], description: '', projectId: null,
-    };
-    expect(requirementSchema.parse(full)).toEqual(full);
-    expect(Object.keys(requirementSchema.shape).sort()).toEqual(Object.keys(full).sort());
-  });
-
-  it('parity：interface 必填字段逐一删除 → schema 拒绝（必填集对齐）', () => {
-    const OPTIONAL_KEYS = new Set(['channelId', 'docs', 'description', 'projectId']);
-    for (const key of Object.keys(reqRow).filter((k) => !OPTIONAL_KEYS.has(k))) {
-      const { [key]: _drop, ...rest } = reqRow as unknown as Record<string, unknown>;
-      expect(requirementSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
-    // interface 可选字段删除 → 仍通过
-    for (const key of OPTIONAL_KEYS) {
-      const { [key]: _drop, ...rest } = { ...reqRow, channelId: null, docs: [], description: '', projectId: null } as Record<string, unknown>;
-      expect(requirementSchema.safeParse(rest).success, `删除可选 ${key} 应放行`).toBe(true);
     }
   });
 });
@@ -123,20 +99,10 @@ describe('链路与响应 schema', () => {
     expect(requirementChainWorkUnitSchema.safeParse(noMeta).success).toBe(false);
   });
 
-  it('parity：RequirementChainWorkUnit / ChainStatEntry interface（手写，管道/徽章按必填消费）↔ schema 互验', () => {
-    const fullWu: RequirementChainWorkUnit & Required<Pick<RequirementChainWorkUnit, 'assigneeRoleId'>> = {
-      ...chainWu, assigneeRoleId: null,
-    };
-    expect(requirementChainWorkUnitSchema.parse(fullWu)).toEqual(fullWu);
-    expect(Object.keys(requirementChainWorkUnitSchema.shape).sort()).toEqual(Object.keys(fullWu).sort());
-    for (const key of Object.keys(chainWu)) {
-      const { [key]: _drop, ...rest } = chainWu as Record<string, unknown>;
-      expect(requirementChainWorkUnitSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
-    const entry: ChainStatEntry = { finished: 1, total: 2 };
+  it('chain stat entry：finished/total 必填', () => {
+    const entry = { finished: 1, total: 2 };
     expect(chainStatEntrySchema.parse(entry)).toEqual(entry);
     expect(chainStatEntrySchema.safeParse({ finished: 1 }).success).toBe(false);
-    expect(Object.keys(chainStatEntrySchema.shape).sort()).toEqual(Object.keys(entry).sort());
   });
 
   it('响应壳：{ data } 统一；chain-stats 不存在的需求 key 缺省（record 语义）', () => {

@@ -57,7 +57,6 @@ function createMockStore(initialEntries: any[] = []) {
 function createMockLifecycle() {
   return {
     recordReference: vi.fn(),
-    shouldAutoPromote: vi.fn(() => false),
   };
 }
 
@@ -73,12 +72,6 @@ function createMockIngest() {
         contributors: ['test'],
       },
     })),
-  };
-}
-
-function createMockLinter() {
-  return {
-    validateEntry: vi.fn(() => []), // no issues
   };
 }
 
@@ -117,7 +110,6 @@ function createKS(opts?: { entries?: any[] }) {
   const store = createMockStore(opts?.entries);
   const lifecycle = createMockLifecycle();
   const ingest = createMockIngest();
-  const linter = createMockLinter();
   const prisma = createMockPrisma();
   const query = createMockQuery();
   const eventEmitter = createMockEventEmitter();
@@ -126,13 +118,12 @@ function createKS(opts?: { entries?: any[] }) {
     store: store as any,
     lifecycle: lifecycle as any,
     ingest: ingest as any,
-    linter: linter as any,
     prisma: prisma as any,
     query: query as any,
     eventEmitter: eventEmitter as any,
   });
 
-  return { ks, store, lifecycle, ingest, linter, prisma, query, eventEmitter };
+  return { ks, store, lifecycle, ingest, prisma, query, eventEmitter };
 }
 
 // ── Produce ──
@@ -212,9 +203,8 @@ describe('KnowledgeService Phase 1A: Produce', () => {
       expect(ingest.ingestEntry).toHaveBeenCalledTimes(1);
     });
 
-    it('does not apply a separate studio linter pre-gate (single gate path, R4)', async () => {
-      const { ks, ingest, linter } = createKS();
-      linter.validateEntry.mockReturnValue([{ severity: 'high', description: 'too short', type: 'quality' }]);
+    it('applies no studio-side pre-gate — single gate path (R4; harness 3.0.0 linter 面随 ADR-0041 出清)', async () => {
+      const { ks, ingest } = createKS();
       const entry: PatternEntry = {
         type: 'review',
         title: 'Bad',
@@ -222,8 +212,8 @@ describe('KnowledgeService Phase 1A: Produce', () => {
         tags: ['test'],
       };
       await ks.recordPattern(entry);
-      // 不再有 studio 侧 linter 预检；low_quality 标记由 harness ingest 门的 flag action 负责
-      expect(linter.validateEntry).not.toHaveBeenCalled();
+      // studio 侧预检通道已不存在（KnowledgeServiceDeps 无 linter 位）；
+      // 裁决唯一归 harness ingest 门（KnowledgeAudit），low_quality 标记由 flag action 负责
       expect(ingest.ingestEntry).toHaveBeenCalledTimes(1);
     });
 
@@ -309,14 +299,14 @@ describe('KnowledgeService Phase 1A: Consume', () => {
       expect(results.every(r => r.entry.id !== '1')).toBe(true);
     });
 
-    it('penalizes low_quality entries', async () => {
+    it('uses the same low_quality exclusion as browsing and injection', async () => {
       const entries = [
         { id: '1', title: 'good', content: 'good deploy info', tags: ['pattern'], maturity: 'active', lastReferenced: new Date().toISOString() },
         { id: '2', title: 'bad', content: 'deploy info low quality', tags: ['pattern', 'low_quality'], maturity: 'active', lastReferenced: new Date().toISOString() },
       ];
       const { ks } = createKS({ entries });
       const results = await ks.search('deploy', { limit: 5 });
-      expect(results[0].entry.id).toBe('1'); // good ranks higher
+      expect(results.map(r => r.entry.id)).toEqual(['1']);
     });
   });
 
@@ -588,14 +578,47 @@ describe('KnowledgeService Phase 1B: Lifecycle', () => {
       expect(store.update).toHaveBeenCalledWith('e1', expect.objectContaining({ maturity: 'verified' }));
     });
 
-    it('promotes verified → proven', async () => {
+    it('draft 人审通过时清除 low_quality 待审标记，允许浏览与注入', async () => {
       const entries = [
-        { id: 'e1', title: 'Test', content: 'A'.repeat(120), tags: ['pattern'], maturity: 'verified', lastReferenced: new Date().toISOString() },
+        { id: 'e1', title: 'Test', content: 'A'.repeat(60), tags: ['pattern', 'low_quality'], maturity: 'draft', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.update = vi.fn().mockReturnValue(entries[0]);
+
+      await ks.promote('e1');
+
+      expect(store.update).toHaveBeenCalledWith('e1', { maturity: 'verified', tags: ['pattern'] });
+    });
+
+    it('promotes verified → proven only with verified successful delivery', async () => {
+      const entries = [
+        {
+          id: 'e1', title: 'Test', content: 'A'.repeat(120), tags: ['pattern'], maturity: 'verified', lastReferenced: new Date().toISOString(),
+          sourceReferences: [{ timestamp: '2026-11-07T00:00:00Z', learning: {
+            scope: { kind: 'global' }, extractionVersion: '1', revision: 1,
+            outcome: { execution: 'succeeded', verification: 'passed', delivery: 'not-required' },
+          } }],
+        },
       ];
       const { ks, store } = createKS({ entries });
       store.update = vi.fn().mockReturnValue(entries[0]);
       await ks.promote('e1');
       expect(store.update).toHaveBeenCalledWith('e1', expect.objectContaining({ maturity: 'proven' }));
+    });
+
+    it('does not prove agent-produced failed or unmerged work', async () => {
+      const entries = [
+        {
+          id: 'e1', title: 'Test', content: 'A'.repeat(120), tags: ['pattern'], maturity: 'verified', origin: 'agent',
+          sourceReferences: [{ timestamp: '2026-11-07T00:00:00Z', learning: {
+            scope: { kind: 'global' }, extractionVersion: '1', revision: 1,
+            outcome: { execution: 'succeeded', verification: 'passed', delivery: 'unmerged' },
+          } }],
+        },
+      ];
+      const { ks, store } = createKS({ entries });
+      await ks.promote('e1');
+      expect(store.update).not.toHaveBeenCalled();
     });
 
     it('does not promote if entry not found', async () => {
@@ -996,6 +1019,51 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
       expect(store.get).toHaveBeenCalledWith('entry-1');
       expect(entry.referencedBy).toContain('exec-1');
       expect(store.save).toHaveBeenCalledWith(entry);
+    });
+
+    it('persists final execution lineage and links consumed entries to the assignment', async () => {
+      const entry = { id: 'entry-1', referencedBy: [] };
+      const { ks } = createKS({ entries: [entry] });
+      mockAppendJsonl.mockClear();
+
+      await ks.recordOutcome({
+        executionId: 'wu-1',
+        workUnitId: 'wu-1',
+        assignmentId: 'assignment-1',
+        stepRecordId: 'step-1',
+        verification: 'passed',
+        final: true,
+        agentType: 'executor',
+        consumedKnowledge: ['entry-1'],
+        success: true,
+        details: 'ok',
+        timestamp: new Date().toISOString(),
+      });
+
+      const event = mockAppendJsonl.mock.calls[0][1];
+      expect(JSON.parse(event.payload)).toMatchObject({
+        executionId: 'wu-1',
+        workUnitId: 'wu-1',
+        assignmentId: 'assignment-1',
+        stepRecordId: 'step-1',
+        verification: 'passed',
+        final: true,
+        agentType: 'executor',
+        consumedKnowledge: ['entry-1'],
+        success: true,
+      });
+      expect(entry.referencedBy).toEqual(['assignment-1']);
+      const consumption = mockAppendJsonl.mock.calls
+        .map(call => call[1])
+        .find(event => event.type === 'knowledge:consumption');
+      expect(JSON.parse(consumption.payload)).toMatchObject({
+        entryIds: ['entry-1'],
+        workUnitId: 'wu-1',
+        assignmentId: 'assignment-1',
+        stepRecordId: 'step-1',
+        verification: 'passed',
+        final: true,
+      });
     });
 
     it('emits knowledge event', async () => {

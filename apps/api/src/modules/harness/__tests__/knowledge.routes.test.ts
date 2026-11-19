@@ -2,7 +2,7 @@
  * knowledge.routes 路由测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * mock @dommaker/harness（内存态 FileKnowledgeStore/KnowledgeQuery/
- * ReferenceTracker/KnowledgeLinter），挂载 knowledgeRoutes 覆盖：
+ * KnowledgeAudit），挂载 knowledgeRoutes 覆盖：
  * POST /knowledge/query、GET /knowledge（含 TTL 缓存）、GET /knowledge/:id、
  * POST /knowledge、DELETE /knowledge/:id、POST /knowledge/lint。
  * HOME 指向临时目录隔离 knowledge-bus 链路。
@@ -43,13 +43,10 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
         return { entries: [...entries.values()], budget, filter };
       }
     },
-    ReferenceTracker: class {
+    KnowledgeAudit: class {
       constructor(_store: unknown) {}
-    },
-    KnowledgeLinter: class {
-      constructor(_store: unknown, _tracker: unknown) {}
       run() {
-        return { issues: [{ rule: 'no-refs', entryId: 'k-lint' }] };
+        return { issues: [{ rule: 'no-refs', entryId: 'k-lint' }], healthScore: { before: 80, after: 80 }, autoFixed: 0 };
       }
     },
   };

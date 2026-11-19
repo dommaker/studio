@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -61,25 +62,37 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
   let wuService: WorkUnitService;
   let agentLoop: AgentLoop;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-assignee-'));
     fileStore = new FileStore(testDir);
     wuService = new WorkUnitService(fileStore);
+    // §9.5（#696 严格口径）：频道作用域只看 channel.members——种子两个频道配置，
+    // MY_CHANNEL 成员 = 本 profile；OTHER_CHANNEL 成员 = 其他 profile
+    const ts = new Date().toISOString();
+    for (const [id, members] of [[MY_CHANNEL, [SELF_ROLE_ID]], [OTHER_CHANNEL, [OTHER_ROLE_ID]]] as const) {
+      await fileStore.createChannel({
+        id, name: `#${id}`, type: 'rnd',
+        defaultWorkspaceId: null, defaultPath: null,
+        discordChannelId: null, discordWebhookUrl: null,
+        members: JSON.stringify(members), createdAt: ts, updatedAt: ts,
+      });
+    }
     // 不 start()：避免后台 runLoop 并发认领造成断言抖动；直接注入 instance
     // （myActive 作用域 = assigneeId === instance.id，与运行中的 loop 一致）。
-    agentLoop = new AgentLoop(mockRole, fileStore);
-    (agentLoop as unknown as { instance: unknown }).instance = {
-      id: SELF_INSTANCE_ID,
-      roleId: SELF_ROLE_ID,
-      sessionId: null,
-      status: 'idle',
-      currentWorkUnitId: null,
-      startedAt: new Date().toISOString(),
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
-    };
+    agentLoop = new AgentLoop(mockRole, fileStore, {
+      instance: {
+        id: SELF_INSTANCE_ID,
+        roleId: SELF_ROLE_ID,
+        sessionId: null,
+        status: 'idle',
+        currentWorkUnitId: null,
+        startedAt: new Date().toISOString(),
+        terminatedAt: null,
+        lastHeartbeat: null,
+        metadata: null,
+      },
+    });
   });
 
   afterEach(() => {
@@ -87,7 +100,7 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
   });
 
   function observe() {
-    return (agentLoop as unknown as ObserveCapable).observe();
+    return (agentLoop).observe();
   }
 
   it('(a) 指派给其他 profile 的 WorkUnit 不被本 loop 认领（即使同频道）', async () => {
@@ -142,18 +155,19 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
 
   it('(c2) 决策 10：删除 acceptedTypes 硬过滤 —— acceptedTypes 不含 WU type 的任务仍可见', async () => {
     // 角色只声明 implement，但 type=review 的任务（指派 + 频道未指派各一）都必须可见
-    const loop = new AgentLoop({ ...mockRole, acceptedTypes: ['implement'] }, fileStore);
-    (loop as unknown as { instance: unknown }).instance = {
-      id: SELF_INSTANCE_ID,
-      roleId: SELF_ROLE_ID,
-      sessionId: null,
-      status: 'idle',
-      currentWorkUnitId: null,
-      startedAt: new Date().toISOString(),
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
-    };
+    const loop = new AgentLoop({ ...mockRole, acceptedTypes: ['implement'] }, fileStore, {
+      instance: {
+        id: SELF_INSTANCE_ID,
+        roleId: SELF_ROLE_ID,
+        sessionId: null,
+        status: 'idle',
+        currentWorkUnitId: null,
+        startedAt: new Date().toISOString(),
+        terminatedAt: null,
+        lastHeartbeat: null,
+        metadata: null,
+      },
+    });
     const assigned = await wuService.create({
       scope: '@self-agent 审查代码', channelId: MY_CHANNEL, type: 'review',
       status: 'unassigned', assigneeId: SELF_ROLE_ID,
@@ -163,7 +177,7 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
       status: 'unassigned', assigneeId: null,
     });
 
-    const obs = await (loop as unknown as ObserveCapable).observe();
+    const obs = await (loop).observe();
     expect(obs.unassigned.map(w => w.id)).toContain(assigned.id);
     expect(obs.unassigned.map(w => w.id)).toContain(channelScoped.id);
   });
@@ -201,6 +215,21 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
     expect(ids).not.toContain(excluded.id);
     expect(ids).toContain(notExcluded.id);
     expect(ids).toContain(selfReviewFallback.id);
+  });
+
+  it('#720 整体评审 excludeAssignees 排除任一实现者，其他 reviewer 仍可见', async () => {
+    const excluded = await wuService.create({
+      scope: '多仓整体评审', channelId: MY_CHANNEL, type: 'review', status: 'unassigned', assigneeId: null,
+      metadata: { excludeAssignees: [SELF_ROLE_ID, 'implementer-b'] },
+    });
+    const independent = await wuService.create({
+      scope: '另一整体评审', channelId: MY_CHANNEL, type: 'review', status: 'unassigned', assigneeId: null,
+      metadata: { excludeAssignees: ['implementer-a', 'implementer-b'] },
+    });
+
+    const ids = (await observe()).unassigned.map(w => w.id);
+    expect(ids).not.toContain(excluded.id);
+    expect(ids).toContain(independent.id);
   });
 
   it('(e) myActive 作用域：仅拾取 assigneeId === 本实例 id 的 active/blocked WorkUnit', async () => {

@@ -1,5 +1,5 @@
 // utils/wuPmo — WU→PMO 归属解析共享正本（#630 自 WorkUnitDetailPage.resolvePmo 提取 +
-// resolveWuPmoBatch 批量去重）。契约：① metadata.pmoId（‖ legacy ownershipProjectId）戳优先直查；
+// resolveWuPmoBatch 批量去重）。契约：① metadata.pmoId 戳优先直查；
 // ② 否则 reqId → requirement.projectId；全部 best-effort（解析不到 → null），batch 按
 // reqId/projectId promise 去重防 N+1。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -39,12 +39,6 @@ describe('resolveWuPmo（单 WU 归属解析）', () => {
     expect(result).toEqual(PMO);
     expect(mockProjectGet).toHaveBeenCalledWith('proj-1');
     expect(mockRequirementGet).not.toHaveBeenCalled();
-  });
-
-  it('legacy ownershipProjectId 戳同级命中', async () => {
-    const result = await resolveWuPmo(wu({ metadata: JSON.stringify({ ownershipProjectId: 'proj-1' }) }));
-
-    expect(result).toEqual(PMO);
   });
 
   it('无戳走 reqId → requirement.projectId 二跳', async () => {

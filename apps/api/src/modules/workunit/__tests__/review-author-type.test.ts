@@ -1,6 +1,5 @@
-// A2A §4.4-2 / §8-Q3: review API authorType 校验 —— agent 身份调用一律 403，人类/缺省放行。
-// 身份约定：body.authorType 或 x-author-type header；UI/人类调用不发送（或发送 'human'）。
-// WorkUnitService mock 掉（router 模块级单例会指向真实 ~/.studio/data），只测路由层契约。
+// SEC-07：review/status 只认认证 Operator Principal；authorType 仅是业务元数据。
+// x-test-principal 仅模拟上游认证投影，WorkUnitService mock 掉，断言拒绝时 service 零调用。
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
@@ -11,7 +10,7 @@ const { mockReviewPassed, mockReviewRejected, mockTransitionStatus } = vi.hoiste
   mockTransitionStatus: vi.fn(),
 }));
 
-vi.mock('../workunit.service.js', () => ({
+vi.mock('../workunit-review.js', () => ({
   WorkUnitService: class {
     reviewPassed = mockReviewPassed;
     reviewRejected = mockReviewRejected;
@@ -21,18 +20,23 @@ vi.mock('../workunit.service.js', () => ({
 
 import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
+import { validWorkUnit } from './route-fixtures.js';
 
 describe('review API authorType 校验（A2A §4.4）', () => {
   let server: Server;
   let base: string;
 
   beforeAll(async () => {
-    mockReviewPassed.mockResolvedValue({ id: 'wu-1', status: 'done' });
-    mockReviewRejected.mockResolvedValue({ id: 'wu-1', status: 'active' });
+    mockReviewPassed.mockResolvedValue(validWorkUnit({ status: 'done' }));
+    mockReviewRejected.mockResolvedValue(validWorkUnit({ status: 'active' }));
     const app = express();
     app.use(express.json());
     // P2-e：镜像 route-registry 挂载姿态（open 无鉴权 + write 挂 authNotGuest）
-    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), workunitWriteRoutes);
+    app.use('/workunits', workunitOpenRoutes, requireAuth(), requireNotGuest(), (req, _res, next) => {
+      const actorType = req.headers['x-test-principal'];
+      if (typeof actorType === 'string') (req as any).user = { id: `test-${actorType}`, actorType };
+      next();
+    }, workunitWriteRoutes);
     await new Promise<void>(resolve => {
       server = app.listen(0, '127.0.0.1', () => resolve());
     });
@@ -46,9 +50,12 @@ describe('review API authorType 校验（A2A §4.4）', () => {
   });
 
   function post(path: string, init?: { body?: unknown; headers?: Record<string, string> }) {
+    const body = init?.body as { authorType?: unknown } | undefined;
+    const declaredAgent = body?.authorType === 'agent' || init?.headers?.['x-author-type'] === 'agent';
+    const actorType = init?.headers?.['x-test-principal'] ?? (declaredAgent ? 'Agent' : undefined);
     return fetch(`${base}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...init?.headers },
+      headers: { 'Content-Type': 'application/json', ...init?.headers, ...(actorType ? { 'x-test-principal': actorType } : {}) },
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
   }
@@ -60,6 +67,21 @@ describe('review API authorType 校验（A2A §4.4）', () => {
     const json = await res.json() as { error: { code: string } };
     expect(json.error.code).toBe('FORBIDDEN');
     expect(mockReviewPassed).not.toHaveBeenCalled();
+  });
+
+  it('review-passed：Agent 伪造 authorType=human 仍 403，Operator 自声明 agent 不受影响', async () => {
+    mockReviewPassed.mockClear();
+    const agent = await post('/wu-1/review-passed', {
+      headers: { 'x-test-principal': 'Agent' }, body: { authorType: 'human' },
+    });
+    expect(agent.status).toBe(403);
+    expect(mockReviewPassed).not.toHaveBeenCalled();
+
+    const operator = await post('/wu-1/review-passed', {
+      headers: { 'x-test-principal': 'Operator' }, body: { authorType: 'agent' },
+    });
+    expect(operator.status).toBe(200);
+    expect(mockReviewPassed).toHaveBeenCalledTimes(1);
   });
 
   it('review-passed：x-author-type: agent header → 403', async () => {
@@ -138,7 +160,7 @@ describe('review API authorType 校验（A2A §4.4）', () => {
 
   it('status：authorType=human / 缺省 → 正常迁移', async () => {
     mockTransitionStatus.mockClear();
-    mockTransitionStatus.mockResolvedValue({ id: 'wu-1', status: 'unassigned' });
+    mockTransitionStatus.mockResolvedValue(validWorkUnit({ status: 'unassigned' }));
 
     const human = await post('/wu-1/status', { body: { authorType: 'human', status: 'unassigned' } });
     expect(human.status).toBe(200);

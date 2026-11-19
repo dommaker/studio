@@ -24,7 +24,7 @@ const loadSkill: RegisteredTool = {
     const { skillName } = input;
 
     // [Skill Discovery] Log Agent's skill selection
-    const { logger: log } = await import('@dommaker/studio-shared');
+    const { logger: log } = await import('@dommaker/studio-shared/node');
     log.info(`[SkillDiscovery] Agent selected skill: ${skillName}`);
 
     // 1. Try package SkillLoader (sync, cached, includes hardcoded + DB skills)

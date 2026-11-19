@@ -19,13 +19,23 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {
     ...actual,
-    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   };
 });
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
-  return { ...actual, execSh: mockExecSh };
+  return {
+    ...actual,
+    execSh: mockExecSh,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    // 真沙箱 prepare 要求 root（CI runner 非 root）；本用例只验 workspace cwd 绑定，
+    // 沙箱旁路为直通：command/env 原样交给（已 mock 的）execSh
+    prepareAgentSandbox: vi.fn(async (opts: { command: string; env: NodeJS.ProcessEnv }) => ({
+      command: opts.command,
+      env: opts.env,
+      dispose: async () => {},
+    })),
+  };
 });
 
 vi.mock('@dommaker/studio-skill', () => ({
@@ -93,12 +103,12 @@ describe('F6: executeLightweight workspace cwd', () => {
     expect(result.success).toBe(true);
     // worktree 直接解析为绑定的工程目录（repo-path-direct，无 git worktree 创建）
     expect(result.worktree).toBe(wsRoot);
-    // 真正的 CLI spawn：cmd 以 cd "<wsRoot>" 开头，opts.cwd = wsRoot
+    // 真正的 CLI spawn：经 sandbox 包装（bwrap + 环境收口），cwd 绑定 = wsRoot，
+    // 目标 CLI 命令在包装串内（旧的 `cd "<root>" &&` 拼接已由 sandbox cwd 取代）
     const spawnCall = mockExecSh.mock.calls.find(
-      ([cmd, opts]: [string, { cwd?: string }]) => opts?.cwd === wsRoot && String(cmd).startsWith('cd '),
+      ([cmd, opts]: [string, { cwd?: string }]) => opts?.cwd === wsRoot && String(cmd).includes('claude'),
     );
     expect(spawnCall).toBeTruthy();
-    expect(String(spawnCall![0])).toContain(`cd "${wsRoot}"`);
     // 没有发生 git worktree add（worktree 隔离只服务 daemon 路径）
     const gitWorktreeCall = mockExecSh.mock.calls.find(
       ([cmd]: [string]) => String(cmd).includes('git worktree add'),

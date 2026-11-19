@@ -19,14 +19,14 @@
 | `TriageErrorClass` | error-class.ts | 系统级错误分类（timeout / test_failure 等） |
 | `SystemTriageResult` | error-class.ts | 系统级分类结果（含 errorClass、severity、recommendedAction） |
 | `classifySystemError` | error-class.ts | 系统级错误分类入口（triage.service 与告警升级链消费） |
-| `triageService` | triage.service.ts | Triage Agent 单例（handleAlert 入口；Monitor 告警升级消费方走 barrel） |
+| `getTriageService()` | triage.service.ts | Triage Agent 单例（handleAlert 入口；Monitor 告警升级消费方走 barrel） |
 | `TriageIncidentInput` / `TriageIncidentType` / `TriageLogEntry` | types.ts | incident 类型契约（P2-d 自 agents/types.ts 拆分归属） |
 
 ### 依赖关系
 
-**上游依赖**：modules/knowledge（knowledgeService，triage.service 诊断段）、core（store/proc-probes/exec-async）、@dommaker/studio-notification（incident-notification）
+**上游依赖**：modules/knowledge（ARCH-06 起 triage.service 经 `knowledgePorts.produce/resolve`）、core（store/proc-probes/exec-async）、modules/notifications（incident-notification 经公共面取 getNotificationService，#684 包下沉）
 **下游依赖**：
-- apps/api/src/modules/agents/monitor/*（monitor-alerts/monitor-system-probes 告警升级，走 barrel；P2-d 刀6 后归 modules/agent-monitor）
+- apps/api/src/modules/ops/*（monitor-alerts/monitor-system-probes 告警升级，走 barrel；P2-d 刀6 后归 modules/agent-monitor，#683 起并入 modules/ops）
 - apps/api/tests/b2-unit.test.ts（测试模块）
 
 ### 注意事项

@@ -1,5 +1,5 @@
 // WU → PMO 项目解析共享正本（2026-08 归因统一；自 WorkUnitDetailPage.resolvePmo 提取，#630 删除确认框复用）：
-// ① 创建期归因戳 metadata.pmoId（‖ deprecated legacy ownershipProjectId 同级）直查；
+// ① 创建期归因戳 metadata.pmoId 直查；
 // ② 否则 reqId → requirement.projectId（REQ 别名视图 projectId = PMO 自身 id）。
 // 全部 best-effort：解析不到 → null（调用方按「未归属」降级展示），不阻断主流程。
 import { projectApi } from '../api/index';
@@ -16,7 +16,7 @@ export interface WuPmoInfo {
 /** 单 WU 归属解析（等价 WorkUnitDetailPage 原 resolvePmo） */
 export async function resolveWuPmo(wu: WorkUnit): Promise<WuPmoInfo | null> {
   const meta = parseWuMeta(wu.metadata);
-  const stamp = meta.pmoId ?? meta.ownershipProjectId;
+  const stamp = meta.pmoId;
   let projectId = typeof stamp === 'string' && stamp ? stamp : null;
   if (!projectId && wu.reqId) {
     try {
@@ -68,7 +68,7 @@ export async function resolveWuPmoBatch(wus: WorkUnit[]): Promise<Map<string, Wu
   const out = new Map<string, WuPmoInfo | null>();
   await Promise.all(wus.map(async (wu) => {
     const meta = parseWuMeta(wu.metadata);
-    const stamp = meta.pmoId ?? meta.ownershipProjectId;
+    const stamp = meta.pmoId;
     let projectId = typeof stamp === 'string' && stamp ? stamp : null;
     if (!projectId && wu.reqId) projectId = await projectIdOfReq(wu.reqId);
     out.set(wu.id, projectId ? await projectOf(projectId) : null);

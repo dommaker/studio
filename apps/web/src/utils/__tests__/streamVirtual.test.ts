@@ -21,7 +21,7 @@ const iso = (offsetMin: number) => new Date(t0 + offsetMin * 60000).toISOString(
 
 const msg = (id: string, over: Partial<ChannelMessage> = {}): ChannelMessage => ({
   id, channelId: 'ch-1', authorType: 'agent', agentName: 'pm',
-  content: `内容-${id}`, replyToId: null, meta: '{}', createdAt: iso(0), ...over,
+  content: `内容-${id}`, replyToId: null, meta: {}, createdAt: iso(0), ...over,
 });
 
 const ui = (over: Partial<StreamUiState> = {}): StreamUiState => ({
@@ -236,7 +236,7 @@ describe('estimateStreamItemSize（#450 分型静态估计：分类逻辑全量�
   });
 
   it('卡片消息 → card 档（cardType 优先于作者分型）', () => {
-    const [item] = first([msg('c1', { meta: JSON.stringify({ cardType: 'wu_done' }) })]);
+    const [item] = first([msg('c1', { meta: { cardType: 'wu_done' } })]);
     expect(estimateStreamItemSize(item)).toBe(E.date + E.card);
   });
 
@@ -259,7 +259,7 @@ describe('estimateStreamItemSize（#450 分型静态估计：分类逻辑全量�
     ).items;
     expect(estimateStreamItemSize(t)).toBe(E.date + E.system + E.threadToggle);
     const [tc] = deriveStreamView(
-      [msg('a2', { workUnitId: 'wu-2', meta: JSON.stringify({ cardType: 'wu_done' }) }), msg('r2', { replyToId: 'a2', createdAt: iso(1) })],
+      [msg('a2', { workUnitId: 'wu-2', meta: { cardType: 'wu_done' } }), msg('r2', { replyToId: 'a2', createdAt: iso(1) })],
       ui({ collapsedThreads: new Set(['a2']) }),
     ).items;
     expect(estimateStreamItemSize(tc)).toBe(E.date + E.card + E.threadToggle);

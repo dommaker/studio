@@ -1,7 +1,7 @@
 {
   "name": "@dommaker/studio-shared",
   "version": "0.1.0",
-  "description": "Studio shared utilities and CLI framework",
+  "description": "跨 apps/packages 共享层：FileStore、eventBus、provider 注册表、共享类型与工具",
   "main": "src/index.ts",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -13,13 +13,13 @@
       "types": "./dist/web.d.ts",
       "default": "./src/web.ts"
     },
+    "./types": {
+      "types": "./dist/entity-types.d.ts",
+      "default": "./src/entity-types.ts"
+    },
     "./node": {
       "types": "./dist/node.d.ts",
       "default": "./src/node.ts"
-    },
-    "./cli": {
-      "types": "./dist/cli/index.d.ts",
-      "default": "./src/cli/index.ts"
     },
     "./studio-dir": {
       "types": "./dist/config/studio-dir.d.ts",
@@ -56,13 +56,14 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@dommaker/harness": "^2.0.0",
-    "yaml": "2.3.0"
+    "@dommaker/harness": "^4.0.2",
+    "pino": "^10.3.1",
+    "pino-pretty": "^13.2.0"
   },
   "devDependencies": {
     "@types/node": "20.0.0",
     "typescript": "^5.4.5",
-    "vitest": "^4.1.2"
+    "vitest": "catalog:"
   },
   "keywords": [
     "studio",

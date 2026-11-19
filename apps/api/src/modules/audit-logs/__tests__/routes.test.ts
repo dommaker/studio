@@ -12,13 +12,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ── #359: 分页 clamp 测试用 AuditService mock（hoisted，先于 router import）──
 const mockAuditQuery = vi.hoisted(() => vi.fn());
 const mockAuditExport = vi.hoisted(() => vi.fn());
-const mockAuditGetById = vi.hoisted(() => vi.fn());
 const mockQueryProposalRows = vi.hoisted(() => vi.fn());
-const mockGetProposalRowById = vi.hoisted(() => vi.fn());
 
-vi.mock('@dommaker/studio-audit', () => ({
-  AuditService: vi.fn().mockImplementation(function () {
-    return { query: mockAuditQuery, export: mockAuditExport, getById: mockAuditGetById };
+vi.mock('../audit-service.js', () => ({
+  getAuditService: () => ({
+    query: mockAuditQuery, export: mockAuditExport,
   }),
   AuditActions: { LOGIN: 'login' },
   AuditResources: { USER: 'user' },
@@ -26,7 +24,6 @@ vi.mock('@dommaker/studio-audit', () => ({
 
 vi.mock('../proposal-source.js', () => ({
   queryProposalDecisionRows: mockQueryProposalRows,
-  getProposalDecisionRowById: mockGetProposalRowById,
 }));
 
 import router from '../routes';
@@ -61,8 +58,10 @@ describe('audit-logs routes (#256: cleanup 端点下线)', () => {
     expect(paths).toContain('GET /stats');
     expect(paths).toContain('GET /actions');
     expect(paths).toContain('GET /resources');
-    expect(paths).toContain('POST /');
     expect(paths).toContain('GET /export');
+    // P4.6：GET /:id 与 POST / 已随孤儿端点收缩删除
+    expect(paths).not.toContain('POST /');
+    expect(paths).not.toContain('GET /:id');
   });
 });
 
@@ -145,10 +144,10 @@ describe('audit-logs GET /export 过滤透传', () => {
     mockAuditExport.mockResolvedValue([]);
   });
 
-  it('GET /export 注册在 GET /:id 之前，不被通配路由遮蔽（历史 bug 回归保护）', () => {
+  it('GET /export 已注册（原被 GET /:id 遮蔽的历史 bug 随 /:id 删除失去前提）', () => {
     const order = flattenRoutes(router).map(r => `${r.method} ${r.path}`);
     expect(order.indexOf('GET /export')).toBeGreaterThanOrEqual(0);
-    expect(order.indexOf('GET /export')).toBeLessThan(order.indexOf('GET /:id'));
+    expect(order.indexOf('GET /:id')).toBe(-1);
   });
 
   it('action/resource/status 透传到 service.export（不再静默丢弃）', async () => {
@@ -200,17 +199,6 @@ describe('audit-logs source/actorType 维度 (#591)', () => {
     await handler(createReq(query), res, () => undefined);
     return res;
   }
-  async function invokeGetById(id: string) {
-    const layer = (router as any).stack.find(
-      (l: any) => l.route && l.route.path === '/:id' && l.route.methods.get,
-    );
-    const handler = layer.route.stack[layer.route.stack.length - 1].handle;
-    const res = createRes();
-    const req = createReq({});
-    req.params = { id };
-    await handler(req, res, () => undefined);
-    return res;
-  }
 
   const opRow = { id: 'op-1', action: 'create', resource: 'task', status: 'success', createdAt: '2026-09-01T00:00:00.000Z' };
   const propRow = { id: 'p-1', actorType: 'agent', action: 'propose', resource: 'distill', resourceId: 'p-1', status: 'executed', createdAt: '2026-09-05T00:00:00.000Z', details: null };
@@ -219,8 +207,6 @@ describe('audit-logs source/actorType 维度 (#591)', () => {
     vi.clearAllMocks();
     mockAuditQuery.mockResolvedValue({ data: [opRow], total: 1, page: 1, limit: 10000 });
     mockQueryProposalRows.mockResolvedValue([propRow]);
-    mockAuditGetById.mockResolvedValue(null);
-    mockGetProposalRowById.mockResolvedValue(null);
   });
 
   it('actorType 透传到 service.query', async () => {
@@ -264,20 +250,6 @@ describe('audit-logs source/actorType 维度 (#591)', () => {
     expect(body.pagination.total).toBe(2);
     expect(body.data).toHaveLength(1);
     expect(body.data[0].id).toBe('p-1');
-  });
-
-  it('GET /:id 操作轨未命中时回查提案源', async () => {
-    mockGetProposalRowById.mockResolvedValue(propRow);
-    const res = await invokeGetById('p-1');
-    expect(mockAuditGetById).toHaveBeenCalledWith('p-1');
-    expect(mockGetProposalRowById).toHaveBeenCalledWith('p-1');
-    // 契约驱动（批次 6/7）：裸行进 { data } 壳
-    expect(res.json.mock.calls[0][0].data.id).toBe('p-1');
-  });
-
-  it('GET /:id 两源都未命中 → 404', async () => {
-    const res = await invokeGetById('nope');
-    expect(res.status).toHaveBeenCalledWith(404);
   });
 
   it('export 透传 actorType；source=proposal 时走提案源', async () => {

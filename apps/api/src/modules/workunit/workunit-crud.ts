@@ -1,26 +1,26 @@
 /**
- * WorkUnit CRUD + Claim 持久化层 —— WorkUnitService 的基类（自 workunit.service.ts 拆分，纯代码移动）。
+ * WorkUnit Repository 用例 owner —— CRUD + Claim 持久化与领域事件。
  *
  * AS-025 §3.28c-1 Task 2-4
  * 存储迁移: 已从 Prisma 迁移到 FileStore (Event Sourcing)
  *
  * 本文件：create/update/delete + claim/unclaim + updateMetadata 增量合并语义口（#554）、
  * workunit.created 与 workunit.status_changed 事件发布、父状态聚合（aggregateParentStatus），
- * 以及快照转换函数与输入/数据类型。状态机迁移（transitionStatus）、
- * 查询（getById/list）与评审验收收口在 workunit.service.ts 的 WorkUnitService。
+ * 以及快照转换函数与输入/数据类型。ARCH-05 起 Query/Lifecycle/Review 各自独立，
+ * WorkUnitService 在 workunit-review.ts 中组合四类用例接口。
  */
 
 import { randomUUID } from 'crypto';
-import { logger, eventBus, FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
-import type { ChannelMessageService } from '../channels/index.js'; // P2-c 拆环：值引用转 getMessageService 动态 import（类型边保留）
-// P2-c 拆环：resolveOrNotice/ROUTING_STAGE_LABELS 转方法内动态 import（workunit→channels 静态值边清零）
+import { eventBus, FileStore, parseAttestations, parseWuPmoId, WorkUnitMetadataRepository, type AssignmentRecord, type EffectReceipt, type EffectRecord, type MandateRecord, type StepVerificationRecord, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { assertExecutionMandate, issueMandate, type MandateAuthorization } from './mandate.js';
+import { workUnitPort } from './workunit-ports.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
-import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
-import { parseWuPmoId } from '../requirements/index.js';
-import type { WorkUnitMetadata } from './workunit.service.js';
+import { buildStatusById, parseBlockedBy, resolveClaimable } from './wu-dependencies.js';
+import type { WorkUnitMetadata } from './workunit.types.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
+import type { WorkUnit } from '@dommaker/studio-contract';
 
 export interface CreateWorkUnitInput {
   type?: string;
@@ -37,6 +37,10 @@ export interface CreateWorkUnitInput {
   timeoutAt?: Date | null;
   completedAt?: Date | null;
   metadata?: WorkUnitMetadata;
+  /** 服务端认证主体与来源；请求体没有该字段，路由只能由 req.user 构造。 */
+  authorization?: MandateAuthorization;
+  /** 由 create/createGuarded 锁前读取父单填充，调用方不能直接指定。 */
+  parentMandate?: MandateRecord;
 }
 
 export interface UpdateWorkUnitInput {
@@ -59,6 +63,32 @@ export interface UpdateWorkUnitInput {
  * WorkUnitData — 与 Prisma WorkUnit 类型兼容的平面字段（无 relations）。
  * 日期字段使用 Date 对象（与 Prisma 行为一致），来源是 FileStore 的字符串日期。
  */
+export interface AssignmentSummary {
+  id: string;
+  workUnitId: string;
+  attempt: number;
+  previousAssignmentId: string | null;
+  status: AssignmentRecord['status'];
+  reason: AssignmentRecord['reason'];
+  provider?: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  waitingAt?: string;
+  endedAt?: string;
+  lastError?: string;
+  tokenCount: number;
+  transcriptCount: number;
+  progressCount: number;
+  evidenceCount: number;
+}
+
+export interface WorkUnitExecutionSummary {
+  current: AssignmentSummary | null;
+  assignments: AssignmentSummary[];
+  totals: { tokenCount: number; transcriptCount: number; progressCount: number; evidenceCount: number };
+}
+
 export interface WorkUnitData {
   id: string;
   parentId: string | null;
@@ -84,6 +114,13 @@ export interface WorkUnitData {
   /** #318（additive，ADR D2）：可认领标记——仅事件负载（workunit.created/status_changed）与 GET / 列表项附带；
       unassigned 且无未了结依赖才 true，其余状态恒 false；snapshotToData 本体不产此字段 */
   claimable?: boolean;
+  /** #706：长期授权只读事实；扩权与撤销只能走 Mandate 语义命令。 */
+  mandate?: MandateRecord;
+  /** #705：跨 Assignment 的只读执行摘要，不暴露内部写口。 */
+  execution?: WorkUnitExecutionSummary;
+  /** #707：持久副作用与回执只读投影；写路径仅接受领域命令。 */
+  effects?: EffectRecord[];
+  effectReceipts?: EffectReceipt[];
 }
 
 /**
@@ -95,7 +132,93 @@ export interface WorkUnitData {
 
 // ── 转换函数 ──
 
+/** 保留全部 Assignment 历史，只终结仍未决的轮次。 */
+export function cancelUnresolvedAssignments(
+  snapshot: WorkUnitSnapshot,
+  at: string,
+): Pick<WorkUnitSnapshot, 'assignments'> {
+  const assignments = (snapshot.assignments ?? []).map(assignment =>
+    ['queued', 'running', 'waiting'].includes(assignment.status)
+      ? { ...assignment, status: 'cancelled' as const, updatedAt: at, endedAt: at }
+      : assignment
+  );
+  return { assignments };
+}
+
+/** StepRecord 与恢复包共用的当前 L1 验证事实转换口径。 */
+export function verificationFromMetadata(metadata: WorkUnitMetadata): StepVerificationRecord | null {
+  const l1 = parseAttestations(metadata)?.l1;
+  if (!l1) return null;
+  return {
+    status: l1.verdict === 'approved' ? 'passed' : 'failed',
+    commands: l1.verdict === 'approved' ? metadata.verifyReport?.commands ?? [] : [],
+    at: l1.at,
+  };
+}
+
+/** 评审/人工确认在 Assignment 结束后仍归入当前轮次；WU 证据台账保持原真源。 */
+export function syncCurrentAssignmentEvidence(
+  snapshot: WorkUnitSnapshot,
+  metadata: WorkUnitMetadata,
+  at: string,
+): Partial<Pick<WorkUnitSnapshot, 'assignments'>> {
+  const currentId = snapshot.currentAssignmentId;
+  const assignment = (snapshot.assignments ?? []).find(a => a.id === currentId);
+  if (!assignment) return {};
+  const entries = Object.entries(parseAttestations(metadata) ?? {}).flatMap(([level, entry]) => entry ? [{
+    level, verdict: entry.verdict, at: entry.at,
+  }] : []);
+  const previous = assignment.evidence ?? [];
+  const added = entries.filter(entry => !previous.some(old => old.level === entry.level && old.at === entry.at));
+  if (added.length === 0) return {};
+  return {
+    assignments: (snapshot.assignments ?? []).map(old => old.id === assignment.id
+      ? { ...old, evidence: [...previous, ...added], updatedAt: at }
+      : old),
+  };
+}
+
+function toAssignmentSummary(assignment: AssignmentRecord): AssignmentSummary {
+  return {
+    id: assignment.id,
+    workUnitId: assignment.workUnitId,
+    attempt: assignment.attempt,
+    previousAssignmentId: assignment.previousAssignmentId,
+    status: assignment.status,
+    reason: assignment.reason,
+    provider: assignment.provider,
+    createdAt: assignment.createdAt,
+    updatedAt: assignment.updatedAt,
+    startedAt: assignment.startedAt,
+    waitingAt: assignment.waitingAt,
+    endedAt: assignment.endedAt,
+    lastError: assignment.lastError,
+    tokenCount: assignment.tokenCount ?? 0,
+    transcriptCount: assignment.transcriptCount ?? 0,
+    progressCount: assignment.progress?.length ?? 0,
+    evidenceCount: assignment.evidence?.length ?? 0,
+  };
+}
+
+function toExecutionSummary(snapshot: WorkUnitSnapshot): WorkUnitExecutionSummary | undefined {
+  const assignments = snapshot.assignments ?? [];
+  if (assignments.length === 0) return undefined;
+  const summaries = assignments.map(toAssignmentSummary);
+  const current = assignments.find(a => a.id === snapshot.currentAssignmentId) ?? assignments[assignments.length - 1];
+  return {
+    current: current ? toAssignmentSummary(current) : null,
+    assignments: summaries,
+    totals: summaries.reduce((totals, assignment) => ({
+      tokenCount: totals.tokenCount + assignment.tokenCount,
+      transcriptCount: totals.transcriptCount + assignment.transcriptCount,
+      progressCount: totals.progressCount + assignment.progressCount,
+      evidenceCount: totals.evidenceCount + assignment.evidenceCount,
+    }), { tokenCount: 0, transcriptCount: 0, progressCount: 0, evidenceCount: 0 }),
+  };
+}
+
 export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
+  const execution = toExecutionSummary(s);
   return {
     id: s.id,
     parentId: s.parentId,
@@ -116,6 +239,27 @@ export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
     updatedAt: new Date(s.updatedAt),
     claimedAt: s.claimedAt ? new Date(s.claimedAt) : null,
     completedAt: s.completedAt ? new Date(s.completedAt) : null,
+    closedAt: s.closedAt ? new Date(s.closedAt) : null,
+    ...(s.mandate ? { mandate: s.mandate } : {}),
+    ...(execution ? { execution } : {}),
+    ...(s.effects ? { effects: s.effects } : {}),
+    ...(s.effectReceipts ? { effectReceipts: s.effectReceipts } : {}),
+  };
+}
+
+function isoDate(value: Date | string): string {
+  return typeof value === 'string' ? value : value.toISOString();
+}
+
+/** service 内存型的 Date 在 HTTP 边界归一为 contract 的 ISO wire 形状。 */
+export function toWorkUnitWire(wu: WorkUnitData): WorkUnit {
+  return {
+    ...wu,
+    timeoutAt: wu.timeoutAt === null ? null : isoDate(wu.timeoutAt),
+    createdAt: isoDate(wu.createdAt),
+    updatedAt: isoDate(wu.updatedAt),
+    claimedAt: wu.claimedAt === null ? null : isoDate(wu.claimedAt),
+    completedAt: wu.completedAt === null ? null : isoDate(wu.completedAt),
   };
 }
 
@@ -142,6 +286,14 @@ function inputToSnapshot(
     reqId: input.reqId ?? null,
     assigneeRoleId: null,  // 认领快照仅在 claim 时写入（create 无认领方 roleId 来源）
     metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+    mandate: issueMandate({
+      workUnitId: id,
+      reqId: input.reqId,
+      metadata: input.metadata ?? {},
+      authorization: input.authorization,
+      parentMandate: input.parentMandate,
+      now,
+    }),
     createdAt: isoNow,
     updatedAt: isoNow,
     claimedAt: null,
@@ -176,40 +328,68 @@ function patchSnapshot(
   };
 }
 
-export class WorkUnitCrudService {
-  protected fileStore: FileStore;
-  protected messageService?: ChannelMessageService;
-  private readonly injectedFileStore?: FileStore;
-  private messageServicePromise?: Promise<ChannelMessageService>;
+interface WorkUnitMessageLinker {
+  linkWorkUnit(messageId: string, workUnitId: string, channelId?: string): Promise<unknown>;
+}
 
-  constructor(fileStore?: FileStore, messageService?: ChannelMessageService) {
+/** Repository 用例面：持久化 CRUD、认领与生命周期段所需的领域事件原语。 */
+export interface WorkUnitRepository {
+  create(input: CreateWorkUnitInput): Promise<WorkUnitData>;
+  createGuarded(input: CreateWorkUnitInput, guard: (snapshots: WorkUnitSnapshot[]) => boolean): Promise<WorkUnitData | null>;
+  createFromMessage(messageId: string, options?: { type?: string; metadata?: WorkUnitMetadata; channelId?: string; authorization?: MandateAuthorization }): Promise<WorkUnitData>;
+  update(id: string, input: UpdateWorkUnitInput): Promise<WorkUnitData>;
+  updateMetadata(id: string, patch: WorkUnitMetadata): Promise<WorkUnitData | null>;
+  delete(id: string, opts?: { reason?: string }): Promise<void>;
+  claim(id: string, agentId: string): Promise<WorkUnitData>;
+  unclaim(id: string): Promise<WorkUnitData>;
+  aggregateParentStatus(childId: string): Promise<void>;
+}
+
+/** Lifecycle 实际依赖的三个 Repository 原语；不继承完整 CRUD 用例面。 */
+export interface WorkUnitLifecycleRepository {
+  aggregateParentStatus(childId: string): Promise<void>;
+  expandRoutingHead(parent: WorkUnitData): Promise<void>;
+  publishStatusChanged(snapshot: WorkUnitSnapshot, previousStatus?: string): Promise<void>;
+}
+
+export class WorkUnitCrudService implements WorkUnitRepository, WorkUnitLifecycleRepository {
+  private readonly fileStore: FileStore;
+  private readonly metadataRepository: WorkUnitMetadataRepository;
+  private readonly messageService?: WorkUnitMessageLinker;
+
+  constructor(fileStore?: FileStore, messageService?: WorkUnitMessageLinker) {
     this.fileStore = fileStore ?? getStore();
-    this.injectedFileStore = fileStore;
-    // #333：关联 WU 走 ChannelMessageService 统一更新路径（自带 channel.message_updated 双发）；
-    // 注入口径：可注入；缺省 fileStore 新建 ChannelMessageService，无 fileStore 用单例。
-    // P2-c 拆环：缺省构造从同步改首次使用期动态 import（构造器无法 await，workunit→channels 静态边清零）
+    this.metadataRepository = new WorkUnitMetadataRepository(this.fileStore);
+    // #333：关联 WU 经 message 端口走 ChannelMessageService 统一更新路径。
     this.messageService = messageService;
   }
 
-  private getMessageService(): Promise<ChannelMessageService> {
+  private getMessageService(): Promise<WorkUnitMessageLinker> {
     if (this.messageService) return Promise.resolve(this.messageService);
-    return (this.messageServicePromise ??= import('../channels/index.js').then(({ ChannelMessageService, channelMessageService }) =>
-      this.injectedFileStore ? new ChannelMessageService(this.injectedFileStore) : channelMessageService));
+    return Promise.resolve({
+      linkWorkUnit: async (messageId, workUnitId, channelId) => (await workUnitPort('message')).linkWorkUnit({
+        fileStore: this.fileStore, messageId, workUnitId, channelId: channelId!,
+      }),
+    });
   }
 
   /**
-   * #402 归因传播：带 parentId 的建单，显式 metadata 未带归因戳（pmoId ‖ legacy
-   * ownershipProjectId 同级）时从父 WU 继承，legacy 归一为 canonical pmoId。
+   * #402 归因传播：带 parentId 的建单，显式 metadata 未带归因戳（pmoId）时
+   * 从父 WU 继承。
    * 创建期一次性落档语义不变——只在建单瞬间补齐可推导归属，此后不再改写；
    * 显式传入优先，父缺失/无戳则不动（无归属 WU 合法存在，不伪造）。
    */
   private async inheritParentPmoId(input: CreateWorkUnitInput): Promise<CreateWorkUnitInput> {
     if (!input.parentId) return input;
-    if (parseWuPmoId(input.metadata ? JSON.stringify(input.metadata) : null)) return input;
     const parent = (await this.fileStore.getIndex({ id: input.parentId }))[0];
-    const stamp = parent ? parseWuPmoId(parent.metadata) : null;
-    if (!stamp) return input;
-    return { ...input, metadata: { ...input.metadata, pmoId: stamp } };
+    if (parent && !parent.mandate) throw new Error('Mandate authorization required for legacy parent');
+    const stamp = parseWuPmoId(input.metadata ? JSON.stringify(input.metadata) : null)
+      ?? (parent ? parseWuPmoId(parent.metadata) : null);
+    return {
+      ...input,
+      parentMandate: parent?.mandate,
+      ...(stamp ? { metadata: { ...input.metadata, pmoId: stamp } } : {}),
+    };
   }
 
   /**
@@ -294,6 +474,7 @@ export class WorkUnitCrudService {
    */
   private async resolveEventClaimable(snapshot: WorkUnitSnapshot): Promise<boolean> {
     if (snapshot.status !== 'unassigned') return false;
+    if (parseBlockedBy(snapshot.metadata).length === 0) return true;
     const statusById = buildStatusById(await this.fileStore.getIndex());
     return resolveClaimable(snapshot, statusById);
   }
@@ -319,13 +500,14 @@ export class WorkUnitCrudService {
    * 配置了但角色 inactive/被移出频道 → 不展开（回池涌现）+ 频道出声提醒（票体回退语义）。
    * #126（T4）：幂等——父单已有任何子单则跳过（create 与确认后补展开两处调用点）。
    */
-  protected async expandRoutingHead(parent: WorkUnitData): Promise<void> {
-    // #477：解析 + fallback 判定 + 文案收口到 resolveOrNotice；出声通道/时机留本点
-    const { resolveOrNotice, ROUTING_STAGE_LABELS } = await import('../channels/index.js');
-    const { resolution: routing, notice } = await resolveOrNotice(this.fileStore, parent.channelId!, 'implement', {
-      // #464：未配置也要出声——此前未配置静默 return，用户分不清「只配一跳」还是「断了」。
-      // 文案与配错（routingFallbackText）同形态可区分；非里程碑（路由提醒不打扰，对齐配错提醒形态）。
-      notConfiguredText: `工单路由提示：本频道未配置「${ROUTING_STAGE_LABELS.implement}」阶段路由，本单已回池涌现（频道成员自动认领）——如需固定角色派工请到频道设置配置路由表，或手动拆单`,
+  async expandRoutingHead(parent: WorkUnitData): Promise<void> {
+    // #477：路由解析经 message 端口；出声通道/时机留本点。
+    const { resolution: routing, notice } = await (await workUnitPort('message')).resolveRouting({
+      fileStore: this.fileStore,
+      channelId: parent.channelId!,
+      stage: 'implement',
+      // #464：未配置也要出声；文案保持原样。
+      notConfiguredText: '工单路由提示：本频道未配置「执行」阶段路由，本单已回池涌现（频道成员自动认领）——如需固定角色派工请到频道设置配置路由表，或手动拆单',
     });
     if (!routing.profileId) {
       if (routing.fallback) {
@@ -388,7 +570,7 @@ export class WorkUnitCrudService {
    */
   async createFromMessage(
     messageId: string,
-    options?: { type?: string; metadata?: WorkUnitMetadata; channelId?: string },
+    options?: { type?: string; metadata?: WorkUnitMetadata; channelId?: string; authorization?: MandateAuthorization },
   ): Promise<WorkUnitData> {
     const found = await this.fileStore.getMessageById(messageId, options?.channelId);
     if (!found) throw new Error(`Message ${messageId} not found`);
@@ -398,6 +580,7 @@ export class WorkUnitCrudService {
       scope: found.message.content.slice(0, 500),
       type: options?.type ?? 'task',
       channelId: found.message.channelId,
+      authorization: options?.authorization,
       metadata: {
         ...options?.metadata,
         sourceMessageId: messageId,
@@ -437,13 +620,13 @@ export class WorkUnitCrudService {
   /**
    * metadata 增量合并语义口（#554，ADR 2026-09-15 决策 1/6）：patch 浅并入既有
    * metadata——既有键保留、同名键被 patch 覆盖、undefined 值键序列化时丢弃（清除语义）。
-   * 委托 FileStore.updateMetadata 锁内原语（mutator 基于锁内最新值求值，消读-改-写竞态）；
+   * 委托 WorkUnitMetadataRepository 锁内原语（基于锁内最新值求值，消读-改-写竞态）；
    * 业务模块不直摸该原语。不动状态机/业务守卫，updatedAt 沿用原语缺省刷新。
    * @returns 更新后的 WorkUnitData；WU 不存在返回 null（不抛错，与 FileStore 原语同口径，
    *          与 update() 的抛错口径不同——批量/标记类调用方按忽略语义处理）
    */
   async updateMetadata(id: string, patch: WorkUnitMetadata): Promise<WorkUnitData | null> {
-    const updated = await this.fileStore.updateMetadata(id, latest => ({ ...latest, ...patch }));
+    const updated = await this.metadataRepository.patch(id, patch);
     return updated ? snapshotToData(updated) : null;
   }
 
@@ -534,6 +717,7 @@ export class WorkUnitCrudService {
     // Read current state
     const wuToClaim = (await this.fileStore.getIndex({ id }))[0];
     if (!wuToClaim) throw new Error('WorkUnit not found');
+    assertExecutionMandate(wuToClaim);
 
     // File conflict check before claiming
     const conflicts = await this.checkFileConflicts(id, wuToClaim.metadata);
@@ -562,6 +746,7 @@ export class WorkUnitCrudService {
     const claimed = await this.fileStore.claimWorkUnit(id, agentId, {
       assigneeRoleId,
       timeoutAt: timeoutAt.toISOString(),
+      guard: assertExecutionMandate,
     });
     if (!claimed) {
       throw new Error('Claim failed');
@@ -586,6 +771,7 @@ export class WorkUnitCrudService {
     const now = new Date();
     const updated: WorkUnitSnapshot = {
       ...existing,
+      ...cancelUnresolvedAssignments(existing, now.toISOString()),
       assigneeId: null,
       assigneeRoleId: null,  // 释放连带清认领快照（事件 data 是全量快照，rebuild 自动一致）
       status: 'unassigned',
@@ -612,10 +798,13 @@ export class WorkUnitCrudService {
    * REQ 需求状态汇总（vision §5.3）等订阅方消费。
    * #318：负载附 claimable（additive，见 resolveEventClaimable）。
    */
-  protected async publishStatusChanged(snapshot: WorkUnitSnapshot): Promise<void> {
+  async publishStatusChanged(snapshot: WorkUnitSnapshot, previousStatus?: string): Promise<void> {
     try {
       const claimable = await this.resolveEventClaimable(snapshot);
-      eventBus.publish('workunit.status_changed', { workunit: { ...snapshotToData(snapshot), claimable } });
+      eventBus.publish('workunit.status_changed', {
+        workunit: { ...snapshotToData(snapshot), claimable },
+        ...(previousStatus !== undefined ? { previousStatus } : {}),
+      });
     } catch (err) {
       logger.warn('[WorkUnit] Failed to publish workunit.status_changed (non-blocking)', {
         workUnitId: snapshot.id,

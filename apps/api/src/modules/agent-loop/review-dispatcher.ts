@@ -20,32 +20,30 @@
  *   （/review/diff 管理端点链路）已于 2026-08-06 整体删除——端点零真实调用方
  */
 
-import { eventBus, logger, parseChannels, deriveDisplayState, createSettledTracker, type FileStore, type AgentProfileData, type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
+import { randomUUID } from 'node:crypto';
+import { eventBus, parseChannels, deriveDisplayState, createSettledTracker, type FileStore, type AgentProfileData, type EffectRecord, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { WorkUnitService, EffectService, snapshotToData, type EffectHandlerContext, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { MANUAL_GATE_TYPES } from '../workunit/index.js';
-import { readCollab } from '../workunit/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
 import { parseWuMetadata, clearSessionBookkeeping } from '../workunit/index.js';
 import { resolveOrNotice } from '../channels/index.js';
+import { dispatchMonitorAlerts } from '../ops/index.js';
 import { isSystemRole } from '../../core/system-role.js';
 import type { ParsedReviewReport } from './review-contract.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * P7（2026-09-16 perf 实测）：自动评审总开关，默认开。无凭证/fake-provider 环境
  * 置 `STUDIO_AUTO_REVIEW=false` 停建评审子 WU——否则子单被真实 CLI 角色认领空转
  * （无凭证 exit 1 ×3 → blocked + 频道刷屏「执行失败」）。
- * 只闸两条自动路径（事件链 handleParentInReview + 对账 redispatchReview）；
- * 人工补派 dispatchReviewNow 不闸（人显式发起）。
+ * 闸事件、对账与启动恢复的自动路径；人工补派 dispatchReviewNow 不闸（人显式发起）。
  */
 function autoReviewEnabled(): boolean {
   return process.env.STUDIO_AUTO_REVIEW !== 'false';
 }
 
-/** 2026-09 性能治理分项 5：路径 A 事件链失败后的进程内重试延迟（一次）。
- *  在此之前断链只靠 5min 对账 cron + 10min 宽限（最坏 ~16min 补派评审）；
- *  瞬时故障（FileStore 抖动/锁竞争）30s 后自愈，对账只兜真死亡（进程重启即弃）。 */
+/** #707：Effect 的持久重试间隔；最多三次，进程重启后由磁盘恢复续跑。 */
 export const REVIEW_DISPATCH_RETRY_DELAY_MS = 30_000;
 
 export class ReviewDispatcher {
@@ -55,12 +53,23 @@ export class ReviewDispatcher {
   /** 同 WU 只挂一次重试（防事件风暴叠加定时器） */
   private readonly pendingDispatchRetries = new Set<string>();
 
+  private readonly effects: EffectService;
+
   constructor(
     private fileStore: FileStore,
     private workUnitService: WorkUnitService,
-  ) {}
+    private pmoReview?: { recoverEffects(): Promise<unknown> },
+  ) {
+    this.effects = new EffectService(fileStore);
+  }
 
-  /** 订阅 workunit.status_changed 事件。幂等。 */
+  private async recoverPmoReviewEffects(): Promise<void> {
+    const service = this.pmoReview
+      ?? (await import('../pmo/index.js')).getCandidateReviewService(this.fileStore);
+    await service.recoverEffects();
+  }
+
+  /** 订阅只负责即时唤醒；启动恢复直接读取持久 Effect。幂等。 */
   subscribeToEvents(): void {
     if (this.subscribed) return;
     this.subscribed = true;
@@ -68,6 +77,7 @@ export class ReviewDispatcher {
     eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
       this.settled.track(this.handleStatusChanged(payload.workunit));
     });
+    this.settled.track(this.recoverEffects());
   }
 
   private async handleStatusChanged(wu: WorkUnitData): Promise<void> {
@@ -76,17 +86,24 @@ export class ReviewDispatcher {
     //   跳过 MANUAL_GATE_TYPES（analysis 分析结论 / #108 decision/spec / #471 plan 一脉会话
     //   规划单）：人工验收类工单，验收闸 = 人工确认（F6 l3），diff-only 契约
     //   对非代码产物恒 needs-info 转人工纯噪声；接力提示与派工见 pmo/analysis-handoff.ts）
-    if (wu.status === 'in_review' && wu.type !== 'review' && !MANUAL_GATE_TYPES.has(wu.type)) {
+    const merge = parseWuMetadata(wu.metadata);
+    const hasMergeDelivery = merge.mergeIntent !== undefined || merge.mergeReceipt !== undefined;
+    if (wu.status === 'in_review' && !hasMergeDelivery && wu.type !== 'review' && !MANUAL_GATE_TYPES.has(wu.type)) {
       await this.handleParentInReview(wu).catch(err => {
         logger.warn('[ReviewDispatcher] handleParentInReview failed', { wuId: wu.id, error: String(err) });
-        this.scheduleDispatchRetry(wu.id);
       });
     }
-    // 路径 B：子 WU（type='review'）完成 -> 处理父 WU review 结果
+    // 路径 B：普通评审回写父 WU；#720 整体评审只走自己的持久结果 Effect。
     if (wu.status === 'done' && wu.type === 'review' && wu.parentId) {
-      await this.handleReviewChildDone(wu).catch(err =>
-        logger.warn('[ReviewDispatcher] handleReviewChildDone failed', { childId: wu.id, error: String(err) }),
-      );
+      if (parseWuMetadata(wu.metadata).pmoCandidateReview) {
+        await this.recoverPmoReviewEffects().catch(err =>
+          logger.warn('[ReviewDispatcher] PMO candidate result recovery failed', { childId: wu.id, error: String(err) }),
+        );
+      } else {
+        await this.handleReviewChildDone(wu).catch(err =>
+          logger.warn('[ReviewDispatcher] handleReviewChildDone failed', { childId: wu.id, error: String(err) }),
+        );
+      }
     }
   }
 
@@ -127,50 +144,168 @@ export class ReviewDispatcher {
     return state?.roleId ?? null;
   }
 
-  /**
-   * 路径 A 事件链失败 → 30s 后进程内重试一次（REVIEW_DISPATCH_RETRY_DELAY_MS）。
-   * 重试前复读父 WU：仍在 in_review 才重派（期间人工确认/补派/对账已建单则静默跳过——
-   * createGuarded 锁内同父唯一性兜底幂等）。再失败交 5min 对账 cron 兜底，不再重试。
-   */
-  private scheduleDispatchRetry(parentWuId: string): void {
-    if (this.pendingDispatchRetries.has(parentWuId)) return;
-    this.pendingDispatchRetries.add(parentWuId);
+  /** 持久重试到点唤醒；进程丢失定时器后由启动恢复接管。 */
+  private scheduleEffectRetry(workUnitId: string, effectId: string, nextAttemptAt?: string): void {
+    if (this.pendingDispatchRetries.has(effectId)) return;
+    this.pendingDispatchRetries.add(effectId);
+    const delay = Math.max(0, (nextAttemptAt ? Date.parse(nextAttemptAt) : Date.now()) - Date.now());
     const timer = setTimeout(() => {
-      this.pendingDispatchRetries.delete(parentWuId);
-      this.settled.track((async () => {
-        const parent = await this.workUnitService.getById(parentWuId);
-        if (!parent || parent.status !== 'in_review') return;
-        await this.handleParentInReview(parent).catch(err =>
-          logger.warn('[ReviewDispatcher] dispatch retry failed — 交 5min 对账兜底', {
-            wuId: parentWuId, error: String(err),
-          }),
-        );
-      })());
-    }, REVIEW_DISPATCH_RETRY_DELAY_MS);
-    timer.unref?.(); // 不拖住进程退出（重启即弃，对账 cron 兜底）
+      this.pendingDispatchRetries.delete(effectId);
+      this.settled.track(this.runEffect(workUnitId, effectId).catch(err =>
+        logger.warn('[ReviewDispatcher] persistent effect retry failed', { workUnitId, effectId, error: String(err) }),
+      ));
+    }, delay);
+    timer.unref?.();
   }
 
-  /** 父 WU 进入 in_review 时的处理 */
-  private async handleParentInReview(parent: WorkUnitData): Promise<void> {    if (!parent.channelId) return;
-    if (!autoReviewEnabled()) return; // P7：自动评审关停（fake/无凭证环境）
-
-    // #170（决策 #65-2）：同父唯一性检查收进建单的同一把 workunits flock
-    // （锁内 check-then-create），并发/多实例事件链下不会重复建单；
-    // guard 拒绝（另一实例已抢建）→ null → 静默跳过（等价原 hasUnfinishedReviewChild 预检）
-    await this.createReviewChildFor(parent);
+  private async ensureAutomaticEffect(parent: WorkUnitData) {
+    const projection = await this.effects.getProjection(parent.id);
+    const existing = projection.effects.filter(effect => effect.kind === 'review-dispatch').at(-1);
+    if (existing) return existing;
+    return this.effects.enqueue(parent.id, {
+      kind: 'review-dispatch',
+      idempotencyKey: `review-dispatch:${parent.id}:${parent.updatedAt.toISOString()}`,
+      trigger: 'automatic',
+    });
   }
 
-  /**
-   * #183（#66 决议①对账）：幂等重跑路径 A —— 父 WU in_review 断链（评审子 WU 未建起）
-   * 时由 5min 对账扫描调用。幂等保证不变：createGuarded 锁内同父唯一性 guard，
-   * 已有未完结评审子 WU（含并发抢建）→ 返回 null。标准「已派评审」出声以 silent 压掉，
-   * 由调用方（dispatch-reconciliation）在重派成功后统一发「断链已自愈」一条，避免双发
-   * （#523，#516 决议①②）——本方法除既有自评兜底/路由提醒外不发频道消息。
-   */
+  private async notifyRecovered(parent: WorkUnitData, childId: string): Promise<void> {
+    await postWuSystemMessage(
+      parent,
+      `任务「${parent.scope.slice(0, 50)}」评审派单断链已恢复（#${childId.slice(0, 8)}）`,
+      { fileStore: this.fileStore },
+    ).catch(error => logger.warn('[ReviewDispatcher] Post recovery notice failed (non-blocking)', {
+      parentId: parent.id, childId, error: String(error),
+    }));
+  }
+
+  private async performReviewEffect(
+    context: EffectHandlerContext,
+    opts: { silent?: boolean } = {},
+  ): Promise<Record<string, unknown>> {
+    const { effect, recovery } = context;
+    const parent = snapshotToData(context.workUnit);
+    const snapshots = await this.fileStore.getIndex();
+    const existing = snapshots.find(snapshot => snapshot.parentId === parent.id && snapshot.type === 'review'
+      && parseWuMetadata(snapshot.metadata).effectId === effect.id);
+    if (existing) {
+      if (recovery) await this.notifyRecovered(parent, existing.id);
+      return { reviewWorkUnitId: existing.id, duplicatePrevented: true };
+    }
+
+    const child = await this.createReviewChildFor(parent, { silent: recovery || opts.silent, effectId: effect.id });
+    if (child) {
+      if (recovery) await this.notifyRecovered(parent, child.id);
+      return { reviewWorkUnitId: child.id };
+    }
+
+    // 并发人工请求保留原有拒绝语义；自动恢复则可认养旧链路的在途子单。
+    if (effect.trigger === 'manual' && !recovery) {
+      throw new Error('Review child already in flight — 已有未完结的评审子 WU');
+    }
+    // createGuarded 拒绝后复读：同 Effect 已建单或旧链路的在途子单都可认养，绝不补建第二个。
+    const latest = await this.fileStore.getIndex();
+    const adopted = latest.find(snapshot => snapshot.parentId === parent.id && snapshot.type === 'review'
+      && (parseWuMetadata(snapshot.metadata).effectId === effect.id
+        || (snapshot.status !== 'done' && snapshot.status !== 'closed')));
+    if (adopted) {
+      if (recovery) await this.notifyRecovered(parent, adopted.id);
+      return { reviewWorkUnitId: adopted.id, duplicatePrevented: true };
+    }
+    throw new Error('Review child creation guard rejected without an existing child');
+  }
+
+  private alertPermanentFailure(effect: EffectRecord): void {
+    dispatchMonitorAlerts([{
+      source: 'review_redispatch',
+      level: 'critical',
+      subject: effect.id,
+      relatedTaskIds: [effect.workUnitId],
+      message: `评审派单 Effect ${effect.id} 已连续 ${effect.attempts} 次失败并停止重试，请人工介入；${effect.lastError ?? ''}`,
+    }]);
+  }
+
+  private async runEffect(
+    workUnitId: string,
+    effectId: string,
+    opts: { silent?: boolean; throwOnError?: boolean } = {},
+  ): Promise<WorkUnitData | null> {
+    const [parent, before] = await Promise.all([
+      this.workUnitService.getById(workUnitId),
+      this.effects.getProjection(workUnitId),
+    ]);
+    const effect = before.effects.find(item => item.id === effectId);
+    if (!parent || !effect) return null;
+    if (effect.trigger === 'automatic' && parent.status !== 'in_review') {
+      await this.effects.cancel(workUnitId, effectId, `Parent WorkUnit left in_review: ${parent.status}`);
+      return null;
+    }
+    const executed = await this.effects.execute(workUnitId, effectId, context => this.performReviewEffect(context, opts));
+    if (executed?.status === 'queued') this.scheduleEffectRetry(workUnitId, effectId, executed.nextAttemptAt);
+    if (executed?.status === 'failed' && effect.status !== 'failed' && !opts.throwOnError) {
+      this.alertPermanentFailure(executed);
+    }
+    if (opts.throwOnError && (executed?.status === 'queued' || executed?.status === 'failed')
+      && executed.attempts > effect.attempts) {
+      throw new Error(executed.lastError ?? 'Review dispatch effect failed');
+    }
+    if (executed?.status !== 'succeeded') return null;
+    const projection = await this.effects.getProjection(workUnitId);
+    const receipt = projection.receipts.filter(item => item.effectId === effectId && item.outcome === 'succeeded').at(-1);
+    const childId = receipt?.result?.reviewWorkUnitId;
+    return typeof childId === 'string' ? this.workUnitService.getById(childId) : null;
+  }
+
+  /** 进程启动恢复入口：不依赖 EventBus 是否收到过状态事件。 */
+  async recoverEffects() {
+    const snapshots = await this.fileStore.getIndex();
+    for (const snapshot of snapshots) {
+      if (snapshot.status === 'in_review') continue;
+      for (const effect of snapshot.effects ?? []) {
+        if (effect.kind === 'review-dispatch' && effect.trigger === 'automatic' && effect.status === 'queued') {
+          await this.effects.cancel(snapshot.id, effect.id, `Parent WorkUnit left in_review: ${snapshot.status}`);
+        }
+      }
+    }
+    const result = await this.effects.recover(context => this.performReviewEffect(context), {
+      include: (snapshot, effect) => effect.kind === 'review-dispatch'
+        && (effect.trigger === 'manual' || (autoReviewEnabled() && snapshot.status === 'in_review')),
+    });
+    // recover 不执行未到期的意图，但必须重建其进程内唤醒定时器。
+    const latest = await this.fileStore.getIndex();
+    for (const snapshot of latest) {
+      const before = snapshots.find(item => item.id === snapshot.id);
+      for (const effect of snapshot.effects ?? []) {
+        if (effect.kind !== 'review-dispatch') continue;
+        const previous = before?.effects?.find(item => item.id === effect.id);
+        if (effect.status === 'failed' && previous?.status !== 'failed') {
+          this.alertPermanentFailure(effect);
+        }
+        if (effect.status !== 'queued') continue;
+        if (effect.trigger === 'manual' || (autoReviewEnabled() && snapshot.status === 'in_review')) {
+          this.scheduleEffectRetry(snapshot.id, effect.id, effect.nextAttemptAt);
+        }
+      }
+    }
+    await this.recoverPmoReviewEffects();
+    return result;
+  }
+
+  /** 父 WU 进入 in_review 后执行同事务已落盘的派单意图。 */
+  private async handleParentInReview(parent: WorkUnitData): Promise<void> {
+    if (!parent.channelId || !autoReviewEnabled()) return;
+    const effect = await this.ensureAutomaticEffect(parent);
+    await this.runEffect(parent.id, effect.id);
+  }
+
+  /** 对账只唤醒持久 Effect；成功与重试次数由 Effect/Receipt 投影提供。 */
   async redispatchReview(parent: WorkUnitData): Promise<WorkUnitData | null> {
     if (!parent.channelId) return null;
-    if (!autoReviewEnabled()) return null; // P7：自动评审关停（对账重派同口径）
-    return this.createReviewChildFor(parent, { silent: true });
+    const merge = parseWuMetadata(parent.metadata);
+    if (merge.mergeIntent !== undefined || merge.mergeReceipt !== undefined) return null;
+    if (!autoReviewEnabled()) return null;
+    const effect = await this.ensureAutomaticEffect(parent);
+    return this.runEffect(parent.id, effect.id, { silent: true, throwOnError: true });
   }
 
   /** 同父唯一性守卫（createGuarded 的锁内 guard + dispatchReviewNow 的友好预检共用） */
@@ -204,7 +339,7 @@ export class ReviewDispatcher {
    * 消除 happy path 静默段；认领播报照旧不合并（一条说「活派了」，一条说「人接了」）。
    * opts.silent：对账重跑路径压掉本条，由调用方发「断链已自愈」，避免双发。
    */
-  private async createReviewChildFor(parent: WorkUnitData, opts?: { silent?: boolean }): Promise<WorkUnitData | null> {
+  private async createReviewChildFor(parent: WorkUnitData, opts?: { silent?: boolean; effectId?: string }): Promise<WorkUnitData | null> {
     const members = await this.getChannelActiveMembers(parent.channelId!);
     const implementerId = await this.resolveProfileId(parent.assigneeId);
 
@@ -231,6 +366,7 @@ export class ReviewDispatcher {
       excludeAssignee: selfReview || pinnedReviewer ? null : implementerId,
       selfReview,
       assigneeId: pinnedReviewer,
+      effectId: opts?.effectId,
     });
     if (!child) return null; // 并发抢建被锁内 guard 拦截
 
@@ -290,6 +426,10 @@ export class ReviewDispatcher {
     if (parent.status !== 'in_review' && parent.status !== 'done') {
       throw new Error(`Cannot dispatch review: current status is ${parent.status}, expected in_review/done`);
     }
+    const merge = parseWuMetadata(parent.metadata);
+    if (parent.status === 'in_review' && (merge.mergeIntent !== undefined || merge.mergeReceipt !== undefined)) {
+      throw new Error('Cannot dispatch review while merge delivery is in review');
+    }
     if (deriveDisplayState({ status: parent.status, metadata: parent.metadata }).evidence.l2) {
       throw new Error('L2 review evidence already present — 无需补派');
     }
@@ -300,8 +440,12 @@ export class ReviewDispatcher {
       throw new Error('Review child already in flight — 已有未完结的评审子 WU');
     }
 
-    const child = await this.createReviewChildFor(parent);
-    // #170（决策 #65-2）：预检与建单之间存在并发窗口——锁内 guard 拦截时按同父唯一性拒绝
+    const effect = await this.effects.enqueue(parent.id, {
+      kind: 'review-dispatch',
+      idempotencyKey: `review-dispatch:${parent.id}:manual:${randomUUID()}`,
+      trigger: 'manual',
+    });
+    const child = await this.runEffect(parent.id, effect.id);
     if (!child) {
       throw new Error('Review child already in flight — 已有未完结的评审子 WU');
     }
@@ -315,7 +459,7 @@ export class ReviewDispatcher {
    *  并发/多实例下不重复建单。guard 拒绝返回 null。 */
   private async createReviewWorkUnit(
     parent: WorkUnitData,
-    opts: { excludeAssignee: string | null; selfReview: boolean; assigneeId?: string | null },
+    opts: { excludeAssignee: string | null; selfReview: boolean; assigneeId?: string | null; effectId?: string },
   ): Promise<WorkUnitData | null> {
     const parentMeta = parseWuMetadata(parent.metadata);
     const parentCollab = parentMeta.collab ?? {
@@ -337,13 +481,14 @@ export class ReviewDispatcher {
       },
       ...(opts.excludeAssignee ? { excludeAssignee: opts.excludeAssignee } : {}),
       ...(opts.selfReview ? { selfReview: true } : {}),
+      ...(opts.effectId ? { effectId: opts.effectId } : {}),
       // R3: 评审输入契约落档（审计用——台账可追溯本评审的输入形态）
       reviewInput: { mode: 'diff-only', skill: 'code-review' },
     };
 
-    // 会话/执行簿记绝不继承到子 WU：14 字段权威清单与 2026-07-30 事故实录已收敛到
+    // 会话/执行簿记绝不继承到子 WU：19 字段权威清单与 2026-07-30 事故实录已收敛到
     // workunit/wu-metadata.ts 的 clearSessionBookkeeping（返回浅拷贝，不改 childMetaRaw）——
-    // agent-loop 新增簿记字段必须同步该清单，否则静默泄漏进 review 子 WU
+    // 包含 Claude sessionId 与其他 provider 的 cliSessionId；新增簿记字段必须同步清单与测试
     const childMeta = clearSessionBookkeeping(childMetaRaw);
 
     // R3 评审输入契约（2026-07-28 分析文档 §4-R3）：diff-only + code-review skill。
@@ -375,12 +520,13 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
       scope,
       // F4: 默认未指派 —— 任何频道成员可认领（排除实现者由 metadata.excludeAssignee 约束）；
       // #466: 频道路由 review 档命中时指名评审角色（assigneeId 硬约束）
-      assigneeId: opts.assigneeId ?? null,
+      assigneeId: opts.assigneeId ?? undefined,
       status: 'unassigned',
       channelId: parent.channelId,
       parentId: parent.id,
       workspaceId: parent.workspaceId ?? null,
-      reqId: typeof parentMeta.reqId === 'string' ? parentMeta.reqId : null,
+      // #700：REQ 是 WU 一等列；metadata.reqId 仅作 legacy 数据回退。
+      reqId: parent.reqId ?? (typeof parentMeta.reqId === 'string' ? parentMeta.reqId : null),
       metadata: childMeta,
     }, this.hasNoUnfinishedReviewChild(parent.id));
 

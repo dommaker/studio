@@ -45,6 +45,11 @@ const { mockLogger } = vi.hoisted(() => ({
   },
 }));
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: mockLogger };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual as object, logger: mockLogger };

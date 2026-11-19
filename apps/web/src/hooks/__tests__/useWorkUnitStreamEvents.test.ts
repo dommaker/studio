@@ -6,8 +6,8 @@ const { mockOnEvent } = vi.hoisted(() => ({
   mockOnEvent: vi.fn(),
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent }),
 }));
 
 import { useWorkUnitStreamEvents } from '../useWorkUnitStreamEvents';

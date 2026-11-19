@@ -39,13 +39,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import yaml from 'js-yaml';
 import { CONSTRAINTS, getEffectiveConstraints } from '@dommaker/harness';
 import {
-  logger,
+  type FileStore,
   resolvePromptOverridesDir,
   type EvolutionProposalData,
 } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 import type { EvolutionPaths } from './signals.js';
 import { scheduleVectorDbSync, UNIFIED_KNOWLEDGE_DIR } from '../knowledge/index.js';
 
@@ -56,10 +58,24 @@ export interface CommitTrail {
   error?: string;
 }
 
+export interface ProfileSnapshot {
+  id: string;
+  persona?: string;
+}
+
+export interface ApplyOptions {
+  fileStore?: FileStore;
+}
+
 export interface ApplyResult {
   targetPath: string;
   backupPath: string | null;
   detail: string;
+  targetRevision: string;
+  beforeContentHash: string | null;
+  afterContentHash: string;
+  /** 显式更新的既有 AgentProfile 原值，供观察期回退恢复。 */
+  profileSnapshots?: ProfileSnapshot[];
   /** M3.5：config.yml 生效后的自动 commit 留痕（仅约束类提案；幂等未写文件时缺省） */
   trail?: CommitTrail;
 }
@@ -71,6 +87,25 @@ async function backupFile(targetPath: string): Promise<string | null> {
   const backupPath = `${targetPath}.bak-${ts}`;
   await fs.promises.copyFile(targetPath, backupPath);
   return backupPath;
+}
+
+function resolveTargetPath(proposal: EvolutionProposalData, paths: EvolutionPaths): string {
+  if (/[/\\]/.test(proposal.targetId) || proposal.targetId.includes('..')) {
+    if (proposal.targetType === 'prompt-template') throw new Error(`invalid template id: ${proposal.targetId}`);
+    if (proposal.targetType === 'role-preset') throw new Error(`invalid role id: ${proposal.targetId}`);
+  }
+  switch (proposal.targetType) {
+    case 'iron-law':
+    case 'guideline': return path.join(paths.repoRoot, '.harness', 'config.yml');
+    case 'prompt-template': return path.join(resolvePromptOverridesDir(), `${proposal.targetId}.md`);
+    case 'role-preset': return path.join(paths.rolesDir, `${proposal.targetId}.yaml`);
+    default: throw new Error(`unknown targetType: ${proposal.targetType}`);
+  }
+}
+
+function hashFile(targetPath: string): string | null {
+  if (!fs.existsSync(targetPath)) return null;
+  return createHash('sha256').update(fs.readFileSync(targetPath)).digest('hex');
 }
 
 interface BuiltinConstraintDef {
@@ -302,27 +337,54 @@ export function replacePersonaBlock(content: string, newPersona: string): string
   return lines.join('\n');
 }
 
-async function applyRolePreset(proposal: EvolutionProposalData, rolesDir: string): Promise<{ targetPath: string; backupPath: string | null; detail: string }> {
+async function applyRolePreset(
+  proposal: EvolutionProposalData,
+  rolesDir: string,
+  fileStore?: FileStore,
+): Promise<{ targetPath: string; backupPath: string | null; detail: string; profileSnapshots?: ProfileSnapshot[] }> {
   if (/[/\\]/.test(proposal.targetId) || proposal.targetId.includes('..')) {
     throw new Error(`invalid role id: ${proposal.targetId}`);
+  }
+  const targetProfileIds = [...new Set(proposal.targetProfileIds ?? [])];
+  if (targetProfileIds.length > 0 && !fileStore) {
+    throw new Error('role preset targets existing AgentProfiles but no FileStore was provided');
   }
   const targetPath = path.join(rolesDir, `${proposal.targetId}.yaml`);
   if (!fs.existsSync(targetPath)) throw new Error(`role preset not found: ${targetPath}`);
   const backupPath = await backupFile(targetPath);
   const content = fs.readFileSync(targetPath, 'utf-8');
   const next = replacePersonaBlock(content, proposal.proposedText);
-  fs.writeFileSync(targetPath, next, 'utf-8');
-  // 写后校验：YAML 可解析且 persona 生效；失败则恢复备份
+  const profileSnapshots: ProfileSnapshot[] = [];
   try {
+    fs.writeFileSync(targetPath, next, 'utf-8');
+    // 写后校验：YAML 可解析且 persona 生效；失败则恢复备份
     const parsed = yaml.load(fs.readFileSync(targetPath, 'utf-8')) as { persona?: string } | null;
     if (!parsed || typeof parsed.persona !== 'string' || !parsed.persona.includes(proposal.proposedText.trim().split('\n')[0])) {
       throw new Error('persona verification mismatch');
     }
+    // 默认只改 preset（未来 create 才读取）；既有档案必须显式点名并随同一提案审批。
+    for (const id of targetProfileIds) {
+      const profile = await fileStore!.getProfile(id);
+      if (!profile) throw new Error(`target AgentProfile not found: ${id}`);
+      profileSnapshots.push({ id, ...(profile.persona !== undefined ? { persona: profile.persona } : {}) });
+      await fileStore!.updateProfile(id, { persona: proposal.proposedText });
+      if ((await fileStore!.getProfile(id))?.persona !== proposal.proposedText) {
+        throw new Error(`AgentProfile verification mismatch: ${id}`);
+      }
+    }
   } catch (err) {
+    for (const snapshot of profileSnapshots) {
+      await fileStore!.updateProfile(snapshot.id, { persona: snapshot.persona });
+    }
     if (backupPath) fs.copyFileSync(backupPath, targetPath);
     throw new Error(`role preset apply failed verification, restored backup: ${String(err)}`);
   }
-  return { targetPath, backupPath, detail: `replaced persona of role '${proposal.targetId}'` };
+  return {
+    targetPath,
+    backupPath,
+    detail: `replaced persona of role '${proposal.targetId}'`,
+    ...(targetProfileIds.length > 0 ? { profileSnapshots } : {}),
+  };
 }
 
 async function applyPromptTemplate(proposal: EvolutionProposalData): Promise<{ targetPath: string; backupPath: string | null; detail: string }> {
@@ -334,14 +396,25 @@ async function applyPromptTemplate(proposal: EvolutionProposalData): Promise<{ t
   const targetPath = path.join(dir, `${proposal.targetId}.md`);
   const backupPath = await backupFile(targetPath);
   await fs.promises.writeFile(targetPath, proposal.proposedText, 'utf-8');
+  try {
+    if (await fs.promises.readFile(targetPath, 'utf-8') !== proposal.proposedText) {
+      throw new Error('prompt override verification mismatch');
+    }
+  } catch (err) {
+    if (backupPath) await fs.promises.copyFile(backupPath, targetPath);
+    else await fs.promises.rm(targetPath, { force: true });
+    throw new Error(`prompt override apply failed verification, restored backup: ${String(err)}`);
+  }
   return { targetPath, backupPath, detail: `wrote prompt override for '${proposal.targetId}'` };
 }
 
-/** 生效一个已批准的提案。抛出即失败（service 层保持 status='approved' 供重试）。 */
-export async function applyProposal(
+type ApplyWriteResult = Omit<ApplyResult, 'targetRevision' | 'beforeContentHash' | 'afterContentHash'>;
+
+async function applyProposalContent(
   proposal: EvolutionProposalData,
   paths: EvolutionPaths,
-): Promise<ApplyResult> {
+  options?: ApplyOptions,
+): Promise<ApplyWriteResult> {
   switch (proposal.targetType) {
     case 'iron-law':
     case 'guideline': {
@@ -367,8 +440,57 @@ export async function applyProposal(
     case 'prompt-template':
       return applyPromptTemplate(proposal);
     case 'role-preset':
-      return applyRolePreset(proposal, paths.rolesDir);
+      return applyRolePreset(proposal, paths.rolesDir, options?.fileStore);
     default:
       throw new Error(`unknown targetType: ${proposal.targetType}`);
+  }
+}
+
+/** 生效一个已批准的提案。抛出即失败（service 层保持 status='approved' 供重试）。 */
+export async function applyProposal(
+  proposal: EvolutionProposalData,
+  paths: EvolutionPaths,
+  options?: ApplyOptions,
+): Promise<ApplyResult> {
+  const targetPath = resolveTargetPath(proposal, paths);
+  const beforeContentHash = hashFile(targetPath);
+  const result = await applyProposalContent(proposal, paths, options);
+  const afterContentHash = hashFile(targetPath);
+  if (!afterContentHash) throw new Error(`applied target is missing after write: ${targetPath}`);
+  const head = await runCmd('git', ['-C', paths.repoRoot, 'rev-parse', 'HEAD']);
+  return {
+    ...result,
+    // 非 Git 目录以生效内容 SHA-256 作为 revision，禁止留下不可追溯的 null。
+    targetRevision: head.code === 0 ? head.stdout.trim() : afterContentHash,
+    beforeContentHash,
+    afterContentHash,
+  };
+}
+
+/** 观察期恶化后的幂等恢复；若生效后目标被第三方改动则拒绝覆盖。 */
+export async function rollbackProposal(
+  proposal: EvolutionProposalData,
+  paths: EvolutionPaths,
+  options?: ApplyOptions,
+): Promise<void> {
+  const observation = proposal.observation;
+  if (!observation) throw new Error(`proposal has no observation: ${proposal.id}`);
+  const targetPath = resolveTargetPath(proposal, paths);
+  const currentHash = hashFile(targetPath);
+  if (currentHash === observation.afterContentHash) {
+    if (observation.backupPath) await fs.promises.copyFile(observation.backupPath, targetPath);
+    else await fs.promises.rm(targetPath, { force: true });
+  } else if (currentHash !== observation.beforeContentHash) {
+    throw new Error(`rollback refused: target changed after evolution apply: ${targetPath}`);
+  }
+  if (hashFile(targetPath) !== observation.beforeContentHash) {
+    throw new Error(`rollback verification mismatch: ${targetPath}`);
+  }
+  for (const snapshot of observation.profileSnapshots ?? []) {
+    if (!options?.fileStore) throw new Error(`rollback requires FileStore for AgentProfile ${snapshot.id}`);
+    await options.fileStore.updateProfile(snapshot.id, { persona: snapshot.persona });
+    if ((await options.fileStore.getProfile(snapshot.id))?.persona !== snapshot.persona) {
+      throw new Error(`AgentProfile rollback verification mismatch: ${snapshot.id}`);
+    }
   }
 }

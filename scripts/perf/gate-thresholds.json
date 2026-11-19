@@ -1,0 +1,21 @@
+{
+  "comment": "PERF-07 统一阈值正本：p50/p95 同时看多次重复相对回归与绝对预算，max 只诊断。读/写预算依据 performance-baseline.md §5 与 §7.1；冷启动 10s 依据 §7；SSE 100ms 沿用读预算。scale/browser 场景预算在各报告 metric 中显式携带。",
+  "thresholds": {
+    "thresholdPct": 20,
+    "minDeltaMs": 5,
+    "coldStartMinDeltaMs": 1000,
+    "readP50BudgetMs": 50,
+    "readP95BudgetMs": 100,
+    "writeP50BudgetMs": 150,
+    "writeP95BudgetMs": 300,
+    "sseP50BudgetMs": 50,
+    "sseP95BudgetMs": 100,
+    "coldStartBudgetMs": 10000,
+    "lcpP50BudgetMs": 1000,
+    "lcpP95BudgetMs": 2000,
+    "inpP50BudgetMs": 100,
+    "inpP95BudgetMs": 200,
+    "browserHeapGrowthBytes": 134217728,
+    "browserRetainedChannelKeys": 8
+  }
+}

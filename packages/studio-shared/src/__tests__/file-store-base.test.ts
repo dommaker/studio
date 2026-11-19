@@ -10,7 +10,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { FileStoreBase, LockTimeoutError } from '../file-store-base';
+import { FileStoreBase, LockTimeoutError } from '../file-store/file-store-base';
+import { FileStore } from '../file-store';
 import { eventBus } from '../event-bus';
 
 function createTempDir(): string {
@@ -64,6 +65,24 @@ describe('FileStoreBase（直接单元测试）', () => {
       const fp = path.join(tmpDir, 'nested', 'deep', 'b.json');
       await store.writeJson(fp, { created: true });
       expect(JSON.parse(fs.readFileSync(fp, 'utf-8'))).toEqual({ created: true });
+    });
+
+    it('umask 022 下写入文件 0600/目录 0700，读取修复既有文件权限', async () => {
+      const previousUmask = process.umask(0o022);
+      try {
+        const fp = path.join(tmpDir, 'nested', 'session.json');
+        await store.ensureDir(path.dirname(fp));
+        fs.writeFileSync(fp, '{"legacy":true}', { mode: 0o644 });
+        fs.chmodSync(fp, 0o644);
+        fs.chmodSync(path.dirname(fp), 0o755);
+        expect(await store.readJson(fp)).toEqual({ legacy: true });
+        expect(fs.statSync(fp).mode & 0o777).toBe(0o600);
+        expect(fs.statSync(path.dirname(fp)).mode & 0o777).toBe(0o700);
+        await store.writeJson(fp, { current: true });
+        expect(fs.statSync(fp).mode & 0o777).toBe(0o600);
+      } finally {
+        process.umask(previousUmask);
+      }
     });
 
     it('覆盖已有文件内容', async () => {
@@ -299,6 +318,16 @@ describe('FileStoreBase（直接单元测试）', () => {
       }
     });
 
+    it('启用心跳的活跃持锁方持续刷新 acquiredAt，超过 30s 阈值也不会超龄', async () => {
+      await store.withLock(lockDir(), async () => {
+        const owner = JSON.parse(fs.readFileSync(ownerPath(), 'utf-8')) as { acquiredAt: number };
+        await new Promise(resolve => setTimeout(resolve, 80));
+        const refreshed = JSON.parse(fs.readFileSync(ownerPath(), 'utf-8')) as { acquiredAt: number };
+        expect(refreshed.acquiredAt).toBeGreaterThan(owner.acquiredAt);
+        expect(Date.now() - refreshed.acquiredAt).toBeLessThan(1000);
+      }, 3000, { heartbeatIntervalMs: 10 });
+    });
+
     it('无 owner.json 的裸锁按目录 mtime 走超龄判据：超龄回收，未超龄不回收', async () => {
       // 超龄裸锁 → 回收
       fs.mkdirSync(lockDir(), { recursive: true });
@@ -408,6 +437,16 @@ describe('FileStoreBase（直接单元测试）', () => {
       }
     });
 
+    it('mutexTimeoutMs：同进程持锁忙时也按时拒绝，不无界等待', async () => {
+      const first = store.withLock(lockDir(), async () => {
+        await new Promise(resolve => setTimeout(resolve, 150));
+      });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      const second = store.withLock(lockDir(), async () => 'second', 50, { mutexTimeoutMs: 50 });
+      await expect(second).rejects.toBeInstanceOf(LockTimeoutError);
+      await expect(first).resolves.toBeUndefined();
+    });
+
     it('进程内 mutex：同进程并发在 mutex 层排队，mkdir 竞争超时参数不误伤排队者', async () => {
       const timeouts = collectLockEvents('lock.acquire_timeout');
       try {
@@ -446,5 +485,32 @@ describe('FileStoreBase（直接单元测试）', () => {
       expect(err.name).toBe('LockTimeoutError');
       expect(err.message).toContain('1234');
     });
+  });
+});
+
+describe('FileStore 公共读路径权限（cache miss + cache hit）', () => {
+  it('readJson/readJsonl 每次读取都修复既有 0644/0755，缓存克隆语义不变', async () => {
+    const tmpDir = createTempDir();
+    const previousUmask = process.umask(0o022);
+    try {
+      const store = new FileStore(tmpDir);
+      const jsonPath = path.join(tmpDir, 'auth', 'users.json');
+      const jsonlPath = path.join(tmpDir, 'auth', 'events.jsonl');
+      fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
+      fs.writeFileSync(jsonPath, JSON.stringify([{ id: 'operator', role: 'Admin' }]));
+      fs.writeFileSync(jsonlPath, `${JSON.stringify({ id: 'event-1' })}\n`);
+      for (const file of [jsonPath, jsonlPath, path.dirname(jsonPath)]) fs.chmodSync(file, file.endsWith('.json') || file.endsWith('.jsonl') ? 0o644 : 0o755);
+
+      const first = await store.readJson<Array<{ id: string }>>(jsonPath);
+      first!.push({ id: 'mutated-clone' });
+      expect(await store.readJson(jsonPath)).toEqual([{ id: 'operator', role: 'Admin' }]);
+      expect(await store.readJsonl(jsonlPath)).toEqual([{ id: 'event-1' }]);
+      expect(await store.readJsonl(jsonlPath)).toEqual([{ id: 'event-1' }]);
+      for (const file of [jsonPath, jsonlPath]) expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(path.dirname(jsonPath)).mode & 0o777).toBe(0o700);
+    } finally {
+      process.umask(previousUmask);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

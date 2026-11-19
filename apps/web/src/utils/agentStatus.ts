@@ -15,7 +15,8 @@ export type AgentStatusKey =
 /** 卡面状态键 = AgentStatusKey + disabled（profile 被停用，覆盖 instance 维度） */
 export type CardStatusKey = AgentStatusKey | 'disabled';
 
-export const AGENT_STATUS_LABELS: Record<AgentStatusKey, string> = {
+/** 卡面状态词（#433：详情页 pill 与仪表盘卡面 pill 同词同色同源消费） */
+export const CARD_STATUS_LABELS: Record<CardStatusKey, string> = {
   running: '执行中',
   in_review: '待评审',
   blocked: '阻塞',
@@ -23,26 +24,18 @@ export const AGENT_STATUS_LABELS: Record<AgentStatusKey, string> = {
   error: '异常',
   terminated: '已终止',
   none: '未启动',
-};
-
-export const CARD_STATUS_LABELS: Record<CardStatusKey, string> = {
-  ...AGENT_STATUS_LABELS,
   disabled: '已停用',
 };
 
-export const AGENT_STATUS_COLORS: Record<AgentStatusKey, string> = {
+/** 卡面色（#433：详情页 pill 与仪表盘卡面 pill 同词同色同源消费）：§6.5 异常=橙与待评审黄解耦、红只编码阻塞、终止/disabled 归灰 */
+export const CARD_STATUS_COLORS: Record<CardStatusKey, string> = {
   running: 'u-accent-dim u-accent',
   in_review: 'u-warn-dim u-warn',
   blocked: 'u-err-dim u-err',
   idle: 'u-surface-2 u-text-3',
-  error: 'u-anomaly-dim u-anomaly', // §6.5：异常=橙，与待评审黄解耦
-  terminated: 'u-surface-2 u-text-3', // §6.5：红只编码阻塞，终止归灰
+  error: 'u-anomaly-dim u-anomaly',
+  terminated: 'u-surface-2 u-text-3',
   none: 'u-surface-2 u-text-3',
-};
-
-/** 卡面色 = AgentStatusKey 色 + disabled 归灰（#433：详情页 pill 与仪表盘卡面 pill 同词同色同源消费） */
-export const CARD_STATUS_COLORS: Record<CardStatusKey, string> = {
-  ...AGENT_STATUS_COLORS,
   disabled: 'u-surface-2 u-text-3',
 };
 

@@ -28,7 +28,9 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
 
   useEffect(() => {
     if (!reqId) return;
+    const release = useRequirementChainStore.getState().subscribeChain(reqId);
     void useRequirementChainStore.getState().ensureChain(reqId);
+    return release;
   }, [reqId]);
 
   if (!reqId) return null;

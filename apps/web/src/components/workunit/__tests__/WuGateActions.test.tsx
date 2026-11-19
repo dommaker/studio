@@ -82,6 +82,34 @@ describe('WuGateActions — 状态分支（E2-4）', () => {
     expect(screen.getByText('拒绝')).toBeTruthy();
   });
 
+  it.each(['queued', 'running'] as const)('merge %s → 不渲染通过/拒绝，仅显示等待文案且不可调 API', state => {
+    setup(makeWu({
+      status: 'in_review',
+      metadata: JSON.stringify({ mergeIntent: { id: `merge-${state}`, state } }),
+    }));
+
+    expect(screen.getByText('等待合并与目标验证')).toBeTruthy();
+    expect(screen.queryByText('通过验收')).toBeNull();
+    expect(screen.queryByText('拒绝')).toBeNull();
+    expect(mockReviewPassed).not.toHaveBeenCalled();
+    expect(mockReviewRejected).not.toHaveBeenCalled();
+  });
+
+  it('verification unavailable → 保留人工 L3 通过出口', () => {
+    setup(makeWu({
+      status: 'in_review',
+      metadata: JSON.stringify({
+        mergeReceipt: {
+          id: 'merge-1', merged: true, mergeCommit: 'abc123', targetBranch: 'main',
+          verification: { status: 'unavailable', ran: [] },
+        },
+      }),
+    }));
+
+    fireEvent.click(screen.getByText('通过验收'));
+    expect(mockReviewPassed).toHaveBeenCalledWith('wu-1');
+  });
+
   it('done 缺 l3 → 「人工验收确认」调 gateWriter.reviewPassed（同端点幂等补写）', () => {
     setup(makeWu({ status: 'done', metadata: L2_ONLY }));
     fireEvent.click(screen.getByText('人工验收确认'));
@@ -202,7 +230,12 @@ describe('WuGateActions — #463 结构化确认弹窗（analysis/decision/spec�
     setup(makeWu({
       status: 'in_review',
       type: 'plan',
-      metadata: JSON.stringify({ analysisDestination: '目的地', analysisFog: ['问题1'], analysisTasks: ['干活'] }),
+      metadata: JSON.stringify({
+        analysisDestination: '目的地',
+        analysisFog: ['问题1'],
+        analysisTasks: ['干活'],
+        analysisTaskDetails: [{ title: '干活', ac: ['验收通过'], leg: '/repo/api', blockedBy: [] }],
+      }),
     }));
 
     fireEvent.click(screen.getByText('通过验收'));
@@ -212,7 +245,10 @@ describe('WuGateActions — #463 结构化确认弹窗（analysis/decision/spec�
 
     fireEvent.click(screen.getByText('确认开图'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined, {
-      kind: 'plan', destination: '目的地', fog: ['问题1'], tasks: ['干活'],
+      kind: 'plan',
+      destination: '目的地',
+      fog: ['问题1'],
+      tasks: [{ title: '干活', ac: ['验收通过'], leg: '/repo/api', blockedBy: [] }],
     }));
   });
 
@@ -311,6 +347,15 @@ describe('WuGateActions — #468 闸门动作成功 toast 说明后续', () => {
     setup(makeWu({ status: 'in_review' }));
     fireEvent.click(screen.getByText('通过验收'));
     await waitFor(() => expect(mockToast.success).toHaveBeenCalledWith(expect.stringContaining('审查闸门')));
+  });
+
+  it('有 worktree 的代码 WU 初次通过 → toast 改提示等待合并与目标验证', async () => {
+    setup(makeWu({
+      status: 'in_review', type: 'task',
+      metadata: JSON.stringify({ worktreePath: '/worktrees/wu-1' }),
+    }));
+    fireEvent.click(screen.getByText('通过验收'));
+    await waitFor(() => expect(mockToast.success).toHaveBeenCalledWith('等待合并与目标验证'));
   });
 
   it('analysis 弹窗确认成功 → toast 说明将自动派工', async () => {

@@ -38,13 +38,20 @@ import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { buildConstraintsUsageReport, ConstraintViolationError } from '@dommaker/harness';
-import { logger } from '@dommaker/studio-shared';
+import { buildConstraintsUsageReport, ConstraintViolationError, type ConstraintCheckResult, type ConstraintResult } from '@dommaker/harness';
+
 import { defineRoute, HttpError } from '../../core/http.js';
 import {
   constraintIdParamsSchema,
   proposeUpgradeBodySchema,
   checkConstraintsBodySchema,
+  constraintListResponseSchema,
+  constraintStatsResponseSchema,
+  retiredConstraintListResponseSchema,
+  constraintGetResponseSchema,
+  proposeUpgradeResponseSchema,
+  rollbackConstraintResponseSchema,
+  checkConstraintsResponseSchema,
 } from '@dommaker/studio-contract';
 import { loadHarness, harnessModule } from './runtime.js';
 import { sanitizeConstraintContext, downgradeAnnotation, violationAsPartialView, VIOLATION_PARTIAL_VIEW } from './sanitize-context.js';
@@ -55,10 +62,23 @@ import {
 import { resolveHarnessBin, runCmd } from '../evolution/index.js';
 import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge/index.js';
 import { formatConstraintStats } from '../evolution/index.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export const constraintsRoutes = Router();
 
 const HARNESS_UNAVAILABLE = () => new HttpError(503, 'SERVICE_UNAVAILABLE', 'Harness not available');
+
+function constraintResultWire(result: ConstraintResult) {
+  return { ...result, message: result.message ?? '' };
+}
+
+function constraintCheckWire(result: ConstraintCheckResult) {
+  return {
+    ...result,
+    errors: result.errors.map(constraintResultWire),
+    warnings: result.warnings.map(constraintResultWire),
+  };
+}
 
 /** 项目根（harness 配置 .harness/ 所在目录）：与 harness CLI 一致，缺省 process.cwd() */
 function projectRoot(): string {
@@ -82,15 +102,15 @@ function readConfigConstraints(root: string): Record<string, Record<string, unkn
 
 /**
  * GET /api/v1/harness/constraints
- * 列出当前生效约束集（内置 → preset → config.yml 禁用，带 kind/severity）
+ * 列出当前生效约束集（内置 → preset → config.yml 禁用，带 severity）。
+ * harness 3.0.0（ADR-0041）：Constraint.kind 出清（ADR-0029 起恒 'check' 的仪式字段），投影随之删除。
  */
-constraintsRoutes.get('/constraints', defineRoute({}, async () => {
+constraintsRoutes.get('/constraints', defineRoute({ response: constraintListResponseSchema }, async () => {
   const loaded = await loadHarness();
   if (!loaded || !harnessModule) throw HARNESS_UNAVAILABLE();
 
   const constraints = harnessModule.getEffectiveConstraints(projectRoot()).map(c => ({
     id: c.id,
-    kind: c.kind,
     severity: c.severity,
     trigger: c.trigger,
     rule: c.rule,
@@ -102,27 +122,26 @@ constraintsRoutes.get('/constraints', defineRoute({}, async () => {
 
 /**
  * GET /api/v1/harness/constraints/stats
- * 生效集统计。0.17.0 语义变化：原按 layer（safety/quality）聚合 → 现按 kind/severity 聚合
+ * 生效集统计。0.17.0 语义变化：原按 layer（safety/quality）聚合 → 现按 kind/severity 聚合；
+ * harness 3.0.0（ADR-0041）kind 出清 → 仅按 severity 聚合。
  */
-constraintsRoutes.get('/constraints/stats', defineRoute({}, async () => {
+constraintsRoutes.get('/constraints/stats', defineRoute({ response: constraintStatsResponseSchema }, async () => {
   const loaded = await loadHarness();
   if (!loaded || !harnessModule) throw HARNESS_UNAVAILABLE();
 
   const constraints = harnessModule.getEffectiveConstraints(projectRoot());
-  const byKind: Record<string, number> = {};
   const bySeverity: Record<string, number> = {};
   for (const c of constraints) {
-    byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
     bySeverity[c.severity] = (bySeverity[c.severity] ?? 0) + 1;
   }
-  return { total: constraints.length, byKind, bySeverity };
+  return { total: constraints.length, bySeverity };
 }));
 
 /**
  * GET /api/v1/harness/constraints/retired
  * 已退役约束元数据：config.yml constraints.<id>.retired（唯一落点）。
  */
-constraintsRoutes.get('/constraints/retired', defineRoute({}, async () => {
+constraintsRoutes.get('/constraints/retired', defineRoute({ response: retiredConstraintListResponseSchema }, async () => {
   const retired: Array<{ id: string; enabled: boolean; source: 'config'; retired: unknown }> = [];
 
   const configured = readConfigConstraints(projectRoot());
@@ -140,7 +159,7 @@ constraintsRoutes.get('/constraints/retired', defineRoute({}, async () => {
  * 约束详情（生效集内查找）
  */
 constraintsRoutes.get('/constraints/:id', defineRoute(
-  { params: constraintIdParamsSchema },
+  { params: constraintIdParamsSchema, response: constraintGetResponseSchema },
   async (_req, _res, { params }) => {
     const loaded = await loadHarness();
     if (!loaded || !harnessModule) throw HARNESS_UNAVAILABLE();
@@ -161,7 +180,7 @@ constraintsRoutes.get('/constraints/:id', defineRoute(
  * approve 后的 pack-proposal 落点归 constraint-adapter；本端点只发起。不自动开 issue。
  */
 constraintsRoutes.post('/constraints/propose-upgrade', defineRoute(
-  { body: proposeUpgradeBodySchema },
+  { body: proposeUpgradeBodySchema, response: proposeUpgradeResponseSchema },
   async (_req, _res, { body }) => {
     const constraintId = body.constraintId!;
     const repoRoot = body.repoRoot ? body.repoRoot : projectRoot();
@@ -224,7 +243,7 @@ constraintsRoutes.post('/constraints/propose-upgrade', defineRoute(
  * 写后复查墓碑已摘除定成功，CLI 非零退出 → 500。
  */
 constraintsRoutes.post('/constraints/:id/rollback', defineRoute(
-  { params: constraintIdParamsSchema },
+  { params: constraintIdParamsSchema, response: rollbackConstraintResponseSchema },
   async (_req, _res, { params }) => {
     const root = projectRoot();
     const before = readConfigConstraints(root);
@@ -266,13 +285,15 @@ constraintsRoutes.post('/constraints/:id/rollback', defineRoute(
  * M2: RequirementsDoc quality gate — run non-throwing constraint check for UI
  */
 constraintsRoutes.post('/check-constraints', defineRoute(
-  { body: checkConstraintsBodySchema },
+  { body: checkConstraintsBodySchema, response: checkConstraintsResponseSchema },
   async (_req, _res, { body }) => {
     const loaded = await loadHarness();
     if (!loaded) throw HARNESS_UNAVAILABLE();
 
     // Use checkConstraints (checkConstraintsSafe removed in harness 0.13.0)
-    // #641：证据标志不可由调用方自报——hasRequirement 剥离，依赖项降级 skip
+    // #641：证据标志不可由调用方自报——hasRequirement 在入口剥离，绝不进 harness context。
+    // harness 3.0.0（ADR-0041）已把这些死标志出清类型面，剥离管道保留为 studio 侧 wire 卫生
+    // （入参类型见 sanitize-context.ts 注释）。
     const sanitized = sanitizeConstraintContext({
       operation: body.operation!,
       taskDescription: body.taskDescription,
@@ -281,14 +302,14 @@ constraintsRoutes.post('/check-constraints', defineRoute(
     });
     try {
       const result = await harnessModule!.checkConstraints(sanitized.context);
-      return { ...result, ...downgradeAnnotation(sanitized.strippedFlags) };
+      return { ...constraintCheckWire(result), ...downgradeAnnotation(sanitized.strippedFlags) };
     } catch (error) {
       // block 模式首个 error 级违规即抛（ConstraintViolationError 只带该条结果）：
       // 违规是判定数据不是服务故障——转部分视图数据返回，500 只留给真实调不通 harness
       if (error instanceof ConstraintViolationError) {
         logger.warn('[Harness] check-constraints violation (partial view)', { id: error.result.id });
         return {
-          ...violationAsPartialView(error),
+          ...constraintCheckWire(violationAsPartialView(error)),
           ...downgradeAnnotation(sanitized.strippedFlags),
           violationPartialView: VIOLATION_PARTIAL_VIEW,
         };

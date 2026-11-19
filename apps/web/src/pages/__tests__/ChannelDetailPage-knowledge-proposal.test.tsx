@@ -37,9 +37,9 @@ vi.mock('../../api/requirements', () => ({
   requirementApi: { list: mockListReqs },
 }));
 
-// #242：页面新增 live 状态条走 WebSocketContext——测试环境无 Provider，置空订阅
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
+// #242：页面新增 live 状态条走 SseContext——测试环境无 Provider，置空订阅
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => null }));
@@ -55,10 +55,10 @@ vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDi
 
 import { ChannelDetailPage } from '../ChannelDetailPage';
 
-const STRING_META_MESSAGE = {
+const PROPOSAL_MESSAGE = {
   id: 'msg-kp-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'KK',
   content: '知识提案 — 待人工审核', workUnitId: null, replyToId: null,
-  meta: JSON.stringify({
+  meta: {
     cardType: 'knowledge_proposal',
     status: 'ready',
     cardData: {
@@ -69,18 +69,12 @@ const STRING_META_MESSAGE = {
         { id: 'k-2', title: '登录流程统一走 auth-service', type: 'guideline' },
       ],
     },
-  }),
+  },
   createdAt: new Date().toISOString(),
 };
 
-// #264：线上 REST/SSE 出口的 object 形态 meta（与 string 夹具内容相同，仅形态不同）
-const OBJECT_META_MESSAGE = {
-  ...STRING_META_MESSAGE,
-  meta: JSON.parse(STRING_META_MESSAGE.meta) as Record<string, unknown>,
-};
-
-// useChannelMessages mock 的当前消息集（默认 string-meta 存量形态，单测可替换）
-let currentMessages = [STRING_META_MESSAGE];
+// useChannelMessages mock 的当前消息集（单测可替换）
+let currentMessages = [PROPOSAL_MESSAGE];
 
 const renderPage = () =>
   render(
@@ -94,7 +88,7 @@ const renderPage = () =>
 describe('ChannelDetailPage — knowledge_proposal 审核分发', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    currentMessages = [STRING_META_MESSAGE];
+    currentMessages = [PROPOSAL_MESSAGE];
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-sys', name: '系统', type: 'system', members: '[]' } } });
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
@@ -122,19 +116,5 @@ describe('ChannelDetailPage — knowledge_proposal 审核分发', () => {
       expect(mockApiPost).toHaveBeenCalledWith('/review-proposals/knowledge/kp-1/reject');
     });
     expect(await screen.findByText(/已拒绝/)).toBeTruthy();
-  });
-
-  // #264：线上 meta 为 object（回归点 48d883d9）——approve/reject 必须同样拿到 cardData 生效
-  it('object meta（线上形态）：卡片渲染 + approve 拿到 cardData 分发通用端点', async () => {
-    currentMessages = [OBJECT_META_MESSAGE];
-    renderPage();
-    const btn = await screen.findByText('通过');
-    fireEvent.click(btn);
-
-    await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith('/review-proposals/knowledge/kp-1/approve');
-    });
-    expect(await screen.findByText(/已通过/)).toBeTruthy();
-    expect(mockRefresh).toHaveBeenCalled();
   });
 });

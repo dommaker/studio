@@ -22,13 +22,13 @@
  * 防相邻 decision 完成事件并发互相覆盖 map 写）。
  */
 
-import { eventBus, logger, type FileStore } from '@dommaker/studio-shared';
+import { eventBus, type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { projectService, type ProjectData, type PmoMap } from './project.service.js';
 import { createKeyedEnqueue } from './keyed-enqueue.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export class DecisionResolution {
   private subscribed = false;

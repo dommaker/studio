@@ -3,6 +3,7 @@
 // 分支：pending →「确认并开放领取」（#284 人闸）；in_review →「通过验收」+「拒绝」（带原因弹窗；
 // #463 起 analysis/decision/spec 走各自结构化确认弹窗——评审表单+按钮，后端序列化进 l3.summary，
 // 人不接触魔法行）；done 缺 l3 →「人工验收确认」（L3 台账不阻断流程）。
+// #703：merge queued/running 不渲染动作，仅显示等待文案；verification-unavailable 保留人工 L3 通过出口。
 // #473：按钮说人话——内部机制词（审查闸门/留痕/进待领取）不上按钮。
 // 反馈统一批次A 模式：pending 锁存防连点 + 失败 gateError 内联（errorMessage 服务端 error.message 优先）
 // + 弹窗成功才关窗 + #468 成功 toast 说明后续走向（自动派工/进待领取/打回返工）。
@@ -16,9 +17,10 @@ import type { WorkUnit } from '../../api/workunit';
 import { AnalysisApproveDialog } from '../pmo/AnalysisApproveDialog';
 import { DecisionApproveDialog } from '../pmo/DecisionApproveDialog';
 import { SpecApproveDialog } from '../pmo/SpecApproveDialog';
-import { buildAnalysisConfirmPrefill, buildDecisionConfirmPrefill, buildSpecConfirmPrefill } from '../pmo/mapUtils';
+import { buildAnalysisConfirmPrefill, buildDecisionConfirmPrefill, buildSpecConfirmPrefill } from '../../utils/mapUtils';
 import { createGateWriter, type GateUpdateSink } from '../../utils/gateWriter';
 import { errorMessage } from '../../utils/errorMessage';
+import { parseWuMeta } from '../../utils/wuMeta';
 import { toast } from '../../utils/toast';
 import { Modal } from '../ui';
 
@@ -38,6 +40,9 @@ export function WuGateActions({ wu, onUpdated, autoApprove = false }: WuGateActi
   const [rejectReason, setRejectReason] = useState('');
   // F6 派生（铁律：needsHuman 判断一律过 deriveDisplayState，不自行读 attestations）
   const derived = deriveDisplayState({ status: wu.status, metadata: wu.metadata });
+  const mergeInFlight = derived.delivery === 'merge-queued' || derived.delivery === 'merge-running';
+  const meta = parseWuMeta<{ worktreePath?: unknown }>(wu.metadata);
+  const codeWorktree = ['task', 'bug', 'feature', 'refactor'].includes(wu.type) && typeof meta.worktreePath === 'string' && meta.worktreePath.length > 0;
   // #545：写路径唯一正本（API 调用 + store 双写 + onUpdated 回调全在 gateWriter）
   const gateWriter = createGateWriter(onUpdated);
 
@@ -45,7 +50,7 @@ export function WuGateActions({ wu, onUpdated, autoApprove = false }: WuGateActi
   // 组件仅在 wu 加载完成且命中闸门分支后挂载，id 切换经卸载重置）
   // #471：plan（一脉会话规划单）同走 analysis_confirm 接力卡，同样打开即弹
   const [autoPopupDone, setAutoPopupDone] = useState(false);
-  if (!autoPopupDone && autoApprove && (wu.type === 'analysis' || wu.type === 'plan') && wu.status === 'in_review') {
+  if (!mergeInFlight && !autoPopupDone && autoApprove && (wu.type === 'analysis' || wu.type === 'plan') && wu.status === 'in_review') {
     setAutoPopupDone(true);
     setShowApproveModal(true);
   }
@@ -68,6 +73,7 @@ export function WuGateActions({ wu, onUpdated, autoApprove = false }: WuGateActi
   /** #468：闸门动作成功后 toast 说明后续走向（配合行动中心——动作后用户知道「接下来系统会做什么」） */
   const approveFollowUp = () => {
     if (wu.status === 'done') return '已确认留痕，工单出审查列';
+    if (codeWorktree && derived.delivery !== 'verification-unavailable') return '等待合并与目标验证';
     return (wu.type === 'analysis' || wu.type === 'plan')
       ? '已通过，将按拆分结果自动派工'
       : '已通过审查闸门，工单收口';
@@ -94,6 +100,14 @@ export function WuGateActions({ wu, onUpdated, autoApprove = false }: WuGateActi
       })
       .catch(() => {});
   };
+
+  if (mergeInFlight) {
+    return (
+      <div className="text-xs u-text-2" onClick={e => e.stopPropagation()}>
+        等待合并与目标验证
+      </div>
+    );
+  }
 
   if (wu.status !== 'pending' && wu.status !== 'in_review' && !(wu.status === 'done' && derived.needsHuman)) {
     return null;

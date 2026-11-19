@@ -7,10 +7,18 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, stringifyChannels, type ChannelMessageData, type AgentProfileData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 const { mockExecSync } = vi.hoisted(() => ({ mockExecSync: vi.fn() }));
-vi.mock('child_process', () => ({ exec: vi.fn(), execSync: mockExecSync }));
+vi.mock('child_process', () => ({
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  exec: vi.fn((cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  }),
+  execSync: mockExecSync,
+}));
 
 // 决策 7：skill 匹配挪到 step 时后会读真实 skill 库 —— 隔离为不存在目录（manifest 为空），
 // 避免宿主 ~/.studio/skills 内容影响注入预算断言（manifest-loader 模块加载时读取 SKILLS_DIR）
@@ -27,13 +35,17 @@ vi.mock('@dommaker/studio-agent', () => ({
 }));
 
 const { mockInjectContext } = vi.hoisted(() => ({ mockInjectContext: vi.fn() }));
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: mockInjectContext,
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 import { AgentLoop } from '../agent-loop';
 import { SECTION_QUOTAS } from '../prompt-composer';
@@ -92,7 +104,7 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
     });
     // 不 start()：recordResult/agentStep 不依赖运行中的 loop 实例
     agentLoop = new AgentLoop(roleA, fileStore);
-    loop = agentLoop as unknown as LoopInternals;
+    loop = agentLoop;
     mockResolveWorkspaceRoot.mockResolvedValue(null); // 跳过提交守卫（无关本测试关注点）
     mockInjectContext.mockResolvedValue({ prompt: '', injectedIds: [] });
   });
@@ -153,11 +165,17 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
   });
 
   describe('recordResult DELEGATE 分支（§4.1 机制 3-5）', () => {
-    it('闸门通过 → 建子单 + collab 元数据 + delegate 卡片 + 父按 progress 继续', async () => {
-      const parent = await setupParent();
+    it('闸门通过 → 建子单 + collab/必要引用 + delegate 卡片 + 父按 progress 继续', async () => {
+      const parent = await setupParent({
+        fileRefs: [
+          { repo: '/repo/studio', path: 'src/login.ts' },
+          { repo: '/repo/studio', path: 'src/unrelated.ts' },
+          { repo: '/repo/other', path: 'src/login.ts' },
+        ],
+      });
       await loop.recordResult({ workUnit: parent }, {
-        action: 'delegate', summary: '审查登录模块的实现',
-        delegate: { targetName: 'AgentB', scope: '审查登录模块的实现' },
+        action: 'delegate', summary: '审查 /repo/studio/src/login.ts 的实现',
+        delegate: { targetName: 'AgentB', scope: '审查 /repo/studio/src/login.ts 的实现' },
       });
 
       // 父 WU：状态不变（active），collab 补记为根记录且 delegationCount=1
@@ -177,9 +195,10 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
       expect(child.channelId).toBe(channelId);
       expect(child.reqId).toBe('REQ-0001');
       expect(child.workspaceId).toBe('ws-1');
-      expect(child.scope).toBe('审查登录模块的实现');
+      expect(child.scope).toBe('审查 /repo/studio/src/login.ts 的实现');
       const childMeta = JSON.parse(child.metadata!) as WorkUnitMetadata;
       expect(childMeta.creationMode).toBe('agent-delegate');
+      expect(childMeta.fileRefs).toEqual([{ repo: '/repo/studio', path: 'src/login.ts' }]);
       expect(childMeta.collab).toEqual({
         rootId: parent.id,
         depth: 1,
@@ -191,7 +210,7 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
       // delegate 卡片：@A 委派 @B：<scope>（深度 1/2），authorType=agent
       const cards = (await channelMessages()).filter(m => m.authorType === 'agent');
       expect(cards).toHaveLength(1);
-      expect(cards[0].content).toBe(`@AgentA 委派 @AgentB：审查登录模块的实现（深度 1/2）`);
+      expect(cards[0].content).toBe(`@AgentA 委派 @AgentB：审查 /repo/studio/src/login.ts 的实现（深度 1/2）`);
       expect(cards[0].workUnitId).toBe(parent.id);
     });
 
@@ -404,14 +423,14 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
       expect(opts.maxTokens).toBeGreaterThan(SECTION_QUOTAS.knowledge);
     });
 
-    it('members 为空 → 回退到全部 active profile（与闸门口径一致）', async () => {
+    it('#699: members 为空 → 无花名册段，不回退到全部 active profile', async () => {
       await fileStore.updateChannel(channelId, { members: '[]' });
       const parent = await setupParent();
       await runStep(parent.id);
 
-      const ctx = mockExecuteLightweight.mock.calls[0][0].parameters.knowledgeContext as string;
-      expect(ctx).toContain('## 频道成员与委派');
-      expect(ctx).toContain('AgentB');
+      const ctx = mockExecuteLightweight.mock.calls[0][0].parameters.knowledgeContext;
+      expect(ctx ?? '').not.toContain('## 频道成员与委派');
+      expect(ctx ?? '').not.toContain('AgentB');
     });
 
     it('无频道 → 无花名册段', async () => {

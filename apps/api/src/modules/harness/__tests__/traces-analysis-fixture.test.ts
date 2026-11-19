@@ -15,7 +15,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 let tmpRoot: string;
 let prevCwd: string;

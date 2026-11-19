@@ -7,7 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, WU_LEASE_TTL_MS, type WorkUnitMetadata } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import { WU_LEASE_TTL_MS, type WorkUnitMetadata } from '../workunit.types.js';
 import { parseWuMetadata } from '../wu-metadata.js';
 import { scanTimedOutWorkUnits, MAX_TIMEOUT_RELEASES } from '../timeout-release.js';
 

@@ -1,16 +1,15 @@
 /**
- * notify-channels 域契约测试：双段状态 parity + 绑定状态机 + 请求边界 + 响应壳。
- * 正本 = apps/api/src/modules/notify-channels/routes.ts（脱敏后形状）。
+ * notify-channels 域契约测试：渠道状态边界 + 绑定状态机 + 请求边界 + 响应壳。
+ * schema 即正本（类型 = z.infer 同源，编译期锚定）；服务端正本 =
+ * apps/api/src/modules/notifications/channels/routes.ts（脱敏后形状）。
  */
 
 import { describe, it, expect } from 'vitest';
 import {
   wecomChannelStateSchema,
   type WecomChannelState,
-  clawbotChannelStateSchema,
   type ClawbotChannelState,
   notifyChannelsStateSchema,
-  type NotifyChannelsState,
   clawbotBindStatusSchema,
   clawbotBindStartResultSchema,
   clawbotBindStatusResultSchema,
@@ -32,25 +31,18 @@ const clawbotBound: ClawbotChannelState = {
   bound: true, ilinkUserId: 'ilin...4321', boundAt: '2026-09-12T00:00:00.000Z',
 };
 
-describe('wecomChannelStateSchema / clawbotChannelStateSchema', () => {
-  it('parity：配置态与未配置态（null 三件套）均通过', () => {
-    expect(wecomChannelStateSchema.parse(wecomConfigured)).toEqual(wecomConfigured);
-    const wecomEmpty: WecomChannelState = { configured: false, maskedUrl: null, source: null };
-    expect(wecomChannelStateSchema.parse(wecomEmpty)).toEqual(wecomEmpty);
-    // source 词表：settings / env / null
+describe('wecomChannelStateSchema', () => {
+  // source 词表：settings / env / null；未配置态 null 三件套合法
+  it('source 词表：env/null 合法，非法值即拒', () => {
     expect(wecomChannelStateSchema.parse({ ...wecomConfigured, source: 'env' }).source).toBe('env');
+    expect(wecomChannelStateSchema.parse({ configured: false, maskedUrl: null, source: null }).source).toBeNull();
     expect(() => wecomChannelStateSchema.parse({ ...wecomConfigured, source: 'bogus' })).toThrow();
-
-    expect(clawbotChannelStateSchema.parse(clawbotBound)).toEqual(clawbotBound);
-    const clawbotEmpty: ClawbotChannelState = { bound: false, ilinkUserId: null, boundAt: null };
-    expect(clawbotChannelStateSchema.parse(clawbotEmpty)).toEqual(clawbotEmpty);
   });
 });
 
 describe('notifyChannelsStateSchema', () => {
-  it('parity：NotifyChannelsState fixture（wecom + clawbot 双段）', () => {
-    const state: NotifyChannelsState = { wecom: wecomConfigured, clawbot: clawbotBound };
-    expect(notifyChannelsStateSchema.parse(state)).toEqual(state);
+  it('双段必填：缺 clawbot 段即拒；响应壳 { data } 包裹', () => {
+    const state = { wecom: wecomConfigured, clawbot: clawbotBound };
     expect(notifyChannelsStateResponseSchema.parse({ data: state }).data.wecom.configured).toBe(true);
     expect(() => notifyChannelsStateSchema.parse({ wecom: wecomConfigured })).toThrow();
   });

@@ -14,25 +14,68 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
-import { logger } from '@dommaker/studio-shared';
-import { execSh } from '@dommaker/studio-shared/node';
+import { getErrorMessage } from '@dommaker/studio-shared';
+import { logger, execSh } from '@dommaker/studio-shared/node';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 import type { AgentTask } from './types.js';
-import { execSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import { buildClaudeDenyRules, writeProviderEnforcementConfigs } from './provider-hooks.js';
+
+interface GitOptions { cwd: string; timeoutMs: number }
+
+/** 所有 Git 调用只走 execFile 参数数组，不经过 shell。 */
+function runGit(args: string[], opts: GitOptions): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile('git', args, { cwd: opts.cwd, timeout: opts.timeoutMs, encoding: 'utf-8' }, (error, stdout, stderr) => {
+      if (error) {
+        const diagnostic = String(stderr).trim();
+        if (diagnostic && !error.message.includes(diagnostic)) error.message += `\n${diagnostic}`;
+        if (!('stderr' in error)) Object.assign(error, { stderr: String(stderr) });
+        reject(error);
+      } else resolve({ stdout: String(stdout), stderr: String(stderr) });
+    });
+  });
+}
+
+function isUnknownRevisionError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const record = error as { killed?: boolean; message?: string; stderr?: string; stdout?: string };
+  if (record.killed) return false;
+  const text = [record.message, record.stderr, record.stdout].filter(Boolean).join('\n');
+  return /unknown revision|not a valid object name|bad revision|Needed a single revision|ambiguous argument/i.test(text);
+}
+
+// 与 studio-contract isValidGitBranch 同规则；本包现有依赖不含 contract，
+// contract 也不能反向引入 Node/shared runtime，故不为去重新增跨域包依赖。
+function assertGitBranchShape(branch: string): void {
+  const valid = Boolean(branch) && branch !== '@' && !branch.startsWith('-')
+    && !branch.endsWith('/') && !branch.endsWith('.')
+    && !branch.includes('..') && !branch.includes('@{') && !branch.includes('//')
+    && !/[\x00-\x20\x7f~^:?*\[\\"'`$;]/.test(branch)
+    && branch.split('/').every(part => part.length > 0 && !part.startsWith('.') && !part.endsWith('.lock'));
+  if (!valid) throw new Error(`Invalid git branch name: ${branch}`);
+}
+
+/** 先零进程拒绝危险形状，再以 Git 自身校验合法分支。 */
+async function assertGitBranches(repoDir: string, branches: string[]): Promise<void> {
+  for (const branch of branches) assertGitBranchShape(branch);
+  for (const branch of branches) {
+    await runGit(['check-ref-format', '--branch', branch], { cwd: repoDir, timeoutMs: 5_000 });
+  }
+}
 
 /** 检测仓库默认分支名（不猜 main/master） */
 export function getDefaultBranch(cwd: string): string {
   try {
-    const remoteHead = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
+    const remoteHead = execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
       cwd, encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     return remoteHead.replace('refs/remotes/origin/', '');
   } catch { /* no remote HEAD */ }
   for (const branch of ['main', 'master']) {
     try {
-      execSync(`git rev-parse --verify ${branch}`, {
+      execFileSync('git', ['rev-parse', '--verify', '--end-of-options', `refs/heads/${branch}`], {
         cwd, timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
       });
       return branch;
@@ -49,13 +92,12 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
   if (!fsSync.existsSync(path.join(repoDir, '.git'))) {
     throw new Error(`repoDir is not a git repository: ${repoDir}`);
   }
+  const resolvedBranch = branchName ?? `task/${path.basename(worktree)}`;
+  await assertGitBranches(repoDir, [resolvedBranch, baseBranch]);
 
   // 清理已存在的目录
   try {
-    await execSh(`git worktree remove --force "${worktree}" 2>/dev/null || true`, {
-      cwd: repoDir,
-      timeoutMs: 10_000,
-    });
+    await runGit(['worktree', 'remove', '--force', '--', worktree], { cwd: repoDir, timeoutMs: 10_000 });
   } catch (e) {
     logger.warn('[WorktreeResolver] Failed to remove worktree, continuing', { error: String(e) });
   }
@@ -67,18 +109,14 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
   }
 
   // 创建 git worktree — 分支名必须包含完整 executionId，确保 findTaskBranch 能找到
-  const resolvedBranch = branchName ?? `task/${path.basename(worktree)}`;
   try {
-    await execSh(
-      `git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`,
-      { cwd: repoDir, timeoutMs: 30_000 },
-    );
+    await runGit(['worktree', 'add', '-b', resolvedBranch, '--', worktree, baseBranch], { cwd: repoDir, timeoutMs: 30_000 });
   } catch (e) {
-    if (e.message?.includes("already exists")) {
+    if (e instanceof Error && e.message.includes('already exists')) {
       try {
-        await execSh(`git branch -D "${resolvedBranch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
-        await execSh(`git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
-      } catch (e2) { throw new Error(`Worktree creation failed after cleanup: ${e2.message}`); }
+        await runGit(['branch', '-D', '--', resolvedBranch], { cwd: repoDir, timeoutMs: 5_000 });
+        await runGit(['worktree', 'add', '-b', resolvedBranch, '--', worktree, baseBranch], { cwd: repoDir, timeoutMs: 30_000 });
+      } catch (e2) { throw new Error(`Worktree creation failed after cleanup: ${getErrorMessage(e2)}`); }
     } else { throw e; }
   }
   logger.info('[WorktreeResolver] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });
@@ -462,13 +500,13 @@ export async function ensureWuWorktree(opts: {
 /** ensureWuWorktree 失败兜底：清掉半成品（best-effort，绝不再抛错掩盖原始错误） */
 async function cleanupFailedWuWorktree(worktreePath: string, branch: string, repoDir: string): Promise<void> {
   try {
-    await execSh(`git worktree remove --force "${worktreePath}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 10_000 });
+    await runGit(['worktree', 'remove', '--force', '--', worktreePath], { cwd: repoDir, timeoutMs: 10_000 });
   } catch { /* best-effort */ }
   try {
     await fs.rm(worktreePath, { recursive: true, force: true });
   } catch { /* best-effort */ }
   try {
-    await execSh(`git branch -D "${branch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
+    await runGit(['branch', '-D', '--', branch], { cwd: repoDir, timeoutMs: 5_000 });
   } catch { /* best-effort */ }
 }
 
@@ -482,19 +520,32 @@ export async function ensureBranchExists(opts: {
   baseBranch: string;
 }): Promise<void> {
   const { repoDir, branch, baseBranch } = opts;
+  await assertGitBranches(repoDir, [branch, baseBranch]);
   try {
-    await execSh(`git rev-parse --verify "${branch}"`, { cwd: repoDir, timeoutMs: 5_000 });
+    await runGit(['rev-parse', '--verify', '--end-of-options', `refs/heads/${branch}`], { cwd: repoDir, timeoutMs: 5_000 });
     return; // 已存在
-  } catch { /* 不存在 → 创建 */ }
-  await execSh(`git branch "${branch}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 10_000 });
+  } catch (error) {
+    if (!isUnknownRevisionError(error)) throw error;
+    // 仅明确 unknown revision 视为分支不存在；超时/权限/仓库损坏原样上抛。
+  }
+  await runGit(['branch', '--', branch, baseBranch], { cwd: repoDir, timeoutMs: 10_000 });
   logger.info('[WorktreeResolver] Branch created', { branch, baseBranch, repoDir });
 }
 
+/** capability/fd 路径会变化，仓库身份统一取真实 git common dir。 */
+async function resolveGitCommonDir(repoDir: string): Promise<string> {
+  const { stdout } = await runGit(
+    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    { cwd: repoDir, timeoutMs: 5_000 },
+  );
+  const commonDir = stdout.trim();
+  if (!commonDir) throw new Error(`无法解析 git common dir：${repoDir}`);
+  return commonDir;
+}
+
 /**
- * PMO-b（决策 3）：确保 PMO 集成交合 worktree 存在（<worktreesDir>/pmo-<projectId>）。
- * per-WU 临时分支在这里合入 PMO 分支——冲突集中在单一合并点，
- * 主仓库 checkout 不被打扰（merge 不落在 baseRepo 当前分支上）。
- * 分支不存在先从 baseBranch 创建；worktree 复用按 .git 存在性判断。
+ * PMO-b（决策 3）：集成交合按 project + repo common-dir + leg branch 键控。
+ * 复用前同时核验真实仓库与 checkout 分支；身份不明或不符均 fail-closed，不自动删旧现场。
  */
 export async function ensurePmoIntegrationWorktree(opts: {
   repoDir: string;
@@ -505,12 +556,22 @@ export async function ensurePmoIntegrationWorktree(opts: {
 }): Promise<{ worktreePath: string }> {
   const { repoDir, worktreesDir, projectId, branch, baseBranch } = opts;
   await ensureBranchExists({ repoDir, branch, baseBranch });
-  const worktreePath = path.join(worktreesDir, `pmo-${projectId}`);
+  const commonDir = await resolveGitCommonDir(repoDir);
+  const repoKey = crypto.createHash('sha256').update(commonDir).digest('hex').slice(0, 12);
+  const branchKey = crypto.createHash('sha256').update(branch).digest('hex').slice(0, 12);
+  const worktreePath = path.join(worktreesDir, `pmo-${projectId}-${repoKey}-${branchKey}`);
   if (fsSync.existsSync(path.join(worktreePath, '.git'))) {
-    logger.info('[WorktreeResolver] Reusing PMO integration worktree', { worktreePath, projectId });
+    const [existingCommonDir, existingBranch] = await Promise.all([
+      resolveGitCommonDir(worktreePath),
+      runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: worktreePath, timeoutMs: 5_000 }),
+    ]);
+    if (existingCommonDir !== commonDir || existingBranch.stdout.trim() !== branch) {
+      throw new Error(`PMO 集成交合身份不匹配：${worktreePath}（要求 ${commonDir} / ${branch}）`);
+    }
+    logger.info('[WorktreeResolver] Reusing PMO integration worktree', { worktreePath, projectId, commonDir, branch });
     return { worktreePath };
   }
-  await execSh(`git worktree add "${worktreePath}" "${branch}"`, { cwd: repoDir, timeoutMs: 30_000 });
-  logger.info('[WorktreeResolver] PMO integration worktree created', { worktreePath, branch, projectId });
+  await runGit(['worktree', 'add', '--', worktreePath, branch], { cwd: repoDir, timeoutMs: 30_000 });
+  logger.info('[WorktreeResolver] PMO integration worktree created', { worktreePath, branch, projectId, commonDir });
   return { worktreePath };
 }

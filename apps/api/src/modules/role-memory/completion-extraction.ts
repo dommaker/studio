@@ -1,31 +1,33 @@
 /**
  * completion-extraction (#99) — WU 收尾批量提取钩子
  *
- * 挂在 WU 状态机收尾钩子（workunit.status_changed → done）上：一次 LLM 调用读完整
- * transcript（归档器 readTranscript 输出，非逐步埋点），把执行知识/教训产出为角色
- * 记忆草稿区条目（roleMemoryStore.appendDraft）。可审计（knowledge:extraction 事件）、
- * 可熔断（daily-token-budget 守卫）。失败绝不阻塞 WU 收尾（fire-and-forget + catch 记日志）。
+ * 挂在 WU 状态机收尾钩子（workunit.status_changed → done）上：经 role-memory 独立
+ * watermark 读取 committed transcript，一次 LLM 调用把执行知识/教训产出为角色记忆草稿。
+ * 可审计（knowledge:extraction 事件）、可熔断（daily-token-budget 守卫）。失败绝不阻塞
+ * WU 收尾，也不推进水位；memoryExtractedAt 只在成功后落档，启动时恢复未完成消费。
  *
- * 与旧 R3 会话提取（agent-loop COMPLETE 步 → KnowledgeService.extractFromConversation，
- * proposal 入库 KnowledgeStore）并行独立：#99 只加新钩子，不动旧路径；旧路径及其触发器
- * 删除归 #102。去重哨兵用 metadata.memoryExtractedAt（区别于旧路径 knowledgeExtractedAt）。
+ * 与 R3 会话提取（agent-loop COMPLETE → knowledge-extraction Effect → committed transcript
+ * → KnowledgeService.extractFromConversation）并行独立。#716 后两条链都从持久状态恢复；
+ * 本链去重哨兵用 metadata.memoryExtractedAt，区别于 legacy knowledgeExtractedAt。
  *
- * 事件订阅语义与 ReviewDispatcher / AnalysisHandoff 一致（eventBus 进程内，best-effort）。
+ * 事件订阅只负责即时唤醒；持久 watermark + 启动续扫负责进程重启后的恢复。
  */
 
-import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { eventBus, FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getErrorMessage } from '../../utils/errors.js';
 import { WorkUnitService, type WorkUnitData } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
-import { readTranscript, type TranscriptEntry } from '../transcripts/index.js';
+import { consumeTranscript, reconcileTranscriptAssignments, type TranscriptEntry } from '../transcripts/index.js';
 import { roleMemoryStore } from './role-memory.js';
-import type { AppendDraftInput, MemoryDraftEntry } from './role-memory.js';
+import type { AppendDraftInput, LearningMetadata, MemoryDraftEntry } from './role-memory.js';
 import { registerMemoryReviewAdapter, submitMemoryProposal } from './review-adapter.js';
+import { roleMemoryMaintenance } from './maintenance.js';
 // P2-c 拆环：agents 引用（getSystemExecutor/StudioRoleNotConfiguredError/token 预算三件套）
 // 全部转函数内动态 import，role-memory→agents 静态边清零。
 import { getStore } from '../../core/store.js';
-
+import { CODE_WORKTREE_TYPES } from '../../core/wu-verification.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /**
  * 角色记忆提取 prompt（单一来源，适配 appendDraft 产出）：只收 execution-knowledge /
@@ -44,7 +46,7 @@ export const MEMORY_EXTRACTION_SYSTEM_PROMPT = `你是角色记忆提取专家�
 - "manual"：规律 / 教训 / 偏好（需人工把关），走人审卡片。
 
 输出 JSON（不要 markdown 包裹）：
-{ "entries": [ { "kind": "execution-knowledge" | "preference", "title": "一句话概括", "content": "正文（execution-knowledge 写根因+责任+预防；preference 写约定原文）", "topicSlug": "可选，英文短横线 slug，缺省由 title 推导", "review": "\"auto\" | \"manual\"（缺省 manual）" } ] }
+{ "entries": [ { "kind": "execution-knowledge" | "preference", "title": "一句话概括", "content": "正文（execution-knowledge 写根因+责任+预防；preference 写约定原文）", "topicSlug": "可选，英文短横线 slug，缺省由 title 推导", "review": '"auto" | "manual"（缺省 manual）' } ] }
 
 只提取有复用价值、值得沉淀的；没有则返回空数组；最多 5 条。`;
 
@@ -96,6 +98,42 @@ export function normalizeDraftInput(raw: {
   };
 }
 
+export type CompletionLearningSnapshot = Pick<WorkUnitSnapshot, 'id' | 'type' | 'projectPath' | 'metadata'>
+  & Partial<Pick<WorkUnitSnapshot, 'currentAssignmentId' | 'assignments' | 'stepRecords'>>;
+
+/** 从 WU 完成后的持久快照推导角色记忆来源；缺失的执行事实保持 unknown/缺省。 */
+export function buildCompletionLearningMetadata(
+  snapshot: CompletionLearningSnapshot,
+  roleId: string,
+): LearningMetadata {
+  const metadata = parseWuMetadata(snapshot.metadata);
+  const assignments = snapshot.assignments ?? [];
+  const assignment = assignments.find(item => item.id === snapshot.currentAssignmentId) ?? assignments[assignments.length - 1];
+  const stepRecord = assignment
+    ? [...(snapshot.stepRecords ?? [])].reverse().find(item => item.assignmentId === assignment.id)
+    : undefined;
+  const repo = metadata.worktreeBaseRepo ?? metadata.workspaceRoot ?? snapshot.projectPath ?? undefined;
+  return {
+    scope: repo ? { kind: 'repo', id: repo }
+      : metadata.pmoId ? { kind: 'project', id: metadata.pmoId }
+        : { kind: 'role', id: roleId },
+    workUnitId: snapshot.id,
+    assignmentId: assignment?.id,
+    stepRecordId: stepRecord?.id,
+    repo,
+    commit: metadata.mergeCommit ?? metadata.lastCommitHash,
+    transcriptRefs: stepRecord?.transcriptRefs ?? [],
+    evidenceRefs: stepRecord?.artifacts ?? [],
+    extractionVersion: 'memory-1',
+    revision: 1,
+    outcome: {
+      execution: 'succeeded',
+      verification: stepRecord?.verification?.status ?? (stepRecord ? 'not-run' : 'unknown'),
+      delivery: CODE_WORKTREE_TYPES.has(snapshot.type) ? 'unmerged' : 'not-required',
+    },
+  };
+}
+
 export class WuCompletionExtractor {
   private subscribed = false;
 
@@ -111,9 +149,9 @@ export class WuCompletionExtractor {
     if (this.subscribed) return;
     this.subscribed = true;
 
-    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
+    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData; previousStatus?: string }) => {
       const wu = payload.workunit;
-      if (!wu || wu.status !== 'done') return;
+      if (!wu || wu.status !== 'done' || payload.previousStatus === 'done') return;
       // fire-and-forget：LLM 提取（30s 级）绝不能在事件循环里 await 阻断收尾订阅链
       void this.maybeExtract(wu).catch(err =>
         logger.warn('[WuCompletionExtractor] maybeExtract failed (non-blocking)', { wuId: wu.id, error: String(err) }),
@@ -122,17 +160,15 @@ export class WuCompletionExtractor {
   }
 
   /**
-   * 收尾提取入口（供事件订阅与测试直接调用）：守卫（去重哨兵 / roleId / 预算熔断）→
-   * 落哨兵 → 提取 + 写草稿 + 审计事件。永不抛：所有失败在内部 catch 记日志 + 落事件。
+   * 收尾提取入口：只有 committed 内容处理成功后才落去重哨兵并推进 consumer 水位。
+   * 写入中、LLM/存储失败均保持可重试，永不抛给收尾主流程。
    */
   async maybeExtract(wu: WorkUnitData): Promise<void> {
-    // 事件载荷可能是旧快照（重发/乱序）——幂等判定必须以库存最新状态为准（同 analysis-handoff）
     const fresh = await this.workUnitService.getById(wu.id);
     if (!fresh) return;
     const meta = parseWuMetadata(fresh.metadata);
-    if (meta.memoryExtractedAt) return; // 已提取（去重哨兵）
+    if (meta.memoryExtractedAt) return;
 
-    // 角色 id：assigneeId 双语义（profile id 直通 / instance id → state.roleId）
     const roleId = await this.resolveRoleId(fresh.assigneeId);
     if (!roleId) {
       logger.info('[WuCompletionExtractor] skip: no role id', { wuId: fresh.id });
@@ -140,24 +176,34 @@ export class WuCompletionExtractor {
       return;
     }
 
-    // 熔断：每日 token 预算超限 → 跳过提取（可观测，不阻塞收尾；不落哨兵，次日预算复位可重试）
     if (await this.isBudgetExhausted()) {
       logger.warn('[WuCompletionExtractor] skip: daily token budget exhausted', { wuId: fresh.id, roleId });
       await this.emitEvent({ outcome: 'skipped', reason: 'budget-exhausted', workUnitId: fresh.id, roleId });
       return;
     }
 
-    // 去重哨兵先落档（即便后续提取失败也不重复触发；与 analysis-handoff 哨兵同语义）。
-    // 写入前重读合并最新 metadata——本钩子与 map-opening/analysis-handoff/spec-materialization
-    // 同一 done 事件并发写同一 WU metadata，读-改-写互覆会丢其它订阅方的哨兵字段（#115 e2e 先例）。
+    const completed = await this.extractAndDraft(fresh, roleId);
+    if (!completed) return;
+    // 成功后再落哨兵；重读合并避免覆盖其他 done 订阅方并发写入的 metadata。
     const latest = await this.workUnitService.getById(fresh.id);
     const latestMeta = latest ? parseWuMetadata(latest.metadata) : meta;
-    if (latestMeta.memoryExtractedAt) return; // 重读后哨兵已落（并发/重发）
+    if (latestMeta.memoryExtractedAt) return;
     await this.workUnitService.update(fresh.id, {
       metadata: { ...latestMeta, memoryExtractedAt: new Date().toISOString() },
     });
+  }
 
-    await this.extractAndDraft(fresh, roleId);
+  /** 启动时恢复完成 WU 的未消费 watermark；单个失败不阻断其他任务。 */
+  async recoverPending(): Promise<void> {
+    const snapshots = await this.fileStore.listCurrentSnapshots();
+    for (const snapshot of snapshots.filter(item => item.status === 'done')) {
+      try {
+        const wu = await this.workUnitService.getById(snapshot.id);
+        if (wu) await this.maybeExtract(wu);
+      } catch (err) {
+        logger.warn('[WuCompletionExtractor] recovery failed (non-blocking)', { wuId: snapshot.id, error: String(err) });
+      }
+    }
   }
 
   /** assigneeId → profile id（roleId）：getProfile 命中即 profile id；否则 state.roleId（同 review-dispatcher 单 WU 口径） */
@@ -179,76 +225,78 @@ export class WuCompletionExtractor {
     return daily.usedTokens >= budget;
   }
 
-  /**
-   * 读完整 transcript → 一次 LLM 调用 → 解析条目 → appendDraft 写草稿 → 落审计事件。
-   * 失败 catch 记日志 + 落 failed 事件，绝不抛给收尾主流程。
-   */
-  private async extractAndDraft(wu: WorkUnitData, roleId: string): Promise<void> {
+  /** committed 新内容 → LLM/草稿/审计全部成功后才允许推进水位。 */
+  private async extractAndDraft(wu: WorkUnitData, roleId: string): Promise<boolean> {
     const startMs = Date.now();
-    // P2-c 拆环：role-memory→agents 静态边转函数内动态 import（置于 try 外，catch 的 instanceof 也要用）
+    // P2-c 拆环：role-memory→agents 静态边转函数内动态 import。
     const { getSystemExecutor, StudioRoleNotConfiguredError } = await import('../agents/index.js');
     try {
-      const transcript = buildTranscriptText(await readTranscript(wu.id));
-      if (!transcript) {
-        logger.info('[WuCompletionExtractor] skip: empty transcript', { wuId: wu.id, roleId });
-        await this.emitEvent({ outcome: 'skipped', reason: 'empty-transcript', workUnitId: wu.id, roleId, durationMs: Date.now() - startMs });
-        return;
-      }
+      const snapshot = (await this.fileStore.getIndex({ id: wu.id }))[0];
+      if (snapshot) await reconcileTranscriptAssignments(snapshot);
+      const learning = buildCompletionLearningMetadata(snapshot ?? wu, roleId);
+      const result = await consumeTranscript(wu.id, 'role-memory', async entries => {
+        const transcript = buildTranscriptText(entries);
+        if (!transcript) {
+          logger.info('[WuCompletionExtractor] skip: empty transcript', { wuId: wu.id, roleId });
+          await this.emitEvent({ outcome: 'skipped', reason: 'empty-transcript', workUnitId: wu.id, roleId, durationMs: Date.now() - startMs });
+          return;
+        }
 
-      const execResult = await getSystemExecutor().run(transcript, {
-        systemPrompt: MEMORY_EXTRACTION_SYSTEM_PROMPT,
-        eventSource: 'wu-completion-extraction',
+        const execResult = await getSystemExecutor().run(transcript, {
+          systemPrompt: MEMORY_EXTRACTION_SYSTEM_PROMPT,
+          eventSource: 'wu-completion-extraction',
+        });
+        const durationMs = Date.now() - startMs;
+        const promptTokens = execResult.usage?.inputTokens ?? 0;
+        const completionTokens = execResult.usage?.outputTokens ?? 0;
+        const totalTokens = promptTokens + completionTokens;
+
+        const parsed = JSON.parse(execResult.output) as {
+          entries?: Array<{ kind?: string; title?: string; content?: string; topicSlug?: string; review?: string }>;
+        };
+        const rawEntries = Array.isArray(parsed?.entries) ? parsed.entries.slice(0, MAX_ENTRIES) : [];
+
+        const auto: MemoryDraftEntry[] = [];
+        const manualInputs: AppendDraftInput[] = [];
+        for (const raw of rawEntries) {
+          const input = normalizeDraftInput(raw);
+          if (!input) continue;
+          const sourcedInput = { ...input, learning };
+          if (input.review === 'auto') auto.push(await roleMemoryStore.appendDraft(roleId, sourcedInput));
+          else manualInputs.push(sourcedInput);
+        }
+
+        if (auto.length > 0) {
+          const entryIds = auto.map(e => e.id);
+          await roleMemoryMaintenance.execute(roleId, { type: 'promote', entryIds }, `promote-${[...entryIds].sort().join(',')}`);
+        }
+        const manual = manualInputs.length > 0
+          ? await submitMemoryProposal(roleId, manualInputs, { workUnitId: wu.id, source: 'wu-completion' })
+          : [];
+        const entryCount = auto.length + manual.length;
+
+        logger.info('[WuCompletionExtractor] extraction completed', {
+          wuId: wu.id, roleId, entryCount, autoCount: auto.length, manualCount: manual.length, totalTokens, durationMs,
+        });
+        await this.emitEvent({
+          outcome: 'completed',
+          workUnitId: wu.id,
+          roleId,
+          entryCount,
+          autoCount: auto.length,
+          manualCount: manual.length,
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          durationMs,
+        });
       });
-      const durationMs = Date.now() - startMs;
-      const promptTokens = execResult.usage?.inputTokens ?? 0;
-      const completionTokens = execResult.usage?.outputTokens ?? 0;
-      const totalTokens = promptTokens + completionTokens;
-
-      const parsed = JSON.parse(execResult.output) as {
-        entries?: Array<{ kind?: string; title?: string; content?: string; topicSlug?: string; review?: string }>;
-      };
-      const rawEntries = Array.isArray(parsed?.entries) ? parsed.entries.slice(0, MAX_ENTRIES) : [];
-
-      // 两档路由（#101）：auto=操作型事实直接落草稿并 promote 进索引（不产卡）；
-      // manual=规律/教训/偏好经 review-proposal 正本发卡人审（#353：submitMemoryProposal
-      // 逐条落 draft.jsonl（条目行即提案行）+ 聚合一张 memory_proposal 卡；approve→promote / reject→demote）。
-      const auto: MemoryDraftEntry[] = [];
-      const manualInputs: AppendDraftInput[] = [];
-      for (const raw of rawEntries) {
-        const input = normalizeDraftInput(raw);
-        if (!input) continue;
-        if (input.review === 'auto') auto.push(await roleMemoryStore.appendDraft(roleId, input));
-        else manualInputs.push(input);
-      }
-
-      if (auto.length > 0) {
-        await roleMemoryStore.promote(roleId, auto.map(e => e.id));
-      }
-      const manual = manualInputs.length > 0
-        ? await submitMemoryProposal(roleId, manualInputs, { workUnitId: wu.id, source: 'wu-completion' })
-        : [];
-      const entryCount = auto.length + manual.length;
-
-      logger.info('[WuCompletionExtractor] extraction completed', {
-        wuId: wu.id, roleId, entryCount, autoCount: auto.length, manualCount: manual.length, totalTokens, durationMs,
-      });
-      await this.emitEvent({
-        outcome: 'completed',
-        workUnitId: wu.id,
-        roleId,
-        entryCount,
-        autoCount: auto.length,
-        manualCount: manual.length,
-        promptTokens,
-        completionTokens,
-        totalTokens,
-        durationMs,
-      });
+      return !result.hasWriting && (result.consumed > 0 || !result.hasUncommitted);
     } catch (err) {
       if (err instanceof StudioRoleNotConfiguredError) {
         logger.info('[WuCompletionExtractor] extraction skipped: studio role provider not configured', { wuId: wu.id, roleId });
         await this.emitEvent({ outcome: 'skipped', reason: 'studio-role-not-configured', workUnitId: wu.id, roleId, durationMs: Date.now() - startMs });
-        return;
+        return false;
       }
       logger.warn('[WuCompletionExtractor] extraction failed (non-blocking)', { wuId: wu.id, roleId, error: String(err) });
       await this.emitEvent({
@@ -258,6 +306,7 @@ export class WuCompletionExtractor {
         roleId,
         durationMs: Date.now() - startMs,
       });
+      return false;
     }
   }
 
@@ -285,6 +334,8 @@ export function initWuCompletionExtraction(fileStore?: FileStore): WuCompletionE
     _extractor = new WuCompletionExtractor(fs, new WorkUnitService(fs));
   }
   _extractor.subscribeToEvents();
+  void _extractor.recoverPending().catch(err =>
+    logger.warn('[WuCompletionExtractor] startup recovery failed (non-blocking)', { error: String(err) }));
   // #353：memory 人审提案 adapter 注册（review-proposal 正本通用端点 kind='memory' 分发前提）
   registerMemoryReviewAdapter({ fileStore });
   return _extractor;

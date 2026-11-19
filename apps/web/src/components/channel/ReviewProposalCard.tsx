@@ -1,6 +1,5 @@
 // ReviewProposalCard — #352 人审提案卡合一壳（ADR 2026-08-25 决策 5）
-// 5 张卡（distill/gc/memory/knowledge/auditor_suggestion，#356 并入）坍缩为本壳
-// + proposalCardConfigs 纯数据配置；
+// 8 张提案卡坍缩为本壳 + proposalCardConfigs 纯数据配置；
 // 生命周期单点化在 useProposalReview。卡间 diff 只剩条目清单与文案（配置 renderContent/labels）。
 // 视觉复用 mc-card 族，DOM class/文案/按钮行为逐字保持旧卡。
 import type { ChannelMessage } from '../../api/channel';
@@ -17,7 +16,7 @@ interface Props {
 
 export function ReviewProposalCard({ message, meta, onAction }: Props) {
   const config = PROPOSAL_CARD_CONFIGS[meta.cardType ?? ''];
-  // 渲染分发（ChannelMessageItem）已按 5 个 cardType 过滤，理论不可达；防御未知 cardType 不渲染
+  // 渲染分发（ChannelMessageItem）已按已注册 cardType 过滤；防御未知 cardType 不渲染
   if (!config) return null;
   return <ConfiguredProposalCard config={config} message={message} meta={meta} onAction={onAction} />;
 }

@@ -17,7 +17,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 import { parseWuMetadata } from '../../workunit/wu-metadata.js';
 
 const { mockRun } = vi.hoisted(() => ({ mockRun: vi.fn() }));
@@ -25,7 +26,7 @@ const { mockRun } = vi.hoisted(() => ({ mockRun: vi.fn() }));
 const { mockWriteStudioEvent } = vi.hoisted(() => ({ mockWriteStudioEvent: vi.fn() }));
 
 // studio-events 间谍包装：真实写盘保留（vitest 下 STUDIO_EVENTS_FILE 已隔离），另断言台账字段
-vi.mock('../../../utils/studio-events.js', async (importOriginal) => {
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as { writeStudioEvent: (t: string, p: unknown, o?: unknown) => Promise<boolean> };
   mockWriteStudioEvent.mockImplementation(orig.writeStudioEvent);
   return { ...orig, writeStudioEvent: mockWriteStudioEvent };
@@ -96,18 +97,19 @@ beforeEach(() => {
   testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-claim-fitness-'));
   fileStore = new FileStore(testDir);
   wuService = new WorkUnitService(fileStore);
-  agentLoop = new AgentLoop(mockRole, fileStore);
-  (agentLoop as unknown as { instance: unknown }).instance = {
-    id: SELF_INSTANCE_ID,
-    roleId: SELF_ROLE_ID,
-    sessionId: null,
-    status: 'idle',
-    currentWorkUnitId: null,
-    startedAt: new Date().toISOString(),
-    terminatedAt: null,
-    lastHeartbeat: null,
-    metadata: null,
-  };
+  agentLoop = new AgentLoop(mockRole, fileStore, {
+    instance: {
+      id: SELF_INSTANCE_ID,
+      roleId: SELF_ROLE_ID,
+      sessionId: null,
+      status: 'idle',
+      currentWorkUnitId: null,
+      startedAt: new Date().toISOString(),
+      terminatedAt: null,
+      lastHeartbeat: null,
+      metadata: null,
+    },
+  });
 });
 
 afterEach(() => {
@@ -115,11 +117,11 @@ afterEach(() => {
 });
 
 function observe() {
-  return (agentLoop as unknown as ObserveCapable).observe();
+  return agentLoop.observe();
 }
 
 function ensureClaimFit(wu: WorkUnitData) {
-  return (agentLoop as unknown as FitnessCapable).ensureClaimFit(wu);
+  return agentLoop.ensureClaimFit(wu);
 }
 
 async function createUnassignedWu(scope: string, metadata?: Record<string, unknown>, assigneeId: string | null = null) {
@@ -370,13 +372,11 @@ describe('ensureClaimFit（认领前闸门）', () => {
   it('落档失败（FileStore 故障）→ 从宽放行（宁可误抢，不每轮空烧判断）', async () => {
     mockRun.mockResolvedValue({ output: 'FIT: no: 做不了' });
     const wu = await createUnassignedWu('普通单');
-    const svc = (agentLoop as unknown as { workUnitService: WorkUnitService }).workUnitService;
-    const original = svc.update.bind(svc);
-    svc.update = vi.fn().mockRejectedValue(new Error('fs broken')) as never;
+    const updateSpy = vi.spyOn(WorkUnitService.prototype, 'update').mockRejectedValue(new Error('fs broken'));
     try {
       expect(await ensureClaimFit(wu)).toBe(true);
     } finally {
-      svc.update = original;
+      updateSpy.mockRestore();
     }
   });
 

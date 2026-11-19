@@ -1,6 +1,7 @@
 /**
- * action-center 域契约测试：StateItem parity + payload/响应壳边界。
- * 正本 = action-center.service.ts（ActionCenterPayload）+
+ * action-center 域契约测试：StateItem 词表/必填边界 + payload/响应壳。
+ * schema 即正本（类型 = z.infer 同源，编译期锚定）；服务端正本 =
+ * action-center.service.ts（ActionCenterPayload）+
  * NotificationService.getUserNotifications 返回行。
  */
 
@@ -46,9 +47,8 @@ describe('actionCenterStateItemSchema', () => {
     expect(() => actionCenterStateItemSchema.parse({ ...stateItemRow, kind: 'bogus' })).toThrow();
   });
 
-  it('parity：ActionCenterStateItem fixture 通过校验；必填字段删除即拒', () => {
-    expect(actionCenterStateItemSchema.parse(stateItemRow)).toEqual(stateItemRow);
-    // channelId null 合法（无频道 WU）；waitingQuestion/messageId 可缺省（fail-closed 语义）
+  // channelId null 合法（无频道 WU）；waitingQuestion/messageId 可缺省（fail-closed 语义）
+  it('channelId null 合法；wuId/since/channelId 必填', () => {
     expect(actionCenterStateItemSchema.parse({
       kind: 'confirm', wuId: 'wu-2', scope: 's', channelId: null, since: 't',
     }).channelId).toBeNull();

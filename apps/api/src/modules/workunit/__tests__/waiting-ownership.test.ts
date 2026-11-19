@@ -27,7 +27,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
 import { resumeWaitingWorkUnit } from '../waiting-input.js';
 import {
   matchProjectByReply,
@@ -157,6 +158,7 @@ describe('B3a: 回复解析绑定工程（唯一命中）', () => {
     expect(after.assigneeId).toBe(MENTIONED_PROFILE_ID);
     const meta = metaOf(after);
     expect(meta.waitingForInput).toBe(false);
+    expect(meta.waitingReason).toBeUndefined();
     expect(meta.workspaceRoot).toBe(repoDir);
     expect(meta.ownershipSource).toBe('human-reply');
     expect(meta.pendingReplies).toEqual(['alpha']);

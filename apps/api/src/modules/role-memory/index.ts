@@ -5,6 +5,8 @@
  * 公共面 = 生成时实际被模块外消费的符号；新增跨模块消费时在此补导出。
  */
 export { initWuCompletionExtraction } from './completion-extraction.js';
-export { registerMemoryReviewAdapter, submitMemoryProposal } from './review-adapter.js';
+export { registerMemoryReviewAdapter, submitMemoryProposal, repostMemoryProposal } from './review-adapter.js';
 export { roleMemoryStore } from './role-memory.js';
+export { roleMemoryMaintenance } from './maintenance.js';
+export { initRoleMemoryUsageScan } from './usage-scan.js';
 export type { MemoryKind } from './role-memory.js';

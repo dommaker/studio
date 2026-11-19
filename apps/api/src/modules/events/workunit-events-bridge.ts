@@ -8,8 +8,13 @@
  * 信封形状与 channel-message.service.ts 的 publishSSE 一致。
  */
 
-import { eventBus, logger } from '@dommaker/studio-shared';
+import { eventBus } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
+// #665（ADR 2026-08-24 落地）：转发词表 = studio-contract SSE 事件词表的子集；
+// 负载形状（{ workunit } / { id, channelId } / { requirement }）契约同源，
+// wire parity 见 ./__tests__/sse-payload-contract.test.ts。
+import type { SseEventType } from '@dommaker/studio-contract';
+import { logger } from '@dommaker/studio-shared/node';
 
 const FORWARDED_EVENTS = [
   'workunit.created', 'workunit.status_changed',
@@ -17,7 +22,7 @@ const FORWARDED_EVENTS = [
   'workunit:removed',
   // SSE 负载加深（2026-08-24 计划）：REQ chips 改 SSE 驱动，负载 = { requirement }（含 id/title/status/channelId）
   'requirement.created', 'requirement.updated',
-] as const;
+] as const satisfies readonly SseEventType[];
 
 let started = false;
 

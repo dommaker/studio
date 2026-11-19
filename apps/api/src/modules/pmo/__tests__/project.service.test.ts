@@ -33,13 +33,24 @@ const {
 }));
 
 // ── Mock FileStore ──
-vi.mock('@dommaker/studio-shared', () => ({ createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), stripTrailingSlashes: (s) => s,
-  // P2-b：studio-notification 模块级单例经持有器取 store，wholesale mock 需补此出口
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
+
+vi.mock('@dommaker/studio-shared', async importOriginal => ({
+  ...await importOriginal<typeof import('@dommaker/studio-shared')>(),
+  createSettledTracker: () => ({ track: () => {}, waitForSettled: async () => {} }), stripTrailingSlashes: (s) => s,
+  // wholesale mock 补出口：历史消费链（原 studio-notification 包单例）需要，#684 下沉后保留以防链上其余模块触碰
   getDefaultFileStore: () => ({}),
+  // #682：notifications barrel 并入 discord-notifier（模块级单例构造走 logger），链上加载需要
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   FileStore: vi.fn().mockImplementation(function () { return {
     readJson: mockReadJson,
+    readJsonUncached: mockReadJson,
     writeJson: mockWriteJson,
     readJsonl: mockReadJsonl,
+    withLock: async (_lockDir: string, fn: () => Promise<unknown>) => fn(),
     // P2-e：project.service 目录清单收口 listJsonInDir——mock 以 mockReadDir/mockReadJson
     // 复刻 seam 语义（.json 过滤 + 逐文件读 + ENOENT/损坏跳过），既有 per-test 控制面不变
     listJsonInDir: async (dir: string) => {
@@ -64,13 +75,14 @@ vi.mock('@dommaker/studio-shared', () => ({ createSettledTracker: () => ({ track
 
 // ── Mock channel/log/fs ──
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: {
+  getChannelMessageService: () => ({
     createHumanMessage: (...args: unknown[]) => mockCreateHumanMessage(...args),
     updateMessageMeta: (...args: unknown[]) => mockUpdateMessageMeta(...args),
-  },
+    linkWorkUnit: vi.fn().mockResolvedValue({ id: 'msg-1', workUnitId: 'wu-1', meta: { pmoId: 'proj-1' } }),
+  }),
 }));
 
-vi.mock('../../workunit/workunit.service.js', () => ({
+vi.mock('../../workunit/workunit-review.js', () => ({
   WorkUnitService: vi.fn().mockImplementation(function () { return {
     create: (...args: unknown[]) => mockWuCreate(...args),
   }; }),
@@ -249,6 +261,24 @@ describe('ProjectService — FileStore 迁移', () => {
       // 兼容字段：gitRepo 取首工程（归属链 workspaceRoot 等单仓库消费方不受影响）
       expect(result.gitRepo).toBe('/repos/app');
       expect(result.gitBranch).toBe('PMO-1');
+      expect(result.overallReviewRequired).toBe(true);
+    });
+
+    it('#720：新多腿默认整体评审，单腿与显式关闭保持旧策略', async () => {
+      mockReadDir.mockResolvedValue([]);
+      mockReadJson.mockResolvedValue(null);
+
+      const single = await projectService.create({ title: '单腿', gitRepos: ['/repos/app'] });
+      const disabled = await projectService.create({
+        title: '多腿关闭', gitRepos: ['/repos/app', '/repos/lib'], overallReviewRequired: false,
+      });
+      const enabled = await projectService.create({
+        title: '单腿开启', gitRepo: '/repos/app', overallReviewRequired: true,
+      });
+
+      expect(single.overallReviewRequired).toBe(false);
+      expect(disabled.overallReviewRequired).toBe(false);
+      expect(enabled.overallReviewRequired).toBe(true);
     });
 
     it('#114：gitRepos 单工程 → 同样落一条显式腿；显式 gitBranch 覆盖全腿分支名', async () => {

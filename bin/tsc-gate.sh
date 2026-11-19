@@ -1,39 +1,29 @@
 #!/bin/bash
-# tsc-gate — baseline-aware TypeScript type check
+# tsc-gate — TypeScript 类型门禁
 # ================================================
 #
-# Compares current tsc output against .tsc-baseline.json.
-# Blocks commit if NEW errors appear in staged files' packages.
-# Pre-existing (baselined) errors pass through.
+# 对受影响包跑 tsc，任一错误即拦截 commit。
+# （2026-10 #694：baseline 比对/自动更新机制删除——baseline 恒 0 空转，
+#   本门禁自始等价于逐包跑 tsc。）
 #
-# Usage: bin/tsc-gate.sh [--all] [--update-baseline]
+# Usage: bin/tsc-gate.sh [--all]
 #   --all              Check all packages (not just staged)
-#   --update-baseline  Rebuild .tsc-baseline.json (after fixing errors)
 #
 # Set TSC_GATE_OFF=1 to skip (emergency only).
 #
 # 入口分工（#643 核查后保留）：本脚本是 .git/hooks/pre-commit 与人工命令行的
 # tsc-gate 入口——提供 .js 没有的能力：staged 文件 → packages 范围映射、--all、
-# TSC_GATE_OFF 逃生门、--update-baseline 透传。核心比对逻辑在 bin/tsc-gate.js；
-# pnpm typecheck 绕过本脚本直接调 .js（显式 --packages，全量四包）。
+# TSC_GATE_OFF 逃生门。核心检查逻辑在 bin/tsc-gate.js；pnpm typecheck 绕过本
+# 脚本直接调 .js（不带 --packages 即默认全量包）。
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BASELINE_FILE="$REPO_ROOT/.tsc-baseline.json"
 CHECK_ALL=false
-UPDATE_BASELINE=false
 
 for arg in "$@"; do
   case "$arg" in
     --all) CHECK_ALL=true ;;
-    --update-baseline) UPDATE_BASELINE=true ;;
   esac
 done
-
-if $UPDATE_BASELINE; then
-  echo "🔄 Rebuilding .tsc-baseline.json..."
-  node "$REPO_ROOT/bin/tsc-gate.js" --update-baseline --baseline "$BASELINE_FILE"
-  exit $?
-fi
 
 if [ "${TSC_GATE_OFF:-}" = "1" ]; then
   echo "⚠️  TSC_GATE_OFF=1 — skipping type check"
@@ -42,7 +32,7 @@ fi
 
 # Determine affected packages
 if $CHECK_ALL; then
-  PKGS="apps/api,apps/web,packages/studio-shared,packages/studio-agent,packages/studio-skill,packages/studio-spec,packages/studio-audit,packages/studio-notification"
+  PKGS=""  # 空 = bin/tsc-gate.js 默认全量包
 else
   STAGED=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)
   if [ -z "$STAGED" ]; then
@@ -64,12 +54,12 @@ else
   fi
 fi
 
-echo "🔍 tsc-gate: checking packages: $PKGS"
+echo "🔍 tsc-gate: checking packages: ${PKGS:-<all>}"
 if ! $CHECK_ALL; then
   # 范围按暂存文件定，判定却跑在整包活工作区上——同一台机器有并行会话时，别人半写
   # （函数体先落盘、import 行晚到）的文件会让本门禁拦下与你这次提交无关的 commit。
   echo "   注：查的是这些包的**活工作区**，不限于已暂存内容。报错文件若不在你这次的改动里，"
   echo "       先确认它是否属于别人的在写改动（重跑通常即绿），再决定要不要由你修。"
 fi
-node "$REPO_ROOT/bin/tsc-gate.js" --check --baseline "$BASELINE_FILE" --packages "$PKGS"
+node "$REPO_ROOT/bin/tsc-gate.js" --check --packages "$PKGS"
 exit $?

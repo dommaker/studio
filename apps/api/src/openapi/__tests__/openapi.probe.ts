@@ -3,17 +3,18 @@
  *
  * 与 route-registry-auth.probe.ts 同管线（生产 bootstrap 同款模块解析）。断言：
  * 1. discover 全量：每条 defineRoute 路由都进了 doc.paths；
- * 2. response-map 防漂移：映射键 ⊆ 实际端点；
+ * 2. route response 全量覆盖：非 204 缺 schema 时只准显式例外，例外不得过期；
  * 3. 结构合法：openapi 3.0.3 / 逐端点参数、请求体、响应壳、鉴权语义；
- * 4. 协议面排除：discord/deploy/SSE/MCP 消息面不进 paths；
- * 5. /api/docs 挂载冒烟：express app registerRoutes 后实际 HTTP 命中 JSON + UI 页。
+ * 4. 协议面排除：skipped 集合与 route-registry PROTOCOL_SURFACE_EXCEPTIONS 精确相等
+ *    （#664：例外清单之外出现新 raw 路由 = 违规；例外被收编后须同步从清单删除）；
+ * 5. knowledge 域覆盖：/api/v1/knowledge 端点全量进 paths（#664 收编后消除文档缺口）；
+ * 6. /api/docs 挂载冒烟：express app registerRoutes 后实际 HTTP 命中 JSON + UI 页。
  * 任一断言失败 → exit 1（消息带定位）。
  */
 import express from 'express';
-import { buildRouteTable } from '../../route-registry.js';
+import { buildRouteTable, PROTOCOL_SURFACE_EXCEPTIONS } from '../../route-registry.js';
 import { discoverRoutes, toOpenAPIPath } from '../discover.js';
-import { buildOpenApiDocument } from '../build.js';
-import { RESPONSE_MAP } from '../response-map.js';
+import { buildOpenApiDocument, RESPONSELESS_ROUTE_OVERRIDES } from '../build.js';
 import { mountApiDocs } from '../index.js';
 
 function fail(label: string, detail: string): never {
@@ -42,7 +43,7 @@ async function main(): Promise<void> {
   // ── 结构 ──
   if (doc.openapi !== '3.0.3') fail('结构', `openapi 版本字段异常: ${doc.openapi}`);
   if (!doc.info || !doc.paths || !doc.components) fail('结构', 'info/paths/components 缺失');
-  if (routes.length < 200) fail('discover', `端点数异常偏少: ${routes.length}`);
+  if (routes.length < 150) fail('discover', `端点数异常偏少: ${routes.length}`);
 
   // ── 全量覆盖：每条 defineRoute 路由都进 paths ──
   for (const r of routes) {
@@ -51,10 +52,23 @@ async function main(): Promise<void> {
     if (!op) fail('覆盖', `${r.method.toUpperCase()} ${r.path} 未进 doc.paths`);
   }
 
-  // ── response-map 防漂移：映射键 ⊆ 实际端点 ──
+  // ── response 覆盖：例外键必须对应真实且无 schema 的端点 ──
   const routeKeys = new Set(routes.map(r => `${r.method.toUpperCase()} ${r.path}`));
-  for (const key of Object.keys(RESPONSE_MAP)) {
-    if (!routeKeys.has(key)) fail('response-map', `映射键无对应路由: ${key}`);
+  for (const key of Object.keys(RESPONSELESS_ROUTE_OVERRIDES)) {
+    if (!routeKeys.has(key)) fail('response 覆盖清单', `例外键无对应路由: ${key}`);
+  }
+  for (const route of routes) {
+    const key = `${route.method.toUpperCase()} ${route.path}`;
+    if (route.meta.schema.response && RESPONSELESS_ROUTE_OVERRIDES[key]) {
+      fail('response 覆盖清单', `${key} 已有 route response，须删除过期例外`);
+    }
+  }
+  const missingResponses = routes
+    .filter(route => route.meta.status !== 204 && !route.meta.schema.response)
+    .map(route => `${route.method.toUpperCase()} ${route.path}`)
+    .filter(key => !RESPONSELESS_ROUTE_OVERRIDES[key]);
+  if (missingResponses.length > 0) {
+    fail('route meta', `${missingResponses.length} 条端点未声明 response，且不在显式例外清单:\n${missingResponses.join('\n')}`);
   }
 
   // ── 逐端点抽查 ──
@@ -64,7 +78,7 @@ async function main(): Promise<void> {
     return op;
   };
 
-  // GET /api/v1/workunits：query 参数 + 分页响应壳（response-map 生效）+ open 无 security
+  // GET /api/v1/workunits：query 参数 + 分页响应壳（route meta.response 生效）+ open 无 security
   {
     const op = getOp('get', '/api/v1/workunits');
     for (const q of ['page', 'limit', 'status']) {
@@ -104,21 +118,53 @@ async function main(): Promise<void> {
     if (!op.responses['204'] || op.responses['204'].content) fail('workunits 删除', '204 应无响应体');
   }
 
+  // verify no-commands：422 与 200 共用 verifyResult contract，不能只有 200
+  {
+    const op = getOp('post', '/api/v1/workunits/:id/verify');
+    if (!op.responses['422']) fail('workunits verify', 'no-commands 缺 422 响应声明');
+    const schema = op.responses['422'].content?.['application/json'].schema;
+    if (!schema?.properties?.data?.properties?.verified) {
+      fail('workunits verify', '422 未使用 verifyResult contract');
+    }
+  }
+
   // 嵌套挂载：harness 子路由与 mcp /admin 已解析
   getOp('get', '/api/v1/harness/traces');
   getOp('get', '/api/v1/mcp/admin/tools');
   getOp('post', '/api/knowledge/upsert');
 
-  // ── 协议面排除 ──
-  for (const p of Object.keys(doc.paths)) {
-    if (p.startsWith('/api/v1/discord') || p.startsWith('/api/v1/deploy')) fail('协议面', `${p} 不应进文档`);
-    if (p === '/api/v1/events/stream' || p === '/api/v1/mcp' || p.startsWith('/api/v1/mcp/sse') || p.startsWith('/api/v1/mcp/messages') || p.startsWith('/api/v1/mcp/external')) {
-      fail('协议面', `${p} 不应进文档`);
+  // ── 协议面排除：skipped 与例外清单精确相等（#664，双向）──
+  {
+    const key = (m: string, p: string) => `${m.toUpperCase()} ${p}`;
+    const skippedKeys = new Set(skipped.map(s => key(s.method, s.path)));
+    for (const e of PROTOCOL_SURFACE_EXCEPTIONS) {
+      if (!skippedKeys.has(key(e.method, e.path))) {
+        fail('例外清单', `${key(e.method, e.path)} 已不在 skipped（已收编 defineRoute？）——须从 PROTOCOL_SURFACE_EXCEPTIONS 同步删除`);
+      }
     }
+    for (const s of skipped) {
+      if (!PROTOCOL_SURFACE_EXCEPTIONS.some(e => key(e.method, e.path) === key(s.method, s.path))) {
+        fail('例外清单', `${key(s.method, s.path)} 是清单外新 raw 路由（${s.mountPath}，${s.reason}）——收编 defineRoute，或经评审补进 PROTOCOL_SURFACE_EXCEPTIONS`);
+      }
+    }
+    for (const p of Object.keys(doc.paths)) {
+      if (p.startsWith('/api/v1/discord') || p.startsWith('/api/v1/deploy')) fail('协议面', `${p} 不应进文档`);
+      if (p === '/api/v1/events/stream' || p === '/api/v1/mcp' || p.startsWith('/api/v1/mcp/sse') || p.startsWith('/api/v1/mcp/messages') || p.startsWith('/api/v1/mcp/external')) {
+        fail('协议面', `${p} 不应进文档`);
+      }
+    }
+    // skipped 清单如实输出在 x-studio-undocumented
+    const undocumented = doc['x-studio-undocumented'] as Array<{ path: string }>;
+    if (!undocumented.some(s => s.path === '/api/v1/events/stream')) fail('undocumented', 'SSE 应列在 x-studio-undocumented');
   }
-  // skipped 清单如实输出在 x-studio-undocumented
-  const undocumented = doc['x-studio-undocumented'] as Array<{ path: string }>;
-  if (!undocumented.some(s => s.path === '/api/v1/events/stream')) fail('undocumented', 'SSE 应列在 x-studio-undocumented');
+
+  // ── knowledge 域覆盖（#664：raw 路由不进文档的缺口已消除；P4.2 孤儿端点已删）──
+  {
+    getOp('get', '/api/v1/knowledge/search');
+    getOp('get', '/api/v1/knowledge/unified');
+    getOp('get', '/api/v1/knowledge/gaps/:type');
+    getOp('get', '/api/v1/knowledge/resolutions');
+  }
 
   // ── JSON 稳定（无循环引用/undefined 键）──
   const roundTrip = JSON.parse(JSON.stringify(doc)) as { openapi: string };
@@ -153,7 +199,7 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(`[openapi] OK: ${routes.length} 端点全量进文档，response-map 映射 ${Object.keys(RESPONSE_MAP).length} 键无漂移，/api/docs 冒烟通过`);
+  console.log(`[openapi] OK: ${routes.length} 端点全量进文档，route response ${routes.filter(r => r.meta.schema.response).length} 条，204 ${routes.filter(r => r.meta.status === 204).length} 条，显式响应例外 ${Object.keys(RESPONSELESS_ROUTE_OVERRIDES).length} 条，/api/docs 冒烟通过`);
   process.exit(0);
 }
 

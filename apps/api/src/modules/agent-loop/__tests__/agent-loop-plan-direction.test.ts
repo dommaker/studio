@@ -9,7 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 vi.mock('@dommaker/studio-agent', () => ({
   agentRunner: { executeLightweight: vi.fn() },
@@ -191,7 +192,7 @@ describe('#567 loop：方向锁定挂起与接力卡', () => {
   it('need_input + directions → planDirections/waitingReason 落档 + 里程碑带 plan_direction 卡', async () => {
     const wu = await setupPlanWu();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'need_input', summary: '方向锁定——请选定本票方向', directions: DIRECTION_PAYLOAD },
     );
@@ -214,7 +215,7 @@ describe('#567 loop：方向锁定挂起与接力卡', () => {
     const wu = await setupPlanWu();
     const rulings = [{ question: '存储选型？', suggestion: 'SQLite' }];
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'need_input', summary: '方向锁定', directions: DIRECTION_PAYLOAD, rulings },
     );
@@ -232,7 +233,7 @@ describe('#567 loop：方向锁定挂起与接力卡', () => {
   it('回归：无 directions 的 need_input 不落 planDirections/waitingReason、不带卡', async () => {
     const wu = await setupPlanWu();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'need_input', summary: '澄清：目标是内部工具还是对外产品？' },
     );

@@ -7,9 +7,11 @@ import { appendFileSync, existsSync, mkdirSync } from 'fs';
 import { extractToolCalls, extractProviderUsage, eventBus, FileStore, type StreamEvent } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import type { ExecutionResult } from '@dommaker/studio-agent';
+// #665（ADR 2026-08-24 落地）：workunit.tokens SSE 负载与 studio-contract 同源
+import type { WorkunitTokenEvent } from '@dommaker/studio-contract';
 import { noteTokensWritten } from './daily-token-budget.js';
-import { noteTokenLedgerWritten } from '../../utils/token-ledger.js';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { noteTokenLedgerWritten } from '../workunit/index.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
 
 
@@ -23,6 +25,7 @@ export interface WorkunitTokenEventArgs {
   workUnitId: string;
   /** 来源频道（wu.channelId 透传到 SSE 信封；null/缺省 → 信封无该键，不落 jsonl） */
   channelId?: string | null;
+  assignmentId?: string;
   executionId?: string;
   /** 注入上下文估算 tokens（调用方按 estimateTokens 口径估算） */
   injectedTokens: number;
@@ -120,8 +123,9 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
   const billedTokens = typeof args.billedTokens === 'number' && Number.isFinite(args.billedTokens)
     ? args.billedTokens
     : null;
-  const payload = {
+  const payload: WorkunitTokenEvent = {
     workUnitId: args.workUnitId,
+    assignmentId: args.assignmentId,
     executionId: args.executionId,
     injectedTokens: args.injectedTokens,
     injectedSource: 'estimate:token-estimator',
@@ -139,12 +143,13 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
     ...(args.triggerId ? { triggerId: args.triggerId } : {}),
     ...(args.provider ? { provider: args.provider } : {}),
   };
-  await metricsFileStore.appendJsonl(eventsFile, {
+  const event = {
     type: 'workunit:tokens',
     source: 'agent-loop',
     payload: JSON.stringify(payload),
     createdAt: new Date().toISOString(),
-  });
+  };
+  await metricsFileStore.appendJsonl(eventsFile, event);
   // SSE 负载加深：落盘成功后顺带实时推送（信封形态同 execution-step-events 的 eventBus.publish）。
   // best-effort：eventBus.publish 为同步 emit（订阅侧异常会向上抛），try/catch 保住记账主流程。
   try {
@@ -161,15 +166,15 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
   // C3: 进程内当日预算计数器累加（口径与熔断扫描一致 = billed ?? total），
   // 仅在落盘成功后计；未 bootstrap/跨天由 daily-token-budget 自重扫收敛。
   noteTokensWritten(eventsFile, billedTokens ?? (args.injectedTokens + (executionTokens ?? 0)));
-  // #320: token 账本写侧记账（失败隔离，内部 catch；账本落后由读方 watermark 补扫自愈）
-  await noteTokenLedgerWritten(eventsFile);
+  // #320/PERF-01: 传入 append 的同一事件对象；写侧直接累计，落后时由账本增量补扫。
+  await noteTokenLedgerWritten(eventsFile, event);
 }
 
 // ─── tool:call event recording ───
 
 /**
  * D18 事件入口统一: tool:call trace 写入统一事件文件
- * （~/.studio/logs/studio-events.jsonl，测试期经 studio-log-path 隔离）。
+ * （~/.studio/logs/studio-events.jsonl，测试期经 shared log-path 隔离）。
  * 懒解析以支持运行时/测试注入 env。
  */
 export function resolveToolTraceFile(): string {

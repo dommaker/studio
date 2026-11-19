@@ -8,15 +8,22 @@
  *   - baseBranch：opts 显式值优先，缺省探测默认分支（无 git 环境回落 master）
  *   - branchPrefix（#157 T6）：缺省 task/；analysis 原型单传 prototype → 分支 prototype/<wuId>（创建与复用同口径）
  *
- * Strategy: mock fs/fs.promises/execSh（同 worktree-resolver.test.ts 风格），真实代码跑逻辑。
+ * Strategy: mock fs/fs.promises/child_process（同 worktree-resolver.test.ts 风格），真实代码跑逻辑。
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-const { mockExistsSync, mockExecSh, mockRm } = vi.hoisted(() => ({
+const { mockExistsSync, mockExecSh, mockExecFile, mockExecFileSync, mockRm } = vi.hoisted(() => ({
   mockExistsSync: vi.fn(),
   mockExecSh: vi.fn(),
+  mockExecFile: vi.fn(),
+  mockExecFileSync: vi.fn(),
   mockRm: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('child_process', () => ({
+  execFile: mockExecFile,
+  execFileSync: mockExecFileSync,
 }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -35,15 +42,12 @@ vi.mock('fs/promises', async (importOriginal) => {
   };
 });
 
-vi.mock('@dommaker/studio-shared/node', () => ({
-  execSh: mockExecSh,
-}));
+vi.mock('@dommaker/studio-shared/node', () => ({ execSh: mockExecSh, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {
     ...actual,
-    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     FileStore: class {
       readJson = vi.fn();
     },
@@ -64,6 +68,8 @@ beforeEach(() => {
   // Default: repoDir 是 git 仓库（.git 存在），worktree 目录不存在
   mockExistsSync.mockImplementation((p: string) => p === '/repo/.git');
   mockExecSh.mockResolvedValue({ stdout: '', stderr: '' });
+  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => cb(null, '', ''));
+  mockExecFileSync.mockImplementation(() => { throw new Error('off-git'); });
 });
 
 describe('ensureWuWorktree()', () => {
@@ -76,19 +82,20 @@ describe('ensureWuWorktree()', () => {
       baseBranch: 'develop',
       baseRepo: '/repo',
     });
-    expect(mockExecSh).toHaveBeenCalledWith(
-      'git worktree add -b "task/wu-1" "/worktrees/wu-wu-1" "develop"',
-      expect.objectContaining({ cwd: '/repo' }),
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'git', ['worktree', 'add', '-b', 'task/wu-1', '--', '/worktrees/wu-wu-1', 'develop'],
+      expect.objectContaining({ cwd: '/repo' }), expect.any(Function),
     );
+    expect(mockExecSh).not.toHaveBeenCalled();
   });
 
   test('branchPrefix=prototype（#157 T6 原型单）：分支 prototype/<wuId>', async () => {
     const info = await ensureWuWorktree({ ...baseOpts, branchPrefix: 'prototype' });
 
     expect(info.branch).toBe('prototype/wu-1');
-    expect(mockExecSh).toHaveBeenCalledWith(
-      'git worktree add -b "prototype/wu-1" "/worktrees/wu-wu-1" "develop"',
-      expect.objectContaining({ cwd: '/repo' }),
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'git', ['worktree', 'add', '-b', 'prototype/wu-1', '--', '/worktrees/wu-wu-1', 'develop'],
+      expect.objectContaining({ cwd: '/repo' }), expect.any(Function),
     );
   });
 
@@ -98,7 +105,7 @@ describe('ensureWuWorktree()', () => {
     const info = await ensureWuWorktree({ ...baseOpts, branchPrefix: 'prototype' });
 
     expect(info.branch).toBe('prototype/wu-1');
-    expect(mockExecSh).not.toHaveBeenCalled();
+    expect(mockExecFile).not.toHaveBeenCalled();
   });
 
   test('reuses existing worktree dir (has .git) — zero git mutations, keeps metadata baseBranch', async () => {
@@ -109,7 +116,7 @@ describe('ensureWuWorktree()', () => {
     expect(info.worktreePath).toBe('/worktrees/wu-wu-1');
     expect(info.branch).toBe('task/wu-1');
     expect(info.baseBranch).toBe('develop');
-    expect(mockExecSh).not.toHaveBeenCalled();
+    expect(mockExecFile).not.toHaveBeenCalled();
   });
 
   test('reuse without recorded baseBranch probes default branch (falls back to master off-git)', async () => {
@@ -118,31 +125,29 @@ describe('ensureWuWorktree()', () => {
 
     const info = await ensureWuWorktree(rest);
 
-    // /repo 不是真实 git 仓库 → getDefaultBranch 探测链落空 → master
     expect(info.baseBranch).toBe('master');
-    expect(mockExecSh).not.toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalled();
+    expect(mockExecFile).not.toHaveBeenCalled();
   });
 
   test('creation failure → cleans up half-baked artifacts then rethrows (no silent fallback)', async () => {
-    mockExecSh.mockRejectedValue(new Error('fatal: invalid reference'));
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => cb(new Error('fatal: invalid reference'), '', ''));
 
     await expect(ensureWuWorktree(baseOpts)).rejects.toThrow('fatal: invalid reference');
 
-    // 兜底清理：worktree 注册项 + 目录 + 分支
-    expect(mockExecSh).toHaveBeenCalledWith(
-      expect.stringContaining('git worktree remove --force "/worktrees/wu-wu-1"'),
-      expect.objectContaining({ cwd: '/repo' }),
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'git', ['worktree', 'remove', '--force', '--', '/worktrees/wu-wu-1'],
+      expect.objectContaining({ cwd: '/repo' }), expect.any(Function),
     );
     expect(mockRm).toHaveBeenCalledWith('/worktrees/wu-wu-1', { recursive: true, force: true });
-    expect(mockExecSh).toHaveBeenCalledWith(
-      expect.stringContaining('git branch -D "task/wu-1"'),
-      expect.objectContaining({ cwd: '/repo' }),
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'git', ['branch', '-D', '--', 'task/wu-1'],
+      expect.objectContaining({ cwd: '/repo' }), expect.any(Function),
     );
   });
 
   test('cleanup failures never mask the original creation error', async () => {
-    // 所有 execSh（含清理）都失败 —— 抛出的仍是创建错误
-    mockExecSh.mockRejectedValue(new Error('git totally broken'));
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => cb(new Error('git totally broken'), '', ''));
     mockRm.mockRejectedValue(new Error('rm broken'));
 
     await expect(ensureWuWorktree(baseOpts)).rejects.toThrow('git totally broken');

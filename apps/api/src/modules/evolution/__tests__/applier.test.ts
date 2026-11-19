@@ -16,6 +16,7 @@ import path from 'node:path';
 import os from 'node:os';
 import yaml from 'js-yaml';
 import type { EvolutionProposalData } from '@dommaker/studio-shared';
+import { initStore, resetStoreForTesting } from '../../../core/store.js';
 import { applyProposal, replacePersonaBlock } from '../applier';
 import { resolveEvolutionPaths, type EvolutionPaths } from '../signals';
 
@@ -25,7 +26,7 @@ const syncMock = vi.hoisted(() => ({ scheduleVectorDbSync: vi.fn() }));
 // retire 知识条目落点镜像（harness #177 起 KNOWLEDGE_BASE_DIR 真实生效）：
 // 每个用例前后清空，防夹具目录跨用例/跨轮次累积
 const FIXTURE_KB_DIR = vi.hoisted(() => '/tmp/studio-knowledge-test');
-vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedLinter: vi.fn(), sharedIngest: vi.fn(), sharedLifecycle: vi.fn(), sharedStore: vi.fn(),
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedIngest: vi.fn(), sharedLifecycle: vi.fn(), sharedStore: vi.fn(),
   scheduleVectorDbSync: syncMock.scheduleVectorDbSync,
   UNIFIED_KNOWLEDGE_DIR: FIXTURE_KB_DIR,
 }));
@@ -327,6 +328,29 @@ describe('applier: role-preset → .agents/roles/<name>.yaml', () => {
     expect(parsed.id).toBe('developer');
     expect((parsed.constraints as Record<string, unknown>).max_concurrent_tasks).toBe(2);
     expect(fs.existsSync(result.backupPath as string)).toBe(true);
+  });
+
+  it('默认只改未来 profile 的 preset；显式点名并审批后才更新既有 AgentProfile', async () => {
+    const fileStore = initStore(path.join(tmpDir, 'data'));
+    try {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({
+        id: 'profile-1', name: 'developer', description: null, channels: '[]',
+        status: 'active', provider: null, persona: '既有档案', createdAt: now, updatedAt: now,
+      });
+      const base = makeProposal({
+        targetType: 'role-preset', targetId: 'developer', action: 'amend', proposedText: '新 persona',
+      });
+
+      await applyProposal(base, paths, { fileStore });
+      expect((await fileStore.getProfile('profile-1'))?.persona).toBe('既有档案');
+
+      const result = await applyProposal({ ...base, targetProfileIds: ['profile-1'] }, paths, { fileStore });
+      expect((await fileStore.getProfile('profile-1'))?.persona).toBe('新 persona');
+      expect(result.profileSnapshots).toEqual([{ id: 'profile-1', persona: '既有档案' }]);
+    } finally {
+      resetStoreForTesting();
+    }
   });
 
   it('replacePersonaBlock handles inline persona and missing persona', () => {

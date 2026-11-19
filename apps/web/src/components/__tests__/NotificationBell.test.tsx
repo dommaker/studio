@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import type { WebSocketMessage } from '../../api/websocket';
+import type { SseMessage } from '../../api/sse';
 
 const { mockNavigate, sseHandlers, reconnectHandlers, mockApi, stableOnEvent, stableOnReconnect } = vi.hoisted(() => {
   const handlers = new Set<(msg: unknown) => void>();
@@ -18,13 +18,13 @@ const { mockNavigate, sseHandlers, reconnectHandlers, mockApi, stableOnEvent, st
     sseHandlers: handlers,
     reconnectHandlers: reconnects,
     mockApi: { get: vi.fn(), post: vi.fn() },
-    // 真实 onEvent 是 useCallback([]) 稳定引用（websocket.tsx）；不稳定会导致
+    // 真实 onEvent 是 useCallback([]) 稳定引用（sse.tsx）；不稳定会导致
     // NotificationBell 的 [onEvent] effect 每次渲染重跑，cleanup 清掉 flash 定时器
     stableOnEvent: (handler: (msg: unknown) => void) => {
       handlers.add(handler);
       return () => { handlers.delete(handler); };
     },
-    // #415：onReconnect 同为稳定注册（websocket.tsx）——重连处理器经此手工触发
+    // #415：onReconnect 同为稳定注册（sse.tsx）——重连处理器经此手工触发
     stableOnReconnect: (handler: () => void) => {
       reconnects.add(handler);
       return () => { reconnects.delete(handler); };
@@ -37,8 +37,8 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: stableOnEvent, onReconnect: stableOnReconnect }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: stableOnEvent, onReconnect: stableOnReconnect }),
 }));
 
 vi.mock('../../api', () => ({ api: mockApi }));
@@ -105,7 +105,7 @@ function mockActionCenter(p: Payload = {}) {
 }
 
 function emitSse(eventType: string, data: unknown, eventId = 'evt-1') {
-  const msg: WebSocketMessage = {
+  const msg: SseMessage = {
     event_id: eventId,
     event_type: eventType,
     timestamp: new Date().toISOString(),

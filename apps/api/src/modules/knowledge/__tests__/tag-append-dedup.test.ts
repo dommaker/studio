@@ -26,13 +26,18 @@ const { entries, sharedStore } = vi.hoisted(() => {
 
 vi.mock('../knowledge-singletons.js', () => ({ sharedStore }));
 vi.mock('../skills/skill-store.js', () => ({ skillStore: {} }));
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
   FileStore: class {},
 }));
 
-import { ruleScanner } from '../rule-scanner.js';
-import { PatternMiner } from '../pattern-miner.js';
+import { ruleScanner } from '../producers/rule-scanner.js';
+import { PatternMiner } from '../producers/pattern-miner.js';
 
 function tagCounts(tags: string[]): Record<string, number> {
   return tags.reduce((acc: Record<string, number>, t) => {

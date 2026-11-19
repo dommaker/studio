@@ -20,15 +20,20 @@
  */
 
 import { Router } from 'express';
-import { logger } from '@dommaker/studio-shared';
+
 import { defineRoute, HttpError } from '../../core/http.js';
 import {
   tracesQuerySchema,
   traceRecordBodySchema,
   traceAnalysisQuerySchema,
+  traceListResponseSchema,
+  traceRecordResponseSchema,
+  traceAnalysisResponseSchema,
+  traceAnomaliesResponseSchema,
 } from '@dommaker/studio-contract';
 import type { ExecutionTrace, TraceFilter } from '@dommaker/harness';
 import { getCollector, getAnalyzer } from './runtime.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export const tracesRoutes = Router();
 
@@ -50,7 +55,7 @@ function warnSkippedLines(skippedLines: number, endpoint: string): void {
  * Query execution traces
  */
 tracesRoutes.get('/traces', defineRoute(
-  { query: tracesQuerySchema },
+  { query: tracesQuerySchema, response: traceListResponseSchema },
   async (_req, _res, { query }) => {
     const c = await getCollector();
     if (!c) throw HARNESS_UNAVAILABLE();
@@ -75,7 +80,7 @@ tracesRoutes.get('/traces', defineRoute(
  * Record an execution trace
  */
 tracesRoutes.post('/traces', defineRoute(
-  { body: traceRecordBodySchema },
+  { body: traceRecordBodySchema, response: traceRecordResponseSchema },
   async (_req, _res, { body }) => {
     const c = await getCollector();
     if (!c) throw HARNESS_UNAVAILABLE();
@@ -111,7 +116,7 @@ tracesRoutes.post('/traces', defineRoute(
  * Get trace summaries and anomalies
  */
 tracesRoutes.get('/analysis', defineRoute(
-  { query: traceAnalysisQuerySchema },
+  { query: traceAnalysisQuerySchema, response: traceAnalysisResponseSchema },
   async (_req, _res, { query }) => {
     const a = await getAnalyzer();
     if (!a) throw HARNESS_UNAVAILABLE();
@@ -123,8 +128,8 @@ tracesRoutes.get('/analysis', defineRoute(
     const anomalies = a.detectAnomalies(summaries);
 
     return {
-      summaries,
-      anomalies,
+      summaries: summaries.map(row => Object.fromEntries(Object.entries(row))),
+      anomalies: anomalies.map(row => Object.fromEntries(Object.entries(row))),
       totalSummaries: summaries.length,
       totalAnomalies: anomalies.length,
       skippedLines,
@@ -137,7 +142,7 @@ tracesRoutes.get('/analysis', defineRoute(
  * List detected anomalies
  */
 tracesRoutes.get('/analysis/anomalies', defineRoute(
-  { query: traceAnalysisQuerySchema },
+  { query: traceAnalysisQuerySchema, response: traceAnomaliesResponseSchema },
   async (_req, _res, { query }) => {
     const a = await getAnalyzer();
     if (!a) throw HARNESS_UNAVAILABLE();
@@ -147,6 +152,10 @@ tracesRoutes.get('/analysis/anomalies', defineRoute(
     warnSkippedLines(skippedLines, '/analysis/anomalies');
     const anomalies = a.detectAnomalies(summaries);
 
-    return { anomalies, total: anomalies.length, skippedLines };
+    return {
+      anomalies: anomalies.map(row => Object.fromEntries(Object.entries(row))),
+      total: anomalies.length,
+      skippedLines,
+    };
   },
 ));

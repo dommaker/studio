@@ -6,7 +6,7 @@
 // （claude 传新号 / kimi 不传、sessionResume 摘除）、prompt 重算参数、成败分叉的
 // terminal 形状（failed vs need_input）与副作用调用（recordTokenEvent/recordFailureOutcome/emitFailedStep）。
 import { describe, it, expect, vi } from 'vitest';
-import { logger } from '@dommaker/studio-shared';
+
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import {
   matchStepRetry,
@@ -16,7 +16,9 @@ import {
   type StepRetryCtx,
   type StepRetryDeps,
 } from '../step-retry-policy';
-import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const RESUME_LOST_DETAIL = 'No conversation found with session ID sess-lost';
 const OVERFLOW_DETAIL = 'Prompt is too long';

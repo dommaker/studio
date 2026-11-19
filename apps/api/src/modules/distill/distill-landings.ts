@@ -9,16 +9,17 @@
  *
  * constraint 通道已随 #625 整体拆除（#622 裁决：落点为死端，生命周期归 evolution 飞轮）。
  * 两类产物都带 sourceReferences 原料指针（skill→metadata、memory→sourceRefs）。
- * 通道返回落地产物 id；返回 null / 抛错 → DistillService 回落知识条目（产物不丢）。
+ * 通道返回落地产物 id 与 durable 状态；null 才回落知识条目，异常/card-failed 留待恢复。
  */
 import path from 'node:path';
-import { logger, type FileStore } from '@dommaker/studio-shared';
+import { type FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/index.js';
-import { submitSkillProposal } from '../skills/index.js';
+import { submitSkillProposal, repostSkillProposal, getSkillReviewAdapter } from '../skills/index.js';
 import { type MemoryKind } from '../role-memory/index.js';
-import { submitMemoryProposal } from '../role-memory/index.js';
+import { registerMemoryReviewAdapter, submitMemoryProposal, repostMemoryProposal } from '../role-memory/index.js';
 import { ensureStudioProfile } from '../agents/index.js';
 import type { DistillLanding } from './distill-service.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** companies 目录取第一家可用公司 id（skill 记录必填 companyId；无公司 → null，调用方回落）。
  *  P2-e：目录清单/读取走 FileStore seam（readdir + readJson），替代裸 fs 直读数据区。
@@ -42,6 +43,43 @@ async function firstCompanyId(fileStore: FileStore, companiesDir: string): Promi
  */
 export function createSkillLanding(opts: { fileStore: FileStore; companiesDir: string }): DistillLanding {
   return async (product, ctx) => {
+    let adoptedSkill: { id: string } | undefined;
+    if (ctx.recovery) {
+      const adapter = getSkillReviewAdapter();
+      let proposal = ctx.landingId ? await adapter.store.getProposal(ctx.landingId) : null;
+      if (!proposal && !ctx.landingId) {
+        adoptedSkill = skillStore.list({ source: 'distill' }).find(skill => {
+          try {
+            return JSON.parse(skill.metadata ?? '{}').distillProductId === ctx.productId;
+          } catch {
+            return false;
+          }
+        });
+        if (adoptedSkill) {
+          proposal = (await adapter.store.listProposals()).find(item => item.skillId === adoptedSkill!.id) ?? null;
+        }
+      }
+      if (ctx.landingId && !proposal) return { id: ctx.landingId, durable: false };
+      if (proposal) {
+        if (proposal.status === 'executed') return { id: proposal.id, durable: true };
+        if (!['pending', 'card-failed'].includes(proposal.status)) return { id: proposal.id, durable: false };
+        const { posted } = await repostSkillProposal(proposal.id);
+        return { id: proposal.id, durable: posted };
+      }
+      if (adoptedSkill) {
+        // 崩溃发生在 draft 已落盘、proposal 尚未落盘之前：只补提案，不重建 draft。
+        const { proposalId, posted } = await submitSkillProposal({
+          skillId: adoptedSkill.id,
+          name: product.title,
+          description: product.content,
+          sourceGoalIds: ctx.materialIds,
+          proposedBy: 'distill',
+          summary: `蒸馏产物待审：${product.title}`,
+        });
+        return { id: proposalId, durable: posted };
+      }
+    }
+
     const companyId = await firstCompanyId(opts.fileStore, opts.companiesDir);
     if (!companyId) {
       logger.warn('[Distill] skill landing skipped: no company available', { title: product.title });
@@ -59,9 +97,10 @@ export function createSkillLanding(opts: { fileStore: FileStore; companiesDir: s
         sourceReferences: ctx.materialIds,
         distillProposalId: ctx.proposalId,
         distillRunId: ctx.runId,
+        distillProductId: ctx.productId,
       }),
     });
-    const { proposalId } = await submitSkillProposal({
+    const { proposalId, posted } = await submitSkillProposal({
       skillId: skill.id,
       name: product.title,
       description: product.content,
@@ -70,7 +109,7 @@ export function createSkillLanding(opts: { fileStore: FileStore; companiesDir: s
       summary: `蒸馏产物待审：${product.title}`,
     });
 
-    return proposalId;
+    return { id: proposalId, durable: posted };
   };
 }
 
@@ -81,15 +120,35 @@ export function createSkillLanding(opts: { fileStore: FileStore; companiesDir: s
  */
 export function createMemoryLanding(opts: { fileStore: FileStore }): DistillLanding {
   return async (product, ctx) => {
+    const adapter = registerMemoryReviewAdapter({ fileStore: opts.fileStore });
+    if (ctx.recovery) {
+      const landingId = ctx.landingId ?? ctx.productId;
+      const existing = await adapter.store.getProposal(landingId);
+      if (!existing) {
+        if (ctx.landingId) return { id: ctx.landingId, durable: false };
+      } else {
+        if (existing.status === 'executed' || existing.status === 'pending') return { id: landingId, durable: true };
+        if (existing.status === 'card-failed') {
+          const { posted } = await repostMemoryProposal([existing], { source: 'distill' });
+          return { id: landingId, durable: posted };
+        }
+        return { id: landingId, durable: false };
+      }
+    }
+
     const kind: MemoryKind = product.type === 'preference' ? 'preference' : 'execution-knowledge';
     const profile = await ensureStudioProfile(opts.fileStore);
     const entries = await submitMemoryProposal(profile.id, [{
+      id: ctx.productId,
       kind,
       title: product.title,
       content: product.content,
       review: 'manual',
       sourceRefs: ctx.materialIds,
     }], { source: 'distill' });
-    return entries[0]?.id ?? null;
+    const entry = entries[0];
+    if (!entry) return null;
+    const persisted = await adapter.store.getProposal(entry.id);
+    return { id: entry.id, durable: persisted !== null && persisted.status !== 'card-failed' };
   };
 }

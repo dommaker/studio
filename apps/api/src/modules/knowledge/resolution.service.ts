@@ -11,16 +11,16 @@
  * Storage: ~/.studio/knowledge/resolution-{id}.md (frontmatter + body)
  */
 
-import { logger, generateId, isActionableMaturity, matchResolutionPatterns } from '@dommaker/studio-shared';
+import { generateId, isActionableMaturity, matchResolutionPatterns } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync } from './knowledge-singletons.js';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '@dommaker/studio-shared';
 import type { Resolution, CreateResolutionInput, MatchResolutionInput, MatchResolutionResult } from '@dommaker/studio-shared';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const KNOWLEDGE_DIR = studioPath('knowledge');
 // #654：事件文件路径一律调用时 resolveStudioEventsFile() 解析，不做加载期钉死常量
@@ -322,34 +322,6 @@ export class ResolutionService {
     }
   }
 
-  /** Knowledge density scoring */
-  async getDensityScore(): Promise<{
-    score: number; total: number; verified: number; proven: number;
-    errorClasses: number; layers: number;
-  }> {
-    try {
-      const all = await scanResolutions();
-      const total = all.length;
-      const verified = all.filter((r: any) => r.maturity === 'verified').length;
-      const proven = all.filter((r: any) => r.maturity === 'proven').length;
-      const errorClasses = new Set(all.map((r: any) => r.errorClass).filter(Boolean)).size;
-      const layers = new Set(all.map((r: any) => r.layer).filter(Boolean)).size;
-
-      const countScore = Math.min(total / 20, 1) * 25;
-      const verifiedRatio = total > 0 ? (verified + proven) / total : 0;
-      const verifiedScore = verifiedRatio * 25;
-      const breadthScore = Math.min(errorClasses / 8, 1) * 25;
-      const layerScore = Math.min(layers / 4, 1) * 25;
-
-      return {
-        score: Math.round(countScore + verifiedScore + breadthScore + layerScore),
-        total, verified, proven, errorClasses, layers,
-      };
-    } catch {
-      return { score: 0, total: 0, verified: 0, proven: 0, errorClasses: 0, layers: 0 };
-    }
-  }
-
   /** Auto-verify from behavior confirmation */
   async autoVerifyFromBehavior(category: string, pattern: string): Promise<number> {
     try {
@@ -380,37 +352,6 @@ export class ResolutionService {
     } catch (err) {
       logger.warn('[ResolutionService] autoVerifyFromBehavior failed', { error: String(err) });
       return 0;
-    }
-  }
-
-  /** Cross-session causality stats */
-  async getCrossSessionStats(): Promise<{
-    linkedToGoals: number; unlinked: number;
-    topErrorClasses: Array<{ errorClass: string; count: number; avgVerifyCount: number }>;
-  }> {
-    try {
-      const all = await scanResolutions();
-      const linkedToGoals = all.filter((r: any) => r.sourceGoalId).length;
-      const unlinked = all.filter((r: any) => !r.sourceGoalId).length;
-
-      const classMap = new Map<string, { count: number; totalVerify: number }>();
-      for (const r of all) {
-        const ec = r.errorClass;
-        if (!classMap.has(ec)) classMap.set(ec, { count: 0, totalVerify: 0 });
-        const entry = classMap.get(ec)!;
-        entry.count++;
-        entry.totalVerify += r.verifyCount || 0;
-      }
-      const topErrorClasses = [...classMap.entries()]
-        .sort((a, b) => b[1].count - a[1].count)
-        .slice(0, 10)
-        .map(([errorClass, { count, totalVerify }]) => ({
-          errorClass, count, avgVerifyCount: Math.round(totalVerify / count),
-        }));
-
-      return { linkedToGoals, unlinked, topErrorClasses };
-    } catch {
-      return { linkedToGoals: 0, unlinked: 0, topErrorClasses: [] };
     }
   }
 }

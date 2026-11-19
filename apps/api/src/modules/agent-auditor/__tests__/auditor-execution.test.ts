@@ -29,14 +29,14 @@ vi.mock('os', async (importOriginal) => {
 afterAll(() => { fs.rmSync(tmpHome, { recursive: true, force: true }); });
 
 vi.mock('../../triage/index.js', () => ({
-  triageService: { handleAlert: mockHandleAlert },
+  getTriageService: () => ({ handleAlert: mockHandleAlert }),
 }));
 
 vi.mock('../../knowledge/resolution.service.js', () => ({
   resolutionService: { matchResolutions: mockMatch, createResolution: mockCreateResolution },
 }));
 
-vi.mock('../../knowledge/eval-case-generator.js', () => ({
+vi.mock('../../knowledge/producers/eval-case-generator.js', () => ({
   evalCaseGenerator: { generateFromFailures: mockGenEval },
 }));
 
@@ -143,6 +143,11 @@ describe('pushConfirmationCards()', () => {
           listChannels: vi.fn(async () => [{ id: 'ch-sys', name: '#系统' }]),
           queryMessages: vi.fn(async () => messages),
           appendJsonl,
+          // NotificationService.create 经 withLock 串行写铃铛通知；通知投影同步面保留真实实现
+          withLock: async (_lockPath: string, fn: () => Promise<unknown>) => fn(),
+          readJsonUncached: vi.fn(async () => null),
+          readJsonl: vi.fn(async () => []),
+          writeJson: vi.fn(async () => {}),
         },
       };
     };

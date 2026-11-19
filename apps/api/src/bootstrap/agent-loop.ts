@@ -2,10 +2,10 @@
 // P2-a：自 apps/api/src/index.ts 拆出。块内顺序与原 index.ts 逐行一致：
 // 内置角色幂等创建 → provider 回填 → scheduler.start → （非 standby）注册系统触发器
 // → 事件订阅（bridges.initEventSubscriptions）→ 挂载 loop → assignee 自检。
-import { logger } from '@dommaker/studio-shared';
+
 import { initEventSubscriptions } from './bridges.js';
 import { getStore } from '../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export async function startAgentLoops(): Promise<void> {
   try {

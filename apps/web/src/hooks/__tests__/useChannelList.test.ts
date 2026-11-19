@@ -12,8 +12,8 @@ vi.mock('../../api', () => ({
   api: { get: mockGet, post: mockPost },
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent }),
 }));
 
 import { useChannelList } from '../useChannelList';
@@ -96,7 +96,7 @@ describe('useChannelList', () => {
     expect(useUnreadStore.getState().unreadCounts['ch-1']).toBeUndefined();
   });
 
-  // #413 验收①：断点跨越（<768 内联 ChannelRail 卸载、SidebarNew 挂另一实例）计数不丢——
+  // #413 验收①：断点跨越（<768 内联 ChannelRail 卸载、Sidebar 挂另一实例）计数不丢——
   // 未读面在 unreadStore（实例私有 state 时会清零重建）
   it('unread counts survive hook unmount/remount across breakpoint crossing', async () => {
     let handler: ((msg: unknown) => void) | null = null;

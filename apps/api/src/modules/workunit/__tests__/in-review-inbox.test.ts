@@ -11,14 +11,13 @@ import { FileStore } from '@dommaker/studio-shared';
 
 const { mockDispatch } = vi.hoisted(() => ({ mockDispatch: vi.fn() }));
 
-vi.mock('../../agent-monitor/index.js', () => ({
-  // P2-c：in-review-inbox 改经模块根 barrel 动态 import——mock 目标同步改到 barrel
-  // P2-d 刀6：dispatchMonitorAlerts 随 monitor 迁出，barrel 同步改 agent-monitor
+vi.mock('../../ops/index.js', () => ({
+  // ARCH-02：alert 端口由组合步骤注入 ops dispatchMonitorAlerts。
   dispatchMonitorAlerts: (...args: unknown[]) => mockDispatch(...args),
 }));
 
 import { initInReviewInbox } from '../in-review-inbox.js';
-import { WorkUnitService } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -40,7 +39,7 @@ afterAll(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-/** P2-c：订阅回调改异步（动态 import）——负向断言前等其跑完，防真空通过 */
+/** 订阅回调为 async——负向断言前等其跑完，防真空通过 */
 async function settleInbox(): Promise<void> {
   await new Promise(r => setTimeout(r, 100));
 }
@@ -84,6 +83,20 @@ describe('#464 无频道 in_review 收件箱', () => {
       createdAt: now, updatedAt: now,
     });
     await transitToInReview({ scope: '有频道评审单', type: 'task', channelId: 'ch-ir' });
+    await settleInbox();
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it('merge queued/running 的 in_review 进度不告警', async () => {
+    await transitToInReview({
+      scope: '自动合并中', type: 'task',
+      metadata: {
+        mergeIntent: {
+          id: 'merge:1', state: 'running', requestedAt: new Date().toISOString(),
+          sourceBranch: 'task/wu-1', targetBranch: 'main',
+        },
+      },
+    });
     await settleInbox();
     expect(mockDispatch).not.toHaveBeenCalled();
   });

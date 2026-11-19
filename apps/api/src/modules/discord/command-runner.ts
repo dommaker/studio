@@ -4,11 +4,11 @@
  * Both `studio run` CLI and `/studio run` Discord slash command
  * reuse this logic to submit a requirement to #研发 and create a WorkUnit.
  */
-import { logger } from '@dommaker/studio-shared';
-import { channelMessageService } from '../channels/index.js';
+
+import { getChannelMessageService } from '../channels/index.js';
 import { WorkUnitService } from '../workunit/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 const workUnitService = new WorkUnitService();
 
@@ -27,7 +27,7 @@ export async function triggerRequirement(requirement: string): Promise<string> {
   const content = requirement.trim();
 
   // Create human message in the channel
-  const message = await channelMessageService.createHumanMessage(rndChannel.id, content);
+  const message = await getChannelMessageService().createHumanMessage(rndChannel.id, content);
 
   // Create WorkUnit for the requirement
   await workUnitService.create({

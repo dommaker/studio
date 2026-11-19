@@ -1,6 +1,6 @@
 // Channel 消息 meta 解析 — #264 人审卡片全灭修复
-// 背景：后端 REST/SSE 出口 meta 为 object（shapeMessageData 已解析），前端原按 string 解析静默吞错。
-// 双型兼容：object 直接取用；string 则 JSON.parse，解析失败回退 {}（与 NotificationBell 口径对齐）。
+// 背景：后端 REST/SSE 出口 meta 恒为 object（channel-message.service shapeMessageData 单点解析），
+// 前端按 object 直读；string 形态无活写入方（存储层 JSON 字符串不出后端）。
 
 /** #267（决策 #250 D3）NEED_INPUT 结构化选项卡选项形态（对齐后端 MessageMeta.options） */
 export interface MetaOption {
@@ -29,10 +29,7 @@ export interface CardMeta {
   [key: string]: unknown;
 }
 
-/** meta 双型兼容——线上 REST/SSE 出口为 object（直接取用）；string 则 JSON.parse，解析失败回退 {} */
-export function parseMeta(meta?: string | Record<string, unknown> | null): CardMeta {
-  if (typeof meta === 'string') {
-    try { return JSON.parse(meta || '{}'); } catch { return {}; }
-  }
+/** meta 解析——线上 REST/SSE 出口恒为 object（后端 shapeMessageData 单点解析），直接取用；缺省回退 {} */
+export function parseMeta(meta?: Record<string, unknown> | null): CardMeta {
   return (meta ?? {}) as CardMeta;
 }

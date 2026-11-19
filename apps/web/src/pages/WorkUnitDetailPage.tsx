@@ -18,6 +18,7 @@ import { DiscussionPanel } from '../components/DiscussionPanel';
 import { RequirementChainPanel } from '../components/requirement/RequirementChainPanel';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
+import { DeliveryBadge } from '../components/workunit/DeliveryBadge';
 import { EvidenceLedger } from '../components/workunit/EvidenceLedger';
 import { OpportunitiesPanel } from '../components/workunit/OpportunitiesPanel';
 import { BlockedByList } from '../components/workunit/BlockedByList';
@@ -26,7 +27,7 @@ import { TreeTokenEntry } from '../components/workunit/TreeTokenChart';
 import { WuGateActions } from '../components/workunit/WuGateActions';
 import { BackButton, SkeletonText, SkeletonCard } from '../components/ui';
 import { MetaStrip } from '../components/ui/MetaStrip';
-import { parseBlockedBy } from '../components/pmo/mapUtils';
+import { parseBlockedBy } from '../utils/mapUtils';
 import { buildLifecycle } from '../utils/wuLifecycle';
 import { formatShortTime } from '../utils/datetime';
 import { parseWuMeta } from '../utils/wuMeta';
@@ -122,6 +123,7 @@ export function WorkUnitDetailPage() {
               <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${WU_STATUS_COLORS[derived.column] || 'u-surface-2 u-text-3'}`}>
                 {WU_STATUS_LABELS[derived.column] ?? derived.column}
               </span>
+              <DeliveryBadge delivery={derived.delivery} />
               <SelfReviewBadge wu={wu} />
               <StaleSleepBadge wu={wu} />
             </>
@@ -218,11 +220,11 @@ export function WorkUnitDetailPage() {
               </div>
             </section>
 
-            {/* F6 证据台账：L1/L2/L3（drawer 紧凑变体适配窄栏；自带 mc-block-label 由 CSS 隐藏，区标题统一） */}
+            {/* F6 证据台账：L1/L2/L3 + 可选 merge receipt（drawer 紧凑变体；自带 mc-block-label 由 CSS 隐藏） */}
             <section className="wu-detail-sec">
               <h3 className="wu-detail-sec-title">证据台账</h3>
               <div className="wu-detail-card">
-                <EvidenceLedger attestations={attestations} variant="drawer" />
+                <EvidenceLedger attestations={attestations} metadata={wu.metadata} variant="drawer" />
               </div>
             </section>
 

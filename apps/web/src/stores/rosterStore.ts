@@ -7,11 +7,13 @@
 // 但 profiles/channels 照常落库——非 Admin 仍可用频道列表与角色档案。
 // 轮询兜底与 SSE 路由的接线在 useRosterStoreSync；消费方用 selector 订阅（useAgentRoster / ChannelRail 等）。
 import { create } from 'zustand';
-import { monitoringApi, type AgentCurrentWorkUnit, type AgentInfo, type AgentPmoRef } from '../api/monitoring';
+import { monitoringApi, type AgentCurrentWorkUnit, type AgentInfo } from '../api/monitoring';
 import { channelApi, type AgentProfile, type AgentProfileListItem, type Channel } from '../api/channel';
 import { isForbidden } from '../utils/http';
 import { isSystemRole } from '../utils/systemRole';
 import { workunitApi, type WorkUnit } from '../api/workunit';
+// #665（ADR 2026-08-24 落地）：agent.instance.status_changed 负载与 studio-contract 同源，本地声明清零
+import type { AgentInstanceStatusChangedPayload } from '@dommaker/studio-contract';
 import { useAuthStore } from './authStore';
 import { createFetchGate, disciplinedFetch } from './fetchDiscipline';
 
@@ -19,24 +21,6 @@ import { createFetchGate, disciplinedFetch } from './fetchDiscipline';
 export const ROSTER_TTL_MS = 30000;
 /** #313：SSE 断开且页面 visible 时的兜底轮询周期（useRosterStoreSync 消费） */
 export const ROSTER_POLL_INTERVAL_MS = 30000;
-
-/** agent.instance.status_changed（§6.2）的 data 契约；#312 起 additive 带摘要快照（对齐 getAgentSummary） */
-export interface AgentStatusChangedData {
-  profileId?: string;
-  instanceId?: string;
-  name?: string;
-  status?: string;
-  currentWorkUnitId?: string | null;
-  /** #312：当前 WU 快照（含 WU 时非 null；悬空 WU → null；旧事件无此字段 → undefined 走补查兜底） */
-  currentWorkUnit?: AgentCurrentWorkUnit | null;
-  /** #312：当前 WU 所在频道（无当前 WU → null） */
-  channelId?: string | null;
-  /** #318 additive：当前 WU 所属 PMO（缺键 = 旧形状，回退保留原值） */
-  pmo?: AgentPmoRef | null;
-  startedAt?: string;
-  lastError?: string | null;
-  lastErrorAt?: string | null;
-}
 
 /** WU 详情 → 卡片当前任务快照映射（roster 补查与 AgentDetailPage 补查共用） */
 export function workUnitToCurrentWorkUnit(wu: WorkUnit): AgentCurrentWorkUnit {
@@ -83,7 +67,7 @@ interface RosterState {
    */
   ensureFresh: (opts?: { maxAgeMs?: number }) => Promise<void>;
   /** agent.instance.status_changed 就地更新（唯一一份；未匹配实例合成条目插头部；旧形状事件带补查兜底） */
-  applyInstanceStatusEvent: (d: AgentStatusChangedData) => void;
+  applyInstanceStatusEvent: (d: AgentInstanceStatusChangedPayload) => void;
   /** workunit.status_changed 就地更新命中实例的当前任务快照（title/type/status 落加法） */
   applyWorkunitStatusEvent: (wu: { id: string } & Partial<WorkUnit>) => void;
   /** 补查写回：WU 详情落进对应实例的 currentWorkUnit（instanceId + currentWorkUnitId 双匹配防漂移） */

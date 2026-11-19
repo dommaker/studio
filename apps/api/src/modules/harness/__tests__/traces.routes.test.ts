@@ -15,7 +15,7 @@ import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 // 坏行计数由测试逐例控制；mock 只提供新报告入口 analyzeRecentReport，
 // 旧入口 analyzeRecent 故意不 mock——路由若仍走旧入口会直接 TypeError，防假绿

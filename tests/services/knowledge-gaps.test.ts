@@ -31,7 +31,7 @@ afterEach(() => {
 describe('PreferenceObserver (G-001)', () => {
   it('推断回复风格 — 短消息 → concise', async () => {
     const { preferenceObserver } = await import(
-      '../../apps/api/src/modules/knowledge/preference-observer.js'
+      '../../apps/api/src/modules/knowledge/producers/preference-observer.js'
     );
 
     // Test response style inference via direct method logic
@@ -215,7 +215,7 @@ LOG_LEVEL=debug
 
   it('影响范围推断 — agent 文件 → agent + executor', async () => {
     const { ruleScanner } = await import(
-      '../../apps/api/src/modules/knowledge/rule-scanner.js'
+      '../../apps/api/src/modules/knowledge/producers/rule-scanner.js'
     );
 
     // inferAffects is private, test via file path patterns
@@ -294,9 +294,10 @@ describe('EnvSnapper (G-003)', () => {
   });
 
   it('默认已知限制包含 SQLite 和 Discord', async () => {
-    const { envSnapper } = await import(
-      '../../apps/api/src/modules/knowledge/env-snapper.js'
+    const { getEnvSnapper } = await import(
+      '../../apps/api/src/modules/knowledge/producers/env-snapper.js'
     );
+    const envSnapper = getEnvSnapper();
 
     // getDefaultLimitations is private, but we can verify the service exists
     expect(envSnapper).toBeDefined();
@@ -313,13 +314,14 @@ describe('EnvSnapper (G-003)', () => {
 // ════════════════════════════════════════════
 
 describe('DecisionChainExtractor (G-004)', () => {
-  it('架构变更检测 — schema.prisma → true', async () => {
+  it('生产提取退役后仍保留历史 decision_chain 查询', async () => {
     const { decisionChainExtractor } = await import(
-      '../../apps/api/src/modules/knowledge/decision-chain-extractor.js'
+      '../../apps/api/src/modules/knowledge/producers/decision-chain-extractor.js'
     );
 
     expect(decisionChainExtractor).toBeDefined();
-    expect(typeof decisionChainExtractor.extractFromExecution).toBe('function');
+    expect(typeof decisionChainExtractor.query).toBe('function');
+    expect(decisionChainExtractor.extractFromExecution).toBeUndefined();
   });
 
   it('架构变更信号匹配', () => {
@@ -491,32 +493,17 @@ describe('PatternMiner (G-005)', () => {
 // ════════════════════════════════════════════
 
 describe('KnowledgeQueryService (S8)', () => {
-  it('五种类型都可查询', async () => {
+  it('query 是唯一查询面，getStats 已摘除', async () => {
     const { knowledgeQuery } = await import(
       '../../apps/api/src/modules/knowledge/knowledge-query.service.js'
     );
 
     expect(knowledgeQuery).toBeDefined();
     expect(typeof knowledgeQuery.query).toBe('function');
-    expect(typeof knowledgeQuery.getStats).toBe('function');
-  });
-
-  it('知识统计包含所有类型', async () => {
-    const { knowledgeQuery } = await import(
-      '../../apps/api/src/modules/knowledge/knowledge-query.service.js'
-    );
-
-    try {
-      const stats = await knowledgeQuery.getStats();
-      expect(stats).toHaveProperty('preference');
-      expect(stats).toHaveProperty('business_rule');
-      expect(stats).toHaveProperty('environment');
-      expect(stats).toHaveProperty('decision_chain');
-      expect(stats).toHaveProperty('interaction');
-    } catch {
-      // DB unavailable expected
-      expect(true).toBe(true);
-    }
+    // getStats（五类统计概览）随其唯一消费方 GET /knowledge/gaps 于 P4.2（2026-10-17）摘除，锁死不回面
+    expect((knowledgeQuery as Record<string, unknown>).getStats).toBeUndefined();
+    // 不在单测实跑 query()：decision_chain 支路走 sharedStore.list()，读开发机真实知识库，
+    // 索引漂移即抛（harness 3.0.0 起 list 对「在册但文件缺失/不可解析」抛出，修复入口 harness knowledge index）
   });
 });
 

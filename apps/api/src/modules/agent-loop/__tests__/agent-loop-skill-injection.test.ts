@@ -38,9 +38,19 @@ const { mockExecSync, mockExecuteLightweight, mockInjectContext } = vi.hoisted((
   mockInjectContext: vi.fn().mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] }),
 }));
 
-vi.mock('child_process', () => ({ exec: vi.fn(),
+vi.mock('child_process', () => ({
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  exec: vi.fn((cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  }),
   execSync: mockExecSync,
 }));
+
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -56,15 +66,6 @@ vi.mock('@dommaker/studio-agent', () => ({
   },
 }));
 
-vi.mock('../../workunit/workunit.service', () => ({
-  WorkUnitService: vi.fn().mockImplementation(function () { return {
-    claim: vi.fn(),
-    unclaim: vi.fn(),
-    transitionStatus: vi.fn(),
-  }; }),
-  snapshotToData: (s: unknown) => s,
-}));
-
 vi.mock('../../triggers/trigger-registry', () => ({
   getTriggerScheduler: () => ({
     registerTrigger: vi.fn(),
@@ -74,20 +75,25 @@ vi.mock('../../triggers/trigger-registry', () => ({
   }),
 }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: mockInjectContext,
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
-  },
-  INJECT_TOKEN_BUDGET: 927,
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+    INJECT_TOKEN_BUDGET: 927,
+  };
+});
 
 import { FileStore } from '@dommaker/studio-shared';
 import { estimateTokens } from '@dommaker/harness';
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载
 const { AgentLoop } = await import('../agent-loop');
+const { WorkUnitService } = await import('../../workunit/workunit-review.js');
 const { SECTION_QUOTAS } = await import('../prompt-composer');
 const { invalidateManifestCache } = await import('../../skills/manifest-loader.js');
 
@@ -105,6 +111,7 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
   let agentLoop: AgentLoop;
   let testDir: string;
   let fileStore: FileStore;
+  let wuService: InstanceType<typeof WorkUnitService>;
 
   // description/persona 均为空 —— 默认不产 persona 段（各用例按需覆盖）
   const mockRole = {
@@ -136,6 +143,7 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     });
     testDir = path.join(os.tmpdir(), `agent-loop-skill-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
     fileStore = new FileStore(testDir);
+    wuService = new WorkUnitService(fileStore);
   });
 
   afterEach(async () => {
@@ -152,9 +160,17 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
   async function runStep(wu: ReturnType<typeof makeWu>, roleOverrides: Record<string, unknown> = {}) {
     agentLoop = new AgentLoop({ ...mockRole, ...roleOverrides } as any, fileStore);
     await agentLoop.start();
-    const result = await (agentLoop as unknown as {
-      agentStep(t: unknown): Promise<{ metadataUpdates?: { matchedSkills?: string[] } }>;
-    }).agentStep({ workUnit: wu });
+    // #705 起 agentStep 要求持久化快照（ExecutionJournal.beginStep 读 store 内记录）
+    const created = await wuService.create({
+      scope: wu.scope as string,
+      type: wu.type as string,
+      status: 'unassigned',
+      assigneeId: wu.assigneeId as string,
+      channelId: wu.channelId as string,
+      metadata: wu.metadata ? JSON.parse(wu.metadata as string) : undefined,
+    });
+    const persisted = await wuService.claim(created.id, wu.assigneeId as string);
+    const result = await agentLoop.agentStep({ workUnit: persisted });
     const task = mockExecuteLightweight.mock.calls[0][0];
     return { knowledgeContext: task.parameters.knowledgeContext as string, result };
   }
@@ -173,12 +189,12 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     expect(knowledgeContext.indexOf('## 本次任务 Skills')).toBeLessThan(knowledgeContext.indexOf('## 项目上下文'));
 
     // skill 段先占定额：injectContext 收到 knowledge 定额 + 各前段余量（persona/roster/map/memory 空 → 定额全额入池）
-    expect(mockInjectContext).toHaveBeenCalledWith('feature', {
+    expect(mockInjectContext).toHaveBeenCalledWith('feature', expect.objectContaining({
       tags: ['feature'],
       maxTokens: SECTION_QUOTAS.knowledge
         + (SECTION_QUOTAS.persona + SECTION_QUOTAS.roster + SECTION_QUOTAS.skills
            + SECTION_QUOTAS.map + SECTION_QUOTAS.memory - SKILL_TOKENS),
-    });
+    }));
   });
 
   it('匹配名单经 metadataUpdates.matchedSkills 返回（随 recordResult 原子落盘，供度量/被无视率）', async () => {
@@ -229,11 +245,11 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
 
       expect(knowledgeContext).toBe('## 系统约束\n- test rule');
       expect(knowledgeContext).not.toContain('## 本次任务 Skills');
-      expect(mockInjectContext).toHaveBeenCalledWith('feature', {
+      expect(mockInjectContext).toHaveBeenCalledWith('feature', expect.objectContaining({
         tags: ['feature'],
         maxTokens: SECTION_QUOTAS.knowledge + SECTION_QUOTAS.map + SECTION_QUOTAS.skills
           + SECTION_QUOTAS.memory + SECTION_QUOTAS.roster + SECTION_QUOTAS.persona,
-      });
+      }));
     } finally {
       writeSkillFixture();
       invalidateManifestCache();

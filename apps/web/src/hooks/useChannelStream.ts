@@ -11,7 +11,8 @@
 // streamHeadH/三 toggle——原页面 renderStreamItem 与 mc-stream-inner JSX 的消费者随结构上移）。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChannelMessage } from '../api/channel';
-import { deriveStreamView } from '../utils/streamView';
+import type { ChannelMessageChange } from '../stores/channelMessageStore';
+import { createStreamViewDerivation, type StreamUiState } from '../utils/streamView';
 import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { usePersistentStreamUI } from './usePersistentStreamUI';
 import { useStreamFollow } from './useStreamFollow';
@@ -20,6 +21,8 @@ export interface UseChannelStreamOptions {
   channelId: string | undefined;
   // 取数产物（页面既有 useChannelMessages 的返回子集；取数本体留页面）
   messages: ChannelMessage[];
+  change?: ChannelMessageChange;
+  threadIndex?: ReadonlyMap<string, string[]>;
   loading: boolean;
   loadMore: () => Promise<boolean>;
   // #326：数据层降级/水合触发口（仅虚拟化路径由首个可见 mid 驱动）
@@ -30,7 +33,7 @@ export interface UseChannelStreamOptions {
 }
 
 export function useChannelStream({
-  channelId, messages, loading, loadMore, syncPruning, promotedQuestionIds, isWaitingForInput,
+  channelId, messages, change, loading, loadMore, syncPruning, promotedQuestionIds, isWaitingForInput,
 }: UseChannelStreamOptions) {
   // 折叠 UI 状态按频道持久化（showCompleted/collapsedThreads/expandedProcGroups/expandedAlertGroups），
   // setter 语义同 useState；线程默认全部展开，collapsedThreads 只存手动收起的锚点 id
@@ -71,20 +74,30 @@ export function useChannelStream({
     });
   }, [setExpandedAlertGroups]);
 
-  // 接线顺序不变量①：#322 消息流管线——归组/过程折叠/连续合并/日期分隔/可见性走 deriveStreamView
-  // 纯函数（消息引用与 UI 状态不变则零重算）；后续一切产物都建在 streamView.items 上
-  const streamView = useMemo(() => deriveStreamView(messages, {
-    showCompleted,
-    collapsedThreads,
-    expandedProcGroups,
-    expandedAlertGroups,
-    promotedQuestionIds,
-    isWaitingForInput,
-  }), [messages, showCompleted, collapsedThreads, expandedProcGroups, expandedAlertGroups, promotedQuestionIds, isWaitingForInput]);
+  // 接线顺序不变量①：派生器随频道/UI 保持；消息 append/update 在下一层 memo 局部修补。
+  const uiState: StreamUiState = useMemo(() => ({
+    showCompleted, collapsedThreads, expandedProcGroups, expandedAlertGroups, promotedQuestionIds, isWaitingForInput,
+  }), [showCompleted, collapsedThreads, expandedProcGroups, expandedAlertGroups, promotedQuestionIds, isWaitingForInput]);
+  const derivation = useMemo(
+    () => createStreamViewDerivation([], uiState),
+    // messages 由下层 memo 增量喂入；仅 UI 变化重建派生器。
+    [uiState],
+  );
+  const streamView = useMemo(() => {
+    if (!change || change.kind === 'reset' || change.kind === 'structural') return derivation.reset(messages, uiState);
+    if (change.kind === 'append') return derivation.append(messages, uiState, change.id);
+    if (change.kind === 'update') return derivation.update(messages, uiState, change.id);
+    return derivation.view;
+  }, [derivation, messages, change, uiState]);
 
   // 接线顺序不变量②：#325 mid→item index 映射（prepend 补偿 / 阅读位置恢复 / highlight 定位的桥），
-  // 须先建 streamView.items
-  const messageToItemIndex = useMemo(() => buildMessageToItemIndex(streamView.items), [streamView.items]);
+  // 须先建 streamView.items；稳定数组原地修改时由 revision 触发重建。
+  const streamItems = streamView.items;
+  const streamRevision = streamView.revision;
+  const messageToItemIndex = useMemo(() => {
+    void streamRevision;
+    return buildMessageToItemIndex(streamItems);
+  }, [streamItems, streamRevision]);
 
   // 接线顺序不变量③：#325 滚动内容头部块（加载更早/折叠 toggle/空态）高度 → virtualizer
   // scrollMargin，须先量才能喂 useStreamFollow
@@ -121,6 +134,7 @@ export function useChannelStream({
     loading,
     loadMore,
     items: streamView.items,
+    itemsRevision: streamView.revision,
     messageToItemIndex,
     scrollMargin: streamHeadH,
   });
@@ -144,6 +158,7 @@ export function useChannelStream({
     // 结构（页面头块/键盘导航消费）
     streamHeadRef,
     items: streamView.items,
+    streamRevision: streamView.revision,
     completedCount: streamView.completedCount,
     showCompleted,
     setShowCompleted,

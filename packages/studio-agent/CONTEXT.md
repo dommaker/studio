@@ -1,7 +1,7 @@
 # packages/studio-agent
 
-> 最后更新: 2026-09-18
-> Agent 执行器 — 轻量单 session 模型 + git worktree 隔离 + harness 配置传递
+> 最后更新: 2026-10-26
+> Agent 执行器 — 轻量单 session 模型 + git worktree 隔离 + harness 配置传递 + SEC-05 OS/网络/身份边界
 
 ### 职责
 
@@ -51,9 +51,13 @@ worktree/
 
 > #562 前此处还列 `REQUIREMENTS.md`（AC + 约束文件桥）与根级 `.prompt.md`：前者由已删除的 runner-briefing 写入、后者是旧 loop 的 prompt 落点，两条路径都不再产生它们。
 
+**Git 参数边界（SEC-03，2026-10-26）**：`worktree-resolver.ts` 的 Git 调用统一经 `execFile`/`execFileSync` 参数数组，不再拼 `execSh` 字符串；分支先过零子进程严格形状预检，再执行 `git check-ref-format --branch`，危险输入在任何 worktree/branch 副作用前失败。`ensureBranchExists` 只把明确 unknown revision 视为不存在并建支；超时、权限、仓库损坏等错误保留 stderr 诊断并原样上抛。正常 worktree 创建、复用与失败清理由既有 mock 测试和真实临时仓测试覆盖。SEC-04 起 API agent-loop 调用这些原语时经统一 `withExecutionRepo` 持固定 repo fd，LocalExecutor 在实际 CLI 全周期持工作目录 fd；capability 不进 metadata，正常 worktree 创建/复用行为不变。
+
+**#701 多仓 PMO 集成交合隔离**：`ensurePmoIntegrationWorktree` 以 `projectId + git common-dir 哈希 + leg branch 哈希` 键控，capability/fd 路径不进入身份；复用前同时核验真实 common dir 与 checkout HEAD，身份不明或不符直接抛错，不自动删除/迁移旧现场。多仓、同仓多腿及稳定复用由 mock 与真实临时仓测试共同覆盖（`worktree-resolver.ts`、`worktree-resolver-pmo{,-integration}.test.ts`）。
+
 #### .progress.json 格式
 
-由 skill prompt 指示 agent 自己维护（`apps/api/src/scripts/seed-skills.ts`），读方：`output-capture.ts readProgress()`、discord 进度查询、monitor 停滞判定。executor 侧不再据此判定完成（那是 agent-loop 的 completion-gates 职责）。
+由 skill prompt 指示 agent 自己维护（内置 skill 正本随 `@dommaker/studio-skill` 包分发，首启经 bootstrap `seedBuiltinSkillsStep` 落盘），读方：`output-capture.ts readProgress()`、discord 进度查询、monitor 停滞判定。executor 侧不再据此判定完成（那是 agent-loop 的 completion-gates 职责）。
 
 ```json
 {
@@ -67,11 +71,13 @@ worktree/
 }
 ```
 
-#### Spawn env 约定（2026-07-30）
+#### Spawn env 与执行边界（SEC-05，2026-10-26）
 
-`buildSessionEnv`（runner-params.ts）在 `process.env` 基础上补 `IS_SANDBOX=1`（host 已设则尊重 host）：cwd 的 `.claude/settings.json` 声明 `bypassPermissions` 时，claude `--resume` 续用会话会自注入 `--dangerously-skip-permissions`，而 root guard（`getuid()===0 && IS_SANDBOX!=="1"`）直接 exit 1 —— root 机器上同 WU 第 2+ step 曾全部秒败（2026-07-29 review WU 三连败实锤 + 最小复现验证）。IS_SANDBOX=1 是 CLI 预留的沙箱声明，不放宽任何权限（settings 本就声明 bypassPermissions）。
+`buildSessionEnv` 改为 `buildProviderSpawnEnv` 显式 allowlist：只带通用运行变量和当前 CLI/provider 的凭证、base URL/model；Deploy/JWT/Admin/通知等控制面秘密永不继承，`parameters.extraEnv` 也只接受固定非敏感执行元数据。`execSh` 同时传 `inheritProcessEnv:false`，避免底层默认合回完整宿主 env。`IS_SANDBOX=1` 仍只负责 Claude root guard，本身不作为隔离机制。
 
-`buildSessionEnv` 另按 provider 补 env（#147，2026-08-15）：provider=kimi 且 `<worktree>/.kimi-code/config.toml` 存在时注入 `KIMI_CODE_HOME=<worktree>/.kimi-code`（kimi 多 WU 隔离：per-worktree home 由 provider-hooks 生成，凭证软链复用 host，不动 HOME——PIT-019 教训）。home 未生成（kimi 未装/生成失败）则不注入，回落全局 home。
+`runner-lightweight` 每次真实 CLI 执行都经 `prepareAgentSandbox`：Linux root 下 `bwrap` 隔离 mount/PID/network + `setpriv` 降权，uid/gid/groups 均为 65534；worktree 可写采用快照恢复策略（预备时 gid 65534 group 写，dispose/失败恢复原 uid/gid/mode，含 `.git`），系统运行库、当前 provider、真实 harness shim/依赖和必要凭证只读。网络只经 Unix-socket egress broker 的 host+port allowlist；plain HTTP 由 broker 注入 Agent 不可去除的独立来源标记，loopback/Studio callback CONNECT 拒绝。初始化失败回滚身份/server/目录/权限，dispose 幂等。非 Linux 或无法建立独立 OS 身份时直接拒绝 spawn。worktree 内 `bypassPermissions`/hook 配置仍可被 Agent 改写，但不能扩大外层边界。短期单用途凭证能力未被 provider 证实：现有 provider token/OAuth 文件仍可能是长期可重放凭证，不宣称已变成短期凭证。
+
+provider=kimi 且 `<worktree>/.kimi-code/config.toml` 存在时仍注入 `KIMI_CODE_HOME=<worktree>/.kimi-code`；其 credentials/oauth 链接目标由沙箱按当前 provider 只读挂载，不再回退读取整个全局 home。
 
 ### 步内前置拦截层（#147，2026-08-15）
 

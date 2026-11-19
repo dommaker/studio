@@ -15,7 +15,7 @@
 
 **上游（本目录依赖）：**
 - `@dommaker/studio-shared`：提供 `FileStore`、`logger`
-- `../channels/channel-message.service.ts`：`channelMessageService`
+- `../channels/channel-message.service.ts`：`getChannelMessageService()`（惰性单例）
 - `../workunit/workunit.service.ts`：`WorkUnitService`（#550 起关闭走 `close()` 状态机单口，wu-closure 已删）
 - `../../utils/logger.ts`：logger
 - `express`、`crypto` 等标准库
@@ -26,7 +26,7 @@
 ### 注意事项
 
 - **worktrees 目录口径（P2-e）**：`progress` 子命令读 `<worktreesDir>/<execId>/.progress.json`，目录解析 `WORKTREES_DIR > studioPath('worktrees')`（契约 §8 双口径收编；progress 文件是 CLI 进程产物，FileStore 不管）。
-- 签名验证必须优先于任何业务逻辑，Discord 会通过无效签名请求检测服务器是否验证
+- 签名验证必须优先于任何业务逻辑，Discord 会通过无效签名请求检测服务器是否验证；SEC-09 起 Ed25519 通过后要求 timestamp 距当前不超过 300s（过去/未来均拒绝），合法 interaction 必须带 id。`discord-interaction:<id>` 在业务日志、WU 写、消息响应前经 core `ReplayGuard` 原子 claim；24h 内已完成重放只回首个缓存响应，processing 无 TTL、重放恒 409，均不重复业务副作用。complete 失败回 503 且不 release；可能部分成功的业务异常缓存错误响应、不自动重试。只有明确零写入路径（progress 只读失败、stop 首个业务写前的 getIndex 失败、未知类型）可 release；确定性校验/业务拒绝按完成记录。业务副作用后、complete 前崩溃会留下 processing，须人工核对实际结果，不能自动恢复执行。
 - 必须配置环境变量 `DISCORD_PUBLIC_KEY`，否则交互端点返回 500
 - `triggerRequirement` 依赖 `#研发` 频道存在，否则抛出错误
 - WorkUnit 创建时 `creationMode` 标记为 `'discord'`，用于区分来源

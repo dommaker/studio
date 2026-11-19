@@ -19,7 +19,7 @@ describe('useActivityMessageItems — #416 消息摘要投影', () => {
       msg('m1', { workUnitId: 'wu-1' }),
       msg('m2', { authorType: 'human', workUnitId: 'wu-1' }),
       msg('m3'),
-      msg('m4', { meta: JSON.stringify({ cardType: 'analysis_confirm' }), workUnitId: 'wu-1', content: '第一行\n第二行' }),
+      msg('m4', { meta: { cardType: 'analysis_confirm' }, workUnitId: 'wu-1', content: '第一行\n第二行' }),
     ];
     const { result } = renderHook(() => useActivityMessageItems(messages));
     expect(result.current.map(i => i.id)).toEqual(['m1', 'm4']);

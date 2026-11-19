@@ -23,6 +23,8 @@ export interface ReviewContractIssue {
   message: string;
   file?: string;
   line?: number;
+  /** #720：整体评审拒绝问题绑定的交付腿分支。 */
+  leg?: string;
 }
 
 /** REVIEW_RESULT 行 JSON 的规范形状（reviewer 输出契约） */
@@ -40,5 +42,5 @@ export interface ReviewResultBlock {
 export interface ParsedReviewReport {
   approved: boolean;
   reason?: string;
-  issues?: Array<{ severity: string; message: string }>;
+  issues?: Array<{ severity: string; message: string; leg?: string }>;
 }

@@ -1,7 +1,10 @@
 /**
- * tsc-gate — baseline-aware TypeScript type check (core logic)
+ * tsc-gate — TypeScript 类型门禁（核心逻辑）
  *
- * Called by bin/tsc-gate.sh. Use --update-baseline to rebuild the baseline.
+ * Called by bin/tsc-gate.sh. 对目标包逐包跑 tsc，任一错误即拦截。
+ * （2026-10 #694：baseline 比对 / surgical 自动更新 / strict 模式删除——
+ *  .tsc-baseline.json 的 totalErrors 自 2026-07 起恒为 0，整套机制空转，
+ *  实际等价于逐包跑 tsc；本文件即该等价物的直白写法。）
  */
 
 const { execSync } = require('child_process');
@@ -13,19 +16,16 @@ function opt(name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] :
 
 const PKGS = [
   'apps/api', 'apps/web',
-  'packages/studio-shared', 'packages/studio-agent',
-  'packages/studio-skill', 'packages/studio-spec', 'packages/studio-audit',
-  'packages/studio-notification',
+  'packages/studio-contract', 'packages/studio-shared', 'packages/studio-agent',
+  'packages/studio-skill',
 ];
-
-// ── Helpers ──
 
 // solution 风格 tsconfig（files:[] + references，如 apps/web）：
 // `tsc --noEmit -p` 对它不检查任何文件（盲转），必须用 `tsc -b` 才与
 // CI（apps/web: tsc -b && vite build）等价 —— 2026-08-08 合并产生 4 个类型错误漏检事故
-function isSolutionStyleTsconfig(pkg) {
+function isSolutionStyleTsconfig(configFile) {
   try {
-    const cfg = JSON.parse(fs.readFileSync(`${pkg}/tsconfig.json`, 'utf-8'));
+    const cfg = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
     return Array.isArray(cfg.files) && cfg.files.length === 0 &&
       Array.isArray(cfg.references) && cfg.references.length > 0;
   } catch {
@@ -33,13 +33,13 @@ function isSolutionStyleTsconfig(pkg) {
   }
 }
 
-function runTsc(pkg) {
-  const solution = isSolutionStyleTsconfig(pkg);
+function runTsc(configFile) {
+  const solution = isSolutionStyleTsconfig(configFile);
   try {
     const out = execSync(
       solution
-        ? `npx tsc -b "${pkg}/tsconfig.json" --pretty false 2>&1`
-        : `npx tsc --noEmit --project "${pkg}/tsconfig.json" --pretty false 2>&1`,
+        ? `npx tsc -b "${configFile}" --pretty false 2>&1`
+        : `npx tsc --noEmit --project "${configFile}" --pretty false 2>&1`,
       { encoding: 'utf-8', stdio: 'pipe', timeout: solution ? 120000 : 30000, maxBuffer: 10 * 1024 * 1024 },
     );
     return out;
@@ -60,123 +60,42 @@ function parseErrors(tscOutput) {
   return errors;
 }
 
-function errorKey(e) {
-  return `${e.file}:${e.line}:${e.code}`;
-}
-
-// ── Update Baseline ──
-
-if (flag('--update-baseline')) {
-  const baselineFile = opt('--baseline') || '.tsc-baseline.json';
-  const baseline = {};
-
-  for (const pkg of PKGS) {
-    const out = runTsc(pkg);
-    const errors = parseErrors(out);
-    if (errors.length > 0) baseline[pkg] = errors;
-  }
-
-  let total = 0;
-  for (const v of Object.values(baseline)) total += v.length;
-
-  baseline._meta = {
-    generated: new Date().toISOString(),
-    totalErrors: total,
-    commit: execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim(),
-  };
-
-  fs.writeFileSync(baselineFile, JSON.stringify(baseline, null, 2));
-  const pkgCount = Object.keys(baseline).filter(k => k !== '_meta').length;
-  console.log(`✅ Baseline updated: ${total} errors across ${pkgCount} packages`);
-  process.exit(0);
-}
-
 // ── Check Gate ──
 
 if (flag('--check')) {
-  const strict = flag('--strict');
-  const baselineFile = opt('--baseline') || '.tsc-baseline.json';
-  let packages = opt('--packages').split(',').filter(Boolean);
+  const packages = opt('--packages').split(',').filter(Boolean);
+  const targets = packages.length > 0 ? packages : PKGS;
+  console.log(`   Packages: ${targets.join(', ')}`);
 
-  if (packages.length === 0) {
-    if (!strict) {
-      console.log('ℹ️  No packages to check');
-      process.exit(0);
-    }
-    packages = PKGS; // strict 默认全量包
-  }
-
-  if (strict) {
-    console.log('   ⚡ strict 模式：忽略 baseline，所有现存错误均拦截（合并/大重构后使用）');
-  }
-  console.log(`   Packages: ${packages.join(', ')}`);
-
-  // Load baseline（strict 模式跳过：baseline 只拦新增错误，会掩盖合并引入的存量错误）
-  let baseline = {};
-  if (!strict && fs.existsSync(baselineFile)) {
-    baseline = JSON.parse(fs.readFileSync(baselineFile, 'utf-8'));
-  } else if (!strict) {
-    console.log('⚠️  No baseline file — treating ALL errors as new');
-  }
-
-  let totalNew = 0;
-  let totalFixed = 0;
-  const newErrors = [];
-
-  for (const pkg of packages) {
-    if (!PKGS.includes(pkg)) continue;
-    if (!fs.existsSync(`${pkg}/tsconfig.json`)) continue;
-
-    const out = runTsc(pkg);
-    const current = parseErrors(out);
-
-    // Build baseline key set for this package
-    const baselined = (baseline[pkg] || []).map(e => errorKey(e));
-    const baselineSet = new Set(baselined);
-
-    // Find new errors (in current but not in baseline)
-    const currentKeys = current.map(e => errorKey(e));
-    const newForPkg = currentKeys.filter(k => !baselineSet.has(k));
-
-    // Count fixed (in baseline but not in current)
-    const currentSet = new Set(currentKeys);
-    const fixedForPkg = baselined.filter(k => !currentSet.has(k)).length;
-
-    if (newForPkg.length > 0) {
-      totalNew += newForPkg.length;
-      for (const key of newForPkg) {
-        const err = current.find(e => errorKey(e) === key);
-        newErrors.push(`${err.file}:${err.line}: ${err.code}`);
+  const errors = [];
+  for (const pkg of targets) {
+    const configs = [`${pkg}/tsconfig.json`];
+    // 类型负例（@ts-expect-error）需独立配置：主 tsconfig 刻意排除测试源码。
+    if (fs.existsSync(`${pkg}/tsconfig.type-tests.json`)) configs.push(`${pkg}/tsconfig.type-tests.json`);
+    for (const config of configs) {
+      if (!fs.existsSync(config)) continue;
+      for (const e of parseErrors(runTsc(config))) {
+        errors.push(`${e.file}:${e.line}: ${e.code}`);
       }
     }
-
-    if (fixedForPkg > 0) {
-      totalFixed += fixedForPkg;
-      const blCount = baselined.length;
-      const curCount = currentKeys.length;
-      console.log(`✅ ${pkg}: ${fixedForPkg} fewer error(s) (${blCount} → ${curCount})`);
-    }
   }
 
-  if (totalNew > 0) {
+  if (errors.length > 0) {
     console.log('');
     console.log('======================================================');
-    console.log('  NEW TYPESCRIPT ERRORS DETECTED — COMMIT BLOCKED');
+    console.log('  TYPESCRIPT ERRORS DETECTED — COMMIT BLOCKED');
     console.log('======================================================');
     console.log('');
-    console.log('  These errors are NOT in .tsc-baseline.json:');
-    console.log('');
-    for (const e of newErrors.slice(0, 20)) {
+    for (const e of errors.slice(0, 20)) {
       console.log(`  ${e}`);
     }
-    if (newErrors.length > 20) {
-      console.log(`  ... and ${newErrors.length - 20} more`);
+    if (errors.length > 20) {
+      console.log(`  ... and ${errors.length - 20} more`);
     }
     console.log('');
     console.log('  ── Fix instructions ──');
-    console.log('  1. Fix the new type errors');
-    console.log('  2. Update baseline: bin/tsc-gate.sh --update-baseline');
-    console.log('  3. Re-stage and re-commit');
+    console.log('  1. Fix the type errors');
+    console.log('  2. Re-stage and re-commit');
     console.log('');
     console.log('  ── Emergency skip ──');
     console.log('  TSC_GATE_OFF=1 git commit -m "..."');
@@ -184,46 +103,10 @@ if (flag('--check')) {
     process.exit(1);
   }
 
-  // Auto-update baseline: surgical per-package update (no full rebuild).
-  // Full rebuilds shift line numbers in unrelated packages → false "new" errors.
-  if (totalFixed > 0) {
-    console.log(`♻️  ${totalFixed} errors fixed — auto-updating baseline...`);
-
-    // Only rebuild packages that were checked (affected by staged files)
-    for (const pkg of packages) {
-      if (!PKGS.includes(pkg)) continue;
-      if (!fs.existsSync(`${pkg}/tsconfig.json`)) continue;
-
-      const out = runTsc(pkg);
-      const current = parseErrors(out);
-      if (current.length > 0) {
-        baseline[pkg] = current;
-      } else {
-        delete baseline[pkg]; // package is now clean
-      }
-    }
-
-    // Recalculate _meta totals from existing baseline entries
-    let total = 0;
-    for (const k of Object.keys(baseline)) {
-      if (k === '_meta') continue;
-      total += (baseline[k] || []).length;
-    }
-    baseline._meta = {
-      generated: new Date().toISOString(),
-      totalErrors: total,
-      commit: execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim(),
-    };
-
-    fs.writeFileSync(baselineFile, JSON.stringify(baseline, null, 2));
-    try { execSync(`git add "${baselineFile}"`, { stdio: 'pipe' }); } catch {}
-    console.log(`✅ Baseline auto-updated: ${total} errors`);
-  } else {
-    console.log('✅ tsc-gate: no new errors detected');
-  }
+  console.log('✅ tsc-gate: no errors detected');
   process.exit(0);
 }
 
 // Fallback: show usage
-console.log('Usage: tsc-gate.mjs --update-baseline | --check [--strict] --baseline <file> --packages <pkgs>');
+console.log('Usage: tsc-gate.js --check [--packages <pkgs>]');
 process.exit(1);

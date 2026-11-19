@@ -13,30 +13,25 @@
  *   与统一视图同源走 CONSUMPTION_MODE_CHART 类别色文字 + 中性底。
  * Step 2（2026-09 web-ux-optional-fixes）：订阅 SSE knowledge.entry_changed（agent 产出/审批/他端新建）
  * → 当前 tab 防抖重拉；页面不可见不拉（记脏回 visible 补拉），无轮询。
+ * Phase 3 拆分（2026-10）：搜索结果卡/新建表单/统一视图工具行/条目卡列表/Gap 内容区抽
+ * components/knowledge/ 子组件，tab 错误条收敛 ui/SectionError（拆分来源见各子组件头注释），
+ * 本文件留数据接线 + tab 骨架。
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { knowledgeApi, type KnowledgeGapType, type KnowledgeSearchResult, type UnifiedEntry } from '../api/knowledge';
+import { knowledgeApi, type KnowledgeSearchResult, type UnifiedEntry } from '../api/knowledge';
 import { maintenanceApi } from '../api/maintenance';
 import { toast } from '../utils/toast';
 import { serverErrorMessage } from '../utils/errorMessage';
 import { useAsyncData } from '../hooks/useAsyncData';
-import { useWebSocketContext } from '../api/websocketHooks';
-import { Select, ManualTaskButton, Button, SkeletonCard } from '../components/ui';
+import { useSseContext } from '../api/sseHooks';
+import { ManualTaskButton, SectionError, SkeletonCard } from '../components/ui';
 import { IconBook } from '../components/ui/icons';
-import {
-  PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
-  DecisionChainCard, InteractionPatternCard, ResolutionCard,
-  MATURITY_BADGE_CLASSES,
-} from '../components/knowledge/GapCards';
-import { UnifiedEntryContent } from '../components/knowledge/UnifiedEntryContent';
-import { CONSUMPTION_MODE_CHART } from '../utils/knowledgeContent';
-import type {
-  PreferenceGap, BusinessRuleGap, EnvSnapshotGap,
-  DecisionChainGap, InteractionGap, ResolutionGap,
-} from '../components/knowledge/GapCards';
-
-type GapTab = 'preference' | 'business_rule' | 'environment' | 'decision_chain' | 'interaction' | 'resolution';
+import { KnowledgeSearchResults } from '../components/knowledge/KnowledgeSearchResults';
+import { ManualEntryForm, type ManualEntryFormState } from '../components/knowledge/ManualEntryForm';
+import { UnifiedViewToolbar } from '../components/knowledge/UnifiedViewToolbar';
+import { UnifiedEntriesSection } from '../components/knowledge/UnifiedEntriesSection';
+import { GapTabContent, type GapTab, type GapItem } from '../components/knowledge/GapTabContent';
 
 const gapLabels: Record<GapTab, string> = {
   preference: '偏好',
@@ -48,9 +43,6 @@ const gapLabels: Record<GapTab, string> = {
 };
 
 type ActiveTab = GapTab | 'unified';
-
-/** Gap tab 条目：六类缺口形状各异（卡片自行解读字段），仅 id 用于列表 key */
-type GapItem = { id?: string } & Record<string, unknown>;
 
 /** #350 useAsyncData 单通道按 tab 取数：unified / gap 两形态一次只拉激活 tab（对齐原 effect 分派） */
 type TabPayload =
@@ -74,11 +66,11 @@ export function KnowledgePage() {
   const [unifiedMode, setUnifiedMode] = useState('');
   // E5-1：「待审」筛选（maturity=draft，/knowledge/unified 原生支持 maturity 参数）
   const [reviewOnly, setReviewOnly] = useState(false);
-  // E5-3：追加式分页——首页走 tabQ（切 tab/筛选渲染期重置），追加页本地累加
-  const [moreEntries, setMoreEntries] = useState<UnifiedEntry[]>([]);
+  // E5-3 追加式分页（#692 单真相源）：追加页并进 tabQ 同一取数通道（见 handleLoadMore），
+  // 本地只留请求中锁存；切 tab/筛选/reload 由 useAsyncData deps 重置与整份替换天然丢弃旧快照追加页
   const [moreLoading, setMoreLoading] = useState(false);
   const [showManualEntry, setShowManualEntry] = useState(false);
-  const [manualForm, setManualForm] = useState({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
+  const [manualForm, setManualForm] = useState<ManualEntryFormState>({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
   // 工单 38: 新建条目提交中状态——Button loading 态防连点重复提交
   const [manualSaving, setManualSaving] = useState(false);
   // E5-1：draft 条目审批 pending 锁存
@@ -102,7 +94,7 @@ export function KnowledgePage() {
       const res = await knowledgeApi.listResolutions();
       return { kind: 'gap', items: (res.data.data.resolutions || []) as unknown as GapItem[] };
     }
-    const res = await knowledgeApi.listGaps(activeTab as KnowledgeGapType);
+    const res = await knowledgeApi.listGaps(activeTab);
     return { kind: 'gap', items: (res.data.data.data || []) as GapItem[] };
   }, [activeTab, unifiedMode, reviewOnly]);
   const costsQ = useAsyncData(() => maintenanceApi.getCosts(), []);
@@ -111,14 +103,13 @@ export function KnowledgePage() {
   // 载荷只带轻量元信息（action/entryId/title），不足以就地拼七种 tab 形状 → reload（保留旧数据重拉）。
   // 400ms trailing 防抖合并批量事件（review-adapter 逐条目审批会发一串）；
   // 页面不可见时不拉（零额外开销，useGatedPoll 精神），记脏待回 visible 补拉一次。无轮询。
-  const { onEvent } = useWebSocketContext();
+  const { onEvent } = useSseContext();
   const sseDirtyRef = useRef(false);
   const sseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reloadTab = tabQ.reload; // 引用稳定（useAsyncData 内 useCallback）
   useEffect(() => {
     const flush = () => {
-      setMoreEntries([]); // 追加页基于旧快照，首页重拉后失效（同切 tab 口径）
-      reloadTab();
+      reloadTab(); // 整份替换首页——旧快照的追加页随之失效（#692 单真相源，无需手动清）
     };
     const off = onEvent(msg => {
       if (msg.event_type !== 'knowledge.entry_changed') return;
@@ -164,28 +155,30 @@ export function KnowledgePage() {
 
   // 派生面（render 沿用原名）：unified / gap 形态按激活 tab 只有一侧有数据
   const unifiedLoading = tabQ.loading;
-  const baseEntries = tabQ.data?.kind === 'unified' ? tabQ.data.entries : [];
+  // #692 单真相源：首页 + 追加页都在 tabQ.data.entries（handleLoadMore 追加进同一通道）
+  const unifiedEntries = tabQ.data?.kind === 'unified' ? tabQ.data.entries : [];
   const unifiedTotal = tabQ.data?.kind === 'unified' ? tabQ.data.total : 0;
-  const unifiedEntries = moreEntries.length > 0 ? [...baseEntries, ...moreEntries] : baseEntries;
   const gapLoading = tabQ.loading;
   const gapData = tabQ.data?.kind === 'gap' ? tabQ.data.items : [];
   const costs = costsQ.data;
 
-  // E5-3: 真追加「加载更多」——offset = 已加载条数，按 id 去重拼接（对齐 E2 WU 列表 loadMoreWorkUnits 口径）
+  // E5-3: 真追加「加载更多」——offset = 已加载条数，按 id 去重拼接进 tabQ 同一通道（对齐 E2 WU 列表 loadMoreWorkUnits 口径）
   const handleLoadMore = async () => {
     if (moreLoading) return;
+    const loaded = tabQ.data?.kind === 'unified' ? tabQ.data.entries : [];
     setMoreLoading(true);
     try {
       const res = await knowledgeApi.listUnified({
         limit: UNIFIED_PAGE_SIZE,
-        offset: baseEntries.length + moreEntries.length,
+        offset: loaded.length,
         consumptionMode: unifiedMode || undefined,
         maturity: reviewOnly ? 'draft' : undefined,
       });
       const next = res.data.data.entries || [];
-      setMoreEntries(prev => {
-        const seen = new Set([...baseEntries, ...prev].map(e => e.id));
-        return [...prev, ...next.filter(e => !seen.has(e.id))];
+      tabQ.setData(prev => {
+        if (prev?.kind !== 'unified') return prev;
+        const seen = new Set(prev.entries.map(e => e.id));
+        return { ...prev, entries: [...prev.entries, ...next.filter(e => !seen.has(e.id))] };
       });
     } catch (e) {
       // 批次A 模式：失败不静默（服务端 error.message 优先），已加载内容保留可重试
@@ -206,7 +199,6 @@ export function KnowledgePage() {
       tabQ.setData(prev => (prev?.kind === 'unified'
         ? { ...prev, entries: prev.entries.filter(e => e.id !== entryId), total: Math.max(0, prev.total - 1) }
         : prev));
-      setMoreEntries(prev => prev.filter(e => e.id !== entryId));
     } catch (e) {
       // 失败保留在列表中可重试 + toast 提示（服务端 error.message 优先）
       const m = serverErrorMessage(e);
@@ -246,27 +238,6 @@ export function KnowledgePage() {
     { id: 'unified', label: '统一视图' },
     ...(Object.entries(gapLabels) as [GapTab, string][]).map(([id, label]) => ({ id, label })),
   ];
-
-  // ── Gap type detail rendering ──
-  const renderGapItem = (item: GapItem) => {
-    switch (activeTab as GapTab) {
-      case 'preference':
-        return <PreferenceCard item={item as PreferenceGap} />;
-      case 'business_rule':
-        return <BusinessRuleCard item={item as BusinessRuleGap} />;
-      case 'environment':
-        return <EnvSnapshotCard item={item as EnvSnapshotGap} />;
-      case 'decision_chain':
-        return <DecisionChainCard item={item as DecisionChainGap} />;
-      case 'interaction':
-        return <InteractionPatternCard item={item as InteractionGap} />;
-      case 'resolution':
-        return <ResolutionCard item={item as ResolutionGap} />;
-      default:
-        // 六类 GapTab 全覆盖后此分支不可达；兜底同样消化呈现，不裸 JSON.stringify
-        return <UnifiedEntryContent content={JSON.stringify(item)} />;
-    }
-  };
 
   return (
     <div className="h-full flex flex-col u-page-bg">
@@ -314,42 +285,13 @@ export function KnowledgePage() {
 
           {searchActive ? (
             /* E5-2: 搜索态替换 tab 内容区（tab 栏一并收起），「清除」返回 tab 视图 */
-            <div className="card p-4 mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium u-text">
-                  搜索结果 ({searchResults.length})
-                </span>
-                <button onClick={clearSearch} className="u-btn-reset text-xs u-text-3">清除</button>
-              </div>
-              {searchResults.length === 0 ? (
-                <div className="empty-state text-sm">无匹配结果</div>
-              ) : (
-                <div className="space-y-2">
-                  {searchResults.map((r, i) => {
-                    // E5-5：类型徽标去 emoji，与统一视图同源——类别色文字 + 中性底，无映射归中性
-                    const chartIdx = CONSUMPTION_MODE_CHART[r.type];
-                    return (
-                    <div key={`${r.type}-${r.id}-${i}`} className="card p-3">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3"
-                          style={chartIdx != null ? { color: `var(--chart-${chartIdx})` } : undefined}>
-                          {r.type}
-                        </span>
-                        <span className="font-medium text-sm u-text">{r.title}</span>
-                      </div>
-                      <p className="text-xs u-text-3">{r.snippet}</p>
-                    </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <KnowledgeSearchResults results={searchResults} onClear={clearSearch} />
           ) : (
           <>
           {/* Tab bar — E5-4：去 emoji，激活态底线收进 .u-tab/.u-tab-active */}
           <div className="flex gap-1 mb-6 overflow-x-auto pb-1 border-b u-border">
             {tabs.map(tab => (
-              <button key={tab.id} onClick={() => { setActiveTab(tab.id); setMoreEntries([]); }}
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                 className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition-colors ${activeTab === tab.id ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}>
                 {tab.label}
               </button>
@@ -359,63 +301,21 @@ export function KnowledgePage() {
           {/* ── AS-022: Unified Knowledge Tab ── */}
           {/* 批次 F-1：tab 拉取失败错误条（tabQ.error 原先全程未渲染，落「暂无数据」假空态）+ tabQ.reload 重试 */}
           {!tabQ.loading && tabQ.error && (
-            <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
-              <span>{tabQ.error}</span>
-              <button onClick={tabQ.reload} className="btn btn-secondary btn-sm">重试</button>
-            </div>
+            <SectionError className="mb-3" error={tabQ.error} onRetry={tabQ.reload} />
           )}
           {activeTab === 'unified' && (
             <div>
-              <div className="flex gap-2 mb-4">
-                <Select value={unifiedMode} onChange={v => { setUnifiedMode(v); setMoreEntries([]); }}
-                  options={[
-                    { value: '', label: '全部类型' },
-                    { value: 'rule', label: '规则 (rule)' },
-                    { value: 'context', label: '上下文 (context)' },
-                    { value: 'signal', label: '信号 (signal)' },
-                    { value: 'reference', label: '参考 (reference)' },
-                  ]} />
-                {/* E5-1：「待审」筛选（maturity=draft） */}
-                <button onClick={() => { setReviewOnly(v => !v); setMoreEntries([]); }}
-                  className={`btn btn-sm ${reviewOnly ? 'btn-primary' : 'btn-secondary'}`}>
-                  待审
-                </button>
-                <span className="text-sm self-center u-text-3">
-                  {unifiedTotal} 条
-                </span>
-                <button onClick={() => setShowManualEntry(!showManualEntry)} className="ml-auto btn btn-primary">
-                  {showManualEntry ? '取消' : '+ 新建'}
-                </button>
-              </div>
+              <UnifiedViewToolbar
+                mode={unifiedMode}
+                onModeChange={setUnifiedMode}
+                reviewOnly={reviewOnly}
+                onToggleReview={() => setReviewOnly(v => !v)}
+                total={unifiedTotal}
+                showForm={showManualEntry}
+                onToggleForm={() => setShowManualEntry(!showManualEntry)}
+              />
               {showManualEntry && (
-                <div className="card p-4 mb-4">
-                  <div className="grid grid-cols-2 gap-3 mb-3">
-                    <Select value={manualForm.type} onChange={v => setManualForm({ ...manualForm, type: v })}
-                      options={[
-                        { value: 'guideline', label: '指南' },
-                        { value: 'pitfall', label: '踩坑' },
-                        { value: 'architecture', label: '架构' },
-                        { value: 'process', label: '流程' },
-                      ]} />
-                    <Select value={manualForm.consumptionMode} onChange={v => setManualForm({ ...manualForm, consumptionMode: v })}
-                      options={[
-                        { value: 'reference', label: '参考 (reference)' },
-                        { value: 'signal', label: '信号 (signal)' },
-                        { value: 'rule', label: '规则 (rule)' },
-                        { value: 'context', label: '上下文 (context)' },
-                      ]} />
-                  </div>
-                  <input type="text" placeholder="标题" value={manualForm.title} onChange={e => setManualForm({ ...manualForm, title: e.target.value })}
-                    className="input w-full mb-3" />
-                  <textarea placeholder="内容" value={manualForm.content} onChange={e => setManualForm({ ...manualForm, content: e.target.value })} rows={4}
-                    className="input w-full mb-3" />
-                  <input type="text" placeholder="标签（逗号分隔）" value={manualForm.tags} onChange={e => setManualForm({ ...manualForm, tags: e.target.value })}
-                    className="input w-full mb-3" />
-                  <Button onClick={handleManualEntry} disabled={!manualForm.title || !manualForm.content}
-                    loading={manualSaving} loadingLabel="保存中...">
-                    保存
-                  </Button>
-                </div>
+                <ManualEntryForm form={manualForm} setForm={setManualForm} saving={manualSaving} onSubmit={() => void handleManualEntry()} />
               )}
               {unifiedLoading ? (
                 // 批次 F-3：加载态骨架卡片行（批次 E-2 ui/Skeleton 正本）
@@ -442,91 +342,27 @@ export function KnowledgePage() {
                   )}
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {unifiedEntries.map((entry, i) => {
-                    // #435：类别维度不占状态色（§6.5）——chart 类别色文字 + 中性底，无映射归中性
-                    const chartIdx = CONSUMPTION_MODE_CHART[entry.consumptionMode ?? ''];
-                    const isDraft = entry.maturity === 'draft';
-                    return (
-                    <div key={entry.id || i} className="card p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        {/* E5-1：成熟度徽标（词表复用 ResolutionCard 状态色 MATURITY_BADGE_CLASSES） */}
-                        {entry.maturity && (
-                          <span className={`text-xs px-2 py-0.5 rounded ${MATURITY_BADGE_CLASSES[entry.maturity] || 'u-surface-2 u-text-3'}`}>
-                            {entry.maturity}
-                          </span>
-                        )}
-                        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3"
-                          style={chartIdx != null ? { color: `var(--chart-${chartIdx})` } : undefined}>
-                          {entry.consumptionMode}
-                        </span>
-                        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">
-                          {entry.source}
-                        </span>
-                        <span className="font-medium text-sm u-text">{entry.title}</span>
-                      </div>
-                      {/* draft 条目不显全文——UnifiedEntryContent 默认截断/消化摘要，审批按钮在卡底 */}
-                      <UnifiedEntryContent content={entry.content} />
-                      {entry.tags?.length > 0 && (
-                        <div className="flex gap-1 flex-wrap">
-                          {entry.tags.map((tag: string) => (
-                            <span key={tag} className="text-xs px-1.5 py-0.5 rounded u-surface-2 u-text-3">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {isDraft && (
-                        <div className="flex gap-2 mt-2">
-                          <button className="btn btn-primary btn-sm" disabled={actingIds.has(entry.id)}
-                            onClick={() => reviewEntry(entry.id, 'approve')}>
-                            {actingIds.has(entry.id) ? '处理中…' : '通过'}
-                          </button>
-                          <button className="btn btn-secondary btn-sm" disabled={actingIds.has(entry.id)}
-                            onClick={() => reviewEntry(entry.id, 'reject')}>
-                            {actingIds.has(entry.id) ? '处理中…' : '拒绝'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    );
-                  })}
-                  {/* E5-3：追加式分页页脚（对齐 E2 WU 列表口径） */}
-                  <div className="text-center mt-4">
-                    {unifiedTotal > unifiedEntries.length && (
-                      <button onClick={handleLoadMore} disabled={moreLoading} className="btn btn-secondary">
-                        {moreLoading ? '加载中...' : '加载更多'}
-                      </button>
-                    )}
-                    <div className="text-xs mt-2 u-text-3">已加载 {unifiedEntries.length} / 共 {unifiedTotal}</div>
-                  </div>
-                </div>
+                <UnifiedEntriesSection
+                  entries={unifiedEntries}
+                  total={unifiedTotal}
+                  actingIds={actingIds}
+                  onReview={(entryId, action) => void reviewEntry(entryId, action)}
+                  moreLoading={moreLoading}
+                  onLoadMore={() => void handleLoadMore()}
+                />
               )}
             </div>
           )}
 
           {/* ── Gap Type Tabs ── */}
           {activeTab !== 'unified' && (
-            <div>
-              {gapLoading ? (
-                // 批次 F-3：加载态骨架卡片行（批次 E-2 ui/Skeleton 正本）
-                <div className="space-y-3">
-                  <SkeletonCard height={88} />
-                  <SkeletonCard height={88} />
-                  <SkeletonCard height={88} />
-                </div>
-              ) : tabQ.error ? null : gapData.length === 0 ? (
-                <div className="empty-state">
-                  暂无{gapLabels[activeTab as GapTab]}数据。系统会自动从 Agent 执行/交互中积累。
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {gapData.map((item, i) => (
-                    <div key={item.id || i}>{renderGapItem(item)}</div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <GapTabContent
+              loading={gapLoading}
+              error={tabQ.error}
+              activeTab={activeTab}
+              tabLabel={gapLabels[activeTab]}
+              items={gapData}
+            />
           )}
           </>
           )}
@@ -535,5 +371,3 @@ export function KnowledgePage() {
     </div>
   );
 }
-
-export default KnowledgePage;

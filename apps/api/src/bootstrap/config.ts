@@ -4,9 +4,11 @@
 // PORT/HOST 解析——原文件即此口径，保持零漂移）。
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '@dommaker/studio-shared';
+
 import { studioDir as resolveStudioDir, warnIfNonProdUsesProdRoot } from '@dommaker/studio-shared/studio-dir';
-import { resolveListenHost } from '../utils/listen-host.js';
+import { resolveListenHost } from '../cli/listen-host.js';
+import { assertExposurePolicy } from './exposure-policy.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 let PORT: string | number = 3001;
 let HOST = '127.0.0.1';
@@ -41,13 +43,12 @@ function loadConfig(): void {
 }
 
 export function initConfig(): void {
+  loadConfig();
   PORT = process.env.PORT || 3001;
-  // 2026-08-25 安全收口：默认只绑回环（服务器模式经 nginx 同机反代，npm 自托管
-  // 模式只允许本机）；none 免登录模式绑非回环会被 resolveListenHost 拒启。
   HOST = resolveListenHost(process.env);
+  assertExposurePolicy({ ...process.env, HOST });
   // 软护栏：非 production 指向生产缺省根时启动落 warning（幂等，显式触发不靠间接 import 链）
   warnIfNonProdUsesProdRoot();
-  loadConfig();
 }
 
 export function getPort(): string | number {

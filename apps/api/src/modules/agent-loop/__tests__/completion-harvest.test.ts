@@ -8,7 +8,7 @@ import {
   COMPLETION_HARVEST_REGISTRY,
   type CompletionHarvestContext,
 } from '../completion-harvest';
-import type { WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 function ctx(overrides: Partial<CompletionHarvestContext> = {}): CompletionHarvestContext {
   return { wuId: 'wu-1', wuType: 'task', metadata: {} as WorkUnitMetadata, ...overrides };
@@ -32,6 +32,11 @@ describe('harvestCompletionMetadata', () => {
         name: 'REVIEW_RESULT reject 行 → reviewReport.approved=false',
         text: 'REVIEW_RESULT: {"verdict":"reject","summary":"缺测试"}',
         expected: { reviewReport: { approved: false, reason: '缺测试', issues: undefined } },
+      },
+      {
+        name: '#720 reject issue 保留交付腿，供修复 WU 精确分腿',
+        text: 'REVIEW_RESULT: {"verdict":"reject","issues":[{"severity":"error","message":"接口不一致","leg":"PMO-1-a"}]}',
+        expected: { reviewReport: { approved: false, reason: undefined, issues: [{ severity: 'error', message: '接口不一致', leg: 'PMO-1-a' }] } },
       },
       {
         name: '无 REVIEW_RESULT 且无 verdict 关键词 → 空（转人工，不误拒）',
@@ -95,6 +100,33 @@ describe('harvestCompletionMetadata', () => {
       },
     ])('$name', ({ text, metadata, expected }) => {
       expect(harvestCompletionMetadata(text, ctx({ wuType, metadata: metadata as WorkUnitMetadata }))).toEqual(expected);
+    });
+  });
+
+  it('#700：plan 的 TASK 逐条收割 AC，同时保留字符串任务清单', () => {
+    expect(harvestCompletionMetadata(
+      'TASK: 实现存储层 | AC: 单测覆盖 | AC: 通过 typecheck\nTASK: 接通派工 | AC: 子单可认领',
+      ctx({ wuType: 'plan' }),
+    )).toEqual({
+      analysisTasks: ['实现存储层', '接通派工'],
+      analysisTaskDetails: [
+        { title: '实现存储层', ac: ['单测覆盖', '通过 typecheck'], blockedBy: [] },
+        { title: '接通派工', ac: ['子单可认领'], blockedBy: [] },
+      ],
+    });
+  });
+
+  it('#701：plan 收割 LEG/none 依赖；重复 LEG 留下缺失归属供确认澄清', () => {
+    expect(harvestCompletionMetadata(
+      'TASK: 实现存储层 | LEG: /repo/api | AC: 单测覆盖 | BLOCKEDBY: none\n'
+      + 'TASK: 歧义任务 | LEG: /repo/api | LEG: /repo/web | AC: 不派生 | BLOCKEDBY: wu-1',
+      ctx({ wuType: 'plan' }),
+    )).toEqual({
+      analysisTasks: ['实现存储层', '歧义任务'],
+      analysisTaskDetails: [
+        { title: '实现存储层', ac: ['单测覆盖'], leg: '/repo/api', blockedBy: [] },
+        { title: '歧义任务', ac: ['不派生'], blockedBy: ['wu-1'] },
+      ],
     });
   });
 

@@ -10,8 +10,9 @@
 
 import { execSync } from 'child_process';
 import { createHash } from 'node:crypto';
-import { logger } from '@dommaker/studio-shared';
+
 import { sharedStore, sharedLifecycle, sharedIngest, scheduleVectorDbSync } from './knowledge-singletons.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 export type KnowledgeSource =
   | 'monitor' | 'auditor' | 'ops' | 'kk' | 'triage'

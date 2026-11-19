@@ -33,7 +33,7 @@ const replyTo: ChannelMessage = {
   agentName: 'pm-agent',
   content: '上游结论',
   replyToId: null,
-  meta: '{}',
+  meta: {},
   createdAt: new Date().toISOString(),
 };
 

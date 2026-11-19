@@ -6,20 +6,36 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { AuthSession, AuthUser } from '@dommaker/studio-contract';
 import { authApi } from '../api';
+import { serverErrorMessage } from '../utils/errorMessage';
 
-export interface User {
-  id: string;
-  email: string;
+export type User = Pick<AuthUser, 'id' | 'email'> & Partial<Pick<AuthUser, 'createdAt'>> & {
   name?: string;
   avatar?: string;
   role: 'Guest' | 'User' | 'Admin';
-  createdAt?: string;
+};
+
+export type Session = Pick<AuthSession, 'id' | 'expiresAt'>;
+
+function normalizeRole(role: string): User['role'] {
+  if (role === 'Guest' || role === 'User' || role === 'Admin') return role;
+  return 'Guest';
 }
 
-export interface Session {
-  id: string;
-  expiresAt: string;
+function normalizeUser(user: AuthUser): User {
+  return {
+    id: user.id,
+    email: user.email,
+    role: normalizeRole(user.role),
+    ...(user.name !== null ? { name: user.name } : {}),
+    ...(user.avatar !== null ? { avatar: user.avatar } : {}),
+    createdAt: user.createdAt,
+  };
+}
+
+function normalizeSession(session: AuthSession): Session {
+  return { id: session.id, expiresAt: session.expiresAt };
 }
 
 interface AuthState {
@@ -85,18 +101,18 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         try {
           const guestId = get().guestId || generateGuestId();
-          // { data } 壳（契约驱动批次 6/7）；AuthUser.role 为 string，as User 收回词表
+          // { data } 壳（契约驱动批次 6/7）；nullable/role 在 store 边界归一
           const data = (await authApi.createGuestSession(guestId)).data.data;
 
           set({
             token: data.token,
-            session: { id: data.session.id, expiresAt: data.session.expiresAt },
-            user: data.user ? (data.user as User) : { id: guestId, email: '', role: 'Guest' },
+            session: normalizeSession(data.session),
+            user: data.user ? normalizeUser(data.user) : { id: guestId, email: '', role: 'Guest' },
             guestId,
             isLoading: false,
           });
         } catch (e) {
-          set({ error: e.response?.data?.error?.message || e.message || '创建 Session 失败', isLoading: false });
+          set({ error: serverErrorMessage(e) || (e instanceof Error ? e.message : undefined) || '创建 Session 失败', isLoading: false });
         }
       },
 
@@ -109,13 +125,13 @@ export const useAuthStore = create<AuthState>()(
           const data = (await authApi.checkAuth()).data.data;
 
           if (data.user) {
-            set({ user: data.user as User, isLoading: false });
+            set({ user: normalizeUser(data.user), isLoading: false });
           } else {
             set({ isLoading: false });
             await get().createGuestSession();
           }
         } catch (e) {
-          set({ error: e.response?.data?.error?.message || e.message, isLoading: false });
+          set({ error: serverErrorMessage(e) || (e instanceof Error ? e.message : null), isLoading: false });
           await get().createGuestSession();
         }
       },
@@ -129,13 +145,13 @@ export const useAuthStore = create<AuthState>()(
           set({
             token: data.token,
             refreshToken: data.refreshToken || null,
-            user: (data.user as User) ?? null,
-            session: { id: data.session.id, expiresAt: data.session.expiresAt },
+            user: data.user ? normalizeUser(data.user) : null,
+            session: normalizeSession(data.session),
             isLoading: false,
           });
           return true;
         } catch (e) {
-          set({ error: e.response?.data?.error?.message || e.message || '登录失败', isLoading: false });
+          set({ error: serverErrorMessage(e) || (e instanceof Error ? e.message : undefined) || '登录失败', isLoading: false });
           return false;
         }
       },
@@ -148,13 +164,13 @@ export const useAuthStore = create<AuthState>()(
           set({
             token: data.token,
             refreshToken: data.refreshToken || null,
-            user: (data.user as User) ?? null,
-            session: { id: data.session.id, expiresAt: data.session.expiresAt },
+            user: data.user ? normalizeUser(data.user) : null,
+            session: normalizeSession(data.session),
             isLoading: false,
           });
           return true;
         } catch (e) {
-          set({ error: e.response?.data?.error?.message || e.message || '注册失败', isLoading: false });
+          set({ error: serverErrorMessage(e) || (e instanceof Error ? e.message : undefined) || '注册失败', isLoading: false });
           return false;
         }
       },
@@ -174,14 +190,17 @@ export const useAuthStore = create<AuthState>()(
         try {
           const data = (await authApi.fetchMe()).data.data;
           if (data.user) {
-            set({ user: data.user as User, session: data.session });
+            set({
+              user: normalizeUser(data.user),
+              session: data.session ? normalizeSession(data.session) : null,
+            });
           }
         } catch (e) {
           console.error('Fetch me error:', e);
         }
       },
 
-      getAuthHeader: () => {
+      getAuthHeader: (): Record<string, string> => {
         const token = get().token;
         if (!token) return {};
         return { Authorization: `Bearer ${token}` };

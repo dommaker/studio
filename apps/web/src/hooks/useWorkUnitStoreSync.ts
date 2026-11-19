@@ -7,28 +7,28 @@
 //   workunit:removed（#538）→ removeWorkunit
 // 与 B1 主动写（gateWriter 响应体双写）同口径——同一组 store action 是「单份 upsert」的完整含义
 // （ADR 2026-09-15-web-gate-write-module 决策 2）。
-// 挂载点：App 级单点（App.tsx WebSocketProvider 内，同 useRequirementChainStoreSync 位置）。
+// 挂载点：App 级单点（App.tsx SseProvider 内，同 useRequirementChainStoreSync 位置）。
 // 重连兜底门槛 = store listOnScreen（#557 真实在屏信号，WorkUnitListPage 挂载/卸载维护）——
 // 空列表代理已废：用户坐在 ListPage 但列表为空（过滤无结果/首拉失败留空）时重连照刷，
 // 复原 #549 收口前页面级 onReconnect 无条件重拉的语义；不加轮询（pollIntervalMs=0 停用，维持现状）。
-import { type WebSocketMessage } from '../api/websocketHooks';
+import { type SseMessage } from '../api/sseHooks';
+import { isSseEvent } from '../api/sseParser';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { useDataPlaneSync } from './useDataPlaneSync';
-import type { WorkUnit } from '../api/workunit';
 
-function handleWorkUnitEvent(msg: WebSocketMessage) {
+function handleWorkUnitEvent(msg: SseMessage) {
   const store = useWorkUnitStore.getState();
 
-  if (msg.event_type === 'workunit:removed') {
+  if (isSseEvent(msg, 'workunit:removed')) {
     // #538：负载 { id, channelId }，缺 id 属畸形 fail-closed 跳过
-    const data = msg.data as { id?: string } | null | undefined;
-    if (typeof data?.id === 'string' && data.id) store.removeWorkunit(data.id);
+    const wuId = msg.data?.id;
+    if (wuId) store.removeWorkunit(wuId);
     return;
   }
 
-  if (msg.event_type !== 'workunit.status_changed' && msg.event_type !== 'workunit.created') return;
+  if (!isSseEvent(msg, 'workunit.status_changed', 'workunit.created')) return;
   // 负载 = { workunit } 信封全量快照（同 workunitApi.get 形状）；缺 workunit 属畸形跳过
-  const wu = (msg.data as { workunit?: WorkUnit | null } | null | undefined)?.workunit;
+  const wu = msg.data?.workunit;
   if (!wu) return;
   store.applyWorkunitEvent(wu, { insertIfMissing: msg.event_type === 'workunit.created' });
   if (msg.event_type === 'workunit.created') store.markWuFresh(wu.id);

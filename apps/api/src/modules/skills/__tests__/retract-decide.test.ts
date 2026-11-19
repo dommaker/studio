@@ -10,7 +10,7 @@ const { mockUpdateMessageMeta } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { updateMessageMeta: mockUpdateMessageMeta },
+  getChannelMessageService: () => ({ updateMessageMeta: mockUpdateMessageMeta }),
   ChannelMessageService: vi.fn(),
 }));
 

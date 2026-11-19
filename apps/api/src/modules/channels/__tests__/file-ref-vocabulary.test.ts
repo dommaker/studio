@@ -18,7 +18,7 @@ import {
   listChannelReqPmoProjects,
   type FileRefVocabularyDeps,
 } from '../file-ref-vocabulary.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 let tmpDir: string;
 let fileStore: FileStore;

@@ -1,9 +1,10 @@
 /**
  * build.ts 单元测试：合成 DiscoveredRoute fixture 装配文档，断言 OpenAPI 结构语义
- * （参数/requestBody/security/204/通用壳回退/排序/undocumented 透传）。不建路由表。
+ * （参数/requestBody/security/204/route meta 响应/排序/undocumented 透传）。不建路由表。
  */
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
+import { dataBodySchema } from '@dommaker/studio-contract';
 import { buildOpenApiDocument } from '../build.js';
 import type { DiscoveredRoute, SkippedRoute } from '../discover.js';
 
@@ -22,7 +23,10 @@ const fixtures: DiscoveredRoute[] = [
     path: '/api/v1/fixture/items',
     meta: {
       status: 200,
-      schema: { query: z.object({ q: z.string().optional(), page: z.string() }) },
+      schema: {
+        query: z.object({ q: z.string().optional(), page: z.string() }),
+        response: dataBodySchema(z.object({ items: z.array(z.string()) })),
+      },
     },
   }),
   route({
@@ -31,7 +35,10 @@ const fixtures: DiscoveredRoute[] = [
     auth: 'authNotGuest',
     meta: {
       status: 201,
-      schema: { body: z.object({ name: z.string().min(1) }) },
+      schema: {
+        body: z.object({ name: z.string().min(1) }),
+        response: dataBodySchema(z.object({ name: z.string() })),
+      },
     },
   }),
   route({
@@ -84,13 +91,44 @@ describe('buildOpenApiDocument（合成 fixture）', () => {
     expect(get.responses['401']).toBeUndefined();
   });
 
-  it('204 无响应体；未映射端点退化通用 { data } 壳并如实标注', () => {
+  it('204 无响应体；route meta response 派生逐字段成功壳', () => {
     const del = doc.paths['/api/v1/fixture/items/{id}'].delete;
     expect(del.responses['204'].content).toBeUndefined();
     const get = doc.paths['/api/v1/fixture/items'].get;
     const schema = get.responses['200'].content['application/json'].schema;
     expect(schema.required).toEqual(['data']);
-    expect(schema.description).toContain('统一成功壳');
+    expect(schema.properties.data.properties.items).toBeDefined();
+  });
+
+  it('显式例外不伪装成 envelope：附件为文件流，Spec/审计导出为裸数组', () => {
+    const document = buildOpenApiDocument([
+      route({ method: 'get', path: '/api/v1/channels/:id/attachments/:attachmentId' }),
+      route({ method: 'get', path: '/api/v1/specs/:id/changes/export' }),
+      route({ method: 'get', path: '/api/v1/audit-logs/export' }),
+    ], []);
+
+    const attachmentContent = document.paths['/api/v1/channels/{id}/attachments/{attachmentId}']
+      .get.responses['200'].content;
+    expect(attachmentContent['application/json']).toBeUndefined();
+    expect(attachmentContent['application/octet-stream'].schema)
+      .toMatchObject({ type: 'string', format: 'binary' });
+
+    for (const path of [
+      '/api/v1/specs/{id}/changes/export',
+      '/api/v1/audit-logs/export',
+    ]) {
+      const content = document.paths[path].get.responses['200'].content;
+      expect(content['application/octet-stream']).toBeUndefined();
+      const schema = content['application/json'].schema;
+      expect(schema.type).toBe('array');
+      expect(schema.properties).toBeUndefined();
+    }
+  });
+
+  it('无 response 且不在显式例外清单时拒绝生成，禁止通用壳静默退化', () => {
+    expect(() => buildOpenApiDocument([
+      route({ method: 'get', path: '/api/v1/fixture/missing-response' }),
+    ], [])).toThrow('Missing response schema or explicit override: GET /api/v1/fixture/missing-response');
   });
 
   it('全部 operation 带 operationId/tags/400/500；JSON 可稳定序列化', () => {

@@ -16,15 +16,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { eventBus, FileStore } from '@dommaker/studio-shared';
-import { NotificationService } from '@dommaker/studio-notification';
+import { NotificationService } from '../../notifications/index.js';
 import { initPmoProgressRollup, syncProjectProgress, syncProjectProgressByReqId, parseWuMetaPmoId, waitForPmoProgressRollupSettled } from '../progress-rollup.js';
 import { projectService, PROJECT_STATUS, type ProjectData } from '../project.service.js';
 import { RequirementService } from '../../requirements/requirement.service.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 /** 三层证据齐全的 metadata（l1 自动验证 / l2 agent 评审 / l3 人工确认） */
 const att = (kind: string) => ({ verdict: 'approved', by: 'x', at: '2026-07-29T00:30:00Z', kind });
-const fullEvidence = { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } };
+const fullEvidence = {
+  mergeReceipt: {
+    id: 'merge-1', merged: true, mergedAt: '2026-07-29T00:45:00Z',
+    mergeCommit: 'c0ffee1234567890', targetBranch: 'PMO-1',
+    verification: { status: 'passed', ran: ['pnpm test'] },
+  },
+  attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') },
+};
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -111,7 +118,7 @@ describe('syncProjectProgress（B3a 进度回写）', () => {
     expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.IN_REVIEW);
   });
 
-  it('已 in_review 且证据仍缺 → 不动；证据补齐后重算 → 翻 completed（读取纠偏路径）', async () => {
+  it('已 in_review 且证据仍缺 → 不动；证据补齐后显式重算 → 翻 completed', async () => {
     const project = await createRealProject();
     await projectService.update(project.id, { status: PROJECT_STATUS.ACTIVE });
     await projectService.updateStatus(project.id, PROJECT_STATUS.IN_REVIEW);
@@ -121,7 +128,7 @@ describe('syncProjectProgress（B3a 进度回写）', () => {
     await syncProjectProgress(project.id, fileStore);
     expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.IN_REVIEW);
 
-    // 幂等补写证据（不产生状态事件），读取时重算纠偏
+    // 测试经显式同步验证证据补齐后的对账纠偏
     await wuService.update(wu.id, { metadata: fullEvidence });
     await syncProjectProgress(project.id, fileStore);
 

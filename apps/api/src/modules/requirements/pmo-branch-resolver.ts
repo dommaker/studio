@@ -7,20 +7,22 @@
  * 2026-08 归因统一：canonical metadata key = `pmoId`（创建期一次性落档，
  * 见 wu-pmo-attribution.ts）。解析链（两个逻辑级，逐级容错、逐级校验项目存在，
  * 全失败返回 null = 无 PMO 关联，调用方回落现状）：
- *   1. 创建期直读戳：metadata.pmoId ‖ metadata.ownershipProjectId（deprecated legacy 同位兼容读，同级）
+ *   1. 创建期直读戳：metadata.pmoId
  *   2. wu.reqId → Requirement（决策 4 别名感知）→ projectId → PMO
  * （2026-08 前的 ③ metadata.pmoProjectId 级已移除——那是 agent-loop 首 step 落档的
  *  冗余缓存，生产存量为零；本次修复 analysis 派生链 task WU（仅 pmoId、reqId=null）
  *  永远解析不到 PMO 分支、代码合并未走 PMO 集成分支的 bug。）
  *
- * #113 T7：显式多腿项目（resolveDeliveries > 1）按 WU→腿归属解析腿分支
- * （matchWuToLeg：workspaceRoot/worktreeBaseRepo 命中腿 gitRepo，或 pmoBranch
- * 命中腿 branch）；未命中任何腿回落项目级分支，单腿项目行为不变。
+ * #701：多腿按 WU→腿归属收集全部命中，必须唯一；未命中/歧义返回 null。
+ * 显式单腿命中使用腿 branch，合成单腿保留项目级分支旧行为。
  */
 import { FileStore } from '@dommaker/studio-shared';
-import type { DeliveryPolicy, ProjectData } from '../pmo/index.js';
-// P2-c 拆环：projectService/resolveDeliveries/resolveDeliveryPolicy/matchWuToLeg
-// 值引用转函数内动态 import（requirements→pmo 静态值边清零，类型边保留）
+import { isValidGitBranch } from '@dommaker/studio-contract';
+import {
+  projectReadPort,
+  type ProjectDeliveryPolicy,
+  type ProjectReadData,
+} from './project-read-port.js';
 import { RequirementService } from './requirement.service.js';
 import { parseWuPmoId } from './wu-pmo-attribution.js';
 
@@ -28,17 +30,17 @@ export interface PmoBranchResolution {
   projectId: string;
   /** PMO 分支名（gitBranch 缺省回落 pmoNumber——分支名 = PMO id） */
   branch: string;
-  deliveryPolicy: DeliveryPolicy;
+  deliveryPolicy: ProjectDeliveryPolicy;
 }
 
 export interface PmoBranchResolverDeps {
-  getProject?: (id: string) => Promise<ProjectData | null>;
+  getProject?: (id: string) => Promise<ProjectReadData | null>;
   getRequirement?: (reqId: string) => Promise<{ projectId?: string | null } | null>;
 }
 
 /**
  * 共享归因链（两个 resolve 投影的共同实现）：
- *   ① 创建期直读戳（metadata.pmoId ‖ legacy ownershipProjectId）→ 项目存在
+ *   ① 创建期直读戳（metadata.pmoId）→ 项目存在
  *   ② wu.reqId → Requirement.projectId（决策 4 别名感知由 getRequirement 实现侧保证）→ 项目存在
  * 逐级容错（单级读取失败/项目不存在 → 继续下一级），全失败返回 null = 无 PMO 归属。
  */
@@ -46,14 +48,12 @@ async function resolveAttribution(
   wu: { reqId?: string | null; metadata?: string | null },
   fileStore?: FileStore,
   deps?: PmoBranchResolverDeps,
-): Promise<ProjectData | null> {
-  // P2-c 拆环：requirements→pmo 静态值边转函数内动态 import（类型边保留）
-  const { projectService, resolveDeliveries, resolveDeliveryPolicy } = await import('../pmo/index.js');
-  const getProject = deps?.getProject ?? (async (id: string) => projectService.get(id));
+): Promise<ProjectReadData | null> {
+  const getProject = deps?.getProject ?? (async (id: string) => (await projectReadPort()).get(id));
   const getRequirement = deps?.getRequirement
     ?? (async (id: string) => new RequirementService(fileStore).get(id));
 
-  // 1. 创建期直读戳：metadata.pmoId ‖ legacy ownershipProjectId（同级，pmoId 优先）
+  // 1. 创建期直读戳：metadata.pmoId
   const stampedProjectId = parseWuPmoId(wu.metadata);
   if (stampedProjectId) {
     const project = await getProject(stampedProjectId).catch(() => null);
@@ -76,22 +76,19 @@ export async function resolvePmoBranchForWU(
   fileStore?: FileStore,
   deps?: PmoBranchResolverDeps,
 ): Promise<PmoBranchResolution | null> {
-  // P2-c 拆环：本函数也要用 resolveDeliveries/resolveDeliveryPolicy/matchWuToLeg（动态 import，与 resolveAttribution 同口径）
-  const { resolveDeliveries, resolveDeliveryPolicy, matchWuToLeg } = await import('../pmo/index.js');
+  const { resolveDeliveries, resolveDeliveryPolicy, matchWuToLeg } = await projectReadPort();
   const project = await resolveAttribution(wu, fileStore, deps);
   if (!project) return null;
-  // #113 T7：显式多腿项目按 WU→腿归属解析腿分支（matchWuToLeg：workspaceRoot/
-  // worktreeBaseRepo 命中腿 gitRepo，或 pmoBranch 命中腿 branch）；未命中任何腿
-  // 回落项目级 gitBranch || pmoNumber（与单腿同口径）。单腿项目不走腿归属，行为不变。
+  // #701：多腿必须唯一命中；显式单腿命中也使用腿 branch。缺失/歧义绝不回退项目首仓。
   const legs = resolveDeliveries(project);
-  if (legs.length > 1) {
-    const leg = legs.find(l => matchWuToLeg(wu.metadata, l));
-    if (leg?.branch) {
-      return { projectId: project.id, branch: leg.branch, deliveryPolicy: resolveDeliveryPolicy(project) };
-    }
-  }
-  const branch = project.gitBranch || project.pmoNumber;
-  if (!branch) return null;
+  const matches = legs.filter(leg => matchWuToLeg(wu.metadata, leg));
+  if (legs.length > 1 && matches.length !== 1) return null;
+  const branch = matches.length === 1
+    ? matches[0].branch
+    : legs.length === 1
+      ? project.gitBranch || project.pmoNumber
+      : null;
+  if (!branch || !isValidGitBranch(branch)) return null;
   return { projectId: project.id, branch, deliveryPolicy: resolveDeliveryPolicy(project) };
 }
 

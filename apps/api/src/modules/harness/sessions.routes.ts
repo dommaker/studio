@@ -24,6 +24,11 @@ import {
   sessionCreateBodySchema,
   sessionEventBodySchema,
   harnessIdParamsSchema,
+  estimateTokensResponseSchema,
+  sessionCreateResponseSchema,
+  sessionEventResponseSchema,
+  sessionGetResponseSchema,
+  sessionCheckpointResponseSchema,
 } from '@dommaker/studio-contract';
 import { loadHarness, harnessModule } from './runtime.js';
 
@@ -38,7 +43,7 @@ const HARNESS_UNAVAILABLE = () => new HttpError(503, 'SERVICE_UNAVAILABLE', 'Har
  * Estimate token count for text or objects
  */
 sessionsRoutes.post('/estimate-tokens', defineRoute(
-  { body: estimateTokensBodySchema },
+  { body: estimateTokensBodySchema, response: estimateTokensResponseSchema },
   async (_req, _res, { body }) => {
     const loaded = await loadHarness();
     if (!loaded) throw HARNESS_UNAVAILABLE();
@@ -70,7 +75,7 @@ const sessions = new Map<string, any>();
  * Create a new session
  */
 sessionsRoutes.post('/sessions', defineRoute(
-  { body: sessionCreateBodySchema },
+  { body: sessionCreateBodySchema, response: sessionCreateResponseSchema },
   async (_req, _res, { body }) => {
     const loaded = await loadHarness();
     if (!loaded) throw HARNESS_UNAVAILABLE();
@@ -88,7 +93,7 @@ sessionsRoutes.post('/sessions', defineRoute(
  * Append event to session
  */
 sessionsRoutes.post('/sessions/:id/events', defineRoute(
-  { params: harnessIdParamsSchema, body: sessionEventBodySchema },
+  { params: harnessIdParamsSchema, body: sessionEventBodySchema, response: sessionEventResponseSchema },
   async (_req, _res, { params, body }) => {
     const loaded = await loadHarness();
     if (!loaded) throw HARNESS_UNAVAILABLE();
@@ -107,7 +112,7 @@ sessionsRoutes.post('/sessions/:id/events', defineRoute(
  * Get session info
  */
 sessionsRoutes.get('/sessions/:id', defineRoute(
-  { params: harnessIdParamsSchema },
+  { params: harnessIdParamsSchema, response: sessionGetResponseSchema },
   async (_req, _res, { params }) => {
     const loaded = await loadHarness();
     if (!loaded) throw HARNESS_UNAVAILABLE();
@@ -129,7 +134,7 @@ sessionsRoutes.get('/sessions/:id', defineRoute(
  * Save session checkpoint
  */
 sessionsRoutes.post('/sessions/:id/checkpoint', defineRoute(
-  { params: harnessIdParamsSchema },
+  { params: harnessIdParamsSchema, response: sessionCheckpointResponseSchema },
   async (_req, _res, { params }) => {
     const loaded = await loadHarness();
     if (!loaded) throw HARNESS_UNAVAILABLE();

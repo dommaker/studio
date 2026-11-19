@@ -11,12 +11,24 @@ import fs from 'node:fs';
 const { mockExecSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
 }));
-vi.mock('child_process', () => ({ exec: vi.fn(), execSync: mockExecSync }));
+vi.mock('child_process', () => ({
+  // 健康探针已迁 execAsync（回调式 exec）：默认立即成功回调，兼容 2/3 参调用形态
+  exec: vi.fn((cmd: any, opts: any, cb: any) => {
+    const callback = typeof opts === 'function' ? opts : cb;
+    if (typeof callback === 'function') callback(null, '', '');
+  }),
+  execSync: mockExecSync,
+}));
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({ mockExecuteLightweight: vi.fn() }));
 vi.mock('@dommaker/studio-agent', () => ({
   agentRunner: { executeLightweight: mockExecuteLightweight },
 }));
+
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -56,7 +68,9 @@ import {
   resolveDailyTokenBudget,
   tokenBudgetGuardEnabled,
 } from '../daily-token-budget';
-import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 const mockRole = {
   id: 'role-budget',
@@ -111,10 +125,8 @@ function readRows(file: string): Array<{ type?: string; payload?: string }> {
 
 type AgentStepFn = (t: { workUnit: WorkUnitData }) => Promise<StepResult>;
 type RecordResultFn = (t: { workUnit: WorkUnitData }, r: StepResult) => Promise<void>;
-const stepOf = (loop: AgentLoop): AgentStepFn =>
-  (loop as unknown as { agentStep: AgentStepFn }).agentStep.bind(loop);
-const recordOf = (loop: AgentLoop): RecordResultFn =>
-  (loop as unknown as { recordResult: RecordResultFn }).recordResult.bind(loop);
+const stepOf = (loop: AgentLoop): AgentStepFn => loop.agentStep.bind(loop);
+const recordOf = (loop: AgentLoop): RecordResultFn => loop.recordResult.bind(loop);
 
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -406,8 +418,11 @@ describe('#162（T8-E1）: WU 级 tokenBudget 熔断（与日预算无关，字�
 
     // 人三选「追加预算」的机制效果（waiting-input 同款）：tokenBudget 提高后挂起解除回 active
     const meta = metaOf((await wuService.getById(wu.id))!);
+    await wuService.authorizeMandate(wu.id, { id: 'operator-1', type: 'Operator' }, {
+      budget: { tokens: 3000 },
+    });
     await wuService.update(wu.id, {
-      metadata: { ...meta, tokenBudget: 3000, waitingForInput: false, waitingReason: undefined },
+      metadata: { ...meta, waitingForInput: false, waitingReason: undefined },
     });
     const resumed = (await wuService.getById(wu.id))!;
     const next = await stepOf(agentLoop)({ workUnit: resumed });

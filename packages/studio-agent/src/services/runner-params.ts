@@ -13,8 +13,8 @@
  */
 
 import * as fs from 'fs/promises';
-import { logger } from '@dommaker/studio-shared';
-import { execSh, resolveProviderDefinition, buildHealthProbeCommand, getSupportedFlags } from '@dommaker/studio-shared/node';
+
+import { logger, execSh, resolveProviderDefinition, buildHealthProbeCommand, getSupportedFlags, buildProviderSpawnEnv } from '@dommaker/studio-shared/node';
 import { buildSpawnArgs, type Provider, type SpawnParams } from '../cli-adapter.js';
 import { kimiCodeHomePath, kimiCodeHomeReady } from './provider-hooks.js';
 
@@ -87,7 +87,6 @@ export async function checkPrerequisites(config: Pick<ExecutorConfig, 'repoDir' 
   return checks;
 }
 
-
 // ========================================
 // Prompt building
 // ========================================
@@ -153,23 +152,21 @@ export function buildSessionCommand(opts: SessionCommandOptions): string {
 export interface SessionEnvOptions {
   task: AgentTask;
   role: 'analyst' | 'executor';
-  /** lightweight 模式追加注入 STUDIO_WORKUNIT_ID + parameters.extraEnv（loop 模式不注入） */
+  /** lightweight 模式追加注入固定执行元数据；extraEnv 只接受显式非敏感字段 */
   withWorkUnitEnv?: boolean;
   /** 执行目录：provider=kimi 且 per-worktree home 已生成时注入 KIMI_CODE_HOME（#147 P1） */
   worktree?: string;
 }
 
-/** Spawn env: process.env 透传（token/base_url/model 均由 env 继承，无需 settings.json 搬运）。 */
+/** Spawn env: 显式 allowlist；控制面 env 与任意 extraEnv 默认拒绝。 */
 export function buildSessionEnv(opts: SessionEnvOptions): NodeJS.ProcessEnv {
   const { task } = opts;
-  // #147 P1：kimi 多 WU 隔离——KIMI_CODE_HOME 指向 per-worktree home（provider-hooks
-  // ensureKimiHookHome 生成：host config 复制 + hook 追加 + 凭证软链）。home 未生成
-  // （kimi 未安装/生成失败）则不注入，kimi 回落全局 home，不因隔离失败阻断 spawn。
   const kimiCodeHome = opts.worktree && task.provider === 'kimi' && kimiCodeHomeReady(opts.worktree)
     ? kimiCodeHomePath(opts.worktree)
     : null;
+  const extraEnv = (task.parameters?.extraEnv ?? {}) as Record<string, unknown>;
   return {
-    ...process.env,
+    ...buildProviderSpawnEnv(task.provider || 'claude'),
     // root 下 claude --resume 自愈（2026-07-30 走查实锤）：cwd 的 .claude/settings.json
     // 声明 bypassPermissions 时，CLI 续用会话会自注入 --dangerously-skip-permissions，
     // 而 root guard（getuid===0 && IS_SANDBOX!=="1"）直接 exit 1 —— 同 WU 第 2+ step
@@ -180,6 +177,7 @@ export function buildSessionEnv(opts: SessionEnvOptions): NodeJS.ProcessEnv {
     ...(kimiCodeHome ? { KIMI_CODE_HOME: kimiCodeHome } : {}),
     ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
     ...(opts.withWorkUnitEnv && task.parameters?.workUnitId ? { STUDIO_WORKUNIT_ID: task.parameters.workUnitId as string } : { STUDIO_WORKUNIT_ID: undefined }),
-    ...(opts.withWorkUnitEnv ? (task.parameters?.extraEnv as Record<string, string> || {}) : {}),
+    ...(opts.withWorkUnitEnv && typeof extraEnv.STUDIO_TRACE_ID === 'string' ? { STUDIO_TRACE_ID: extraEnv.STUDIO_TRACE_ID } : {}),
+    ...(opts.withWorkUnitEnv && typeof extraEnv.STUDIO_CHANNEL_ID === 'string' ? { STUDIO_CHANNEL_ID: extraEnv.STUDIO_CHANNEL_ID } : {}),
   };
 }

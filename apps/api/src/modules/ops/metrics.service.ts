@@ -1,0 +1,204 @@
+/**
+ * D16 监控指标聚合（B5）— 任务流健康 / 入口转化 / 人工干预 / 周期 / 角色 / 工程质量 / Token / 告警。
+ *
+ * 数据源（全部文件型，无数据库）：
+ *   - FileStore workunits/index.json（状态机快照 + metadata）
+ *   - FileStore workunits/events.jsonl（created/claimed/completed/blocked/updated 事件）
+ *   - 统一事件文件（D18: ~/.studio/logs/studio-events.jsonl；workunit:tokens、monitor:alert）
+ *   - 频道 messages.jsonl（authorType=human，经 FileStore.queryAllMessages）
+ *
+ * 窗口默认 7d（opts.windowDays 可调）；60s 内存缓存防连打。
+ * 口径原则：数据不足 → 显式 0 / null + source='insufficient-data'，不编造。
+ * 每个指标组带 description（大白话：这个数高了/低了意味着什么）。
+ *
+ * 工单 30：类型区 → metrics.types.ts，纯函数聚合区 → metrics-aggregate.ts（re-export 保持导出路径兼容）。
+ */
+
+import * as path from 'node:path';
+import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
+// #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
+import { buildAssigneeProfileResolver } from '../workunit/index.js';
+import { aggregateOverview, aggregateCacheHitRate, aggregateContextComparison, aggregateSectionTrim, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
+import type { OverviewMetrics, EfficiencyMetrics, KnowledgePublishingRun } from './metrics.types.js';
+import { getStore } from '../../core/store.js';
+import { OverviewProjection } from './overview-projection.js';
+
+
+/** D16: 聚合缓存（60s——要扫 index + 多个 jsonl，避免连打） */
+const CACHE_TTL_MS = 60_000;
+
+// re-export：保持既有消费方（routes / 测试）从 metrics.service 导入的路径不变
+export { aggregateOverview, aggregateCacheHitRate, aggregateContextComparison, aggregateSectionTrim } from './metrics-aggregate.js';
+export type { OverviewAggregateInput, CacheHitRateAggregateInput, ContextComparisonAggregateInput, SectionTrimAggregateInput } from './metrics-aggregate.js';
+export type {
+  Percentile,
+  TaskFlowMetrics,
+  IntakeMetrics,
+  HumanInterventionMetrics,
+  CycleTimeMetrics,
+  RoleMetrics,
+  QualityMetrics,
+  TokenMetrics,
+  AlertMetrics,
+  EvidenceMetrics,
+  OverviewMetrics,
+  CacheHitRateMetrics,
+  CacheHitRateBucket,
+  StepCacheHitRate,
+  SectionTrimMetrics,
+  SectionTrimBucket,
+  EfficiencyMetrics,
+} from './metrics.types.js';
+
+// ─── Service（数据加载 + 60s 缓存）──
+
+export interface OverviewOptions {
+  windowDays?: number;
+  /** 测试注入：统一事件文件路径（默认 D18 统一文件） */
+  eventsFile?: string;
+  /** 测试注入：workunits events.jsonl 路径（默认 FileStore 数据目录下） */
+  wuEventsFile?: string;
+  /** 测试注入：蒸馏 runs.jsonl 所在目录（默认 studioPath('distill')） */
+  distillDataDir?: string;
+  /** 测试注入时钟（提供时跳过缓存） */
+  now?: number;
+}
+
+export class MetricsService {
+  private fileStore: FileStore;
+  private cache = new Map<string, { at: number; data: OverviewMetrics }>();
+  private overviewInflight = new Map<string, Promise<OverviewMetrics>>();
+  private efficiencyCache = new Map<string, { at: number; data: EfficiencyMetrics }>();
+
+  constructor(fileStore?: FileStore) {
+    this.fileStore = fileStore ?? getStore();
+  }
+
+  /** 测试/调试用：清空缓存 */
+  invalidateCache(): void {
+    this.cache.clear();
+  }
+
+  private defaultWuEventsFile(): string {
+    return studioPath('data', 'workunits', 'events.jsonl');
+  }
+
+  async getOverviewMetrics(opts?: OverviewOptions): Promise<OverviewMetrics> {
+    const windowDays = opts?.windowDays ?? DEFAULT_WINDOW_DAYS;
+    const now = opts?.now ?? Date.now();
+    const cacheKey = `${opts?.eventsFile ?? ''}|${opts?.wuEventsFile ?? ''}|${opts?.distillDataDir ?? ''}|${windowDays}`;
+    if (opts?.now) return this.loadOverview(opts, windowDays, now);
+
+    const hit = this.cache.get(cacheKey);
+    if (hit && now - hit.at < CACHE_TTL_MS) return hit.data;
+    const existing = this.overviewInflight.get(cacheKey);
+    if (existing) return existing;
+
+    const inflight = this.loadOverview(opts, windowDays, now)
+      .then(data => {
+        this.cache.set(cacheKey, { at: now, data });
+        return data;
+      })
+      .finally(() => this.overviewInflight.delete(cacheKey));
+    this.overviewInflight.set(cacheKey, inflight);
+    return inflight;
+  }
+
+  private async loadOverview(opts: OverviewOptions | undefined, windowDays: number, now: number): Promise<OverviewMetrics> {
+    const projection = new OverviewProjection(this.fileStore, opts?.wuEventsFile ?? this.defaultWuEventsFile());
+    const [snapshots, windowRows, events, states, profiles, distillRuns] = await Promise.all([
+      this.loadCurrentSnapshots(),
+      projection.load(now).catch(() => ({ wuEvents: [], humanMessages: [] })),
+      // #456：failure24h 趋势要求 windowDays=1 时仍读取 48h。
+      readStudioEventsSince({ file: opts?.eventsFile, sinceMs: now - Math.max(windowDays, 2) * 86400_000 }).catch(() => [] as Array<Record<string, unknown>>),
+      this.fileStore.listStates().catch(() => [] as Array<{ id: string; roleId: string }>),
+      this.fileStore.listProfiles().catch(() => [] as Array<{ id: string; name: string }>),
+      this.loadDistillRuns(opts?.distillDataDir ?? studioPath('distill')).catch(() => []),
+    ]);
+    const { wuEvents, humanMessages } = windowRows;
+
+    const resolveAssigneeProfile = buildAssigneeProfileResolver({
+      states,
+      profileIds: new Set(profiles.map(p => p.id)),
+    });
+    const profileNames = new Map<string, string>();
+    for (const p of profiles) if (p?.id) profileNames.set(p.id, p.name);
+
+    return aggregateOverview({
+      snapshots,
+      wuEvents,
+      events,
+      humanMessages,
+      resolveAssigneeProfile,
+      profileNames,
+      distillRuns,
+      now,
+      windowDays,
+    });
+  }
+
+  private async loadCurrentSnapshots(): Promise<WorkUnitSnapshot[]> {
+    // 轻量测试 stub 没有 PERF-02 门面时保留 getIndex；生产直读 current projection。
+    if (typeof this.fileStore.listCurrentSnapshots === 'function') {
+      return this.fileStore.listCurrentSnapshots().catch(() => [] as WorkUnitSnapshot[]);
+    }
+    return this.fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]);
+  }
+
+  /** ops 自有只读投影，避免为读取蒸馏状态引入 ops → distill 运行时装配依赖。 */
+  private async loadDistillRuns(dataDir: string): Promise<KnowledgePublishingRun[]> {
+    const rows = await this.fileStore.readJsonl<KnowledgePublishingRun>(path.join(dataDir, 'runs.jsonl'));
+    const latest = new Map<string, KnowledgePublishingRun>();
+    for (const row of rows) {
+      latest.set(row.id, {
+        ...row,
+        attempts: row.attempts ?? (row.outcome === 'triggered' ? 0 : 1),
+        lastError: row.lastError ?? row.error,
+      });
+    }
+    return [...latest.values()];
+  }
+
+  /**
+   * #120：输入缓存命中率（步/WU/角色/天）+ 段 trim 率（按段）。
+   * 数据源 = 统一事件文件（workunit:tokens / prompt:section_trimmed）+ WU index（角色归因）。
+   * 缓存键含 eventsFile + windowDays，注入 now 时跳过缓存（测试/排障口径）。
+   */
+  async getEfficiencyMetrics(opts?: OverviewOptions): Promise<EfficiencyMetrics> {
+    const windowDays = opts?.windowDays ?? DEFAULT_WINDOW_DAYS;
+    const now = opts?.now ?? Date.now();
+    const cacheKey = `${opts?.eventsFile ?? ''}|${windowDays}`;
+    if (!opts?.now) {
+      const hit = this.efficiencyCache.get(cacheKey);
+      if (hit && now - hit.at < CACHE_TTL_MS) return hit.data;
+    }
+
+    const [snapshots, events, states, profiles] = await Promise.all([
+      this.fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]),
+      // #335：窗口外事件不 parse；下游 aggregate 仍按 inWindow(windowDays) 过滤，口径不变
+      readStudioEventsSince({ file: opts?.eventsFile, sinceMs: now - windowDays * 86400_000 }).catch(() => [] as Array<Record<string, unknown>>),
+      this.fileStore.listStates().catch(() => [] as Array<{ id: string; roleId: string }>),
+      this.fileStore.listProfiles().catch(() => [] as Array<{ id: string; name: string }>),
+    ]);
+
+    const resolveAssigneeProfile = buildAssigneeProfileResolver({
+      states,
+      profileIds: new Set(profiles.map(p => p.id)),
+    });
+    const profileNames = new Map<string, string>();
+    for (const p of profiles) if (p?.id) profileNames.set(p.id, p.name);
+
+    const data: EfficiencyMetrics = {
+      windowDays,
+      generatedAt: new Date(now).toISOString(),
+      cacheHitRate: aggregateCacheHitRate({ events, snapshots, resolveAssigneeProfile, profileNames, now, windowDays }),
+      sectionTrim: aggregateSectionTrim({ events, now, windowDays }),
+      contextComparison: aggregateContextComparison({ events, now, windowDays }),
+    };
+
+    if (!opts?.now) this.efficiencyCache.set(cacheKey, { at: now, data });
+    return data;
+  }
+}

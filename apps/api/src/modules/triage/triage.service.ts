@@ -1,17 +1,17 @@
 // Triage Service — incident response: diagnose → classify → act → resolve/escalate
-import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
+import { eventBus, FileStore, resolveStudioLogFile } from '@dommaker/studio-shared';
 import { classifySystemError } from './error-class.js';
-import { knowledgeService } from '../knowledge/index.js';
+import { knowledgePorts } from '../knowledge/index.js';
 import type { SystemTriageResult } from './error-class.js';
 import type { TriageIncidentInput, TriageLogEntry } from './types.js';
 import { appendIncidentUpdate } from './incident-store.js';
 import { persistIncidentNotification } from './incident-notification.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { countProcessesByCmdline, listZombieProcesses, readDiskUsage, readMemoryUsage } from '../../core/proc-probes.js';
 import { execAsync } from '../../core/exec-async.js';
 import { getStore } from '../../core/store.js';
-
+import { createLazyService } from '../../utils/services.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
 const MAX_FIX_ATTEMPTS = 3;
@@ -432,7 +432,7 @@ class TriageService {
     eventBus.publish('incident.resolved', { incidentId, resolution });
 
     // H4: Record fix strategy to KnowledgeService so KK can extract later
-    knowledgeService.recordPattern({
+    knowledgePorts.produce.recordPattern({
       type: 'fix',
       title: `[Triage Fix] ${resolution.slice(0, 80)}`,
       content: `${resolution}\nIncident: ${incidentId}`,
@@ -442,7 +442,7 @@ class TriageService {
     // B13-002: Triage→Resolution 回写 — 将修复方案写入 Resolution KB
     // M1：layer 写 harness StorageLayer 合法值 'project'，原分层值挪进 tags 保信息
     try {
-      await knowledgeService.createResolution({
+      await knowledgePorts.resolve.createResolution({
         pattern: resolution.slice(0, 200),
         errorClass: 'triage_fix',
         layer: 'project',
@@ -532,4 +532,6 @@ class TriageService {
   }
 }
 
-export const triageService = new TriageService();
+// apps/api 侧遵守 core/store「禁 import 期捕获」纪律，createLazyService 首次
+// 调用时才构造（构造内 getStore()），与 audit-logs/notifications 同款形态。
+export const getTriageService = createLazyService(() => new TriageService());

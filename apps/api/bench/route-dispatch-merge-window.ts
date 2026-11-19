@@ -27,7 +27,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { FileStore, parseWorkUnitIndexContent } from '/root/projects/studio/packages/studio-shared/src/file-store.ts';
+import { FileStore, parseWorkUnitIndexContent } from '/root/projects/studio/packages/studio-shared/src/file-store/index.ts';
 import { iterateJsonlLinesBackward } from '/root/projects/studio/packages/studio-shared/src/jsonl-tail.ts';
 
 const REAL_DATA = path.join(os.homedir(), '.studio', 'data');

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit.service.js';
+import { WorkUnitService } from '../workunit-review.js';
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -40,6 +40,23 @@ describe('WorkUnit closedAt（#327 归档计龄锚点）', () => {
     expect(Number.isNaN(Date.parse(snap.closedAt!))).toBe(false);
     expect(closed.closedAt).toBeInstanceOf(Date);
     expect(closed.closedAt!.toISOString()).toBe(snap.closedAt);
+  });
+
+  it('update() 写路径返回 DTO 保留 closedAt（快照→DTO 转换不丢字段）', async () => {
+    const wu = await wuService.create({ scope: '关闭后更新', type: 'task', status: 'active', assigneeId: 'inst-1' });
+    await wuService.transitionStatus(wu.id, 'closed');
+    const closedAt = (await snapshotOf(wu.id)).closedAt;
+    expect(closedAt).toBeTruthy();
+
+    // update 走 crud 基类的 snapshotToData（patchSnapshot 保留快照 closedAt，转换层不得丢）
+    const updated = await wuService.update(wu.id, { metadata: { note: 'post-close' } });
+
+    expect(updated.closedAt).toBeInstanceOf(Date);
+    expect(updated.closedAt!.toISOString()).toBe(closedAt);
+    // 查询路径（getById）与写路径同口径
+    const fetched = await wuService.getById(wu.id);
+    expect(fetched!.closedAt).toBeInstanceOf(Date);
+    expect(fetched!.closedAt!.toISOString()).toBe(closedAt);
   });
 
   it('迁移到非 closed 状态不写 closedAt', async () => {

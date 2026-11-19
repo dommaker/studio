@@ -19,6 +19,9 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { beforeAll, beforeEach } from 'vitest';
+import { registerWorkUnitPortLoader } from '../src/modules/workunit/workunit-ports';
+import { registerProjectReadPortLoader } from '../src/modules/requirements/project-read-port';
 import { patchMktempCleanup, sweepStaleMkdtempDirs } from './mkdtemp-cleanup';
 
 // mkdtemp 泄漏防护（2026-08-26 /tmp 3.9 万残留事故）：先打补丁，本文件创建的
@@ -33,6 +36,25 @@ const isolatedRoot = fs.mkdtempSync(path.join(tmpDir, 'studio-test-data-'));
 process.env.STUDIO_HOME = isolatedRoot;
 process.env.STUDIO_DATA_DIR = path.join(isolatedRoot, 'data');
 process.env.STUDIO_EVENTS_DIR = path.join(isolatedRoot, 'events');
+
+// ARCH-02/04：仅注册轻量 loader；首次实际取端口时才加载对应实现。
+// 非消费方测试（尤其局部 shared/node mock）不会提前求值完整生产模块图。
+function registerTestPortLoaders(): void {
+  registerProjectReadPortLoader(async () => {
+    const [{ projectRead }, { registerProjectReadPort }] = await Promise.all([
+      import('../src/modules/pmo/project-read'),
+      import('../src/modules/requirements/project-read-port'),
+    ]);
+    registerProjectReadPort(projectRead);
+  });
+  registerWorkUnitPortLoader(async () => {
+    const { registerWorkUnitSinks } = await import('../src/bootstrap/workunit-sinks');
+    registerWorkUnitSinks();
+  });
+}
+
+beforeAll(registerTestPortLoaders);
+beforeEach(registerTestPortLoaders);
 
 // #219 硬断言：隔离根解析结果指向真实生产根（$HOME/.studio）即 fail fast。
 // 不用 os.homedir()（见文件头 ESM 冻结说明），直接读 $HOME。

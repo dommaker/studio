@@ -8,7 +8,7 @@ import type { Server } from 'node:http';
 
 const { mockGetById } = vi.hoisted(() => ({ mockGetById: vi.fn() }));
 
-vi.mock('../workunit.service.js', () => ({
+vi.mock('../workunit-review.js', () => ({
   WorkUnitService: class {
     getById = mockGetById;
   },
@@ -26,10 +26,9 @@ vi.mock('../waiting-input.js', () => ({
 
 import { workunitOpenRoutes, workunitWriteRoutes } from '../workunit.routes.js';
 import { requireAuth, requireNotGuest } from '../../../middleware/auth.js';
+import { validWorkUnit } from './route-fixtures.js';
 
-const blockedWu = (metadata: Record<string, unknown> = {}) => ({
-  id: 'wu-1',
-  type: 'task',
+const blockedWu = (metadata: Record<string, unknown> = {}) => validWorkUnit({
   status: 'blocked',
   scope: '实现登录功能',
   metadata: JSON.stringify({ title: '登录功能', ...metadata }),
@@ -89,7 +88,7 @@ describe('#185（决策 #87 D2）：/resume + /close 路由（Web 按钮通道�
     mockResumeFromWeb.mockResolvedValue(true);
     const res = await post('/wu-1/resume');
     expect(res.status).toBe(200);
-    expect(mockResumeFromWeb).toHaveBeenCalledWith('wu-1', expect.anything());
+    expect(mockResumeFromWeb).toHaveBeenCalledWith('wu-1', expect.anything(), { id: 'local', type: 'Operator' });
     const json = await res.json() as { data: { id: string } };
     expect(json.data.id).toBe('wu-1');
   });

@@ -7,7 +7,10 @@
  * HOME 指向临时目录隔离 sharedStore / FileStore。
  *
  * #149（2026-08-15）：document-store 退役，documents.routes / evolution.routes 摘除；
- * 原 /:projectId 通配路由消失，/export /ask 等字面路径不再被遮蔽（原遮蔽行为测试一并移除）。
+ * 原 /:projectId 通配路由消失（原遮蔽行为测试一并移除）。
+ * P4.2（2026-10-17）：files 子路由（/requirements /read-file /file）与
+ * /export /ask /gaps /resolution/density /resolution/cross-session 孤儿端点已删，
+ * 对应用例与 EXPECTED_PUBLIC 条目随之摘除。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -35,14 +38,11 @@ function flattenRoutes(router: any): FlatRoute[] {
 
 /** 所有公共路由（集合顺序无关，仅用于存在性校验）。 */
 const EXPECTED_PUBLIC: Array<[string, string]> = [
-  // files.routes
-  ['GET', '/requirements'], ['POST', '/read-file'], ['GET', '/file'],
   // entries.routes
-  ['GET', '/export'], ['POST', '/ask'], ['GET', '/gaps/:type'], ['GET', '/gaps'],
-  ['GET', '/unified'], ['POST', '/unified'],
+  ['GET', '/gaps/:type'],
+  ['GET', '/unified'], ['POST', '/unified'], ['PATCH', '/unified/:entryId'],
   // search.routes
-  ['GET', '/resolutions'], ['GET', '/search'], ['GET', '/resolution/density'],
-  ['GET', '/resolution/cross-session'],
+  ['GET', '/resolutions'], ['GET', '/search'],
   // maintenance.routes（F1 手动触发入口，B7 token-burn issue）
   ['POST', '/maintenance/run'],
 ];
@@ -78,7 +78,7 @@ beforeAll(async () => {
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
 
-  const mod = await import('../routes.js');
+  const mod = await import('../routes/routes.js');
   knowledgeRoutes = mod.knowledgeRoutes;
   knowledgeInternalRoutes = mod.knowledgeInternalRoutes;
 
@@ -105,7 +105,7 @@ describe('knowledge routes facade', () => {
     expect(typeof knowledgeInternalRoutes.use).toBe('function');
   });
 
-  it('all 4 sub-routers fully registered (set comparison)', () => {
+  it('all 3 sub-routers fully registered (set comparison)', () => {
     const flat = flattenRoutes(knowledgeRoutes);
     const actual = flat.map(r => [r.method, r.path] as [string, string]);
     const actualSet = toSet(actual);
@@ -135,14 +135,6 @@ describe('knowledge routes facade', () => {
     const flat = flattenRoutes(knowledgeRoutes);
     const search = flat.find(r => r.method === 'GET' && r.path === '/search');
     expect(search?.handlers).toBe(2);
-  });
-
-  it('GET /requirements reaches files handler', async () => {
-    const res = await api(basePublic, 'GET', '/requirements');
-    expect(res.status).toBe(200);
-    // 契约驱动迁移（批次 4/7）：响应统一 `{ data }` 壳
-    expect(res.json.data).toHaveProperty('docs');
-    expect(res.json.data).toHaveProperty('total');
   });
 
   it('GET /api/knowledge/sync-status reachable on internal router', async () => {

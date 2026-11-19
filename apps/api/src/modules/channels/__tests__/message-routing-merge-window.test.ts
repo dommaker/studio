@@ -8,9 +8,10 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { routeMessage, getMergeWindowMs, resolveMergeTarget } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { routeMessage } from '../message-routing.js';
+import { getMergeWindowMs, resolveMergeTarget } from '../merge-target.js';
+import { getChannelMessageService } from '../channel-message.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 let channelId: string;
 let tmpDir: string;
@@ -72,7 +73,7 @@ describe('#632: 合并窗口解耦 + 歧义守卫 + 显式意图', () => {
       members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
   });
 
   afterEach(() => {
@@ -169,8 +170,9 @@ describe('#632: 合并窗口解耦 + 歧义守卫 + 显式意图', () => {
     expect(parseMeta((await findWu(result.workUnitId!))!.metadata).creationMode).toBe('mention');
   });
 
-  it('intent=new-task：即便有唯一合并目标也建未指派 WU（creationMode=channel-new-task，涌现认领）', async () => {
+  it('intent=new-task：有归属时即便有唯一合并目标也建未指派 WU（creationMode=channel-new-task，涌现认领）', async () => {
     const wu = await seedInFlightWuWithMessage('在途任务', { status: 'unassigned' });
+    await fileStore.updateChannel(channelId, { defaultPath: tmpDir });
 
     const result = await routeMessage(channelId, '这是一件新事', undefined, { fs: fileStore, intent: 'new-task' });
 

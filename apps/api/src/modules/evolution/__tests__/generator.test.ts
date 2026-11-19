@@ -68,12 +68,11 @@ beforeEach(() => {
   paths = resolveEvolutionPaths({
     repoRoot: tmpDir,
     rolesDir: path.join(tmpDir, '.agents', 'roles'),
-    eventsDir: path.join(tmpDir, 'events'),
     studioEventsFile: path.join(tmpDir, 'studio-events.jsonl'),
   });
 });
 
-// #646：traces 落点固定为 harness 正本（readProjectTraces 读 <repoRoot>/.harness/logs/traces.log）
+// #646：traces 落点固定为 harness 正本（readProjectTracesReport 读 <repoRoot>/.harness/logs/traces.log，3.0.0 起）
 const traceFile = (): string => path.join(tmpDir, '.harness', 'logs', 'traces.log');
 
 afterEach(() => {
@@ -164,6 +163,7 @@ describe('generateEvolutionProposals (E1)', () => {
     expect(result.created.length).toBe(1);
     const p = result.created[0];
     expect(p.targetType).toBe('prompt-template');
+    expect(p.targetRepo).toBe(tmpDir);
     expect(p.targetId).toBe('knowledge.rules-section');
     expect(p.action).toBe('amend');
     expect(p.source).toBe('heuristic:prompt-failure');

@@ -14,7 +14,7 @@
 // setMembers 写穿只动 members slice 与共享 TTL 锚点，不回写 channels 记录的 members 字段
 //（记录面消费方读 name/type/defaultPath，成员口径一律读 members slice）。
 // 注意（ADR 决策 2）：agent 档案不进本 store——rosterStore.listAllAgents 是全量正本，
-// 消费方读 rosterStore 客户端切片，「频道 members 为空 → 全部 active」回退语义在消费方实现。
+// 消费方读 rosterStore 客户端切片并与显式 members 求交；空数组成员不回退全部 active（#699）。
 import { create } from 'zustand';
 import { channelApi, type Channel, type ChannelCurrentPmo, type ChannelFileVocabulary, type ChannelPmoCandidate } from '../api/channel';
 import { createFetchGate, disciplinedFetch, type FetchGate, type FetchGateState } from './fetchDiscipline';
@@ -42,7 +42,7 @@ interface ChannelDataState {
   vocabulary: Record<string, ChannelFileVocabulary | undefined>;
   /** channelId → 当前 PMO 派生（null = 后端派生为空；缺键 = 未拉到） */
   currentPmo: Record<string, ChannelCurrentPmo | null | undefined>;
-  /** channelId → 成员 ID 列表（[] = 空 = 所有 Agent 可见；缺键 = 未拉到） */
+  /** channelId → 成员 ID 列表（[] = 无成员；缺键 = 未拉到，均不回退全部 active） */
   members: Record<string, string[] | undefined>;
   /** #638：channelId → PMO 补全候选（缺键 = 未拉到/失败 → fail-closed 不出弹框；[] = 确无候选） */
   pmoCandidates: Record<string, ChannelPmoCandidate[] | undefined>;

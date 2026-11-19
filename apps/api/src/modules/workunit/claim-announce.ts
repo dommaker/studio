@@ -7,17 +7,18 @@
  * 「『认领方名』已认领任务，开始执行」（不过发言层新鲜度检查、不带里程碑 meta）；
  * 发声 best-effort——失败只记日志，绝不阻断认领后的执行/响应。
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
-import type { WorkUnitService, WorkUnitData } from './workunit.service.js';
+import { FileStore } from '@dommaker/studio-shared';
+import type { WorkUnitService } from './workunit-review.js';
+import type { WorkUnitData } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { recordAgentDecision } from '../audit-logs/index.js';
+import { workUnitPort } from './workunit-ports.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 export interface ClaimAndAnnounceDeps {
-  wuService: WorkUnitService;
+  wuService: Pick<WorkUnitService, 'claim'>;
   /** 测试注入；缺省 getStore() */
   fileStore?: FileStore;
 }
@@ -40,7 +41,7 @@ export async function claimWorkUnitAndAnnounce(
   // fire-and-forget，埋点失败绝不阻断认领
   const claimFs = deps.fileStore ?? getStore();
   const instanceState = await claimFs.getState(claimerId).catch(() => null);
-  recordAgentDecision({
+  (await workUnitPort('audit'))({
     action: 'claim',
     resource: 'workunit',
     resourceId: wuId,

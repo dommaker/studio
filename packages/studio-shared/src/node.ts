@@ -1,15 +1,16 @@
 /**
- * Node.js 专用入口 — 包含 CLI 和 Config 模块
+ * Node.js 专用入口 — 包含 Config 等 Node-only 模块
  *
- * 后端消费者需要 CLI 功能时使用：
- *   import { parseArgs, loadConfigEnv } from '@dommaker/studio-shared/node'
+ * 后端消费者需要运行时配置时使用：
+ *   import { loadConfigEnv } from '@dommaker/studio-shared/node'
  *
- * 前端请使用主入口 '@dommaker/studio-shared'（不包含 fs/path/yaml 依赖）
+ * 前端请使用主入口 '@dommaker/studio-shared'（不包含 fs/path 等 Node 依赖）
  */
 export * from './vps-workspace';
-export * from './cli/index';
 export * from './config/index';
 export * from './providers';
+// pino 正本：显式导出覆盖下方 './utils/index' 星号导出的 console 版 logger
+export { logger } from './utils/logger-node';
 export * from './capability-probe';
 export * from './model-probe';
 export * from './utils/index';
@@ -21,3 +22,6 @@ export type { ConstraintSeverity, ConstraintContext, ConstraintResult } from '@d
 export * from './studio-events';
 export * from './log-path';
 export * from './resolutions';
+export * from './directory-capability';
+export * from './utils/agent-identity';
+export * from './utils/agent-sandbox';

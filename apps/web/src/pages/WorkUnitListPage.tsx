@@ -5,9 +5,10 @@ import { useWorkUnitStore } from '../stores/workunitStore';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
 import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
+import { DeliveryBadge } from '../components/workunit/DeliveryBadge';
 import { WuGateActions } from '../components/workunit/WuGateActions';
 import type { WorkUnit } from '../api/workunit';
-import { parseBlockedBy } from '../components/pmo/mapUtils';
+import { parseBlockedBy } from '../utils/mapUtils';
 import { Select, Button, SkeletonText } from '../components/ui';
 import { IconClipboard } from '../components/ui/icons';
 import { formatShortTime } from '../utils/datetime';
@@ -337,6 +338,7 @@ function WorkUnitRow({
             {/* 状态色点 + 状态词（小字）：着色走 data-status（与左侧色条同口径） */}
             <span className="wu-dot" aria-hidden="true" />
             <span className="wu-status">{WU_STATUS_LABELS[derived.column] ?? derived.column}</span>
+            <DeliveryBadge delivery={derived.delivery} />
             {/* 标题（整行点击跳详情页）；长文 2 行折行 + title 悬停全文，不再单行截断 */}
             <span className="font-medium u-text wu-scope" title={wu.scope}>{wu.scope}</span>
             {/* 弱化 chip：类型 / REQ / 被阻塞；#400 验收修复：shrink-0+nowrap 防长标题挤压 */}

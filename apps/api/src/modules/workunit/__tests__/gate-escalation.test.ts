@@ -7,15 +7,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { NotificationService } from '@dommaker/studio-notification';
-import { WorkUnitService, type WorkUnitMetadata } from '../workunit.service.js';
+import { NotificationService } from '../../notifications/index.js';
+import { WorkUnitService } from '../workunit-review.js';
+import type { WorkUnitMetadata } from '../workunit.types.js';
 import { scanGateEscalationReminders } from '../gate-escalation.js';
 
 const { mockNotifyAlert } = vi.hoisted(() => ({ mockNotifyAlert: vi.fn() }));
 
-// tier2 外推通道（企微 webhook + 告警频道 + 行动中心）在 notifier.ts 自有测试覆盖，
+// tier2 外推通道（企微 webhook + 告警频道 + 行动中心）在 alert-notifier 自有测试覆盖，
 // 此处只验证委托（级别/文案/wuId 直链），替身隔断对真实 FileStore/网络的 fan-out
-vi.mock('../../../utils/notifier.js', () => ({ notifyAlert: mockNotifyAlert }));
+vi.mock('../../notifications/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../notifications/index.js')>()),
+  notifyAlert: mockNotifyAlert,
+}));
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-escalation-test-'));
 let fileStore: FileStore;

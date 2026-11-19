@@ -33,6 +33,11 @@ afterAll(() => {
   for (const d of [tmpHome, tmpEvents]) fs.rmSync(d, { recursive: true, force: true });
 });
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: mockLogger };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return { ...actual, logger: mockLogger };
@@ -40,6 +45,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: { getStats: mockGetStats },
+  knowledgePorts: { measure: { getStats: mockGetStats } },
 }));
 
 import { skillStore } from '../../skills/skill-store.js';

@@ -1,7 +1,7 @@
 // #96 context-overflow 纯函数单测：溢出错误识别 / 会话滚动摘要构建。
 // 溢出识别与 session-resume 的 RESUME_FAILURE_RE「会话不存在」是不同失败类型，别混。
 import { describe, it, expect } from 'vitest';
-import type { WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 import {
   OVERFLOW_ERROR_RE,
   isContextOverflowError,

@@ -3,8 +3,10 @@
  *
  * 每条路由走 defineRoute：zod 校验入参 → handler 返回业务数据 → 统一 envelope
  * （成功 `{ data }` / 分页 `{ data, pagination }` / 失败 `{ error: { code, message } }`）。
+ * response 声明完整成功壳，推导 handler 返回类型；测试/开发环境校验实际响应，并供 OpenAPI 消费。
  *
- * 错误翻译顺序：HttpError 直出 → 可选映射表（字符串/RegExp/Error 类首命中）→ 500 兜底。
+ * 错误翻译顺序：HttpError → 可选映射表（字符串/RegExp/Error 类首命中）→ 500 兜底。
+ * 4xx 与非生产诊断 message 直出；生产所有 5xx 只回通用 message + requestId。
  * 消灭三件套：手写 `if (!x) return 400`、`msg.includes('not found')` 散落各 handler、
  * 响应格式第三种形状。
  *
@@ -13,6 +15,7 @@
  */
 
 import type { NextFunction, Request, Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { ERROR_CODES, type Pagination, type PaginatedBody } from '@dommaker/studio-contract';
 import { getErrorMessage } from '../utils/errors.js';
@@ -41,10 +44,13 @@ export interface RouteSchema<
   B extends z.ZodTypeAny = z.ZodTypeAny,
   Q extends z.ZodTypeAny = z.ZodTypeAny,
   P extends z.ZodTypeAny = z.ZodTypeAny,
+  R extends z.ZodTypeAny = z.ZodTypeAny,
 > {
   body?: B;
   query?: Q;
   params?: P;
+  /** 完整成功响应壳（{ data } 或 { data, pagination }），同时驱动 handler 类型与 OpenAPI */
+  response?: R;
 }
 
 type Infer<S, F> = S extends { [K in F & keyof S]: z.ZodTypeAny } ? z.infer<S[F & keyof S]> : never;
@@ -56,11 +62,56 @@ export type RouteInput<S extends RouteSchema> = {
   params: Infer<S, 'params'>;
 };
 
+type WithoutIndexSignature<T> = {
+  [K in keyof T as string extends K ? never : number extends K ? never : symbol extends K ? never : K]: T[K];
+};
+
+/** passthrough 允许额外 wire 键，但不要求 handler 的领域接口声明索引签名；已知必填键不放宽。 */
+type RouteWire<T> = T extends readonly (infer I)[]
+  ? RouteWire<I>[]
+  : T extends object
+    ? keyof WithoutIndexSignature<T> extends never
+      ? T extends Record<string, infer V> ? Record<string, RouteWire<V>> : T
+      : { [K in keyof WithoutIndexSignature<T>]: RouteWire<WithoutIndexSignature<T>[K]> }
+    : T;
+
+/** response 是 wire 壳；普通响应返回 data，分页响应返回完整 paginated() 形状。 */
+export type RouteResult<S extends RouteSchema> = S extends { response: z.ZodTypeAny }
+  ? z.infer<S['response']> extends { data: unknown[]; pagination: Pagination }
+    ? RouteWire<z.infer<S['response']>>
+    : z.infer<S['response']> extends { data: infer D } ? RouteWire<D> : never
+  : unknown;
+
+const ROUTE_STATUS_RESULT: unique symbol = Symbol('studio.routeStatusResult');
+
+export interface RouteStatusResult<T> {
+  readonly [ROUTE_STATUS_RESULT]: true;
+  readonly status: number;
+  readonly data: T;
+}
+
+/** 非默认成功分支；对应 RouteOptions.responses 的响应契约。 */
+export function withStatus<T>(status: number, data: T): RouteStatusResult<T> {
+  return { [ROUTE_STATUS_RESULT]: true, status, data };
+}
+
+function isRouteStatusResult<T>(value: unknown): value is RouteStatusResult<T> {
+  return typeof value === 'object' && value !== null && ROUTE_STATUS_RESULT in value;
+}
+
+type RouteHandler<S extends RouteSchema> = (
+  req: Request,
+  res: Response,
+  input: RouteInput<S>,
+) => Promise<RouteResult<S> | RouteStatusResult<RouteResult<S>> | undefined>;
+
 export interface RouteOptions {
   /** 文案/类别 → 状态码 + code 映射表（首命中生效，类匹配器先于字符串项） */
   errors?: readonly ErrorMapping[];
   /** 成功状态码，默认 200（201/204 等场景覆盖；204 时忽略返回值） */
   status?: number;
+  /** withStatus 非默认成功分支的完整响应壳 */
+  responses?: Readonly<Record<number, z.ZodTypeAny>>;
 }
 
 /**
@@ -72,11 +123,13 @@ export interface RouteSchemaMeta {
   schema: RouteSchema;
   /** 成功状态码（RouteOptions.status，缺省 200；204 = 无响应体） */
   status: number;
+  /** withStatus 非默认成功分支（RouteOptions.responses） */
+  responses?: Readonly<Record<number, z.ZodTypeAny>>;
 }
 
 /**
- * A2A §4.4: 调用方 authorType 识别（body.authorType 优先，其次 x-author-type header）。
- * 与讨论空间发帖的 authorType 字段同约定；UI/人类调用不发送该字段 → 'human'。
+ * A2A 业务 authorType 解析（body.authorType 优先，其次 x-author-type header）。
+ * 仅作展示/路由元数据，不得用于授权；UI/人类调用不发送该字段 → 'human'。
  * （自 workunit/http-helpers.ts 上浮——workunit 域迁移契约驱动后，human-only 守卫
  * 与 defineRoute 同属 HTTP 边界通用件，供后续域复用。）
  */
@@ -86,13 +139,10 @@ export function resolveCallerAuthorType(req: Request): string {
   return fromBody ?? (typeof fromHeader === 'string' ? fromHeader : 'human');
 }
 
-/**
- * A2A §4.4-2 / §8-Q3 human-only 守卫：agent 身份调用一律 403（验收权只在人）；
- * message 按端点动作定制。须在 defineRoute 之前挂载（读原始 body）。
- */
+/** Operator-only 守卫：业务 authorType 不参与授权；须在认证中间件之后挂载。 */
 export function requireHuman(message: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (resolveCallerAuthorType(req) === 'agent') {
+    if (req.user?.actorType !== 'Operator') {
       res.status(403).json({ error: { code: 'FORBIDDEN', message } });
       return;
     }
@@ -105,14 +155,40 @@ export function paginated<T>(items: T[], pagination: Pagination): PaginatedBody<
   return { data: items, pagination };
 }
 
+/**
+ * paginated() 的配套元信息助手：fields 口径与 paginated() 一致，totalPages 收敛
+ * 全仓手搓 `Math.ceil(total / limit)`（P2.3，共 6 处）。刻意纯委托不 clamp：
+ * 各调用方的 limit 均由 parsePagination clamp 1..100（skills 除外——其未校验
+ * NaN/0 是契约注释明言保留的 #359 前旧行为，助手不得改变）；limit=0 时
+ * 原样透出 Math.ceil(total/0)=Infinity，与该 6 处收敛前输出一致。
+ */
+export function makePagination(page: number, limit: number, total: number): Pagination {
+  return { page, limit, total, totalPages: Math.ceil(total / limit) };
+}
+
 function isPaginatedBody(value: unknown): value is PaginatedBody<unknown> {
   return typeof value === 'object' && value !== null
     && Array.isArray((value as PaginatedBody<unknown>).data)
     && typeof (value as PaginatedBody<unknown>).pagination === 'object';
 }
 
-function sendMappedError(res: Response, error: unknown, mappings: readonly ErrorMapping[]): void {
+function sendProduction5xx(req: Request, res: Response, error: unknown, status: number, code: string): void {
+  const header = req.headers['x-request-id'];
+  const requestId = (req as any).requestId
+    || (typeof header === 'string' && header.trim())
+    || randomUUID();
+  (req as any).requestId = requestId;
+  logger.error({ error, requestId }, 'defineRoute: unhandled error');
+  res.status(status).json({ error: { code, message: 'Internal server error', requestId } });
+}
+
+function sendMappedError(req: Request, res: Response, error: unknown, mappings: readonly ErrorMapping[]): void {
+  const production = process.env.NODE_ENV === 'production';
   if (error instanceof HttpError) {
+    if (production && error.status >= 500) {
+      sendProduction5xx(req, res, error, error.status, error.code);
+      return;
+    }
     res.status(error.status).json({ error: { code: error.code, message: error.message } });
     return;
   }
@@ -124,12 +200,20 @@ function sendMappedError(res: Response, error: unknown, mappings: readonly Error
         ? m.match.test(msg)
         : error instanceof m.match;
     if (hit) {
+      if (production && m.status >= 500) {
+        sendProduction5xx(req, res, error, m.status, m.code);
+        return;
+      }
       res.status(m.status).json({ error: { code: m.code, message: msg } });
       return;
     }
   }
-  logger.error({ error }, 'defineRoute: unhandled error');
-  res.status(500).json({ error: { code: ERROR_CODES.INTERNAL, message: msg } });
+  if (!production) {
+    logger.error({ error }, 'defineRoute: unhandled error');
+    res.status(500).json({ error: { code: ERROR_CODES.INTERNAL, message: msg } });
+    return;
+  }
+  sendProduction5xx(req, res, error, 500, ERROR_CODES.INTERNAL);
 }
 
 function formatZodError(error: z.ZodError): string {
@@ -140,13 +224,14 @@ function formatZodError(error: z.ZodError): string {
 
 /**
  * 定义一条契约路由。handler 写快乐路径：返回业务数据（自动包 `{ data }`）、
- * 返回 paginated()（直出分页壳）、返回 undefined（204 或 handler 已自行写 res，
+ * 返回 paginated()（直出分页壳）、withStatus()（非默认成功分支，使用 options.responses
+ * 对应的 schema 校验并进入 OpenAPI）、返回 undefined（204 或 handler 已自行写 res，
  * 如 SSE/文件流——属于例外路径，新代码优先让 defineRoute 代写）。
  */
 export function defineRoute<S extends RouteSchema>(
   schema: S,
-  options: RouteOptions | ((req: Request, res: Response, input: RouteInput<S>) => Promise<unknown>),
-  handler?: (req: Request, res: Response, input: RouteInput<S>) => Promise<unknown>,
+  options: RouteOptions | RouteHandler<S>,
+  handler?: RouteHandler<S>,
 ) {
   const opts: RouteOptions = typeof options === 'function' ? {} : options;
   const fn = (typeof options === 'function' ? options : handler)!;
@@ -162,12 +247,27 @@ export function defineRoute<S extends RouteSchema>(
 
       const result = await fn(req, res, input);
       if (res.headersSent) return;
-      const status = opts.status ?? 200;
-      if (status === 204 || result === undefined) {
+      const defaultStatus = opts.status ?? 200;
+      const status = isRouteStatusResult(result) ? result.status : defaultStatus;
+      const value = isRouteStatusResult(result) ? result.data : result;
+      if (status === 204 || value === undefined) {
         res.status(status === 204 ? 204 : 200).end();
         return;
       }
-      res.status(status).json(isPaginatedBody(result) ? result : { data: result });
+      const responseSchema = isRouteStatusResult(result) && status !== defaultStatus
+        ? opts.responses?.[status]
+        : schema.response;
+      if (isRouteStatusResult(result) && !responseSchema) {
+        throw new Error(`Missing response schema for withStatus(${status})`);
+      }
+      const body = isPaginatedBody(value) ? value : { data: value };
+      if (responseSchema && process.env.NODE_ENV !== 'production') {
+        const parsed = responseSchema.safeParse(body);
+        if (!parsed.success) {
+          throw new Error(`Invalid defineRoute response: ${formatZodError(parsed.error)}`);
+        }
+      }
+      res.status(status).json(body);
     } catch (error) {
       if (res.headersSent) {
         logger.error({ error }, 'defineRoute: error after response sent');
@@ -179,11 +279,11 @@ export function defineRoute<S extends RouteSchema>(
         });
         return;
       }
-      sendMappedError(res, error, opts.errors ?? []);
+      sendMappedError(req, res, error, opts.errors ?? []);
     }
   };
   // OpenAPI 派生：schema/成功状态码随 handler 走，openapi/discover.ts 从路由栈读回
-  const meta: RouteSchemaMeta = { schema, status: opts.status ?? 200 };
+  const meta: RouteSchemaMeta = { schema, status: opts.status ?? 200, responses: opts.responses };
   Object.defineProperty(wrapped, ROUTE_SCHEMA_META, { value: meta });
   return wrapped;
 }

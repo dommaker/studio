@@ -15,7 +15,6 @@
  * （日预算用量/告警）有生产默认实现，单测整体注入伪实现，无需 vi.mock 模块工厂。
  */
 
-import { logger } from '@dommaker/studio-shared';
 import { PLAN_STEP_LIMIT } from '../workunit/index.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../workunit/index.js';
 import type { StepResult } from './agent-loop.types.js';
@@ -24,6 +23,7 @@ import {
   tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage,
   notifyBudgetTripped, type DailyTokenUsage,
 } from './daily-token-budget.js';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 守卫链输入：wu + 已解析的 metadata（agentStep 入口 parseWuMetadata 的同一对象） */
 export interface StepGuardCtx {
@@ -190,8 +190,9 @@ export async function runStepGuards(
   // need_input 挂起路径（recordResult 落 waitingForInput + blockReason），不新造状态；
   // waitingReason='wu-token-budget' 供 waiting-input 人三选分流（追加预算/收尾/放弃）。
   // 人读面说人话：提示文案不出现 WU/metadata/闸/熔断等机制黑话。
-  if (typeof metadata.tokenBudget === 'number' && Number.isFinite(metadata.tokenBudget) && metadata.tokenBudget > 0) {
-    const wuBudget = Math.floor(metadata.tokenBudget);
+  const mandatedTokenBudget = wu.mandate?.budget.tokens ?? metadata.tokenBudget;
+  if (typeof mandatedTokenBudget === 'number' && Number.isFinite(mandatedTokenBudget) && mandatedTokenBudget > 0) {
+    const wuBudget = Math.floor(mandatedTokenBudget);
     const wuUsed = metadata._cumulativeTokens ?? 0;
     if (wuUsed >= wuBudget) {
       logger.warn('[AgentLoop] WU token budget reached — suspending for human decision', {
@@ -212,8 +213,9 @@ export async function runStepGuards(
   // need_input 挂 blocked 转人，不静默截断；人回复即续期（waiting-input 给
   // planStepAllowance 加一份 PLAN_STEP_LIMIT，复活回 active 续跑）。
   if (wu.type === 'plan') {
-    const allowance = typeof metadata.planStepAllowance === 'number' && Number.isFinite(metadata.planStepAllowance) && metadata.planStepAllowance > 0
-      ? Math.floor(metadata.planStepAllowance)
+    const mandatedAllowance = wu.mandate?.budget.planSteps ?? metadata.planStepAllowance;
+    const allowance = typeof mandatedAllowance === 'number' && Number.isFinite(mandatedAllowance) && mandatedAllowance > 0
+      ? Math.floor(mandatedAllowance)
       : PLAN_STEP_LIMIT;
     const planSteps = metadata.stepCount ?? 0;
     if (planSteps >= allowance) {

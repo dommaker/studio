@@ -7,7 +7,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type InspectionOpportunity } from '../workunit.service';
+import { WorkUnitService } from '../workunit-review.js';
+import type { InspectionOpportunity } from '../workunit.types.js';
 import { parseWuMetadata } from '../wu-metadata';
 import { adoptInspectionOpportunity, ignoreInspectionOpportunity } from '../inspection-opportunities';
 

@@ -2,43 +2,20 @@
  * 认证服务 - Auth Service
  * SEC-001: 用户认证系统
  *
- * 存储迁移: Prisma → FileStore (users.json + sessions.jsonl)
+ * 存储迁移: Prisma → FileStore (users.json + sessions.json)
  */
 
-import { FileStore } from "@dommaker/studio-shared";
 import * as crypto from "crypto";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import * as path from "node:path";
-import { studioDir } from "@dommaker/studio-shared/studio-dir";
-import { getStore } from '../../core/store.js';
+import {
+  AuthSessionStore,
+  REFRESH_TOKEN_IDLE_EXPIRY_MS,
+  type SessionData,
+  type UserData,
+} from "./auth-session-store.js";
 
-
-// ─── 本地类型（替代 Prisma model 类型） ───
-
-export interface UserData {
-  id: string;
-  email: string;
-  passwordHash: string | null;
-  name: string | null;
-  avatar: string | null;
-  role: string;
-  emailVerified: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface SessionData {
-  id: string;
-  userId: string | null;
-  token: string;
-  guestId: string | null;
-  ipAddress: string | null;
-  userAgent: string | null;
-  expiresAt: string;
-  createdAt: string;
-  refreshToken: string | null;
-}
+export type { SessionData, UserData } from "./auth-session-store.js";
 
 // ─── JWT 配置 ───
 
@@ -49,7 +26,7 @@ export const JWT_SECRET =
         throw new Error("JWT_SECRET required in production");
       })()
     : "dev-jwt-secret-change-in-production");
-const JWT_EXPIRES_IN_SECONDS = 24 * 60 * 60; // 24h（refresh token 续期，web 拦截器自动刷新）；session/refresh 窗口仍 7 天
+const JWT_EXPIRES_IN_SECONDS = 24 * 60 * 60; // 24h；refresh 续期受 7 天 idle / 30 天 absolute 上限约束
 const GUEST_EXPIRES_HOURS = 24;
 
 // ─── 公共接口 ───
@@ -71,91 +48,17 @@ export interface SessionInput {
   userAgent?: string;
 }
 
+export type PublicSession = Pick<SessionData, 'id' | 'userId' | 'guestId' | 'expiresAt' | 'createdAt'>;
+
 export interface AuthResult {
   user?: SafeUser;
-  session: SessionData;
+  session: PublicSession;
   token: string;
   isNewUser?: boolean;
   refreshToken?: string;
 }
 
-// ─── FileStore 实例 ───
-
-const STUDIO_DIR = studioDir();
-const USERS_FILE = path.join(STUDIO_DIR, "users.json");
-const SESSIONS_FILE = path.join(STUDIO_DIR, "sessions.json");
-
-// ─── FileStore 数据访问层 ───
-
-async function readUsers(): Promise<UserData[]> {
-  const data = await getStore().readJson<UserData[]>(USERS_FILE);
-  return data ?? [];
-}
-
-async function writeUsers(users: UserData[]): Promise<void> {
-  await getStore().writeJson(USERS_FILE, users);
-}
-
-async function findUserByEmail(email: string): Promise<UserData | null> {
-  const users = await readUsers();
-  return users.find((u) => u.email === email) ?? null;
-}
-
-async function findUserById(id: string): Promise<UserData | null> {
-  const users = await readUsers();
-  return users.find((u) => u.id === id) ?? null;
-}
-
-async function updateUser(id: string, patch: Partial<UserData>): Promise<void> {
-  const users = await readUsers();
-  const idx = users.findIndex((u) => u.id === id);
-  if (idx >= 0) {
-    users[idx] = { ...users[idx], ...patch };
-    await writeUsers(users);
-  }
-}
-
-async function readSessions(): Promise<SessionData[]> {
-  const data = await getStore().readJson<SessionData[]>(SESSIONS_FILE);
-  return data ?? [];
-}
-
-async function writeSessions(sessions: SessionData[]): Promise<void> {
-  // #525 P2-3：写路径顺带 prune 过期条目，sessions.json 不随过期条目无限增长
-  const now = new Date();
-  const kept = sessions.filter((s) => new Date(s.expiresAt) >= now);
-  await getStore().writeJson(SESSIONS_FILE, kept);
-}
-
-async function appendSession(session: SessionData): Promise<void> {
-  const sessions = await readSessions();
-  sessions.push(session);
-  await writeSessions(sessions);
-}
-
-async function findSessionById(id: string): Promise<SessionData | null> {
-  const sessions = await readSessions();
-  return sessions.find((s) => s.id === id) ?? null;
-}
-
-async function findSessionByGuestId(guestId: string): Promise<SessionData | null> {
-  const sessions = await readSessions();
-  return sessions.find((s) => s.guestId === guestId) ?? null;
-}
-
-async function findSessionByRefreshToken(token: string): Promise<SessionData | null> {
-  const sessions = await readSessions();
-  return sessions.find((s) => s.refreshToken === token) ?? null;
-}
-
-async function updateSession(id: string, patch: Partial<SessionData>): Promise<void> {
-  const sessions = await readSessions();
-  const idx = sessions.findIndex((s) => s.id === id);
-  if (idx >= 0) {
-    sessions[idx] = { ...sessions[idx], ...patch };
-    await writeSessions(sessions);
-  }
-}
+const authSessions = new AuthSessionStore();
 
 // ─── 密码工具 ───
 
@@ -206,8 +109,27 @@ function sanitizeUser(user: UserData): SafeUser {
   return safe;
 }
 
+/** 响应只暴露 Session 元数据；access/refresh 凭证仅走约定顶层字段。 */
+function sanitizeSession(session: SessionData): PublicSession {
+  return {
+    id: session.id,
+    userId: session.userId,
+    guestId: session.guestId,
+    expiresAt: session.expiresAt,
+    createdAt: session.createdAt,
+  };
+}
+
 function makeId(): string {
   return crypto.randomUUID();
+}
+
+function makeRefreshToken(): string {
+  return crypto.randomBytes(64).toString("hex");
+}
+
+function refreshIdleExpiry(): string {
+  return new Date(Date.now() + REFRESH_TOKEN_IDLE_EXPIRY_MS).toISOString();
 }
 
 export async function createGuestSession(input: SessionInput): Promise<AuthResult> {
@@ -229,55 +151,39 @@ export async function createGuestSession(input: SessionInput): Promise<AuthResul
     refreshToken: null,
   };
 
-  await appendSession(session);
+  await authSessions.createGuestSession(session);
 
-  return { session, token };
+  return { session: sanitizeSession(session), token };
 }
 
 export async function getOrCreateSession(input: SessionInput): Promise<AuthResult> {
   if (input.guestId) {
-    const existing = await findSessionByGuestId(input.guestId);
-    if (existing && new Date(existing.expiresAt) > new Date()) {
-      const user = existing.userId ? await findUserById(existing.userId) : null;
-      return { user: user ? sanitizeUser(user) : undefined, session: existing, token: existing.token };
+    const existing = await authSessions.findSessionByGuestId(input.guestId);
+    if (existing && !existing.revokedAt && new Date(existing.expiresAt) > new Date()) {
+      const user = existing.userId ? await authSessions.findUserById(existing.userId) : null;
+      return {
+        user: user ? sanitizeUser(user) : undefined,
+        session: sanitizeSession(existing),
+        token: existing.token,
+      };
     }
   }
   return createGuestSession(input);
 }
 
 export async function login(input: LoginInput): Promise<AuthResult> {
-  const user = await findUserByEmail(input.email);
+  const user = await authSessions.findUserByEmail(input.email);
   // 统一失败文案：不区分"用户不存在"与"密码错误"，防邮箱枚举（2026-08-25 收口）
   if (!user) throw new Error("邮箱或密码错误");
   if (!user.passwordHash) throw new Error("该用户未设置密码，请使用其他方式登录");
 
   const pwResult = verifyPassword(input.password, user.passwordHash);
-  if (!pwResult.valid) throw new Error("邮箱或密码错误");
-
-  // 旧格式静默升级为 bcrypt
-  if (pwResult.needsRehash) {
-    try {
-      await updateUser(user.id, { passwordHash: hashPassword(input.password) });
-    } catch { /* 静默 */ }
-  }
-
-  // 清理旧 guest session
-  const allSessions = await readSessions();
-  const guestIds = allSessions
-    .filter((s) => s.userId === user.id && s.guestId && new Date(s.expiresAt) > new Date())
-    .map((s) => s.id);
-  if (guestIds.length > 0) {
-    const kept = allSessions.filter((s) => !guestIds.includes(s.id));
-    await writeSessions(kept);
-  }
-
-  // 创建 Session
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
+  if (!pwResult.valid || user.role !== 'Admin') throw new Error("邮箱或密码错误");
+  const upgradedPasswordHash = pwResult.needsRehash ? hashPassword(input.password) : undefined;
 
   const id = makeId();
   const token = generateToken(id, user.id);
-
+  const refreshToken = makeRefreshToken();
   const session: SessionData = {
     id,
     userId: user.id,
@@ -285,23 +191,17 @@ export async function login(input: LoginInput): Promise<AuthResult> {
     guestId: null,
     ipAddress: null,
     userAgent: null,
-    expiresAt: expiresAt.toISOString(),
+    expiresAt: refreshIdleExpiry(),
     createdAt: new Date().toISOString(),
     refreshToken: null,
   };
 
-  await appendSession(session);
+  await authSessions.createLoginSession(user.id, session, refreshToken, upgradedPasswordHash);
 
-  const refreshToken = await generateRefreshToken(user.id);
-
-  return { user: sanitizeUser(user), session, token, refreshToken };
+  return { user: sanitizeUser(user), session: sanitizeSession(session), token, refreshToken };
 }
 
 export async function register(input: RegisterInput): Promise<AuthResult> {
-  const existing = await findUserByEmail(input.email);
-  if (existing) throw new Error("邮箱已被注册");
-
-  // 创建用户
   const now = new Date().toISOString();
   const user: UserData = {
     id: makeId(),
@@ -315,17 +215,9 @@ export async function register(input: RegisterInput): Promise<AuthResult> {
     updatedAt: now,
   };
 
-  const users = await readUsers();
-  users.push(user);
-  await writeUsers(users);
-
-  // 创建 Session
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
-
   const sid = makeId();
   const token = generateToken(sid, user.id);
-
+  const refreshToken = makeRefreshToken();
   const session: SessionData = {
     id: sid,
     userId: user.id,
@@ -333,66 +225,48 @@ export async function register(input: RegisterInput): Promise<AuthResult> {
     guestId: null,
     ipAddress: null,
     userAgent: null,
-    expiresAt: expiresAt.toISOString(),
+    expiresAt: refreshIdleExpiry(),
     createdAt: now,
     refreshToken: null,
   };
 
-  await appendSession(session);
+  await authSessions.register(user, session, refreshToken);
 
-  const refreshToken = await generateRefreshToken(user.id);
-
-  return { user: sanitizeUser(user), session, token, isNewUser: true, refreshToken };
+  return {
+    user: sanitizeUser(user),
+    session: sanitizeSession(session),
+    token,
+    isNewUser: true,
+    refreshToken,
+  };
 }
 
-export async function logout(sessionId: string, userId?: string): Promise<void> {
-  await updateSession(sessionId, { expiresAt: new Date().toISOString() });
-
-  if (userId) {
-    const sessions = await readSessions();
-    for (const s of sessions) {
-      if (s.userId === userId && s.refreshToken) {
-        s.refreshToken = null;
-      }
-    }
-    await writeSessions(sessions);
-  }
+export async function logout(sessionId: string, _userId?: string): Promise<void> {
+  await authSessions.revokeSession(sessionId);
 }
 
-export type SafeUser = Omit<UserData, 'passwordHash'>;
+export type SafeUser = Omit<UserData, "passwordHash">;
 
 export async function getCurrentUser(
   sessionId: string,
-): Promise<{ user: SafeUser | null; session: SessionData | null }> {
-  const session = await findSessionById(sessionId);
-  if (!session || new Date(session.expiresAt) < new Date()) {
+): Promise<{ user: SafeUser | null; session: PublicSession | null }> {
+  const session = await authSessions.findSessionById(sessionId);
+  if (!session || session.revokedAt || new Date(session.expiresAt) <= new Date()) {
     return { user: null, session: null };
   }
-  const user = session.userId ? await findUserById(session.userId) : null;
-  return { user: user ? sanitizeUser(user) : null, session };
+  const user = session.userId ? await authSessions.findUserById(session.userId) : null;
+  if (session.userId && (!user || user.role !== 'Admin')) return { user: null, session: null };
+  return { user: user ? sanitizeUser(user) : null, session: sanitizeSession(session) };
 }
 
 export async function cleanupExpiredSessions(): Promise<number> {
-  const sessions = await readSessions();
-  const now = new Date();
-  const kept = sessions.filter((s) => new Date(s.expiresAt) >= now);
-  const count = sessions.length - kept.length;
-  if (count > 0) {
-    await writeSessions(kept);
-  }
-  return count;
+  return authSessions.cleanupExpiredSessions();
 }
 
-const REFRESH_TOKEN_EXPIRY_DAYS = 30;
-
-export async function generateRefreshToken(userId: string): Promise<string> {
-  const token = crypto.randomBytes(64).toString("hex");
-  // Store refreshToken in the user's most recent session
-  const sessions = await readSessions();
-  const userSessions = sessions.filter((s) => s.userId === userId);
-  if (userSessions.length > 0) {
-    userSessions[userSessions.length - 1].refreshToken = token;
-    await writeSessions(sessions);
+export async function generateRefreshToken(sessionId: string): Promise<string> {
+  const token = makeRefreshToken();
+  if (!(await authSessions.setRefreshToken(sessionId, token))) {
+    throw new Error("Session not found or expired");
   }
   return token;
 }
@@ -400,44 +274,19 @@ export async function generateRefreshToken(userId: string): Promise<string> {
 export async function exchangeRefreshToken(
   refreshToken: string,
 ): Promise<{ accessToken: string; refreshToken: string; userId: string } | null> {
-  const session = await findSessionByRefreshToken(refreshToken);
-  if (!session || !session.userId) return null;
-
-  // Revoke old refresh token
-  await updateSession(session.id, { refreshToken: null });
-
-  // Create new session + access token
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
-
-  const id = makeId();
-  const accessToken = generateToken(id, session.userId);
-
-  const newSession: SessionData = {
-    id,
-    userId: session.userId,
-    token: accessToken,
-    guestId: null,
-    ipAddress: null,
-    userAgent: null,
-    expiresAt: expiresAt.toISOString(),
-    createdAt: new Date().toISOString(),
-    refreshToken: null,
+  const result = await authSessions.rotateRefreshToken(refreshToken, generateToken, async (userId, users) => {
+    return users.find((user) => user.id === userId)?.role === 'Admin';
+  });
+  if (!result) return null;
+  return {
+    accessToken: result.accessToken,
+    refreshToken: result.refreshToken,
+    userId: result.userId,
   };
-
-  await appendSession(newSession);
-
-  // Create new refresh token
-  const newRefreshToken = await generateRefreshToken(session.userId);
-
-  return { accessToken, refreshToken: newRefreshToken, userId: session.userId };
 }
 
 export async function revokeRefreshToken(refreshToken: string): Promise<boolean> {
-  const session = await findSessionByRefreshToken(refreshToken);
-  if (!session) return false;
-  await updateSession(session.id, { refreshToken: null });
-  return true;
+  return authSessions.revokeRefreshToken(refreshToken);
 }
 
 // ─── 导出工具函数（用于测试） ───

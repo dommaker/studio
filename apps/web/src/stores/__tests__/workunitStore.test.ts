@@ -10,7 +10,7 @@ vi.mock('../../api/workunit', () => ({
   },
 }));
 
-import { useWorkUnitStore } from '../workunitStore';
+import { useWorkUnitStore, WORKUNIT_DETAIL_CACHE_STATS } from '../workunitStore';
 import { workunitApi } from '../../api/workunit';
 
 // #545：闸门三动作（reviewPassed/reviewRejected/confirmPending）已从 store 删除——
@@ -307,12 +307,11 @@ describe('workunitStore 未归属过滤（#405）', () => {
     expect(useWorkUnitStore.getState().unattributedTotal).toBe(42);
   });
 
-  it('unattributedOnly 时 SSE created：有 reqId / 有戳（含 legacy）的行不插入，未归属行插入', () => {
+  it('unattributedOnly 时 SSE created：有 reqId / 有戳的行不插入，未归属行插入', () => {
     useWorkUnitStore.setState({ unattributedOnly: true, workunits: [], total: 0 });
 
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-a', { reqId: 'REQ-1' }), { insertIfMissing: true });
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-b', { metadata: JSON.stringify({ pmoId: 'PMO-1' }) }), { insertIfMissing: true });
-    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-c', { metadata: JSON.stringify({ ownershipProjectId: 'PMO-2' }) }), { insertIfMissing: true });
     expect(useWorkUnitStore.getState().workunits).toHaveLength(0);
 
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-d'), { insertIfMissing: true });
@@ -651,5 +650,56 @@ describe('workunitStore listOnScreen（#557）', () => {
 
     useWorkUnitStore.getState().setListOnScreen(false);
     expect(useWorkUnitStore.getState().listOnScreen).toBe(false);
+  });
+});
+
+describe('workunitStore — PERF-06 详情生命周期', () => {
+  it('自动访问 1000 详情后驻留键和释放定时器有界，可重新加载已淘汰详情', async () => {
+    const getMock = vi.mocked(workunitApi.get);
+    getMock.mockImplementation((id: string) => Promise.resolve({ data: { data: { id } } }) as never);
+    const store = useWorkUnitStore.getState();
+    for (let i = 0; i < 1000; i++) {
+      const id = `scale-wu-${i}`;
+      const release = store.subscribeDetail(id);
+      await store.loadWorkUnitDetail(id);
+      release();
+    }
+    expect(WORKUNIT_DETAIL_CACHE_STATS().keys).toBeLessThanOrEqual(64);
+    console.info('[PERF-06] 1000 workunit details', WORKUNIT_DETAIL_CACHE_STATS());
+    expect(WORKUNIT_DETAIL_CACHE_STATS().timers).toBeLessThanOrEqual(1);
+    expect(Object.keys(useWorkUnitStore.getState().detailById).length).toBeLessThanOrEqual(64);
+    const release = store.subscribeDetail('scale-wu-0');
+    await store.loadWorkUnitDetail('scale-wu-0');
+    expect(useWorkUnitStore.getState().detailById['scale-wu-0']?.wu?.id).toBe('scale-wu-0');
+    release();
+  });
+
+  it('详情成功/失败响应按 incarnation 与请求序守卫', async () => {
+    const getMock = vi.mocked(workunitApi.get);
+    const store = useWorkUnitStore.getState();
+    store.__resetForTests();
+    let resolveOld!: (v: unknown) => void;
+    getMock.mockImplementationOnce(() => new Promise(r => { resolveOld = r; }) as never);
+    const oldRequest = store.loadWorkUnitDetail('wu-aba');
+    store.__resetForTests();
+    getMock.mockResolvedValueOnce({ data: { data: { id: 'wu-aba', scope: 'new' } } } as never);
+    await store.loadWorkUnitDetail('wu-aba');
+    resolveOld({ data: { data: { id: 'wu-aba', scope: 'stale' } } });
+    await oldRequest;
+    expect(useWorkUnitStore.getState().detailById['wu-aba']?.wu?.scope).toBe('new');
+
+    let rejectFirst!: (e: Error) => void;
+    let resolveSecond!: (v: unknown) => void;
+    getMock
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectFirst = reject; }) as never)
+      .mockImplementationOnce(() => new Promise(r => { resolveSecond = r; }) as never);
+    const first = store.loadWorkUnitDetail('wu-aba');
+    const second = store.loadWorkUnitDetail('wu-aba');
+    resolveSecond({ data: { data: { id: 'wu-aba', scope: 'latest' } } });
+    await second;
+    rejectFirst(new Error('stale failure'));
+    await first;
+    expect(useWorkUnitStore.getState().detailById['wu-aba']?.wu?.scope).toBe('latest');
+    expect(useWorkUnitStore.getState().detailById['wu-aba']?.error).toBeNull();
   });
 });

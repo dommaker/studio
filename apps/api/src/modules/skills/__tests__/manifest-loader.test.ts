@@ -14,6 +14,11 @@ process.env.SKILLS_DIR = testSkillsDir;
 // 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
 afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));

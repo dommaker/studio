@@ -20,18 +20,28 @@ import { workUnitSchema } from './workunit.js';
 export const deliveryPolicySchema = z.enum(['auto-merge', 'branch-only']);
 export type DeliveryPolicy = z.infer<typeof deliveryPolicySchema>;
 
+/**
+ * PMO 分支名的严格安全子集。除 Git ref 结构规则外，主动拒绝 shell 元字符，
+ * 让危险输入在 HTTP/解析边界即失败；执行端仍须用 git check-ref-format 复核。
+ */
+export function isValidGitBranch(branch: string): boolean {
+  if (!branch || branch === '@' || branch.startsWith('-') || branch.endsWith('/') || branch.endsWith('.')) return false;
+  if (branch.includes('..') || branch.includes('@{') || branch.includes('//')) return false;
+  if (/[\x00-\x20\x7f~^:?*\[\\"'`$;]/.test(branch)) return false;
+  return branch.split('/').every(part => part.length > 0
+    && !part.startsWith('.')
+    && !part.endsWith('.lock'));
+}
+
+export const gitBranchSchema = z.string().refine(isValidGitBranch, 'Invalid git branch name');
+
 /** 决策落地记录（decision 单人工确认时填写的一句话结论，机制原样存） */
 export const pmoDecisionSchema = z.object({
   wuId: z.string(),
   summary: z.string(),
   resolvedAt: z.string(),
 });
-/** 手写 interface（前后端均按必填消费——project.service PmoDecision / web mapUtils） */
-export interface PmoDecision {
-  wuId: string;
-  summary: string;
-  resolvedAt: string;
-}
+export type PmoDecision = z.infer<typeof pmoDecisionSchema>;
 
 export const fogStatusSchema = z.enum(['open', 'in-discussion', 'resolved']);
 export type FogStatus = z.infer<typeof fogStatusSchema>;
@@ -43,13 +53,7 @@ export const fogItemSchema = z.object({
   wuId: z.string().nullable(),
   status: fogStatusSchema,
 });
-/** 手写 interface（前后端均按必填消费——project.service FogItem / web mapUtils） */
-export interface FogItem {
-  id: string;
-  question: string;
-  wuId: string | null;
-  status: FogStatus;
-}
+export type FogItem = z.infer<typeof fogItemSchema>;
 
 /** 探路地图（缺省 null = 非探路型需求） */
 export const pmoMapSchema = z.object({
@@ -61,68 +65,49 @@ export const pmoMapSchema = z.object({
   /** 自动建成的 spec 单 id（溯源回写） */
   specWuId: z.string().nullable().optional(),
 });
-/** 手写 interface（前后端均按必填消费——project.service PmoMap / web mapUtils） */
-export interface PmoMap {
-  destination: string;
-  decisions: PmoDecision[];
-  fog: FogItem[];
-  specSpawnedAt?: string;
-  specWuId?: string | null;
-}
+export type PmoMap = z.infer<typeof pmoMapSchema>;
 
 /** #113 T7 腿状态词表（progress-rollup 逐腿回写；delivered 为终态不被回写） */
 export const deliveryLegStatusSchema = z.enum(['pending', 'active', 'in_review', 'completed', 'delivered']);
 export type DeliveryLegStatus = z.infer<typeof deliveryLegStatusSchema>;
 
+export const pmoCandidateLegSchema = z.object({
+  gitRepo: z.string(),
+  branch: z.string(),
+  baseBranch: z.string(),
+  headCommit: z.string(),
+  evidenceRevision: z.string(),
+});
+
+export const pmoCandidateSchema = z.object({
+  id: z.string(),
+  legs: z.array(pmoCandidateLegSchema),
+  implementerIds: z.array(z.string()),
+});
+
+export const pmoCandidateReviewSchema = z.object({
+  candidate: pmoCandidateSchema,
+  status: z.enum(['pending', 'human-required', 'approved', 'rejected']),
+  reviewWorkUnitId: z.string().optional(),
+  reviewer: z.object({ id: z.string(), kind: z.enum(['agent', 'human']) }).optional(),
+  summary: z.string().optional(),
+  repairWorkUnitIds: z.array(z.string()).optional(),
+  updatedAt: z.string(),
+});
+export type PmoCandidateReview = z.infer<typeof pmoCandidateReviewSchema>;
+
 /** 交付腿（多腿交付按腿独立台账/合并/状态） */
 export const deliveryLegSchema = z.object({
   gitRepo: z.string().nullable(),
-  branch: z.string().nullable(),
+  branch: gitBranchSchema.nullable(),
   status: deliveryLegStatusSchema,
   deliveredAt: z.string().nullable().optional(),
+  deliveredBy: z.string().nullable().optional(),
   deliverCommit: z.string().nullable().optional(),
 });
 export type DeliveryLeg = z.infer<typeof deliveryLegSchema>;
 
-/**
- * Project wire 形状（= project.service.ts ProjectData 全字段；读取路径统一合成
- * deliveries 单腿缺省）。手写 interface（z.infer 在本仓 strict:false 下全字段退化可选，
- * 前端 PMOPage/ProjectCard/详情页按必填消费）；parity 测试见 __tests__/pmo.test.ts。
- */
-export interface Project {
-  id: string;
-  pmoNumber: string;
-  title: string;
-  description: string | null;
-  requirement: string | null;
-  companyId: string | null;
-  okrId: string | null;
-  status: string;
-  priority: string;
-  progress: number;
-  gitBranch: string | null;
-  gitRepo: string | null;
-  specFilePath: string | null;
-  requirementsDocId: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  /** REQ 只读别名（REQ-XXXX），统一编号对象才有；存量 legacy 项目为 null/缺省 */
-  reqAlias?: string | null;
-  deliveryPolicy?: DeliveryPolicy;
-  /** 杂务 PMO（频道常青小活归集），isChore + channelId 联合标识 */
-  isChore?: boolean;
-  channelId?: string | null;
-  /** auto-merge 交付记录（branch-only 走 mark-delivered 人工落档） */
-  deliveredAt?: string | null;
-  deliveredBy?: string | null;
-  deliverCommit?: string | null;
-  map?: PmoMap | null;
-  /** 多交付腿（缺省 = 读取时由 gitRepo/gitBranch 合成单腿） */
-  deliveries?: DeliveryLeg[];
-}
-
+/** Project wire 形状（= project.service.ts ProjectData 全字段；读取路径统一合成 deliveries 单腿缺省） */
 export const projectSchema = z.object({
   id: z.string(),
   pmoNumber: z.string(),
@@ -142,16 +127,23 @@ export const projectSchema = z.object({
   completedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /** REQ 只读别名（REQ-XXXX），统一编号对象才有；存量 legacy 项目为 null/缺省 */
   reqAlias: z.string().nullable().optional(),
   deliveryPolicy: deliveryPolicySchema.optional(),
+  overallReviewRequired: z.boolean().optional(),
+  /** 杂务 PMO（频道常青小活归集），isChore + channelId 联合标识 */
   isChore: z.boolean().optional(),
   channelId: z.string().nullable().optional(),
+  /** auto-merge 交付记录（branch-only 走 mark-delivered 人工落档） */
   deliveredAt: z.string().nullable().optional(),
   deliveredBy: z.string().nullable().optional(),
   deliverCommit: z.string().nullable().optional(),
   map: pmoMapSchema.nullable().optional(),
+  /** 多交付腿（缺省 = 读取时由 gitRepo/gitBranch 合成单腿） */
   deliveries: z.array(deliveryLegSchema).optional(),
+  candidateReview: pmoCandidateReviewSchema.optional(),
 });
+export type Project = z.infer<typeof projectSchema>;
 
 // ── 实体：OKR ──
 
@@ -172,45 +164,29 @@ export const okrKeyResultSchema = z.object({
   /** 度量类型（e.g. "pipeline_duration_p90"） */
   metricType: z.string().optional(),
   /** 度量查询参数（e.g. { days: 7 }） */
-  queryParams: z.record(z.unknown()).optional(),
+  queryParams: z.record(z.string(), z.unknown()).optional(),
 });
 export type OkrKeyResult = z.infer<typeof okrKeyResultSchema>;
 
-/**
- * OKR 列表行 wire 形状（okr.service.list 返回）。手写 interface（前端 PMOPage/PMOCard
- * 按必填消费；手抄版 objectives/keyResults 可缺省是漂移——后端恒返回）；parity 测试见 __tests__。
- */
-export interface Okr {
-  id: string;
-  companyId: string;
-  title: string;
-  quarter: string;
-  status: string;
-  /** 0..1（前端 ×100 渲染） */
-  progress: number;
-  objectives: OkrObjective[];
-  keyResults: OkrKeyResult[];
-  createdAt: string;
-  updatedAt: string;
-  /** 关联执行数（executions.jsonl 计数） */
-  projectCount: number;
-}
-
+/** OKR 列表行 wire 形状（okr.service.list 返回） */
 export const okrSchema = z.object({
   id: z.string(),
   companyId: z.string(),
   title: z.string(),
   quarter: z.string(),
   status: z.string(),
+  /** 0..1（前端 ×100 渲染） */
   progress: z.number(),
   objectives: z.array(okrObjectiveSchema),
   keyResults: z.array(okrKeyResultSchema),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /** 关联 PMO 项目数（pmo 项目存储计数；原 executions.jsonl 计数已退役） */
   projectCount: z.number(),
 });
+export type Okr = z.infer<typeof okrSchema>;
 
-/** OKR 详情（GET /okr/:id）：列表行去 projectCount + 关联占位/最近执行/计数 */
+/** OKR 详情（GET /okr/:id）：列表行去 projectCount + 关联占位/最近关联/计数 */
 export const okrDetailSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -224,7 +200,7 @@ export const okrDetailSchema = z.object({
   updatedAt: z.string(),
   /** Prisma 时代遗留占位，恒 null */
   Company: z.null(),
-  /** 最近 10 条关联执行（jsonl 投影） */
+  /** 最近 10 个关联项目投影（Prisma 时代遗留键名；原 executions jsonl 投影已退役） */
   Execution: z.array(z.object({
     id: z.string().optional(),
     status: z.string().optional(),
@@ -256,8 +232,8 @@ export const deliveryGapSchema = z.object({
   id: z.string(),
   title: z.string(),
   type: z.string(),
-  /** 缺口层（顺序固定 l1→l2→l3） */
-  missing: z.array(z.enum(['l1', 'l2', 'l3'])),
+  /** 缺口层（顺序固定 l1→l2→l3→merge；merge 含 receipt 与目标验证缺口） */
+  missing: z.array(z.enum(['l1', 'l2', 'l3', 'merge'])),
 });
 export type DeliveryGap = z.infer<typeof deliveryGapSchema>;
 
@@ -277,6 +253,10 @@ export const deliveryEvidenceSchema = z.object({
   l1Missing: z.array(z.string()),
   l2Missing: z.array(z.string()),
   l3Missing: z.array(z.string()),
+  /** 代码 WU 缺可接受的 merge receipt（含目标验证 failed/not-run） */
+  mergeMissing: z.array(z.string()),
+  /** 代码 WU verification=unavailable 且缺 L3 人工确认 */
+  verificationUnavailable: z.array(z.string()),
   selfReviewCount: z.number(),
 });
 
@@ -286,6 +266,7 @@ export const legDeliveryStatusSchema = z.object({
   branch: z.string().nullable(),
   status: deliveryLegStatusSchema,
   deliveredAt: z.string().nullable(),
+  deliveredBy: z.string().nullable(),
   deliverCommit: z.string().nullable(),
   wu: deliveryWuSummarySchema,
   evidence: deliveryEvidenceSchema,
@@ -296,45 +277,7 @@ export const legDeliveryStatusSchema = z.object({
 });
 export type LegDeliveryStatus = z.infer<typeof legDeliveryStatusSchema>;
 
-/**
- * 交付台账 wire 形状（delivery.ts DeliveryStatus）。手写 interface（前端
- * DeliveryPanel/ProjectProgressCard/详情页按必填消费，测试 fixture 全字段）；
- * parity 测试见 __tests__。前端手抄版缺 channelId 是漂移——后端恒返回。
- */
-export interface DeliveryStatus {
-  projectId: string;
-  pmoNumber: string;
-  branch: string | null;
-  policy: DeliveryPolicy;
-  gitRepo: string | null;
-  wu: {
-    total: number;
-    finished: number;
-    inFlight: number;
-    byStatus: { unassigned: number; active: number; inReview: number; blocked: number };
-  };
-  evidence: {
-    l1Missing: string[];
-    l2Missing: string[];
-    l3Missing: string[];
-    selfReviewCount: number;
-  };
-  deliverable: boolean;
-  missing: string[];
-  /** 项目 WU 链路 token 总消耗（best-effort） */
-  tokens: number;
-  /** #376 归档口径：completed + 实时重算零 WU */
-  archived: boolean;
-  gaps: DeliveryGap[];
-  deliveredAt: string | null;
-  deliveredBy: string | null;
-  deliverCommit: string | null;
-  /** 项目绑定频道（交付播报发帖用；未 publish 为 null） */
-  channelId: string | null;
-  /** 逐腿台账（仅显式多腿项目输出；单腿为 undefined） */
-  legs?: LegDeliveryStatus[];
-}
-
+/** 交付台账 wire 形状（delivery.ts DeliveryStatus） */
 export const deliveryStatusSchema = z.object({
   projectId: z.string(),
   pmoNumber: z.string(),
@@ -345,22 +288,32 @@ export const deliveryStatusSchema = z.object({
   evidence: deliveryEvidenceSchema,
   deliverable: z.boolean(),
   missing: z.array(z.string()),
+  /** 项目 WU 链路 token 总消耗（best-effort） */
   tokens: z.number(),
+  /** #376 归档口径：completed + 实时重算零 WU */
   archived: z.boolean(),
   gaps: z.array(deliveryGapSchema),
   deliveredAt: z.string().nullable(),
   deliveredBy: z.string().nullable(),
   deliverCommit: z.string().nullable(),
+  /** 项目绑定频道（交付播报发帖用；未 publish 为 null） */
   channelId: z.string().nullable(),
+  /** 逐腿台账（仅显式多腿项目输出；单腿为 undefined） */
   legs: z.array(legDeliveryStatusSchema).optional(),
+  overallReview: z.object({
+    candidateId: z.string(),
+    status: z.enum(['pending', 'human-required', 'approved', 'rejected']),
+    reviewWorkUnitId: z.string().nullable(),
+  }).optional(),
 });
+export type DeliveryStatus = z.infer<typeof deliveryStatusSchema>;
 
 /** #113 T7：单腿交付结果（多腿 deliverProject 逐腿产出） */
 export const legDeliverResultSchema = z.object({
   gitRepo: z.string().nullable(),
   branch: z.string().nullable(),
   delivered: z.boolean(),
-  reason: z.enum(['already-delivered', 'skipped-no-wu', 'no-repo', 'checkout-mismatch', 'conflict']).optional(),
+  reason: z.enum(['already-delivered', 'skipped-no-wu', 'no-repo', 'checkout-mismatch', 'conflict', 'not-ready', 'merge-pending', 'mandate-rejected']).optional(),
   deliverCommit: z.string().optional(),
   conflictFiles: z.array(z.string()).optional(),
   detail: z.string().optional(),
@@ -462,11 +415,12 @@ export const createProjectBodySchema = z.object({
   requirement: z.string().optional(),
   okrId: z.string().optional(),
   priority: z.string().optional(),
-  gitBranch: z.string().optional(),
+  gitBranch: gitBranchSchema.optional(),
   gitRepo: z.string().optional(),
   /** #114 T8：多工程入参（非空字符串数组；空数组 = 未传，走旧单选行为） */
   gitRepos: z.array(z.string()).optional(),
   deliveryPolicy: deliveryPolicySchema.optional(),
+  overallReviewRequired: z.boolean().optional(),
   requirementsDocId: z.string().optional(),
 });
 export type CreateProjectBody = z.infer<typeof createProjectBodySchema>;
@@ -483,19 +437,28 @@ export const updateProjectBodySchema = z.object({
   status: z.string().optional(),
   priority: z.string().optional(),
   progress: z.number().optional(),
-  gitBranch: z.string().optional(),
+  gitBranch: gitBranchSchema.optional(),
   gitRepo: z.string().optional(),
   gitRepos: z.array(z.string()).optional(),
   startedAt: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
   deliveryPolicy: deliveryPolicySchema.optional(),
+  overallReviewRequired: z.boolean().optional(),
   requirementsDocId: z.string().nullable().optional(),
   deliveredAt: z.string().nullable().optional(),
   deliveredBy: z.string().nullable().optional(),
   deliverCommit: z.string().nullable().optional(),
   map: pmoMapSchema.nullable().optional(),
   deliveries: z.array(deliveryLegSchema).optional(),
-}).passthrough();
+}).passthrough().superRefine((body, ctx) => {
+  // #706：交付回执只能由 deliver/mark-delivered 的服务端命令写入。
+  for (const key of ['deliveredAt', 'deliveredBy', 'deliverCommit'] as const) {
+    if (key in body) ctx.addIssue({ code: 'custom', path: [key], message: `${key} 只能由交付命令写入` });
+  }
+  if ('candidateReview' in body) {
+    ctx.addIssue({ code: 'custom', path: ['candidateReview'], message: 'candidateReview 只能由整体评审命令写入' });
+  }
+});
 export type UpdateProjectBody = z.infer<typeof updateProjectBodySchema>;
 
 /** PUT /project/:id/status（原 MISSING_STATUS 手写校验收进 zod；状态机校验在 service → 500 保持旧行为） */
@@ -518,14 +481,29 @@ export const parsePmoCommandBodySchema = z.object({
 export type ParsePmoCommandBody = z.infer<typeof parsePmoCommandBodySchema>;
 
 /**
- * POST /project/:id/mark-delivered（#469：branch-only 人工落档；commit trim 后非空）。
+ * POST /project/:id/mark-delivered（branch-only 人工落档；commit trim 后非空）。
+ * #721 多腿用可选 leg=分支名选择回执归属；单腿省略保持兼容。
  * human-only 守卫（requireHuman）挂在 defineRoute 之前读原始 body.authorType，
  * schema 不需要保留该键。
  */
 export const markDeliveredBodySchema = z.object({
   commit: z.string().trim().min(1),
+  leg: gitBranchSchema.optional(),
 });
 export type MarkDeliveredBody = z.infer<typeof markDeliveredBodySchema>;
+
+/** #720：Operator 对当前确切候选提交人工整体评审；拒绝问题可指定修复腿。 */
+export const candidateReviewBodySchema = z.object({
+  verdict: z.enum(['pass', 'reject']),
+  summary: z.string().optional(),
+  issues: z.array(z.object({ message: z.string().min(1), leg: z.string().optional() })).optional(),
+});
+export type CandidateReviewBody = z.infer<typeof candidateReviewBodySchema>;
+
+/** OKR quarter 唯一运行时校验：service 与 HTTP schema 共用，含尾换行拒绝。 */
+export function isValidOkrQuarter(quarter: string): boolean {
+  return quarter.length === 7 && /^\d{4}-Q[1-4]$/.test(quarter);
+}
 
 /** POST /okr 创建（objectives/keyResults 缺省原 500，zod 收紧为必填 400；每季度唯一约束撞重 → 409 在映射表） */
 export const createOkrBodySchema = z.object({
@@ -533,7 +511,7 @@ export const createOkrBodySchema = z.object({
   title: z.string().min(1),
   objectives: z.array(okrObjectiveSchema),
   keyResults: z.array(okrKeyResultSchema),
-  quarter: z.string().min(1),
+  quarter: z.string().refine(isValidOkrQuarter),
 });
 export type CreateOkrBody = z.infer<typeof createOkrBodySchema>;
 
@@ -562,6 +540,9 @@ export const deliverResultResponseSchema = dataBodySchema(deliverResultSchema);
 
 /** POST /project/:id/mark-delivered：`{ data: MarkDeliveredResult }`（原裸对象） */
 export const markDeliveredResultResponseSchema = dataBodySchema(markDeliveredResultSchema);
+
+/** POST /project/:id/candidate-review：`{ data: PmoCandidateReview }` */
+export const candidateReviewResultResponseSchema = dataBodySchema(pmoCandidateReviewSchema);
 
 /** POST /project/:id/publish：`{ data: PublishProjectResult }`（原裸对象） */
 export const publishProjectResultResponseSchema = dataBodySchema(publishProjectResultSchema);

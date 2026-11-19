@@ -851,10 +851,10 @@ describe('parseChannels (F3)', () => {
     expect(parseChannels('["ch-1","ch-2"]')).toEqual(['ch-1', 'ch-2']);
   });
 
-  it('unwraps double-encoded value (legacy write bug)', () => {
-    // 形如 "\"[\\\"ch-1\\\"]\""（live 数据中的实际形态）
+  it('returns [] for double-encoded legacy value（#696：双层解码兼容层已退役）', () => {
+    // 形如 "\"[\\\"ch-1\\\"]\""——历史二次编码 bug 残留，存量验收确认为零后不再解包
     const doubleEncoded = JSON.stringify(JSON.stringify(['ch-1']));
-    expect(parseChannels(doubleEncoded)).toEqual(['ch-1']);
+    expect(parseChannels(doubleEncoded)).toEqual([]);
   });
 
   it('accepts an already-parsed array', () => {
@@ -879,11 +879,6 @@ describe('parseChannels (F3)', () => {
   it('filters non-string entries from parsed arrays', () => {
     expect(parseChannels('["a",1,null,"b"]')).toEqual(['a', 'b']);
   });
-
-  it('returns [] for triple-encoded garbage depth', () => {
-    const triple = JSON.stringify(JSON.stringify(JSON.stringify(['x'])));
-    expect(parseChannels(triple)).toEqual([]);
-  });
 });
 
 describe('stringifyChannels (F3)', () => {
@@ -895,69 +890,13 @@ describe('stringifyChannels (F3)', () => {
     expect(stringifyChannels('["ch-1"]')).toBe('["ch-1"]');
   });
 
-  it('normalizes double-encoded string input', () => {
-    expect(stringifyChannels(JSON.stringify(JSON.stringify(['ch-1'])))).toBe('["ch-1"]');
+  it('double-encoded string input → []（#696：不再逐层解包归一）', () => {
+    expect(stringifyChannels(JSON.stringify(JSON.stringify(['ch-1'])))).toBe('[]');
   });
 
   it('normalizes garbage / undefined to []', () => {
     expect(stringifyChannels('garbage')).toBe('[]');
     expect(stringifyChannels(undefined)).toBe('[]');
-  });
-});
-
-describe('FileStore.migrateChannelsEncoding (F3)', () => {
-  let tmpDir: string;
-  let store: FileStore;
-
-  beforeEach(() => {
-    tmpDir = createTempDir();
-    store = new FileStore(tmpDir);
-  });
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it('rewrites double-encoded channels to single encoding', async () => {
-    const good = makeProfile('p-good');
-    good.channels = '["ch-1"]';
-    const bad = makeProfile('p-bad');
-    bad.channels = JSON.stringify(JSON.stringify(['ch-2']));
-    await store.createProfile(good);
-    await store.createProfile(bad);
-
-    const result = await store.migrateChannelsEncoding();
-    expect(result).toEqual({ scanned: 2, rewritten: 1 });
-
-    expect((await store.getProfile('p-good'))!.channels).toBe('["ch-1"]');
-    expect((await store.getProfile('p-bad'))!.channels).toBe('["ch-2"]');
-  });
-
-  it('dryRun counts but does not write', async () => {
-    const bad = makeProfile('p-bad');
-    bad.channels = JSON.stringify(JSON.stringify(['ch-2']));
-    await store.createProfile(bad);
-
-    const result = await store.migrateChannelsEncoding({ dryRun: true });
-    expect(result).toEqual({ scanned: 1, rewritten: 1 });
-    expect((await store.getProfile('p-bad'))!.channels).toBe(bad.channels);
-  });
-
-  it('skips malformed profile.json and missing channels field', async () => {
-    const dir = path.join(tmpDir, 'agents', 'p-corrupt');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'profile.json'), '{bad json');
-    const noChannels = makeProfile('p-no-channels');
-    delete (noChannels as Partial<AgentProfileData>).channels;
-    await store.createProfile(noChannels);
-
-    const result = await store.migrateChannelsEncoding();
-    expect(result).toEqual({ scanned: 0, rewritten: 0 });
-  });
-
-  it('returns zeros when agents dir does not exist', async () => {
-    const result = await store.migrateChannelsEncoding();
-    expect(result).toEqual({ scanned: 0, rewritten: 0 });
   });
 });
 
@@ -1089,7 +1028,7 @@ describe('FileStore T6: 原子写与并发', () => {
   describe('多进程并发压测', () => {
     const REPO_ROOT = path.resolve(__dirname, '../../../..');
     const TSX_BIN = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
-    const FILE_STORE_TS = pathToFileURL(path.resolve(__dirname, '..', 'file-store.ts')).href;
+    const FILE_STORE_TS = pathToFileURL(path.resolve(__dirname, '..', 'file-store', 'index.ts')).href;
 
     function writeWorker(): string {
       const workerPath = path.join(tmpDir, 't6-worker.ts');
@@ -1540,7 +1479,7 @@ describe('FileStore readDoc 读穿缓存 (#321)', () => {
   it('文档未变化时重复 readDoc 不重读文件（stat 校验命中缓存）', async () => {
     await store.writeDoc(docsDir(), 'hello', { title: 'T' }, '正文 body');
     const readSpy = vi.spyOn(fs.promises, 'readFile');
-    const docReads = () => readSpy.mock.calls.filter(c => String(c[0]) === docPath()).length;
+    const docReads = () => readSpy.mock.calls.filter(c => String(c[0]) === docPath() || String(c[0]).startsWith(`/proc/${process.pid}/fd/`)).length;
 
     const first = await store.readDoc(docsDir(), 'hello');
     expect(first?.meta.title).toBe('T');

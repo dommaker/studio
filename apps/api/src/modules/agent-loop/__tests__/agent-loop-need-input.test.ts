@@ -6,7 +6,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.types.js';
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -18,13 +19,17 @@ vi.mock('@dommaker/studio-agent', () => ({
   },
 }));
 
-vi.mock('../../knowledge/knowledge-service', () => ({
-  knowledgeService: {
+vi.mock('../../knowledge/knowledge-service', () => {
+  const knowledgeService = {
     injectContext: vi.fn().mockResolvedValue({ prompt: '', injectedIds: [] }),
     recordOutcome: vi.fn().mockResolvedValue(undefined),
     extractFromExecution: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+  };
+  return {
+    knowledgeService,
+    knowledgePorts: { consume: knowledgeService, produce: knowledgeService, track: knowledgeService },
+  };
+});
 
 import { AgentLoop } from '../agent-loop';
 import { resolveTarget } from '../agent-loop-parsers';
@@ -90,7 +95,7 @@ describe('F5: NEED_INPUT 挂起与恢复', () => {
   it('(a) NEED_INPUT → WorkUnit 挂起 blocked + 问题发到频道 + 不会被重新认领', async () => {
     const { wu, anchor } = await setupDispatchedWorkUnit();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'need_input', summary: '使用 OAuth 还是账号密码？' },
     );
@@ -119,7 +124,7 @@ describe('F5: NEED_INPUT 挂起与恢复', () => {
 
   it('(a2) 已挂起 WorkUnit 再次 NEED_INPUT 不抛错（blocked → blocked 守卫）', async () => {
     const { wu } = await setupDispatchedWorkUnit();
-    const loop = agentLoop as unknown as RecordResultCapable;
+    const loop = agentLoop;
 
     await loop.recordResult({ workUnit: wu }, { action: 'need_input', summary: '问题 1' });
     await expect(
@@ -132,7 +137,7 @@ describe('F5: NEED_INPUT 挂起与恢复', () => {
   it('(a3) #279：need_input 带 options → 提问消息 meta 携带结构化选项', async () => {
     const { wu } = await setupDispatchedWorkUnit();
 
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
+    await (agentLoop).recordResult(
       { workUnit: wu },
       { action: 'need_input', summary: '选哪个方案？', options: [{ label: 'A', value: 'a' }, { label: 'B' }] },
     );
@@ -146,7 +151,7 @@ describe('F5: NEED_INPUT 挂起与恢复', () => {
 
   it('(b) 人类回复 → 恢复 active，回复文本注入下一轮 agent prompt', async () => {
     const { wu } = await setupDispatchedWorkUnit();
-    const loop = agentLoop as unknown as RecordResultCapable;
+    const loop = agentLoop;
 
     await loop.recordResult({ workUnit: wu }, { action: 'need_input', summary: '使用 OAuth 还是账号密码？' });
     await resumeWaitingWorkUnit(wu.id, '用 OAuth，只接 Google', fileStore);

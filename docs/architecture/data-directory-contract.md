@@ -33,28 +33,33 @@ data/
     archive/messages-YYYY-MM.jsonl  # 超龄消息冷文件（#327，按消息 createdAt 归月）
   workunits/
     lock             # flock 文件锁目录
-    events.jsonl     # 事件流 (append-only)
-    index.json       # 当前状态快照
+    events.jsonl     # 事件流 (append-only，唯一真源)
+    index.json       # append-only 历史索引（派生物，仅供全量查询/fold）
+    current/         # 可重建 per-WU 当前态投影（PERF-02，v3）
+      manifest.json  # 全局完整提交 head、projection 文件数
+      legacy-pending.json  # legacy 无 events 直写 intent；index 写前存在，恢复成功后删除
+      <sha256-wu-id>.json  # { version, log, snapshot }；log 精确等于该 WU 提交 head
+      heads/<sha256-wu-id>.json  # per-WU 完整提交 head；其他 WU append 不使其失效
   requirements/      # REQ 需求编号体系 (vision §5.3)
     lock             # seq 分配 flock 锁目录
     index.json       # { nextSeq } 序号计数器
     REQ-0042.json    # RequirementData（每需求一个文件）
 ```
 
-现行扩展段（代码在用，同样属契约内）：`companies/`（companies/routes.ts、mcp/tool-store.ts）、`evolution/`（file-store.ts SeqEntryStore，E1 提案）、`resolutions/`、`trends/`（knowledge-data-layer.ts，按日 md）、`tasks/`（executions 遗留接口仍活）、`spec-reviews/`（mcp/spec.tools.ts）、`users/`（ops.service/notification 写读）、`skills/`（skill-demotion.ts）、`attachments/`（channels/attachments.ts）。
+现行扩展段（代码在用，同样属契约内）：`companies/`（companies/routes.ts、mcp/tool-store.ts）、`evolution/`（file-store.ts SeqEntryStore，E1 提案）、`resolutions/`、`trends/`（trend-data.ts，按日 md）、`tasks/`（executions 遗留接口仍活）、`spec-reviews/`（mcp/spec.tools.ts）、`users/`（ops.service/notification 写读）、`skills/`（skill-demotion.ts）、`attachments/`（channels/attachments.ts）、`webhook-replays.json` + `webhook-replays.lock`（core/replay-guard.ts，SEC-09 重放台账与跨进程锁；delivery/interaction 完成项 24h TTL，deploy commit 完成项永久，processing 无 TTL，新 claim 仅清理有过期时间的完成项；v2 幂等迁移建立空台账，已有文件不覆盖）。
 
 ### ② 根级配置、索引与程序数据
 
 - 用户配置：`config.env`、`providers.json`（provider 覆盖，深合并语义，`packages/studio-shared/src/providers.ts:242`；可选，用户创建）。
 - 认证与密钥：`users.json`、`sessions.json`（auth session 数组）、`.daemon/`（`jwt-secret`、`encryption-key`、`admin-token` 等，CLI 自举，`apps/api/src/cli/server.ts:39-61`）。
-- 索引与状态：`skills-index.json`、`mcp-permissions.json`、`projects.json`（CLI 工程注册清单，与 `projects/` 目录是两回事）、`session-checkpoint.json`、`active-project`（CLI 当前项目指针）。
-- 程序数据目录：`agents-registry/`、`auditor/`（daily-snapshots.jsonl append-only）、`data/` 见①、`distill/`（提案与 runs jsonl）、`knowledge/`（FileKnowledgeStore 唯一库 + resolution md）、`okr/`（含 kr-history.jsonl append-only）、`projects/`（PMO 项目逐文件 JSON）、`skills/`（每 skill 一子目录，hash 升级机制）、`snapshots/`（环境快照）、`transcripts/`（按 WU 会话原文）、`triggers/`、`workspaces/`（`{id}.json`，内嵌 runtimes）、`.analyst/`（CLI analyst 工作目录）。
+- 索引与状态：`skills-index.json`、`mcp-permissions.json`、`projects.json`（CLI 工程注册清单，与 `projects/` 目录是两回事）、`active-project`（CLI 当前项目指针）。`session-checkpoint.json` 自 #716 起仅为退役 Git 伪会话摘要的 legacy 遗留，不再有活跃读写方。
+- 程序数据目录：`agents-registry/`、`auditor/`（daily-snapshots.jsonl append-only）、`data/` 见①、`distill/`（提案与 runs jsonl）、`knowledge/`（FileKnowledgeStore 唯一库 + resolution md）、`memory/<roleId>/`（角色记忆 MEMORY.md、topics/*.md、draft.jsonl；#718 增 maintenance.jsonl 持久维护 run，topic frontmatter 记录 learning/usage/verification/lifecycle，archive 保留原文可恢复）、`okr/`（含 kr-history.jsonl append-only）、`projects/`（PMO 项目逐文件 JSON）、`skills/`（每 skill 一子目录，hash 升级机制）、`snapshots/`（环境快照）、`transcripts/`（按 WU 会话原文；#712 起同一 JSONL 内 additive 记录 step/terminal/per-consumer watermark，旧无 kind 步骤兼容，不新增目录或 schema 版本）、`triggers/`、`workspaces/`（`{id}.json`，内嵌 runtimes）、`.analyst/`（CLI analyst 工作目录）。
 - 事件流：`mcp-audit-logs.jsonl`（append-only）。
 - 契约新增（本票冻结，实现票落地）：`harness-knowledge/`（KNOWLEDGE_DIR 归数据根，见 §8）、`tunnel-url`（TUNNEL_URL_FILE 归数据根，见 §8）、`data/manifest.json`（版本标记，见 §5）。
 
 ### ③ 可再生产物
 
-`logs/`（统一事件流 `studio-events.jsonl`、`audit.jsonl`、`notifications.jsonl`、`incidents.jsonl`、`tasks-*.jsonl` 及轮转归档）、`worktrees/`（sub-agent git worktree）、`events/`（语义迁移中，见 §8）、各 `*.bak-*` / `*-backup-*` 备份。迁移备份（§5）不覆盖本类。
+`logs/`（统一事件流 `studio-events.jsonl`、`audit.jsonl`、`notifications.jsonl`、`incidents.jsonl`、`tasks-*.jsonl` 及轮转归档；`logs/projections/` 为 PERF-05 overview 按日窗口与 notifications 当前态/unreadCount 可重建投影，记录 source `dev/ino/offset`，损坏或代际失配从真源重建）、`worktrees/`（sub-agent git worktree；`worktrees/.delivery-locks/` 为 #704 同腿 Git 跨进程锁，owner/heartbeat 与 stale 回收均可重建，不备份）、`events/`（语义迁移中，见 §8）、各 `*.bak-*` / `*-backup-*` 备份。迁移备份（§5）不覆盖本类。
 
 ## 3. 可改纪律
 
@@ -67,6 +72,8 @@ data/
 - 布局新增/改名/删条目 = **契约文档先行修订** + 版本标记（§5）配套抬升；契约修订走 review，迁移代码与契约同 commit 落地。
 - 新代码向数据根写入契约外条目而未先修订本契约 = 违规。
 - 遗产条目只登记不归位（§8）；清理由专门工单执行，不夹带在功能票里。
+- **WU 当前态投影协议（PERF-02）**：`commitSnapshot`/`commitRemoval`/claim/updateMetadata/guarded create/lease flush 等正常事件写仍在同一把 `workunits/lock` 内按 `events.jsonl → index.json → current/<id>.json → current/heads/<id>.json → current/manifest.json` 提交，全局 manifest 最后落盘，协议不变。legacy `upsertSnapshot`/`removeSnapshot` **不写 events**：index 写前先追加持久 pending intent，随后仍走增量 `finalizeCurrentLocked(rows)`，成功后清 pending；正常路径不全量 replace。统一 `recoverLegacyPendingLocked` 在 ensure/rebuild/reconcile/append 最先执行：仅从**当前 index fold** 全量恢复，replace 全程保留 pending，完整提交后清除。pending 后的 rebuild 返回恢复结果且不再按 events 覆盖；reconcile 返回本次恢复一致的安全报告；appendEvent 恢复后 fail-closed 零事件，下一事件改走 `commitSnapshot`，避免只写事件契约与 legacy current 冲突。remove 不存在保持 no-op，撕裂 index 抛错不洗白。
+- **提交 head 与恢复**：projection.log 必须与对应 per-WU head 的 byte offset + `dev:ino` **精确一致**，不得接受同代旧 offset；其他 WU 的后续 append 不改变本 WU head。全局 manifest 与 events 当前完整 head 不符、projection/head 损坏或缺失、projection 文件数不符均自动从 events 重建。events 尾部非换行 = 未提交半行，所有 events/RMW 写 fail-closed 且零副作用，禁止提交或粘连 append；截断该未提交半行后可恢复。锁内点查只读全局 manifest + 目标 projection/head，禁止 fold 历史 index 或使用 mtime cache；guarded create 枚举全当前 projection，也不得 fold index。所有投影写入与重建持锁，旧进程/读者不得锁外回写旧快照。projection/head 是可重建派生物，采用原子 tmp+rename 但不逐个 fsync；全局 manifest 仍 fsync 作为提交点，崩溃由 events head 或 legacy pending 驱动恢复。
 
 ## 5. 版本标记与迁移框架（冻结：方案 A，人审 2026-09-16）
 
@@ -79,6 +86,13 @@ data/
   - 备份范围：只备 `data/` 与根级 JSON/jsonl；`logs/`、`worktrees/` 等可再生产物不备。
 - **骨架先行**：首个迁移 = 空迁移（v0 无标记 → v1 写 manifest），机制跑通；真实迁移随首次布局变更进。
 - 实现票：#572（**已落地，2026-09-16**：`packages/studio-shared/src/migrations/` + `apps/api/src/index.ts` 接入点）。
+- **v3（PERF-02）**：幂等建立 `workunits/current/`（0700）；projection 与 manifest 由锁内写/重建懒生成，迁移不 fold 历史、不预填十万级派生文件。
+- **v4（PERF-05）**：幂等建立 `logs/projections/`（0700）；overview/notification 投影首次读取时懒生成，迁移不扫描历史。通知写路径与投影恢复共用 `notifications.jsonl.lock`；批量已读一次归属过滤、单句柄批量 append 后推进投影。
+- **v5（#704）**：幂等建立 `worktrees/.delivery-locks/`（0700）；同腿 Git 操作共用真实 common-dir + 分支键控的跨进程锁，锁目录与 owner/heartbeat 属可再生产物，迁移不扫描或备份历史锁。
+- **v6（#707）**：WU events/index/current 的既有快照新增可选 typed `effects` / `effectReceipts`，Effect 意图与 WU 领域状态继续共用 `commitSnapshot` 和 `workunits/lock`；旧事件缺省为空，迁移仅抬版本、不重写历史，也不新增数据目录。#708 将 Effect kind additive 扩为 `review-dispatch | merge`，merge/cleanup 继续复用该快照与 Receipt。#709 再扩为 `external-reply` 并增加可选 `payload`，固定外部回复正文与 messageId 供恢复认养。#716 再扩为 `knowledge-extraction`；`distill/runs.jsonl` 以同 id 追加状态行折叠，新增 triggered/running/succeeded/failed/retry-after 与重试/恢复清单字段，legacy executed/failed 原样兼容；均无新目录或迁移。
+- **v7（#718）**：`memory/<roleId>/maintenance.jsonl` 以同 id 追加 triggered/running/succeeded/failed 完整快照并读侧折叠；promote/merge/archive/restore/capacity 意图先于副作用，启动重放 triggered/running 并重试 failed（单 run 最多 3 次）。既有 MEMORY.md/topics/draft 不重写，maintenance 文件懒创建，迁移仅抬版本。
+- **v8（#720）**：PMO 项目 JSON additive 增加整体评审开关与候选评审记录；WU Effect kind 增加 `pmo-review-dispatch | pmo-review-result`，候选派单/结果继续复用 events/index/current 的 Effect/Receipt 与恢复协议。既有项目和 WU 缺省不启用整体评审，不重写历史，不新增目录，迁移仅抬版本。
+- **v9（#722）**：WU Effect kind 增加 `knowledge-outcome`，payload 固定终局学习 eventId/kind/workUnitIds；知识条目仍在既有 `sourceReferences[].learning` 追加 outcome/revision，条目级 eventId 保证部分写入后的恢复幂等。既有 WU 与知识条目不重写，不新增目录，迁移仅抬版本。
 
 ## 6. 网络面（回环纪律）
 
@@ -116,7 +130,7 @@ data/
 | `okr/` | pmo/okr.service.ts:9（含 kr-history.jsonl append-only） |
 | `projects/` | pmo/project.service.ts:17 |
 | `projects.json` | cli/admin.ts:13,23（CLI 工程注册清单） |
-| `session-checkpoint.json` | agents/session-summary.service.ts:19 |
+| `session-checkpoint.json` | #716 起 legacy-only；原 Git 伪会话摘要已退役，无活跃读写方 |
 | `sessions.json` | auth/service.ts:85、middleware/auth.ts:20 |
 | `skills/` | studio-skill/loader.ts:25、seed.ts:54（每 skill 一子目录） |
 | `skills-index.json` | skills/skill-store.ts:98 |

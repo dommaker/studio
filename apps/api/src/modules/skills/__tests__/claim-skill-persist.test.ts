@@ -37,6 +37,11 @@ const { mockFileStore } = vi.hoisted(() => ({
   },
 }));
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -45,7 +50,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-const { WorkUnitService } = await import('../../workunit/workunit.service.js');
+const { WorkUnitService } = await import('../../workunit/workunit-review.js');
 
 describe('§10 P0 → 决策 7: claim 不再落盘 metadata.matchedSkills', () => {
   let service: WorkUnitService;
@@ -54,7 +59,7 @@ describe('§10 P0 → 决策 7: claim 不再落盘 metadata.matchedSkills', () =
     id: 'wu-1', status: 'unassigned', scope: '实现用户登录', type: 'feature',
     parentId: null, assigneeId: null, failureType: null,
     retryCount: 0, timeoutAt: new Date(Date.now() + 3600000).toISOString(), channelId: null, projectPath: null,
-    metadata: null, claimedAt: null, completedAt: null,
+    metadata: null, mandate: { policyVersion: '1' }, claimedAt: null, completedAt: null,
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   };
 

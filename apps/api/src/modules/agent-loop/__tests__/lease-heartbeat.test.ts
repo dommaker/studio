@@ -10,7 +10,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, WU_LEASE_TTL_MS } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import { WU_LEASE_TTL_MS } from '../../workunit/workunit.types.js';
 import { startLeaseHeartbeat } from '../lease-heartbeat.js';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));

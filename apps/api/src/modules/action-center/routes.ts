@@ -14,8 +14,9 @@ import { Router } from 'express';
 import { createLazyService } from '../../utils/services.js';
 import { AuthRequest } from '../../middleware/auth.js';
 import { ActionCenterService } from './action-center.service.js';
+import { toNotificationWire } from '../notifications/index.js';
 import { defineRoute, HttpError } from '../../core/http.js';
-import { ERROR_CODES } from '@dommaker/studio-contract';
+import { ERROR_CODES, actionCenterResponseSchema } from '@dommaker/studio-contract';
 
 const router = Router();
 
@@ -25,12 +26,13 @@ const getActionCenterService = createLazyService(() => new ActionCenterService()
  * GET /api/v1/action-center
  * 统一行动中心：四类待办一个端点（待回复/待验收/待确认 + 通知与告警）
  */
-router.get('/', defineRoute({}, async (req) => {
+router.get('/', defineRoute({ response: actionCenterResponseSchema }, async (req) => {
   const userId = (req as AuthRequest).user?.id ?? null;
   if (!userId) {
     throw new HttpError(500, ERROR_CODES.INTERNAL, 'Authenticated user missing');
   }
-  return getActionCenterService().getActionCenter(userId);
+  const result = await getActionCenterService().getActionCenter(userId);
+  return { ...result, notifications: result.notifications.map(toNotificationWire) };
 }));
 
 export { router as actionCenterRoutes };

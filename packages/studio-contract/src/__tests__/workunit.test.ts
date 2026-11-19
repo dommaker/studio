@@ -30,7 +30,7 @@ import {
 } from '../workunit.js';
 import * as contractIndex from '../index.js';
 
-/** 后端 snapshotToData JSON 序列化后的最小合法形状（interface 类型即 parity 被测对象） */
+/** 后端 snapshotToData JSON 序列化后的最小合法形状（类型 = z.infer 同源，编译期锚定） */
 const wuRow = {
   id: 'wu-1',
   parentId: null,
@@ -67,32 +67,6 @@ describe('workUnitSchema', () => {
     expect(workUnitSchema.safeParse(noId).success).toBe(false);
     expect(workUnitSchema.safeParse({ ...wuRow, parentId: undefined }).success).toBe(false);
   });
-
-  // strict:false 仓 z.infer 全字段退化可选 → WorkUnit 是手写 interface；
-  // parity 测试兜「interface ↔ schema 漂移」（改一边不改另一边时这里红）
-  it('parity：WorkUnit interface fixture 全键 = schema.shape 键且通过校验', () => {
-    const full: WorkUnit & Required<Pick<WorkUnit, 'workspaceId' | 'reqId' | 'assigneeRoleId' | 'claimable'>> = {
-      ...wuRow,
-      claimable: false,
-    };
-    expect(workUnitSchema.parse(full)).toEqual(full);
-    expect(Object.keys(workUnitSchema.shape).sort()).toEqual(Object.keys(full).sort());
-  });
-
-  it('parity：interface 必填字段逐一删除 → schema 拒绝（必填集对齐）', () => {
-    const OPTIONAL_KEYS = new Set(['workspaceId', 'reqId', 'assigneeRoleId', 'claimable']);
-    const requiredKeys = Object.keys(wuRow).filter(k => !OPTIONAL_KEYS.has(k));
-    expect(requiredKeys.length).toBeGreaterThan(0);
-    for (const key of requiredKeys) {
-      const { [key]: _drop, ...rest } = wuRow as unknown as Record<string, unknown>;
-      expect(workUnitSchema.safeParse(rest).success, `删除 ${key} 应被拒`).toBe(false);
-    }
-    // interface 可选字段删除 → 仍通过
-    for (const key of ['workspaceId', 'reqId', 'assigneeRoleId']) {
-      const { [key]: _drop, ...rest } = wuRow as unknown as Record<string, unknown>;
-      expect(workUnitSchema.safeParse(rest).success, `删除可选 ${key} 应放行`).toBe(true);
-    }
-  });
 });
 
 describe('请求 schema', () => {
@@ -126,6 +100,21 @@ describe('请求 schema', () => {
     expect(fromMessageBodySchema.safeParse({}).success).toBe(false);
   });
 
+  it('REST metadata：执行记录与自定义验证命令只能由服务端写入', () => {
+    for (const metadata of [
+      { worktreePath: '/tmp/forged' },
+      { verifyCommands: ['touch /tmp/forbidden'] },
+      { mergeIntent: { state: 'queued' } },
+      { mergeReceipt: { merged: true } },
+      { mergedAt: '2026-01-01T00:00:00Z' },
+      { mergeCommit: 'forged' },
+    ]) {
+      expect(createWorkUnitBodySchema.safeParse({ scope: 'x', metadata }).success).toBe(false);
+      expect(updateWorkUnitBodySchema.safeParse({ metadata }).success).toBe(false);
+      expect(fromMessageBodySchema.safeParse({ messageId: 'm-1', metadata }).success).toBe(false);
+    }
+  });
+
   it('claim body：agentId 可省略（缺省 = 会话用户）；空对象合法', () => {
     expect(claimBodySchema.parse({})).toEqual({});
     expect(claimBodySchema.safeParse({ agentId: '' }).success).toBe(false);
@@ -142,6 +131,13 @@ describe('请求 schema', () => {
     expect(reviewConfirmPayloadSchema.parse({ kind: 'spec', tasks: [{ title: 't' }] }).kind).toBe('spec');
     expect(reviewConfirmPayloadSchema.parse({ kind: 'analysis', fog: ['q'] }).kind).toBe('analysis');
     expect(reviewConfirmPayloadSchema.parse({ kind: 'plan' }).kind).toBe('plan');
+    expect(reviewConfirmPayloadSchema.parse({
+      kind: 'plan',
+      tasks: [{ title: '多仓任务', ac: ['验收'], leg: '/repo/api', blockedBy: ['wu-1'] }],
+    })).toEqual({
+      kind: 'plan',
+      tasks: [{ title: '多仓任务', ac: ['验收'], leg: '/repo/api', blockedBy: ['wu-1'] }],
+    });
     expect(reviewConfirmPayloadSchema.safeParse({ kind: 'task' }).success).toBe(false);
     // 容忍形态：decision 无 conclusion / spec 无 tasks（语义归一在 confirm-payload.ts）
     expect(reviewConfirmPayloadSchema.safeParse({ kind: 'decision' }).success).toBe(true);
@@ -149,8 +145,9 @@ describe('请求 schema', () => {
     expect(reviewPassedBodySchema.parse({ confirm: { kind: 'decision' } })).toEqual({ confirm: { kind: 'decision' } });
   });
 
-  it('verify body：commands 字符串数组（非字符串元素 → 400，旧行为是静默过滤）', () => {
-    expect(verifyBodySchema.parse({ commands: ['pnpm test'] })).toEqual({ commands: ['pnpm test'] });
+  it('verify body：只接受服务端已登记检查，拒绝调用方自定义 commands', () => {
+    expect(verifyBodySchema.parse({})).toEqual({});
+    expect(verifyBodySchema.safeParse({ commands: ['pnpm test'] }).success).toBe(false);
     expect(verifyBodySchema.safeParse({ commands: ['a', 42] }).success).toBe(false);
   });
 

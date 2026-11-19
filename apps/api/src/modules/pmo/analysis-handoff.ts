@@ -22,20 +22,50 @@
  * 事件订阅语义与 ReviewDispatcher 一致（eventBus 进程内，best-effort）。
  */
 
-import { eventBus, logger, createSettledTracker, type FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
+import { type FileStore, WorkUnitMetadataRepository, type SpecTaskSpec } from '@dommaker/studio-shared';
+import { WorkUnitService, DerivationLedger, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { ChannelMessageService } from '../channels/index.js';
 import { resolveStageRouting, resolveOrNotice } from '../channels/index.js';
+import { WuStatusChangedSubscription } from './wu-status-subscription.js';
 // P2-c 拆环：dispatchMonitorAlerts 转方法内动态 import（pmo→agents 静态边清零）
 import { getStore } from '../../core/store.js';
+import { logger } from '@dommaker/studio-shared/node';
+import { resolveDeliveries, type DeliveryLeg, type ProjectData } from './model.js';
+import { projectRepository } from './project-repository.js';
 
+export class PlanTaskLegError extends Error {}
+
+/** plan TASK → 唯一交付腿；任何缺失/未知/歧义都 fail-closed，不回退项目首仓。 */
+export function resolvePlanTaskLegs(project: ProjectData, tasks: SpecTaskSpec[]): DeliveryLeg[] {
+  const deliveries = resolveDeliveries(project);
+  return tasks.map((task, index) => {
+    if (!task.leg?.trim()) throw new PlanTaskLegError(`TASK ${index + 1} 缺少 LEG，请澄清交付腿`);
+    if (!Array.isArray(task.ac) || task.ac.length === 0) throw new PlanTaskLegError(`TASK ${index + 1} 缺少 AC`);
+    if (!Array.isArray(task.blockedBy)) throw new PlanTaskLegError(`TASK ${index + 1} 缺少 blockedBy`);
+    const matches = deliveries.filter(leg => leg.gitRepo === task.leg);
+    if (matches.length === 0) throw new PlanTaskLegError(`TASK ${index + 1} LEG 未知：${task.leg}`);
+    if (matches.length > 1) throw new PlanTaskLegError(`TASK ${index + 1} LEG 重复/歧义：${task.leg}`);
+    const leg = matches[0];
+    if (!leg.gitRepo || !leg.branch) throw new PlanTaskLegError(`TASK ${index + 1} 交付腿缺少仓库或 delivery branch：${task.leg}`);
+    return leg;
+  });
+}
+
+/** review-passed 确认闸使用的 PMO 校验端口实现。 */
+export async function validatePlanConfirm(workUnit: WorkUnitData, tasks: SpecTaskSpec[]): Promise<DeliveryLeg[]> {
+  const pmoId = parseWuMetadata(workUnit.metadata).pmoId;
+  if (!pmoId) throw new PlanTaskLegError('plan 缺少 PMO 归属，无法解析交付腿');
+  const project = await projectRepository.get(pmoId);
+  if (!project) throw new PlanTaskLegError(`plan 所属 PMO 不存在：${pmoId}`);
+  return resolvePlanTaskLegs(project, tasks);
+}
 
 export class AnalysisHandoff {
-  private subscribed = false;
+  /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled（共享骨架 P2.1） */
+  private readonly statusChanged = new WuStatusChangedSubscription();
   private messageService: ChannelMessageService;
-  /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled */
-  private readonly settled = createSettledTracker();
+  private readonly derivationLedger: DerivationLedger;
 
   constructor(
     private fileStore: FileStore,
@@ -43,16 +73,16 @@ export class AnalysisHandoff {
   ) {
     // 绑定同一 fileStore（测试注入临时 store；生产与全局同目录）
     this.messageService = new ChannelMessageService(fileStore);
+    this.derivationLedger = new DerivationLedger(new WorkUnitMetadataRepository(fileStore));
   }
 
   /** 订阅 workunit.status_changed。幂等。 */
   subscribeToEvents(): void {
-    if (this.subscribed) return;
-    this.subscribed = true;
-
-    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
-      this.settled.track(this.handleStatusChanged(payload.workunit));
-    });
+    // 类型过滤在此；状态分流（in_review/done）在 handleStatusChanged 内（原行为不变）
+    this.statusChanged.subscribe(
+      (wu) => !!wu && (wu.type === 'analysis' || wu.type === 'plan'),
+      (wu) => this.handleStatusChanged(wu),
+    );
   }
 
   private async handleStatusChanged(wu: WorkUnitData): Promise<void> {
@@ -72,10 +102,11 @@ export class AnalysisHandoff {
   /**
    * 等待本实例已触发的全部事件链落定（测试用确定性信号，替代盲等轮询）。
    * publish 在 transitionStatus await 链内同步发射（eventBus emit 同步），故
-   * await 触发方返回时在途链必已登记。实现经 studio-shared createSettledTracker。
+   * await 触发方返回时在途链必已登记。实现经 WuStatusChangedSubscription
+   * 共享骨架（studio-shared createSettledTracker）。
    */
   async waitForSettled(): Promise<void> {
-    await this.settled.waitForSettled();
+    await this.statusChanged.waitForSettled();
   }
 
   private readMeta(wu: WorkUnitData): WorkUnitMetadata {
@@ -122,11 +153,7 @@ export class AnalysisHandoff {
     const fresh = await this.workUnitService.getById(wu.id);
     if (!fresh || fresh.status !== 'in_review') return;
     await this.workUnitService.reviewPassed(wu.id);
-    await this.fileStore.updateMetadata(wu.id, latest => ({
-      ...latest,
-      autoConfirmedBy: 'trigger-inspection-no-gate',
-      autoConfirmedAt: new Date().toISOString(),
-    }));
+    await this.derivationLedger.markAutoConfirmed(wu.id, new Date().toISOString());
     logger.info('[AnalysisHandoff] trigger 巡检单免确认直转 done（#167 决议 1）', { wuId: wu.id });
   }
 
@@ -134,7 +161,7 @@ export class AnalysisHandoff {
   private postConfirmGuidanceToInbox(wu: WorkUnitData, isTrigger: boolean): void {
     const hasTasks = this.taskScopes(this.readMeta(wu)).length > 0;
     // P2-c 拆环：pmo→agents 静态边转动态 import（fire-and-forget，方法签名不变）
-    void import('../agent-monitor/index.js').then(({ dispatchMonitorAlerts }) => dispatchMonitorAlerts([{
+    void import('../ops/index.js').then(({ dispatchMonitorAlerts }) => dispatchMonitorAlerts([{
       source: 'analysis_confirm',
       level: 'warning',
       relatedTaskIds: [wu.id],
@@ -187,6 +214,16 @@ export class AnalysisHandoff {
     if (meta.analysisTasksSpawnedAt || meta.analysisTasksSpawned) return;
 
     const tasks = this.taskScopes(meta);
+    let taskLegs: DeliveryLeg[] = [];
+    try {
+      taskLegs = await this.resolvePlanLegs(fresh, meta, tasks);
+    } catch (error) {
+      if (error instanceof PlanTaskLegError) {
+        await this.post(fresh, `规划任务未派生：${error.message}。请修正后重新确认，系统不会默认选择第一仓。`);
+        return;
+      }
+      throw error;
+    }
 
     // 幂等哨兵先落档：即便后续建单部分失败也不重复派生（差额由 #183 对账扫描补建）。
     // #170 updateMetadata 锁内合并写：与 map-opening 同一 done 事件写同一 WU metadata
@@ -194,10 +231,7 @@ export class AnalysisHandoff {
     // #183（#159 决议 2）哨兵清单化：时间戳 + 已建子 WU id 清单（初始空，随建单逐个追加）。
     // stamp 回读比对判定本实例是否抢到哨兵（并发/重发只放行一个）。
     const stamp = new Date().toISOString();
-    const sentinel = await this.fileStore.updateMetadata(fresh.id, latest =>
-      (latest.analysisTasksSpawnedAt || latest.analysisTasksSpawned)
-        ? latest // 重读后哨兵已落（并发/重发）
-        : { ...latest, analysisTasksSpawnedAt: stamp, analysisTasksSpawned: [] as string[] });
+    const sentinel = await this.derivationLedger.claim(fresh.id, stamp);
     if (!sentinel) return;
     if (parseWuMetadata(sentinel.metadata).analysisTasksSpawnedAt !== stamp) return;
 
@@ -219,9 +253,9 @@ export class AnalysisHandoff {
       if (resolution.profileId) defaultAssigneeId = resolution.profileId;
       else routingNotice = notice;
     }
-    for (const scope of tasks) {
+    for (const [taskIndex, scope] of tasks.entries()) {
       try {
-        const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId);
+        const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId, taskIndex, taskLegs[taskIndex]);
         created.push(scope);
         // 清单随建单逐个追加（锁内合并写）；追加失败不阻断——对账扫描的活体去重兜底
         await this.appendSpawnedId(fresh.id, child.id).catch(err =>
@@ -247,6 +281,16 @@ export class AnalysisHandoff {
     }
   }
 
+  /** 初次派生/对账补建共用整批位置与腿校验。 */
+  private async resolvePlanLegs(fresh: WorkUnitData, meta: WorkUnitMetadata, tasks: string[]): Promise<DeliveryLeg[]> {
+    if (fresh.type !== 'plan' || tasks.length === 0) return [];
+    const details = meta.analysisTaskDetails;
+    if (!details || details.length !== tasks.length || details.some((detail, index) => detail.title !== tasks[index])) {
+      throw new PlanTaskLegError('plan TASK 与 LEG/AC/依赖明细缺失或位置不一致，请澄清');
+    }
+    return validatePlanConfirm(fresh, details);
+  }
+
   /** #177 默认执行角色解析（spawnTasks 与对账补建共用） */
   private resolveDefaultAssignee(meta: WorkUnitMetadata): string | null {
     return typeof meta.defaultTaskAssigneeId === 'string' && meta.defaultTaskAssigneeId.trim()
@@ -260,7 +304,10 @@ export class AnalysisHandoff {
     scope: string,
     meta: WorkUnitMetadata,
     defaultAssigneeId: string | null,
+    taskIndex: number,
+    leg?: DeliveryLeg,
   ): Promise<WorkUnitData> {
+    const detail = meta.analysisTaskDetails?.[taskIndex];
     return this.workUnitService.create({
       type: 'task',
       scope,
@@ -272,26 +319,25 @@ export class AnalysisHandoff {
       reqId: fresh.reqId ?? null,
       metadata: {
         creationMode: 'analysis-breakdown',
+        analysisTaskIndex: taskIndex,
         // PMO 溯源（progress-rollup / delivery 台账消费）
         pmoId: meta.pmoId,
         pmoNumber: meta.pmoNumber,
-        // B3a 归属链继承：analysis WU 的 workspaceRoot（publish 时由 project.gitRepo
-        // 落档）传给 task 子 WU——agent-loop 据此走 per-WU worktree + PMO 分支合并，
-        // 不继承则 task 直接在共享开发仓落地。
-        ...(typeof meta.workspaceRoot === 'string' && meta.workspaceRoot.length > 0
-          ? { workspaceRoot: meta.workspaceRoot }
-          : {}),
+        ...(detail && detail.ac.length > 0 ? { ac: detail.ac } : {}),
+        ...(leg && detail ? { blockedBy: detail.blockedBy } : {}),
+        // #701：plan 只使用 TASK 唯一匹配腿；analysis 保留旧 workspaceRoot 继承。
+        ...(leg
+          ? { workspaceRoot: leg.gitRepo!, pmoBranch: leg.branch! }
+          : typeof meta.workspaceRoot === 'string' && meta.workspaceRoot.length > 0
+            ? { workspaceRoot: meta.workspaceRoot }
+            : {}),
       },
     });
   }
 
   /** 清单追加子 WU id（锁内合并写；幂等——已在清单不重复追加） */
   private async appendSpawnedId(wuId: string, childId: string): Promise<void> {
-    await this.fileStore.updateMetadata(wuId, latest => {
-      const list = Array.isArray(latest.analysisTasksSpawned) ? latest.analysisTasksSpawned as string[] : [];
-      if (list.includes(childId)) return latest;
-      return { ...latest, analysisTasksSpawned: [...list, childId] };
-    });
+    await this.derivationLedger.mark(wuId, childId);
   }
 
   /**
@@ -299,25 +345,37 @@ export class AnalysisHandoff {
    * 口径以 id 清单为准——人工关闭的子 WU 仍在清单中（closed 不删 index）→ 覆盖、不复活；
    * 清单 id 已从 index 消失（硬删除墓碑）→ 不覆盖，进差集补建。
    */
-  async listMissingSpawnScopes(wu: WorkUnitData): Promise<string[]> {
-    const meta = this.readMeta(wu);
+  private async missingTaskIndexes(meta: WorkUnitMetadata): Promise<number[]> {
     const tasks = this.taskScopes(meta);
     const spawned = Array.isArray(meta.analysisTasksSpawned) ? meta.analysisTasksSpawned : [];
 
-    // 清单 id → scope 多重集（同 scope 多条时按个数抵扣）
-    const covered = new Map<string, number>();
+    // #700 新子 WU 以 TASK 位置戳覆盖；旧数据无位置戳时保留 scope 多重集抵扣。
+    const coveredIndexes = new Set<number>();
+    const coveredScopes = new Map<string, number>();
     for (const id of spawned) {
       const child = await this.workUnitService.getById(id).catch(() => null);
       if (!child) continue;
-      covered.set(child.scope, (covered.get(child.scope) ?? 0) + 1);
+      const taskIndex = this.readMeta(child).analysisTaskIndex;
+      if (typeof taskIndex === 'number' && Number.isInteger(taskIndex) && taskIndex >= 0 && taskIndex < tasks.length) {
+        coveredIndexes.add(taskIndex);
+      } else {
+        coveredScopes.set(child.scope, (coveredScopes.get(child.scope) ?? 0) + 1);
+      }
     }
-    const missing: string[] = [];
-    for (const scope of tasks) {
-      const n = covered.get(scope) ?? 0;
-      if (n > 0) covered.set(scope, n - 1);
-      else missing.push(scope);
+    const missing: number[] = [];
+    for (const [taskIndex, scope] of tasks.entries()) {
+      if (coveredIndexes.has(taskIndex)) continue;
+      const n = coveredScopes.get(scope) ?? 0;
+      if (n > 0) coveredScopes.set(scope, n - 1);
+      else missing.push(taskIndex);
     }
     return missing;
+  }
+
+  async listMissingSpawnScopes(wu: WorkUnitData): Promise<string[]> {
+    const meta = this.readMeta(wu);
+    const tasks = this.taskScopes(meta);
+    return (await this.missingTaskIndexes(meta)).map(taskIndex => tasks[taskIndex]);
   }
 
   /**
@@ -340,17 +398,25 @@ export class AnalysisHandoff {
       if (routing.profileId) defaultAssigneeId = routing.profileId;
     }
     const siblings = (await this.workUnitService.list({ parentId: fresh.id, limit: 1000 })).data;
+    const tasks = this.taskScopes(meta);
+    const taskLegs = await this.resolvePlanLegs(fresh, meta, tasks);
+    const respawnIndexes = (await this.missingTaskIndexes(meta)).filter(taskIndex => scopes.includes(tasks[taskIndex]));
 
-    for (const scope of scopes) {
+    for (const taskIndex of respawnIndexes) {
+      const scope = tasks[taskIndex];
       try {
-        // 活体去重：同 parentId+scope 且未关闭的子 WU 已存在 → 认养（不重建）
-        const live = siblings.find(s => s.scope === scope && s.status !== 'closed');
+        // 活体去重：新子 WU 按 TASK 位置戳认养；仅唯一 scope 的旧数据回退 scope 匹配，
+        // 同名 TASK 不再把不同位置错认成第一条子 WU。
+        const live = siblings.find(s => this.readMeta(s).analysisTaskIndex === taskIndex && s.status !== 'closed')
+          ?? (tasks.filter(title => title === scope).length === 1
+            ? siblings.find(s => this.readMeta(s).analysisTaskIndex === undefined && s.scope === scope && s.status !== 'closed')
+            : undefined);
         if (live) {
           await this.appendSpawnedId(fresh.id, live.id);
           result.adoptedIds.push(live.id);
           continue;
         }
-        const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId);
+        const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId, taskIndex, taskLegs[taskIndex]);
         await this.appendSpawnedId(fresh.id, child.id);
         result.createdIds.push(child.id);
         siblings.push(child); // 同轮后续同 scope 去重

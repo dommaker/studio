@@ -16,7 +16,7 @@
 import * as path from 'path';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared/node';
 
 /** hook 注入 marker：检测配置是否已含我们的执法段（幂等依据；与 harness shim 同一标识） */
 export const HOOK_MARKER = 'harness-command-gate';

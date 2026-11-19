@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { projectApi } from '../../api';
 import { channelApi, type LocalProject } from '../../api/channel';
 import { toast } from '../../utils/toast';
+import { serverErrorMessage } from '../../utils/errorMessage';
 import { Select, Modal } from '../ui';
 
 interface CreateProjectDialogProps {
@@ -86,7 +87,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
       setNewDeliveryPolicy('branch-only');
       onCreated();
     } catch (err) {
-      const msg = err?.response?.data?.error?.message || err?.message || '创建 PMO 失败';
+      const msg = serverErrorMessage(err) || (err instanceof Error ? err.message : undefined) || '创建 PMO 失败';
       toast.error(msg);
     } finally {
       setCreating(false);

@@ -1,0 +1,486 @@
+/**
+ * 门禁检查服务
+ * 
+ * SP-003: GateChecker 整合
+ * 
+ * 负责：
+ * 1. 执行门禁检查
+ * 2. 分级策略管理
+ * 3. 验证结果记录
+ */
+
+import {
+  ValidateChangeInput,
+  ValidateChangeResult,
+  CheckResult,
+  CheckpointType,
+  HarnessCheckpointType,
+  GatePolicy,
+  GATE_POLICIES,
+  isHarnessCheck,
+  HarnessCheckConfig,
+} from './types/gate.types.js';
+
+import { ChangeLevel, ChangeRecord } from './types/change.types.js';
+import { changeHistoryService } from './change-history.service.js';
+
+import type { Checkpoint, CheckpointCheck, CheckpointContext, CheckpointValidator } from '@dommaker/harness';
+import { logger } from '@dommaker/studio-shared/node';
+import { resolveHostPath } from '../../core/host-execution-policy.js';
+
+/**
+ * harness 4.0.0（班次3 Phase5）：CheckConfig 判别联合化，按 type 收窄必填字段。
+ * 入站已由契约层 validateChangeBodySchema 按 type 校验（缺字段 400 点名）；
+ * 此处防御性再断一次——缺字段抛错走 runHarnessCheckpoint 的 catch 判失败，
+ * 不再 || '' 静默放行（同 ADR-0041 警示的可选链假绿同型陷阱）。
+ * 校验通过后原样返回 config，调用点按判别子 Extract 出精确 config 类型。
+ */
+function requireConfigFields(
+  config: HarnessCheckConfig | undefined,
+  type: HarnessCheckpointType,
+  fields: readonly string[],
+): HarnessCheckConfig {
+  const record = config as Record<string, unknown> | undefined;
+  for (const field of fields) {
+    if (typeof record?.[field] !== 'string' || record[field] === '') {
+      throw new Error(`${type} 检查缺少必填配置项 config.${field}`);
+    }
+  }
+  return config as HarnessCheckConfig;
+}
+
+/**
+ * Harness CheckpointValidator（动态导入）
+ */
+let harnessValidator: CheckpointValidator | null = null;
+
+async function getHarnessValidator() {
+  if (!harnessValidator) {
+    try {
+      // 动态导入避免循环依赖
+      const harness = await import('@dommaker/harness');
+      // harness 3.0.0（ADR-0041）：getInstance() 单例壳出清 → 构造器直建。
+      // 原写法 CheckpointValidator?.getInstance?.() 可选链——getInstance 消失后
+      // 静默得 null、落「跳过通用检查」假绿分支且 TS 不报错；必须直建。
+      harnessValidator = harness.CheckpointValidator ? new harness.CheckpointValidator() : null;
+    } catch {
+      logger.warn('[GateChecker] Harness 导入失败，跳过通用检查');
+      harnessValidator = null;
+    }
+  }
+  return harnessValidator;
+}
+
+export class GateCheckerService {
+  /**
+   * 验证变更门禁
+   */
+  async validate(input: ValidateChangeInput & {
+    harnessConfigs?: Array<{ type: CheckpointType; harness?: HarnessCheckConfig }>;
+    strictMode?: boolean;
+  }): Promise<ValidateChangeResult> {
+    const { changeId, checkpoints, harnessConfigs, strictMode } = input;
+
+    // 1. 获取变更记录
+    const change = changeHistoryService.get(changeId);
+    if (!change) {
+      throw new Error(`变更记录不存在: ${changeId}`);
+    }
+
+    const level = change.level;
+    const policy = this.getPolicy(level);
+
+    // 2. 确定检查点
+    const targetCheckpoints = checkpoints || policy.checkpoints;
+
+    logger.info(`[GateChecker] 验证变更: ${changeId}, 级别: ${level}, 检查点: ${targetCheckpoints.join(', ')}`);
+
+    // 3. 执行检查
+    const checks: CheckResult[] = [];
+    
+    for (const checkpointType of targetCheckpoints) {
+      if (checkpointType === 'command_success') {
+        throw new Error('Spec 门禁不接受宿主命令检查');
+      }
+      const harnessConfig = harnessConfigs?.find(c => c.type === checkpointType)?.harness;
+      const rawConfig = harnessConfig as Record<string, unknown> | undefined;
+      if (rawConfig && ('command' in rawConfig || 'workdir' in rawConfig)) {
+        throw new Error('Spec 门禁不接受 harness.command 或调用方 workdir');
+      }
+
+      const result = await this.runCheckpoint(change, checkpointType, harnessConfig, level, strictMode);
+      checks.push(result);
+    }
+
+    // 4. 计算结果
+    const passed = checks.every(c => c.passed);
+    const canProceed = passed || level === 'L1'; // L1 即使检查失败也可以继续
+
+    // 5. 生成摘要
+    const passedCount = checks.filter(c => c.passed).length;
+    const failedCount = checks.length - passedCount;
+    const skippedCount = checks.filter(c => c.message.includes('跳过')).length;
+    
+    let summary: string;
+    if (passed) {
+      summary = `门禁验证通过 (${passedCount}/${checks.length})`;
+    } else if (skippedCount > 0) {
+      summary = `门禁验证部分跳过: ${skippedCount} 个检查未执行 (${failedCount} 失败)`;
+    } else {
+      summary = `门禁验证失败: ${failedCount} 个检查未通过`;
+    }
+
+    logger.info(`[GateChecker] 验证结果: ${passed ? '通过' : '失败'}, 跳过: ${skippedCount}`);
+
+    return {
+      changeId,
+      level,
+      passed,
+      checks,
+      summary,
+      canProceed,
+    };
+  }
+
+  /**
+   * 获取级别对应的门禁策略
+   */
+  getPolicy(level: ChangeLevel): GatePolicy {
+    return GATE_POLICIES[level];
+  }
+
+  /**
+   * 获取所有门禁策略
+   */
+  getAllPolicies(): Record<ChangeLevel, GatePolicy> {
+    return GATE_POLICIES;
+  }
+
+  /**
+   * 执行单个检查点
+   */
+  private async runCheckpoint(
+    change: ChangeRecord,
+    type: CheckpointType,
+    config?: HarnessCheckConfig,
+    level?: ChangeLevel,
+    strictMode?: boolean
+  ): Promise<CheckResult> {
+    // 分流：Harness 检查 vs 业务检查
+    if (isHarnessCheck(type)) {
+      return this.runHarnessCheckpoint(type, config, level, strictMode);
+    }
+
+    // 业务检查
+    switch (type) {
+      case 'spec_format':
+        return this.checkSpecFormat(change);
+      
+      case 'test_coverage':
+        return this.checkTestCoverage(change);
+      
+      case 'api_schema':
+        return this.checkApiSchema(change);
+      
+      case 'architecture':
+        return this.checkArchitecture(change);
+      
+      case 'ac_complete':
+        return this.checkAcComplete(change);
+      
+      default:
+        return {
+          type,
+          passed: false,
+          message: `未知的检查点类型: ${type}`,
+        };
+    }
+  }
+
+  /**
+   * 执行 Harness 通用检查
+   */
+  private async runHarnessCheckpoint(
+    type: HarnessCheckpointType,
+    config?: HarnessCheckConfig,
+    level?: ChangeLevel,
+    strictMode?: boolean
+  ): Promise<CheckResult> {
+    const validator = await getHarnessValidator();
+
+    if (!validator) {
+      // 判断是否允许跳过
+      const allowSkip = !strictMode && (level === 'L1' || level === 'L2');
+      
+      if (allowSkip) {
+        // L1/L2 非严格模式：优雅降级
+        return {
+          type,
+          passed: true,
+          message: 'Harness 不可用，已跳过（L1/L2 允许）',
+          details: { skipped: true, reason: 'harness_unavailable' },
+        };
+      }
+      
+      // L3/L4 或严格模式：必须检查
+      return {
+        type,
+        passed: false,
+        message: 'Harness 不可用，无法执行必要检查',
+        details: { skipped: false, reason: 'harness_unavailable', level },
+      };
+    }
+
+    try {
+      // HTTP 不提供 workdir；文件检查统一绑定服务端项目根并解析符号链接真实目标。
+      const workdir = process.cwd();
+      let safeConfig = config;
+      const rawPath = (config as Record<string, unknown> | undefined)?.path;
+      if ((type === 'file_exists' || type === 'file_contains') && typeof rawPath === 'string' && rawPath) {
+        safeConfig = { ...config, path: resolveHostPath(workdir, rawPath) } as HarnessCheckConfig;
+      }
+
+      const checkpoint: Checkpoint = {
+        id: `gate-${type}`,
+        checks: [this.buildHarnessCheck(type, safeConfig)],
+      };
+
+      const context: CheckpointContext = {
+        projectPath: workdir,
+        workdir,
+      };
+
+      const result = await validator.validate(checkpoint, context);
+
+      return {
+        type,
+        passed: result.passed,
+        message: result.message ?? (result.passed ? 'Harness 检查通过' : 'Harness 检查失败'),
+        details: { harnessResult: result },
+      };
+    } catch (error) {
+      return {
+        type,
+        passed: false,
+        message: `Harness 检查失败: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  /**
+   * 按判别子窄化构造 harness CheckpointCheck（4 种 HarnessCheckpointType 全量覆盖，
+   * 必填字段经 requireConfigFields 运行时校验后 Extract 出精确 config 类型）
+   */
+  private buildHarnessCheck(type: HarnessCheckpointType, config?: HarnessCheckConfig): CheckpointCheck {
+    switch (type) {
+      case 'file_exists':
+        return {
+          id: type,
+          type,
+          config: requireConfigFields(config, type, ['path']) as Extract<CheckpointCheck, { type: 'file_exists' }>['config'],
+        };
+      case 'file_contains':
+        return {
+          id: type,
+          type,
+          config: requireConfigFields(config, type, ['path', 'content']) as Extract<CheckpointCheck, { type: 'file_contains' }>['config'],
+        };
+      case 'command_success':
+        return {
+          id: type,
+          type,
+          config: requireConfigFields(config, type, ['command']) as Extract<CheckpointCheck, { type: 'command_success' }>['config'],
+        };
+      case 'output_matches':
+        return {
+          id: type,
+          type,
+          config: requireConfigFields(config, type, ['pattern']) as Extract<CheckpointCheck, { type: 'output_matches' }>['config'],
+        };
+    }
+  }
+
+  /**
+   * 检查 Spec 格式
+   */
+  private checkSpecFormat(change: ChangeRecord): CheckResult {
+    const spec = change.newVersion;
+    
+    // 检查基本字段
+    const hasMetadata = spec.metadata && spec.metadata.id;
+    const hasTitle = spec.metadata?.title !== undefined;
+    
+    if (!hasMetadata) {
+      return {
+        type: 'spec_format',
+        passed: false,
+        message: 'Spec 缺少 metadata.id',
+      };
+    }
+
+    return {
+      type: 'spec_format',
+      passed: true,
+      message: 'Spec 格式正确',
+      details: { hasMetadata, hasTitle },
+    };
+  }
+
+  /**
+   * 检查测试覆盖
+   * 注：简化实现，实际需要搜索测试文件
+   */
+  private checkTestCoverage(change: ChangeRecord): CheckResult {
+    // 检查是否有 AC（有 AC 就假设有测试）
+    const hasAC = change.newVersion.acceptance_criteria && 
+                  change.newVersion.acceptance_criteria.length > 0;
+    
+    // 如果变更类型包含 api_change，检查是否有 API
+    const hasApiChange = change.changeTypes.includes('api_change');
+    const hasApi = change.newVersion.api && change.newVersion.api.endpoints;
+    
+    if (hasApiChange && !hasApi) {
+      return {
+        type: 'test_coverage',
+        passed: false,
+        message: 'API 变更但缺少 API 定义',
+      };
+    }
+
+    return {
+      type: 'test_coverage',
+      passed: true,
+      message: '测试覆盖检查通过',
+      details: { hasAC, hasApi },
+    };
+  }
+
+  /**
+   * 检查 API Schema
+   */
+  private checkApiSchema(change: ChangeRecord): CheckResult {
+    const api = change.newVersion.api;
+    
+    if (!api) {
+      // 没有 API 变更，跳过
+      return {
+        type: 'api_schema',
+        passed: true,
+        message: '无 API 变更，跳过检查',
+      };
+    }
+
+    // 检查 endpoints 格式
+    const endpoints = api.endpoints || [];
+    
+    for (const ep of endpoints) {
+      if (!ep.path || !ep.method) {
+        return {
+          type: 'api_schema',
+          passed: false,
+          message: `API endpoint 缺少 path 或 method: ${JSON.stringify(ep)}`,
+        };
+      }
+      
+      // 检查 method 是否合法
+      const validMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
+      if (!validMethods.includes(ep.method)) {
+        return {
+          type: 'api_schema',
+          passed: false,
+          message: `无效的 HTTP method: ${ep.method}`,
+        };
+      }
+    }
+
+    return {
+      type: 'api_schema',
+      passed: true,
+      message: 'API Schema 有效',
+      details: { endpointCount: endpoints.length },
+    };
+  }
+
+  /**
+   * 检查架构依赖
+   */
+  private checkArchitecture(change: ChangeRecord): CheckResult {
+    const arch = change.newVersion.architecture;
+    
+    if (!arch) {
+      return {
+        type: 'architecture',
+        passed: true,
+        message: '无架构变更，跳过检查',
+      };
+    }
+
+    // 检查依赖是否声明
+    const dependencies = arch.dependencies || [];
+    
+    // 检查是否有移除依赖（L4 变更）
+    const oldDeps = change.oldVersion.architecture?.dependencies || [];
+    const removedDeps = oldDeps.filter(d => !dependencies.includes(d));
+    
+    if (removedDeps.length > 0) {
+      // 移除依赖需要确认
+      return {
+        type: 'architecture',
+        passed: true, // 通过但需要记录
+        message: `移除依赖: ${removedDeps.join(', ')}（需要评审确认）`,
+        details: { removedDeps },
+      };
+    }
+
+    return {
+      type: 'architecture',
+      passed: true,
+      message: '架构检查通过',
+      details: { dependencyCount: dependencies.length },
+    };
+  }
+
+  /**
+   * 检查 AC 完整覆盖
+   */
+  private checkAcComplete(change: ChangeRecord): CheckResult {
+    const ac = change.newVersion.acceptance_criteria || [];
+    
+    if (ac.length === 0) {
+      return {
+        type: 'ac_complete',
+        passed: true,
+        message: '无 AC，跳过检查',
+      };
+    }
+
+    // 检查每个 AC 是否有 id 和 description
+    for (const criterion of ac) {
+      if (!criterion.id) {
+        return {
+          type: 'ac_complete',
+          passed: false,
+          message: 'AC 缺少 id',
+        };
+      }
+      
+      if (!criterion.description) {
+        return {
+          type: 'ac_complete',
+          passed: false,
+          message: `AC ${criterion.id} 缺少 description`,
+        };
+      }
+    }
+
+    return {
+      type: 'ac_complete',
+      passed: true,
+      message: `AC 完整: ${ac.length} 个`,
+      details: { acCount: ac.length },
+    };
+  }
+}
+
+// 导出单例
+export const gateCheckerService = new GateCheckerService();

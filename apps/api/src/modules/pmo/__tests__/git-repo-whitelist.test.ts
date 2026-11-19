@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { validateGitRepo } from '../routes.js';
+import { validateGitRepo, assertGitReposAllowed } from '../routes.js';
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-repo-roots-'));
 const repoDir = path.join(tmpRoot, 'studio');
@@ -52,5 +52,26 @@ describe('validateGitRepo（PMO gitRepo 白名单）', () => {
     const f = path.join(tmpRoot, 'a-file');
     fs.writeFileSync(f, 'x');
     expect(validateGitRepo(f)).not.toBeNull();
+  });
+
+  it('顶层 gitRepo/gitRepos 与嵌套 deliveries[].gitRepo 使用同一策略', () => {
+    expect(() => assertGitReposAllowed({
+      gitRepo: repoDir,
+      gitRepos: [repoDir],
+      deliveries: [{ gitRepo: repoDir }],
+    })).not.toThrow();
+    const outside = path.join(tmpRoot, 'outside');
+    fs.mkdirSync(outside);
+    const symlinkRepo = path.join(tmpRoot, 'symlink-repo');
+    fs.symlinkSync(outside, symlinkRepo);
+    for (const body of [
+      { gitRepo: '/etc' },
+      { gitRepos: ['/etc'] },
+      { deliveries: [{ gitRepo: '/etc' }] },
+      { deliveries: [{ gitRepo: repoDir }, { gitRepo: '/etc' }] },
+      { deliveries: [{ gitRepo: symlinkRepo }] },
+    ]) {
+      expect(() => assertGitReposAllowed(body)).toThrowError(expect.objectContaining({ status: 400 }));
+    }
   });
 });

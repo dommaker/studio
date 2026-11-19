@@ -10,12 +10,13 @@ import { spawn } from 'child_process';
 import path from 'path';
 
 describe('OpenAPI 生成（contract 派生 /api/docs）', () => {
-  it('全量端点进文档 + response-map 无漂移 + 结构合法 + 协议面排除 + 挂载冒烟', async () => {
-    const tsxBin = path.resolve(process.cwd(), 'node_modules/.bin/tsx');
+  it('全量端点进文档 + route response 覆盖 + 结构合法 + 协议面排除 + 挂载冒烟', async () => {
+    const apiRoot = path.resolve(__dirname, '../../..');
+    const tsxBin = path.resolve(apiRoot, 'node_modules/.bin/tsx');
     const probe = path.resolve(__dirname, 'openapi.probe.ts');
     const result = await new Promise<{ code: number | null; output: string }>((resolve) => {
       const child = spawn(tsxBin, [probe], {
-        cwd: path.resolve(process.cwd(), 'apps/api'),
+        cwd: apiRoot,
         env: { ...process.env, STUDIO_AUTH: 'none' },
         stdio: ['ignore', 'pipe', 'pipe'],
       });

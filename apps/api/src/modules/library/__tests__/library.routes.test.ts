@@ -39,17 +39,22 @@ afterAll(async () => {
 });
 
 describe('library routes', () => {
+  const listItem = {
+    id: 'proj-a:specs/a.md', title: 'A', kind: 'spec', legacy: false,
+    projectId: 'proj-a', pmoNumber: 'PMO-1', path: 'specs/a.md', updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+
   it('GET / 透传 project/search query 并返回列表', async () => {
-    mockListLibraryDocs.mockResolvedValue([{ id: 'proj-a:specs/a.md', title: 'A' }]);
+    mockListLibraryDocs.mockResolvedValue([listItem]);
 
     const { status, json } = await req('GET', '/?project=proj-a&search=foo');
     expect(status).toBe(200);
-    expect(json.data).toEqual([{ id: 'proj-a:specs/a.md', title: 'A' }]);
+    expect(json.data).toEqual([listItem]);
     expect(mockListLibraryDocs).toHaveBeenCalledWith({ projectId: 'proj-a', search: 'foo' });
   });
 
   it('GET /:id 命中返回详情；id 整段 encodeURIComponent（含 / 与 :）', async () => {
-    mockGetLibraryDoc.mockResolvedValue({ id: 'proj-a:specs/a.md', content: '正文' });
+    mockGetLibraryDoc.mockResolvedValue({ ...listItem, content: '正文' });
 
     const { status, json } = await req('GET', `/${encodeURIComponent('proj-a:specs/a.md')}`);
     expect(status).toBe(200);
@@ -68,7 +73,7 @@ describe('library routes', () => {
   // 2026-09-10 回归：nginx proxy_pass 带 URI（/api/）会先解码 %2F→/ 再转发，
   // id 以多段路径原形到达（/proj-a:specs/a.md）——wildcard 路由必须照样命中
   it('GET nginx 解码形态（id 带字面 /）同样命中', async () => {
-    mockGetLibraryDoc.mockResolvedValue({ id: 'proj-a:specs/a.md', content: '正文' });
+    mockGetLibraryDoc.mockResolvedValue({ ...listItem, content: '正文' });
 
     const { status, json } = await req('GET', '/proj-a:specs/a.md');
     expect(status).toBe(200);

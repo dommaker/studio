@@ -16,7 +16,7 @@ import {
 import { SkeletonText } from '../ui';
 import { IconX } from '../ui/icons';
 import { deriveDisplayState, WU_STATUS_COLORS, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
-import { useWebSocketContext } from '../../api/websocketHooks';
+import { useSseContext } from '../../api/sseHooks';
 import { formatShortTime } from '../../utils/datetime';
 import { parseWuMeta } from '../../utils/wuMeta';
 import { formatStepTokens, lastProgressEntry, mergeStepEvents } from '../../utils/executionSteps';
@@ -77,7 +77,7 @@ function FlowStep({ s }: { s: ExecutionStepEvent }) {
 export function ExecutionFlow({ workUnitId, wu }: { workUnitId: string; wu: WorkUnit }) {
   const [steps, setSteps] = useState<ExecutionStepEvent[] | null>(null);
   // SSE 负载直更（同 ExecutionSteps #318 模式）：步结束事件负载就地 append；重连一次性 refetch
-  const { onEvent, onReconnect } = useWebSocketContext();
+  const { onEvent, onReconnect } = useSseContext();
   const [refreshTick, setRefreshTick] = useState(0);
   // 首拉（steps===null）期间到达的步事件暂存，首拉落位时并入
   const pendingRef = useRef<ExecutionStepEvent[]>([]);

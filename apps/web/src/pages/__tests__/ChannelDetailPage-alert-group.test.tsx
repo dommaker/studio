@@ -33,8 +33,8 @@ vi.mock('../../hooks/useChannelEvents', () => ({
 
 vi.mock('../../api/workunit', () => ({ workunitApi: { list: mockListWorkunits } }));
 vi.mock('../../api/requirements', () => ({ requirementApi: { list: mockListReqs } }));
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }),
 }));
 
 // 与本测试无关的子组件：保留接口，隔离其内部 API 依赖
@@ -59,13 +59,13 @@ const iso = (offsetMin: number) => new Date(now + offsetMin * 60000).toISOString
 const alert = (id: string, level: 'CRITICAL' | 'WARNING', offsetMin: number): ChannelMessage => ({
   id, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'Studio',
   content: `[${level}] **[Monitor]** 告警内容-${id}`, workUnitId: null, replyToId: null,
-  meta: '{}', createdAt: iso(offsetMin),
+  meta: {}, createdAt: iso(offsetMin),
 });
 
 const humanMsg = (id: string, offsetMin: number): ChannelMessage => ({
   id, channelId: 'ch-1', authorType: 'human' as const,
   content: `人类消息-${id}`, workUnitId: null, replyToId: null,
-  meta: '{}', createdAt: iso(offsetMin),
+  meta: {}, createdAt: iso(offsetMin),
 });
 
 let currentMessages: ChannelMessage[] = [];

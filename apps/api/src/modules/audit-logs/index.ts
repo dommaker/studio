@@ -6,3 +6,6 @@
  */
 export { recordAgentDecision } from './agent-decision.js';
 export type { AuditActor } from './agent-decision.js';
+// #684 包下沉：AuditService 自 packages/studio-audit 并入本模块，getAuditService 为进程级单例入口
+export { AuditService, AuditActions, AuditResources, getAuditService } from './audit-service.js';
+export type { AuditLogInput, AuditLogQuery, AuditLogStats } from './audit-service.js';

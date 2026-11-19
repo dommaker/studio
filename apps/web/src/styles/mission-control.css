@@ -560,9 +560,6 @@ button.mc-quote {
 button.mc-quote:hover { background: var(--bg-hover); }
 button.mc-quote:active { background: var(--bg-active); }
 
-/* E1（2026-09 页面重设计）：.mc-wait-badge 已删——消息头「等待回复」badge 去除，
-   待办信号唯一位 = 顶栏 chip；流内识别靠内嵌回复区（行动点本体） */
-
 /* 消息卡片族（任务状态卡） */
 .mc-card {
   background: var(--bg-elevated);
@@ -1378,7 +1375,7 @@ button.mc-thread-context:focus-visible { outline: 1px solid var(--accent-primary
 
 /* ---------- #395 窄屏/移动端降级（spec §4.6）：断点统一 Tailwind 档 lg 1024 / md 768 / sm 640 ----------
    收起顺序（信息优先级序）：右栏先收（<1024 → 顶栏「频道动态」入口 + 覆盖滑出抽屉）
-   → 左栏再收（<768 → JS 卸载内联 ChannelRail，并入全局 Sidebar，见 SidebarNew）
+   → 左栏再收（<768 → JS 卸载内联 ChannelRail，并入全局 Sidebar，见 Sidebar）
    → 全局 sidebar 最后收（<640 汉堡，responsive.css 现状）。
    900/1100 自定断点随本档删除（900 藏左栏由 767 档接管；1100 抽屉收窄因覆盖式失去意义）；
    1440 放宽档本已不存在（#394 删 760/1000 双档时取消），保持不新增。
@@ -1469,7 +1466,7 @@ button.mc-thread-context:focus-visible { outline: 1px solid var(--accent-primary
   white-space: nowrap;
 }
 
-/* <768 ChannelRail 并入全局 Sidebar（SidebarNew 内渲染，工作区内联实例已卸载）：
+/* <768 ChannelRail 并入全局 Sidebar（Sidebar 内渲染，工作区内联实例已卸载）：
    去固定宽/右边框/底色，贴 sidebar 流；flex:1 吃剩余高，底部状态条不动 */
 .sidebar .mc-rail {
   width: auto;

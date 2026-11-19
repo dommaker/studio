@@ -44,7 +44,6 @@ beforeEach(() => {
   paths = resolveEvolutionPaths({
     repoRoot: tmpDir,
     rolesDir: path.join(tmpDir, '.agents', 'roles'),
-    eventsDir: path.join(tmpDir, 'events'),
     studioEventsFile: path.join(tmpDir, 'studio-events.jsonl'),
   });
   mockedReport.mockReturnValue({

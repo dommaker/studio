@@ -15,7 +15,7 @@ export const errorBodySchema = z.object({
 });
 export type ErrorBody = z.infer<typeof errorBodySchema>;
 
-/** 分页元信息（与 apps/api utils/pagination.ts 的 formatPaginatedResponse 对齐） */
+/** 分页元信息（与 apps/api utils/pagination.ts parsePagination 口径对齐：page≥1，limit clamp 1..100） */
 export const paginationSchema = z.object({
   page: z.number().int().positive(),
   limit: z.number().int().positive(),

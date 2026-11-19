@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
+import type { WorkUnitData } from '../../workunit/workunit-crud.js';
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -66,18 +67,19 @@ describe('认领陈旧守卫（#221：observe 可见性层拦截）', () => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-stale-guard-'));
     fileStore = new FileStore(testDir);
     wuService = new WorkUnitService(fileStore);
-    agentLoop = new AgentLoop(mockRole, fileStore);
-    (agentLoop as unknown as { instance: unknown }).instance = {
-      id: SELF_INSTANCE_ID,
-      roleId: SELF_ROLE_ID,
-      sessionId: null,
-      status: 'idle',
-      currentWorkUnitId: null,
-      startedAt: new Date().toISOString(),
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
-    };
+    agentLoop = new AgentLoop(mockRole, fileStore, {
+      instance: {
+        id: SELF_INSTANCE_ID,
+        roleId: SELF_ROLE_ID,
+        sessionId: null,
+        status: 'idle',
+        currentWorkUnitId: null,
+        startedAt: new Date().toISOString(),
+        terminatedAt: null,
+        lastHeartbeat: null,
+        metadata: null,
+      },
+    });
   });
 
   afterEach(() => {
@@ -85,7 +87,7 @@ describe('认领陈旧守卫（#221：observe 可见性层拦截）', () => {
   });
 
   function observe() {
-    return (agentLoop as unknown as ObserveCapable).observe();
+    return agentLoop.observe();
   }
 
   /** 把已建 WU 的 updatedAt 回填为陈旧（模拟沉睡 >72h 的僵尸 WU） */

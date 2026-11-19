@@ -29,7 +29,7 @@ vi.mock('../../hooks/useChannelEvents', () => ({
 
 vi.mock('../../api/workunit', () => ({ workunitApi: { list: mockListWorkunits } }));
 vi.mock('../../api/requirements', () => ({ requirementApi: { list: mockListReqs } }));
-vi.mock('../../api/websocketHooks', () => ({ useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }) }));
+vi.mock('../../api/sseHooks', () => ({ useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }) }));
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => <div data-testid="channel-rail" /> }));
 vi.mock('../../components/channel/WorkUnitDrawer', () => ({ WorkUnitDrawer: () => null }));
 vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberManager: () => null }));
@@ -47,7 +47,7 @@ const now = Date.now();
 const iso = (offsetMin: number) => new Date(now + offsetMin * 60000).toISOString();
 const msg = (id: string, offsetMin: number): ChannelMessage => ({
   id, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
-  content: `消息 ${id}`, workUnitId: null, replyToId: null, meta: '{}', createdAt: iso(offsetMin),
+  content: `消息 ${id}`, workUnitId: null, replyToId: null, meta: {}, createdAt: iso(offsetMin),
 });
 
 let currentMessages: ChannelMessage[] = [];

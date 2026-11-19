@@ -10,7 +10,7 @@
  *  (a) LLM 输出解析 → ingest 入库 maturity=draft（proposal）
  *  (b) draft 条目不参与 injectContext 注入（提案闸门）
  *  (d) knowledge:extraction 事件携带 token 计数 / duration / entry ids
- *  边界：无 LLM 配置静默跳过 / LLM 失败不抛出 / 空消息早退 / 形态门禁拒绝
+ *  边界：无 LLM 配置或模型/存储失败向上抛出（Effect 重试）/ 空消息早退 / 形态门禁拒绝
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -53,17 +53,15 @@ vi.mock('../../agent-knowledge/index.js', () => ({
   getExtractFromTextSystemPrompt: () => 'shared-extraction-system-prompt',
 }));
 
-// 审核闭环：发卡到 #系统 走 channelMessageService（动态 import 路径与生产一致）
-vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
-}));
+// 审核闭环：发卡经 review-proposal 正本 + 装配注入的 ChannelCardPoster（Phase 5 SCC 第一刀 #3，
+// 原 channels 单例 mock 已死）——poster 注册在该文件下方 beforeEach
+import { registerChannelCardPoster } from '../../review-proposal/card.js';
 
 vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: {},
   sharedLifecycle: {},
   sharedIngest: {},
   sharedQuery: {},
-  sharedLinter: {},
   scheduleVectorDbSync: mockScheduleVectorDbSync,
   ingestWithQualityGate: vi.fn(),
   UNIFIED_KNOWLEDGE_DIR: '/tmp/unused',
@@ -86,7 +84,7 @@ function createMockStore(initialEntries: any[] = []) {
 }
 
 function createMockLifecycle() {
-  return { recordReference: vi.fn(), shouldAutoPromote: vi.fn(() => false) };
+  return { recordReference: vi.fn() };
 }
 
 function createMockIngest() {
@@ -102,11 +100,9 @@ function createMockIngest() {
         contributors: ['test'],
       },
     })),
+    // harness 3.0.0：摄入前校验保种落点 = KnowledgeIngest.validateEntry（原 linter 通道出清）
+    validateEntry: vi.fn(() => [] as Array<{ severity: string; description: string; suggestion: string }>),
   };
-}
-
-function createMockLinter() {
-  return { validateEntry: vi.fn(() => []) };
 }
 
 function createMockQuery() {
@@ -122,7 +118,6 @@ function createKS(opts?: { entries?: any[] }) {
   const store = createMockStore(opts?.entries);
   const lifecycle = createMockLifecycle();
   const ingest = createMockIngest();
-  const linter = createMockLinter();
   const query = createMockQuery();
   const eventEmitter = { emit: vi.fn() };
 
@@ -130,12 +125,11 @@ function createKS(opts?: { entries?: any[] }) {
     store: store as any,
     lifecycle: lifecycle as any,
     ingest: ingest as any,
-    linter: linter as any,
     query: query as any,
     eventEmitter: eventEmitter as any,
   });
 
-  return { ks, store, lifecycle, ingest, linter, query, eventEmitter };
+  return { ks, store, lifecycle, ingest, query, eventEmitter };
 }
 
 const MESSAGES = [
@@ -153,6 +147,10 @@ function makeRunResult(data: unknown, usage?: { inputTokens: number; outputToken
 describe('R3: extractFromConversation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 已死）
+    registerChannelCardPoster((post) =>
+      mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+    );
   });
 
   it('(a) 解析 LLM 输出 → 以 maturity=draft 入库（proposal），复用共享 prompt 与 knowledge provider', async () => {
@@ -185,6 +183,41 @@ describe('R3: extractFromConversation', () => {
       source: 'conversation:wu-r3',
     });
     expect(mockScheduleVectorDbSync).toHaveBeenCalled();
+  });
+
+  it('persists complete learning provenance, scope, revision and outcome', async () => {
+    mockRun.mockResolvedValue(makeRunResult({
+      entries: [{ type: 'guideline', title: '可追溯经验', content: '保留真实执行证据，并通过来源引用追溯到具体任务、执行轮次、验证与交付结果。', tags: [] }],
+    }));
+    const { ks, store } = createKS();
+
+    await ks.extractFromConversation(MESSAGES, {
+      workUnitId: 'wu-r3',
+      assignmentId: 'assignment-r3',
+      stepRecordId: 'step-r3',
+      repo: '/repo/studio',
+      commit: 'b'.repeat(40),
+      transcriptRefs: ['transcript:wu-r3:1'],
+      evidenceRefs: ['evidence-r3'],
+      extractionVersion: '1',
+      revision: 2,
+      supersedes: 'old-entry',
+      scope: { kind: 'repo', id: '/repo/studio' },
+      outcome: { execution: 'succeeded', verification: 'passed', delivery: 'unmerged' },
+    });
+
+    expect(store.update).toHaveBeenCalledWith('ingested-1', {
+      sourceReferences: [expect.objectContaining({
+        learning: {
+          scope: { kind: 'repo', id: '/repo/studio' },
+          workUnitId: 'wu-r3', assignmentId: 'assignment-r3', stepRecordId: 'step-r3',
+          repo: '/repo/studio', commit: 'b'.repeat(40),
+          transcriptRefs: ['transcript:wu-r3:1'], evidenceRefs: ['evidence-r3'],
+          extractionVersion: '1', revision: 2, supersedes: 'old-entry',
+          outcome: { execution: 'succeeded', verification: 'passed', delivery: 'unmerged' },
+        },
+      })],
+    });
   });
 
   it('(d) 发射 knowledge:extraction 事件：token 计数 + duration + entry ids', async () => {
@@ -221,22 +254,33 @@ describe('R3: extractFromConversation', () => {
     );
   });
 
-  it('无 LLM 配置时静默跳过（e2e 降级路径）：不入库、不记事件', async () => {
+  it('无 LLM 配置时向上报告失败：不入库、不记成功事件，由 Effect 重试', async () => {
     const { StudioRoleNotConfiguredError } = await import('../../agents/system-executor.js');
     mockRun.mockRejectedValue(new StudioRoleNotConfiguredError());
     const { ks, ingest } = createKS();
 
-    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).resolves.not.toThrow();
+    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).rejects.toThrow(StudioRoleNotConfiguredError);
     expect(ingest.ingestEntry).not.toHaveBeenCalled();
     expect(mockAppendJsonl).not.toHaveBeenCalled();
   });
 
-  it('LLM 调用失败被吞掉：不抛出、不入库、不记事件（模板兜底不受影响）', async () => {
+  it('LLM 临时失败向上抛出：不入库、不记成功事件，由 Effect 重试', async () => {
     mockRun.mockRejectedValue(new Error('provider down'));
     const { ks, ingest } = createKS();
 
-    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).resolves.not.toThrow();
+    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).rejects.toThrow('provider down');
     expect(ingest.ingestEntry).not.toHaveBeenCalled();
+    expect(mockAppendJsonl).not.toHaveBeenCalled();
+  });
+
+  it('知识库存储失败向上抛出，不伪装成门禁拒绝或提取成功', async () => {
+    mockRun.mockResolvedValue(makeRunResult({
+      entries: [{ type: 'guideline', title: '可复用恢复经验', content: '模型或存储临时失败时保留持久执行状态，并在恢复后继续重试。', tags: ['recovery'] }],
+    }));
+    const { ks, ingest } = createKS();
+    ingest.ingestEntry.mockImplementationOnce(() => { throw new Error('disk full'); });
+
+    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).rejects.toThrow('disk full');
     expect(mockAppendJsonl).not.toHaveBeenCalled();
   });
 
@@ -271,16 +315,17 @@ describe('R3: extractFromConversation', () => {
     expect(ingest.ingestEntry.mock.calls[0][0].title).toBe('session 过期未刷新导致 401');
   });
 
-  it('linter 高严重度阻断 → 跳过该条', async () => {
+  it('ingest 摄入前校验高严重度阻断 → 跳过该条（harness 3.0.0：原 linter 通道改走 ingest.validateEntry）', async () => {
     mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: [] },
       ],
     }));
-    const { ks, ingest, linter } = createKS();
-    linter.validateEntry.mockReturnValue([{ severity: 'high', description: 'too vague', type: 'quality' }]);
+    const { ks, ingest } = createKS();
+    ingest.validateEntry.mockReturnValue([{ severity: 'high', description: 'too vague', suggestion: '收窄标题' }]);
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' });
+    expect(ingest.validateEntry).toHaveBeenCalledTimes(1);
     expect(ingest.ingestEntry).not.toHaveBeenCalled();
   });
 

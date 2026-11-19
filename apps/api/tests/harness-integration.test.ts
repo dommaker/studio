@@ -7,6 +7,9 @@
  * 不再读 ConstraintContext.hasVerificationEvidence 自报标志（字段已退役），
  * 证据源 = <projectPath>/.harness/evidence/ 目录，新鲜度 = 最新证据 mtime ≥
  * 变更文件 mtime。合规/违规场景一律以 tmp 工程 + 证据落盘构造，与本仓工作区解耦。
+ *
+ * harness 3.0.0（ADR-0041）：剩余证据标志（hasTest/hasSingleTask/hasRequirement 等）
+ * 随「从不置位的死证据标志管道」整体出清，context 不再携带这些键。
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -14,12 +17,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { checkConstraints, ConstraintViolationError } from '@dommaker/harness';
 
-// 完整合规 context 基座（全部 error 级约束字段通过；projectPath 由各场景注入）
+// 合规 context 基座（全部 error 级约束字段通过；projectPath 由各场景注入）
 const PASSING_CTX = {
   operation: 'code_implementation' as const,
-  hasTest: true,
-  hasSingleTask: true,
-  hasRequirement: true,
   taskDescription: 'Test task',
 };
 

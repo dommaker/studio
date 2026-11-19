@@ -13,7 +13,8 @@ import path from 'node:path';
 const { mockScan } = vi.hoisted(() => ({ mockScan: vi.fn() }));
 
 vi.mock('../../../daemon/cli-scanner.js', () => ({
-  scanAllProviders: mockScan,
+  // 2026-10-03 冷启动修复：local-workspace 已换异步扫描链，mock 出口随之换名
+  scanAllProvidersAsync: mockScan,
 }));
 
 let tmpHome = '';

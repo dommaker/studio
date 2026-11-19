@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
-let observer: InstanceType<typeof import('../preference-observer.js').PreferenceObserver>;
+let observer: InstanceType<typeof import('../producers/preference-observer.js').PreferenceObserver>;
 
 // Mock sharedStore — 内存 KV，隔离于真实文件系统
 const storeEntries = new Map<string, any>();
@@ -27,7 +27,7 @@ vi.mock('../knowledge-singletons.js', () => ({
 }));
 
 beforeAll(async () => {
-  const { PreferenceObserver } = await import('../preference-observer.js');
+  const { PreferenceObserver } = await import('../producers/preference-observer.js');
   observer = new PreferenceObserver();
 });
 

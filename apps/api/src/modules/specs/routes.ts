@@ -17,13 +17,19 @@ import {
   importChangesBodySchema,
   ERROR_CODES,
   type ChangeLevel,
+  analyzeChangeResponseSchema,
+  changeRecordResponseSchema,
+  validateChangeResponseSchema,
+  gatePolicyResponseSchema,
+  gatePolicyMapResponseSchema,
+  specChangeListResponseSchema,
+  changeStatsResponseSchema,
+  importChangesResponseSchema,
 } from '@dommaker/studio-contract';
-import {
-  changeAnalyzerService,
-  changeHistoryService,
-  gateCheckerService,
-} from '@dommaker/studio-spec';
-import { defineRoute, HttpError, paginated } from '../../core/http.js';
+import { changeAnalyzerService } from './change-analyzer.service.js';
+import { changeHistoryService, toChangeRecordWire } from './change-history.service.js';
+import { gateCheckerService } from './gate-checker.service.js';
+import { defineRoute, HttpError, paginated, makePagination } from '../../core/http.js';
 
 // P2-e 鉴权声明式统一：open（读 + analyze-change，registry 挂 auth）/ write（changes validate +
 // changes import，registry 挂 authNotGuest）拆 router，路由内不再挂鉴权。
@@ -39,7 +45,7 @@ const writeRoutes = Router();
  * 分析变更级别
  */
 openRoutes.post('/:id/analyze-change', defineRoute(
-  { params: specIdParamsSchema, body: analyzeChangeBodySchema },
+  { params: specIdParamsSchema, body: analyzeChangeBodySchema, response: analyzeChangeResponseSchema },
   async (_req, _res, { params, body }) => {
     return changeAnalyzerService.analyze({
       specId: params.id,
@@ -58,11 +64,11 @@ openRoutes.post('/:id/analyze-change', defineRoute(
  * 获取变更详情
  */
 openRoutes.get('/changes/:changeId', defineRoute(
-  { params: changeIdParamsSchema },
+  { params: changeIdParamsSchema, response: changeRecordResponseSchema },
   async (_req, _res, { params }) => {
     const record = changeHistoryService.get(params.changeId);
     if (!record) throw new HttpError(404, ERROR_CODES.NOT_FOUND, 'Change not found');
-    return record;
+    return toChangeRecordWire(record);
   },
 ));
 
@@ -75,7 +81,7 @@ openRoutes.get('/changes/:changeId', defineRoute(
  * 门禁验证
  */
 writeRoutes.post('/changes/:changeId/validate', defineRoute(
-  { params: changeIdParamsSchema, body: validateChangeBodySchema },
+  { params: changeIdParamsSchema, body: validateChangeBodySchema, response: validateChangeResponseSchema },
   async (_req, _res, { params, body }) => {
     const { checkpoints, harnessConfigs, strictMode } = body;
     return gateCheckerService.validate({
@@ -92,7 +98,7 @@ writeRoutes.post('/changes/:changeId/validate', defineRoute(
  * 获取门禁策略
  */
 openRoutes.get('/gates/:level', defineRoute(
-  { params: gateLevelParamsSchema },
+  { params: gateLevelParamsSchema, response: gatePolicyResponseSchema },
   async (_req, _res, { params }) => {
     return gateCheckerService.getPolicy(params.level as ChangeLevel);
   },
@@ -102,7 +108,7 @@ openRoutes.get('/gates/:level', defineRoute(
  * GET /api/v1/specs/gates
  * 获取所有门禁策略
  */
-openRoutes.get('/gates', defineRoute({}, async () => {
+openRoutes.get('/gates', defineRoute({ response: gatePolicyMapResponseSchema }, async () => {
   return gateCheckerService.getAllPolicies();
 }));
 
@@ -115,7 +121,7 @@ openRoutes.get('/gates', defineRoute({}, async () => {
  * 获取 Spec 的变更历史
  */
 openRoutes.get('/:id/changes', defineRoute(
-  { params: specIdParamsSchema, query: listSpecChangesQuerySchema },
+  { params: specIdParamsSchema, query: listSpecChangesQuerySchema, response: specChangeListResponseSchema },
   async (_req, _res, { params, query }) => {
     // 与 utils/pagination.ts parsePagination 同口径（clamp 1..100，缺省 1/20）
     const page = Math.max(1, parseInt(query.page ?? '1', 10) || 1);
@@ -126,7 +132,7 @@ openRoutes.get('/:id/changes', defineRoute(
     const total = allRecords.length;
     const records = allRecords.slice(offset, offset + limit);
 
-    return paginated(records, { page, limit, total, totalPages: Math.ceil(total / limit) });
+    return paginated(records.map(toChangeRecordWire), makePagination(page, limit, total));
   },
 ));
 
@@ -135,9 +141,10 @@ openRoutes.get('/:id/changes', defineRoute(
  * 获取变更统计
  */
 openRoutes.get('/:id/changes/stats', defineRoute(
-  { params: specIdParamsSchema },
+  { params: specIdParamsSchema, response: changeStatsResponseSchema },
   async (_req, _res, { params }) => {
-    return changeHistoryService.getStats(params.id);
+    const stats = changeHistoryService.getStats(params.id);
+    return { ...stats, recentChanges: stats.recentChanges.map(toChangeRecordWire) };
   },
 ));
 
@@ -161,7 +168,7 @@ openRoutes.get('/:id/changes/export', defineRoute(
  * 导入变更历史
  */
 writeRoutes.post('/:id/changes/import', defineRoute(
-  { params: specIdParamsSchema, body: importChangesBodySchema },
+  { params: specIdParamsSchema, body: importChangesBodySchema, response: importChangesResponseSchema },
   async (_req, _res, { params, body }) => {
     const count = changeHistoryService.import(params.id, body.data!);
     return { imported: count };

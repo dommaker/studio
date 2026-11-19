@@ -37,7 +37,7 @@ const baseMessage: ChannelMessage = {
   agentName: 'f5-agent',
   content: '需要输入: 使用 OAuth 还是账号密码？',
   replyToId: null,
-  meta: '{}',
+  meta: {},
   createdAt: new Date().toISOString(),
 };
 
@@ -186,7 +186,7 @@ describe('ChannelMessageItem — §5.7 WU/PMO chip', () => {
   });
 
   it('meta.pmoId 存在时渲染 PMO chip，点击跳 /pmo/project/:id', () => {
-    const msg: ChannelMessage = { ...baseMessage, meta: JSON.stringify({ pmoId: 'proj-1' }) };
+    const msg: ChannelMessage = { ...baseMessage, meta: { pmoId: 'proj-1' } };
     render(wrap(<ChannelMessageItem message={msg} />));
     fireEvent.click(screen.getByTitle('打开项目详情'));
     expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-1');
@@ -197,18 +197,14 @@ describe('ChannelMessageItem — §5.7 WU/PMO chip', () => {
     expect(screen.queryByTitle('打开项目详情')).not.toBeInTheDocument();
   });
 
-  it('meta 缺失/非法 JSON 时不渲染 PMO chip（防御）', () => {
+  it('meta 缺失时不渲染 PMO chip（防御）', () => {
     const noMeta: ChannelMessage = { ...baseMessage, meta: undefined };
     render(wrap(<ChannelMessageItem message={noMeta} />));
-    expect(screen.queryByTitle('打开项目详情')).not.toBeInTheDocument();
-
-    const badMeta: ChannelMessage = { ...baseMessage, meta: '{broken' };
-    render(wrap(<ChannelMessageItem message={badMeta} />));
     expect(screen.queryByTitle('打开项目详情')).not.toBeInTheDocument();
   });
 });
 
-describe('ChannelMessageItem — #264 object meta 双型兼容（线上 REST/SSE 出口为 object）', () => {
+describe('ChannelMessageItem — #264 object meta（线上 REST/SSE 出口恒 object）', () => {
   it('meta 为 object 时人审卡正常渲染为卡片（非纯文本）', () => {
     const msg: ChannelMessage = {
       ...baseMessage,
@@ -223,20 +219,6 @@ describe('ChannelMessageItem — #264 object meta 双型兼容（线上 REST/SSE
     // 卡片渲染出审批按钮；纯文本回退时只显示 content，无按钮
     expect(screen.getByText('通过')).toBeTruthy();
     expect(screen.getByText('拒绝')).toBeTruthy();
-  });
-
-  it('meta 为 string 时行为不变（存量形态回归）', () => {
-    const msg: ChannelMessage = {
-      ...baseMessage,
-      content: '知识提案 — 待人工审核',
-      meta: JSON.stringify({
-        cardType: 'knowledge_proposal',
-        status: 'ready',
-        cardData: { entries: [{ id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall' }] },
-      }),
-    };
-    render(wrap(<ChannelMessageItem message={msg} />));
-    expect(screen.getByText('通过')).toBeTruthy();
   });
 
   it('meta 为 object 且含 pmoId 时渲染 PMO chip，点击跳 /pmo/project/:id', () => {
@@ -306,11 +288,6 @@ describe('ChannelMessageItem — #267 NEED_INPUT 结构化选项卡（meta.optio
     expect(screen.queryByText(/已回复/)).not.toBeInTheDocument();
   });
 
-  it('string 形态 meta 带 options 同样渲染（存量形态回归）', () => {
-    render(wrap(<ChannelMessageItem message={optionsMessage(JSON.stringify({ options: OPTIONS }))} waitingForInput />, { onInlineReply: vi.fn() }));
-    expect(screen.getByText('studio')).toBeTruthy();
-  });
-
   it('无 options 时保持现有单行回复框 fallback', () => {
     render(wrap(<ChannelMessageItem message={optionsMessage({})} waitingForInput />, { onInlineReply: vi.fn() }));
     expect(screen.getByPlaceholderText(/直接在此回复/)).toBeTruthy();
@@ -346,7 +323,7 @@ describe('ChannelMessageItem — #278 D5 机制派生回执 = 系统播报形态
     agentName: 'Studio',
     workUnitId: 'wu-9',
     content,
-    meta: '{}',
+    meta: {},
   });
 
   it('Studio 署名无卡消息（带 workUnitId 的派生回执）渲染为 mc-msg-system 且无消息头', () => {
@@ -369,7 +346,7 @@ describe('ChannelMessageItem — #278 D5 机制派生回执 = 系统播报形态
         <ChannelMessageItem
           message={{
             ...receipt('审计建议 — 1 条'),
-            meta: JSON.stringify({ cardType: 'auditor_suggestion', status: 'ready', cardData: { suggestions: [] } }),
+            meta: { cardType: 'auditor_suggestion', status: 'ready', cardData: { suggestions: [] } },
           }}
         />,
       ),

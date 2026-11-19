@@ -9,8 +9,8 @@ const { mockOnEvent, mockOnReconnect, mockListMessages } = vi.hoisted(() => ({
   mockListMessages: vi.fn(),
 }));
 
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect }),
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: mockOnEvent, onReconnect: mockOnReconnect }),
 }));
 
 vi.mock('../../api/channel', () => ({

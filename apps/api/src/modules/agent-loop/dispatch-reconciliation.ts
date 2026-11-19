@@ -24,18 +24,18 @@
  * 挂 5min 触发器（default-triggers.ts `dispatch-reconciliation`，timeout-scan 同类）；
  * 从 apps/api/src/bootstrap/handlers.ts 注册 handler，便于服务级测试。
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit/index.js';
+import { FileStore, WorkUnitMetadataRepository } from '@dommaker/studio-shared';
+import { WorkUnitService, DerivationLedger } from '../workunit/index.js';
 import { MANUAL_GATE_TYPES } from '../workunit/index.js';
 import { parseWuMetadata } from '../workunit/index.js';
 import { postWuSystemMessage } from '../workunit/index.js';
 import { AnalysisHandoff } from '../pmo/index.js';
 import { ReviewDispatcher } from './review-dispatcher.js';
-import { dispatchMonitorAlerts } from '../agent-monitor/index.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
-import type { MonitorAlertSource } from '../agent-monitor/index.js';
+import { dispatchMonitorAlerts } from '../ops/index.js';
+import { writeStudioEvent } from '@dommaker/studio-shared';
+import type { MonitorAlertSource } from '../ops/index.js';
 import { getStore } from '../../core/store.js';
-
+import { logger } from '@dommaker/studio-shared/node';
 
 /** 对账宽限：哨兵落档 / 转入 in_review ≥10min 才参与对账（避开在飞 spawn/建单） */
 export const RECONCILE_GRACE_MS = 10 * 60 * 1000;
@@ -65,11 +65,8 @@ async function emitReconcileAlert(
 
 /** 清尝试数（账实相符/自愈后归零；字段删除而非置 0，保持 metadata 干净） */
 async function clearAttempts(fileStore: FileStore, wuId: string, field: 'analysisRespawnAttempts' | 'reviewRedispatchAttempts'): Promise<void> {
-  await fileStore.updateMetadata(wuId, latest => {
-    const next = { ...latest };
-    delete next[field];
-    return next;
-  }).catch(err => logger.warn('[Reconciliation] clear attempts failed (non-blocking)', { wuId, field, error: String(err) }));
+  await new DerivationLedger(new WorkUnitMetadataRepository(fileStore)).recordReconciliationAttempt(wuId, field, null)
+    .catch(err => logger.warn('[Reconciliation] clear attempts failed (non-blocking)', { wuId, field, error: String(err) }));
 }
 
 async function reconcileAnalysisRespawns(
@@ -118,7 +115,7 @@ async function reconcileAnalysisRespawns(
           { fileStore },
         ).catch(err => logger.warn('[Reconciliation] Post healed notice failed (non-blocking)', { wuId: wu.id, error: String(err) }));
       } else {
-        await fileStore.updateMetadata(wu.id, latest => ({ ...latest, analysisRespawnAttempts: nextAttempts }));
+        await new DerivationLedger(new WorkUnitMetadataRepository(fileStore)).recordReconciliationAttempt(wu.id, 'analysisRespawnAttempts', nextAttempts);
       }
 
       const payload = {
@@ -150,7 +147,7 @@ async function reconcileAnalysisRespawns(
     } catch (err) {
       // 异常同样算一次失败（与 review 侧对称）：递增尝试数，达上限停跑升 critical
       const nextAttempts = attempts + 1;
-      await fileStore.updateMetadata(wu.id, latest => ({ ...latest, analysisRespawnAttempts: nextAttempts }))
+      await new DerivationLedger(new WorkUnitMetadataRepository(fileStore)).recordReconciliationAttempt(wu.id, 'analysisRespawnAttempts', nextAttempts)
         .catch(e => logger.warn('[Reconciliation] persist analysis attempts failed', { wuId: wu.id, error: String(e) }));
       const payload = { wuId: wu.id, attempts: nextAttempts, outcome: 'failed', error: String(err) };
       if (nextAttempts >= MAX_RECONCILE_ATTEMPTS) {
@@ -219,7 +216,7 @@ async function reconcileReviewRedispatches(
       );
     } catch (err) {
       const nextAttempts = attempts + 1;
-      await fileStore.updateMetadata(wu.id, latest => ({ ...latest, reviewRedispatchAttempts: nextAttempts }))
+      await new DerivationLedger(new WorkUnitMetadataRepository(fileStore)).recordReconciliationAttempt(wu.id, 'reviewRedispatchAttempts', nextAttempts)
         .catch(e => logger.warn('[Reconciliation] persist review attempts failed', { wuId: wu.id, error: String(e) }));
       const payload = { parentId: wu.id, attempts: nextAttempts, outcome: 'failed', error: String(err) };
       if (nextAttempts >= MAX_RECONCILE_ATTEMPTS) {

@@ -123,4 +123,17 @@ describe('ChannelRoutingEditor (#466)', () => {
       expect(reviewTrigger.textContent).not.toContain('@reviewer-third');
     });
   });
+
+  it('#699: 频道 members 为空 → 路由候选不包含全部 active Agent', async () => {
+    seedStores([]);
+    render(<ChannelRoutingEditor channelId="ch-1" />);
+    fireEvent.click(screen.getByTitle('工单路由（阶段→角色）'));
+    await waitFor(() => expect(screen.getByLabelText('工单路由-plan')).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText('工单路由-plan'));
+
+    expect(screen.queryByRole('option', { name: /@analyst-pro/ })).toBeNull();
+    expect(screen.queryByRole('option', { name: /@outsider/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /自动认领/ })).toBeTruthy();
+  });
 });

@@ -16,7 +16,7 @@
  * not-found/not-pending 400 / failed/aborted 500 状态码不变，message 保留原机器串）。
  */
 import { Router } from 'express';
-import { reviewProposalParamsSchema, ERROR_CODES } from '@dommaker/studio-contract';
+import { reviewProposalParamsSchema, ERROR_CODES, reviewProposalApproveResponseSchema, reviewProposalRejectResponseSchema, reviewProposalStatusResponseSchema } from '@dommaker/studio-contract';
 import { approveProposal, rejectProposal, getProposalStatus } from './service.js';
 import { defineRoute, HttpError } from '../../core/http.js';
 
@@ -26,7 +26,7 @@ const openRoutes = Router();
 const writeRoutes = Router();
 
 writeRoutes.post('/:kind/:id/approve', defineRoute(
-  { params: reviewProposalParamsSchema },
+  { params: reviewProposalParamsSchema, response: reviewProposalApproveResponseSchema },
   async (_req, _res, { params }) => {
     const result = await approveProposal(params.kind, params.id);
     if (result.kind === 'executed') return { success: true, ...result.data };
@@ -44,7 +44,7 @@ writeRoutes.post('/:kind/:id/approve', defineRoute(
 ));
 
 writeRoutes.post('/:kind/:id/reject', defineRoute(
-  { params: reviewProposalParamsSchema },
+  { params: reviewProposalParamsSchema, response: reviewProposalRejectResponseSchema },
   async (_req, _res, { params }) => {
     const result = await rejectProposal(params.kind, params.id);
     if (result.ok) return { success: true };
@@ -57,11 +57,11 @@ writeRoutes.post('/:kind/:id/reject', defineRoute(
 
 /** GET /:kind/:id/status → { data: { status } }（unknown = 查无此提案）；只读，姿态 = 登录即可（registry auth） */
 openRoutes.get('/:kind/:id/status', defineRoute(
-  { params: reviewProposalParamsSchema },
+  { params: reviewProposalParamsSchema, response: reviewProposalStatusResponseSchema },
   async (_req, _res, { params }) => {
     const result = await getProposalStatus(params.kind, params.id);
     if (!result.ok) throw new HttpError(404, ERROR_CODES.NOT_FOUND, result.error ?? 'unknown-kind');
-    return { status: result.status };
+    return { status: result.status ?? 'unknown' };
   },
 ));
 

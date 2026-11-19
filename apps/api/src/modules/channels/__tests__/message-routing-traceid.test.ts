@@ -13,8 +13,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
-import { channelMessageService } from '../channel-message.service.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
+import { getChannelMessageService } from '../channel-message.service.js';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 
 let channelId: string;
 let tmpDir: string;
@@ -50,7 +50,7 @@ describe('message-routing traceId (P0 修复 6)', () => {
       members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    channelMessageService.setFileStore(fileStore);
+    getChannelMessageService().setFileStore(fileStore);
     // B3a：线程回复触发归属解析时会查 project-discovery —— 指向空 tmp 目录保持隔离
     process.env.STUDIO_PROJECTS_ROOT = tmpDir;
   });

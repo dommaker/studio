@@ -15,32 +15,36 @@ jobs:
       # （缺失即 fail-closed，PR #651 首次撞出）；push 事件不需要，故 master 推送一直绿。
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # 全历史机密扫描（下述 gitleaks 步骤）需要完整 clone
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - run: npm install -g pnpm@latest
-      - run: pnpm install --no-frozen-lockfile
-      # 依赖漏洞门（ADR-0031 / wayfinder harness-repositioning 票08 P0-2）：SecurityGate 包 npm audit，
-      # 默认 high 阈值不过即 fail。装完依赖先跑，fail fast。
+      - name: Enable the packageManager-pinned pnpm
+        run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # 生产依赖 high/critical 漏洞门；使用带公告数据的官方 registry，fail fast。
       - name: Security (dependency audit)
-        run: npx harness security
+        run: pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
       # 全历史机密扫描门（ADR-0031 / wayfinder harness-repositioning 票08 P1-8）：
-      # gitleaks 官方 action 对完整历史（fetch-depth: 0）扫描，命中即 fail，即时生效；
-      # npx harness security secrets 是统一入口。该子命令自 harness 1.13.0 起真实存在
-      # （1.12.0 时代多余参数被忽略、退化为依赖审计 exit 0——本注释此前据此判"门未生效"，
-      # 2026-09-24 采纳 1.14.0 时纠正）。它内部包装 gitleaks，二进制不在 PATH 时 skip 并
-      # exit 0，故上面 action 那一步是硬保险、本步是跨环境统一入口，两者并存不是冗余。
+      # gitleaks 官方 action 对完整历史（fetch-depth: 0）扫描，命中即 fail，是硬保险。
+      # npx harness security secrets 包装步 2026-10 随 #694 删除（三重扫描去重）：
+      # 该步内部同样包装 gitleaks，与本步纯冗余；pre-commit 凭证扫描便宜，保留。
       - name: Security (secret scan, full history)
         # 供应链惯例 pin：锁到 v2.3.9 tag 对象解出的确切 commit（@v2 当时即解析到此；
         # tag 可被重打，SHA 不可变。升级 = 换 SHA 并人工比对上游 diff，无自动 bot）
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
-      - name: Security (secrets via harness)
-        run: npx harness security secrets
+      # 模块级循环依赖门（#666）：纯 Node 脚本无构建前置、毫秒级断言，置于 build 之前；
+      # 新增环 / 豁免清单漂移即红，豁免正本 scripts/module-cycle-exemptions.mjs（逐条带原因）。
+      - name: Cycle gate (module deps)
+        run: pnpm lint:cycles
       - run: pnpm build
+      # 前端 bundle 预算门（#674）：vite build 产物 size 断言，阈值正本 scripts/perf/bundle-budget.json。
+      # 确定性断言（同 lockfile 同代码 size 稳定），进日常 CI 不拖慢（毫秒级）；超预算即红。
+      - name: Bundle budget gate
+        run: pnpm perf:bundle
       - run: pnpm test
       # 顺序约束：本步骤必须在 pnpm test 之后串行执行（不可提前或并行）。
       # 历史原因：旧版 sync-docs 在 AGENTS.md 写入知识库条数（harness ≤0.16.5），测试写知识库导致计数抖动误报；
@@ -49,6 +53,10 @@ jobs:
       # 先 sync 自愈再 check，最后 --check 验证收敛；check 若跑在 sync 前，幽灵会先撞 check，自愈永远轮不到（2026-08-08）。
       - name: Governance
         run: npx harness sync-docs --agents && npx harness check && npx harness sync-docs --check --agents
+      # required_dirs 漂移门（#694）：清单由 scripts/gen-required-dirs.mjs 自动发现生成，
+      # 新增模块/包未重跑生成器即红。
+      - name: Gate on stale required_dirs
+        run: node scripts/gen-required-dirs.mjs --check
       # 仓库级漏登门（harness#120 方案 A）：上一步 sync-docs 写入会给缺登记自动补行但不回提，
       # --check 因此永远查不到漏登。写入后 CAPABILITIES.md 有 diff = HEAD 文档过期，据此失败；
       # diff 新增行即缺登记文件名单。自愈顺序不变（写入仍在校验之前，2026-08-08 结论不回退）。

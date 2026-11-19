@@ -33,9 +33,25 @@
  * 完整 transcript 需要时按 claude projects 文件回放（见 apps/api/src/modules/agents/CONTEXT.md），不在这里复制。
  */
 
-import { parseStreamLine, extractToolCalls, extractUsage, eventBus, logger, type StreamEvent, type StreamContentBlock } from '@dommaker/studio-shared';
+import { parseStreamLine, extractToolCalls, extractUsage, eventBus, type StreamEvent, type StreamContentBlock } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+// #665（ADR 2026-08-24 落地）：SSE 负载类型与 studio-contract 同源——
+// ExecutionStepEvent/ExecutionStreamChunk 的 zod schema 是运行时正本（sse-events.ts），
+// 本文件只留别名 re-export，消费方 import 路径不变；wire parity 见 events/__tests__/sse-payload-contract.test.ts。
+import type {
+  ExecutionStepEvent,
+  ExecutionStepToolCall,
+  ExecutionStreamChunk,
+  ExecutionStreamChunkKind,
+} from '@dommaker/studio-contract';
+import { writeStudioEvent } from '@dommaker/studio-shared';
+// #687：常量正本上移 studio-contract（事件词表同源），此处 re-export 保持既有 import 路径不变
+import { EXECUTION_STREAM_SSE_TYPE } from '@dommaker/studio-contract';
+import { logger } from '@dommaker/studio-shared/node';
+export { EXECUTION_STREAM_SSE_TYPE };
+
+export type { ExecutionStepToolCall, ExecutionStreamChunk, ExecutionStreamChunkKind };
+export type ExecutionStepEventPayload = ExecutionStepEvent;
 
 export const EXECUTION_STEP_EVENT_TYPE = 'workunit:execution_step';
 /** SSE 信封的 event_type（workunit. 前缀 → workunits topic） */
@@ -47,44 +63,9 @@ const TOOLCALLS_MAX_ENTRIES = 30;
 const TOOLCALL_SUMMARY_CHARS = 160;
 const TEXT_MAX_CHARS = 500;
 
-export interface ExecutionStepToolCall {
-  tool: string;
-  /** 面向人读的输入摘要：Read/Edit/Write→file_path；Bash→command；Glob/Grep→pattern；其余 JSON 截断 */
-  summary: string;
-}
-
-export interface ExecutionStepEventPayload {
-  workUnitId: string;
-  executionId: string;
-  /** 来源频道（前端按频道过滤 step 的数据源；无频道 WU 缺省） */
-  channelId?: string | null;
-  sessionId?: string;
-  /** #639: 本步 CLI 真实会话号（provider 侧 session_id；与该步 transcript rawOutput 中的编号一致） */
-  cliSessionId?: string;
-  /** #94: 本步会话续用(true)/新建(false) 标记（内部状态，不上频道；缺省 = 调用方未提供） */
-  sessionResumed?: boolean;
-  /** 1 基步号（调用方按 metadata.stepCount+1 计） */
-  step: number;
-  /** 本步 ACTION 结论（progress/complete/need_input/failed） */
-  action?: string;
-  /** #172（#60 决策 Q1）：本步成败（缺省 success；失败步携带 errorType/errorDetail） */
-  status: 'success' | 'failed';
-  /** #172: 失败步错误分类（execution_failed / worktree_creation_failed 等，同 metadata.errorType 口径） */
-  errorType?: string;
-  /** #172: 失败步错误详情（截断，同 recordOutcomeEvent 口径） */
-  errorDetail?: string;
-  thinking: string[];
-  toolCalls: ExecutionStepToolCall[];
-  /** 本步注入的 skill 名单（= 本步 metadata.matchedSkills 落盘值） */
-  skills: string[];
-  /** assistant 文本输出摘要（截断） */
-  text?: string;
-  usage?: { inputTokens: number; outputTokens: number; model?: string };
-  at: string;
-}
-
 export interface BuildExecutionStepEventArgs {
   workUnitId: string;
+  assignmentId?: string;
   executionId: string;
   /** 来源频道（wu.channelId 透传；null/缺省 → payload 无该键） */
   channelId?: string | null;
@@ -93,6 +74,10 @@ export interface BuildExecutionStepEventArgs {
   cliSessionId?: string;
   /** #94: 本步会话续用(true)/新建(false) 标记（undefined 时 payload 不产该键） */
   sessionResumed?: boolean;
+  /** #714：full/delta 对照度量；成功步即使没有文本也保留该样本。 */
+  context?: NonNullable<ExecutionStepEventPayload['context']>;
+  contextOverflow?: boolean;
+  recoveredFrom?: 'full' | 'delta';
   step: number;
   action?: string;
   /** #172: 缺省 'success'；'failed' 时无有效内容也产事件（失败信号不落空） */
@@ -200,18 +185,22 @@ export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): Exec
   const skills = (args.skills ?? []).filter(s => typeof s === 'string' && s.length > 0);
   const status = args.status ?? 'success';
 
-  if (status !== 'failed'
+  if (status !== 'failed' && !args.context
     && thinking.length === 0 && toolCalls.length === 0 && !text && !hasUsage && skills.length === 0) {
     return null;
   }
 
   return {
     workUnitId: args.workUnitId,
+    ...(args.assignmentId ? { assignmentId: args.assignmentId } : {}),
     executionId: args.executionId,
     ...(args.channelId ? { channelId: args.channelId } : {}),
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
     ...(args.cliSessionId ? { cliSessionId: args.cliSessionId } : {}),
     ...(args.sessionResumed !== undefined ? { sessionResumed: args.sessionResumed } : {}),
+    ...(args.context ? { context: args.context } : {}),
+    ...(args.contextOverflow ? { contextOverflow: true } : {}),
+    ...(args.recoveredFrom ? { recoveredFrom: args.recoveredFrom } : {}),
     step: args.step,
     ...(args.action ? { action: args.action } : {}),
     status,
@@ -296,33 +285,8 @@ export async function emitWorkUnitFailedEvent(payload: WorkUnitFailedEventPayloa
 
 // ─── Layer B：步内流式 chunk（SSE-only，不落盘） ───
 
-/** SSE 信封的 event_type（workunit. 前缀 → workunits topic） */
-export const EXECUTION_STREAM_SSE_TYPE = 'workunit.execution.stream';
-
 const STREAM_TEXT_MAX_CHARS = 500;
 const MAX_CHUNKS_PER_LINE = 10;
-
-export type ExecutionStreamChunkKind = 'step-start' | 'thinking' | 'text' | 'tool' | 'tool-result' | 'result';
-
-export interface ExecutionStreamChunk {
-  workUnitId: string;
-  executionId: string;
-  /** 来源频道（前端按频道过滤；无频道 WU 缺省） */
-  channelId?: string | null;
-  /** 1 基步号（与 Layer A 执行步事件同口径） */
-  step: number;
-  kind: ExecutionStreamChunkKind;
-  /** thinking/text/result/tool-result 文本（截断）；step-start/tool 时缺省 */
-  text?: string;
-  /** kind=tool 的工具名 + 人读摘要 */
-  tool?: string;
-  summary?: string;
-  /** #240: tool/tool-result 配对锚点（tool_use.id ↔ tool_result.tool_use_id） */
-  toolUseId?: string;
-  /** kind=result 且 CLI 标 is_error；kind=tool-result 且工具报错 */
-  isError?: boolean;
-  at: string;
-}
 
 export interface BuildStreamChunksArgs {
   workUnitId: string;

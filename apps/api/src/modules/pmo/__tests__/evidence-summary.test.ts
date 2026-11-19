@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { parseWuMetaPmoId, selectProjectSnapshots, summarizeEvidence } from '../evidence-summary.js';
+import { parseWuMetaPmoId, partitionSnapshotsByLeg, selectProjectSnapshots, summarizeEvidence } from '../evidence-summary.js';
 
 let seq = 0;
 function wu(overrides: Partial<WorkUnitSnapshot> & { metadataObj?: Record<string, unknown> }): WorkUnitSnapshot {
@@ -23,7 +23,15 @@ function wu(overrides: Partial<WorkUnitSnapshot> & { metadataObj?: Record<string
 const att = (kind: string, extra: Record<string, unknown> = {}) => ({
   verdict: 'approved', by: 'x', at: '2026-07-29T00:30:00Z', kind, ...extra,
 });
-const fullEvidence = { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } };
+const mergeReceipt = {
+  id: 'merge-1', merged: true, mergedAt: '2026-07-29T00:45:00Z',
+  mergeCommit: 'c0ffee1234567890', targetBranch: 'PMO-1',
+  verification: { status: 'passed', ran: ['pnpm test'] },
+};
+const fullEvidence = {
+  mergeReceipt,
+  attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') },
+};
 
 describe('parseWuMetaPmoId', () => {
   it('正常解析 / 无字段 / 坏 JSON / null / 空字符串', () => {
@@ -64,16 +72,42 @@ describe('selectProjectSnapshots', () => {
     expect(selectProjectSnapshots('proj-2', [...reqs], [conflicting]).map(x => x.id)).toEqual([conflicting.id]);
   });
 
-  it('#402 reqId 指向未绑定 REQ（projectId null）→ 回落 pmoId 戳（legacy 同位名同容错）', () => {
+  it('#402 reqId 指向未绑定 REQ（projectId null）→ 回落 pmoId 戳', () => {
     const orphan = wu({ reqId: 'REQ-3', metadataObj: { pmoId: 'proj-1' } });
-    const legacy = wu({ reqId: 'REQ-3', metadataObj: { ownershipProjectId: 'proj-1' } });
     const reqs = [{ id: 'REQ-3', projectId: null }];
-    expect(selectProjectSnapshots('proj-1', reqs, [orphan, legacy]).map(x => x.id)).toEqual([orphan.id, legacy.id]);
+    expect(selectProjectSnapshots('proj-1', reqs, [orphan]).map(x => x.id)).toEqual([orphan.id]);
+  });
+
+  it('#720 整体评审 WU 保留 REQ/PMO 血缘但不计入实现证据', () => {
+    const implementation = wu({ metadataObj: fullEvidence });
+    const review = wu({
+      type: 'review', status: 'unassigned',
+      metadataObj: { pmoId: 'proj-1', pmoCandidateReview: { projectId: 'proj-1', candidate: { id: 'candidate-1' } } },
+    });
+    const selected = selectProjectSnapshots('proj-1', [{ id: 'REQ-1', projectId: 'proj-1' }], [implementation, review]);
+    expect(selected.map(item => item.id)).toEqual([implementation.id]);
   });
 
   it('两种口径都无命中 → 空', () => {
     const other = wu({ reqId: 'REQ-9' });
     expect(selectProjectSnapshots('proj-1', [], [other])).toEqual([]);
+  });
+});
+
+describe('partitionSnapshotsByLeg', () => {
+  it('#720 多仓共用同名分支时优先按 repo 分腿，不把所有任务错归首腿', () => {
+    const a = wu({ metadataObj: { workspaceRoot: '/repo/a', pmoBranch: 'PMO-1' } });
+    const b = wu({ metadataObj: { workspaceRoot: '/repo/b', pmoBranch: 'PMO-1' } });
+    const shared = wu({ metadataObj: { pmoBranch: 'PMO-1' } });
+    const legs = [
+      { gitRepo: '/repo/a', branch: 'PMO-1', status: 'pending' as const },
+      { gitRepo: '/repo/b', branch: 'PMO-1', status: 'pending' as const },
+    ];
+
+    const partitioned = partitionSnapshotsByLeg(legs, [a, b, shared]);
+
+    expect(partitioned.perLeg.map(items => items.map(item => item.id))).toEqual([[a.id], [b.id]]);
+    expect(partitioned.shared.map(item => item.id)).toEqual([shared.id]);
   });
 });
 
@@ -92,6 +126,59 @@ describe('summarizeEvidence', () => {
       l1Missing: [], l2Missing: [], l3Missing: [], selfReviewCount: 0,
       deliverable: true,
     });
+  });
+
+  it('legacy done 即使三层证据齐，无 merge receipt 也不可交付', () => {
+    const legacy = wu({ metadataObj: { attestations: fullEvidence.attestations } });
+    const s = summarizeEvidence([legacy]);
+    expect(s.mergeMissing).toEqual([legacy.id]);
+    expect(s.verificationUnavailable).toEqual([]);
+    expect(s.deliverable).toBe(false);
+  });
+
+  it('代码 receipt 必须 merged 且带 mergeCommit/targetBranch，failed/not-run 均不可交付', () => {
+    const rejectedReceipts = [
+      { ...mergeReceipt, merged: false },
+      { ...mergeReceipt, mergeCommit: undefined },
+      { ...mergeReceipt, targetBranch: '' },
+      { ...mergeReceipt, verification: { status: 'failed', ran: ['pnpm test'] } },
+      { ...mergeReceipt, verification: { status: 'not-run', ran: [] } },
+    ];
+    for (const receipt of rejectedReceipts) {
+      const item = wu({ metadataObj: { ...fullEvidence, mergeReceipt: receipt } });
+      const s = summarizeEvidence([item]);
+      expect(s.mergeMissing).toEqual([item.id]);
+      expect(s.verificationUnavailable).toEqual([]);
+      expect(s.deliverable).toBe(false);
+    }
+  });
+
+  it('verification=unavailable 仅 L3 approved 可交付；否则单列人工确认缺口', () => {
+    const unavailable = { ...mergeReceipt, verification: { status: 'unavailable', ran: [] } };
+    const approved = wu({ metadataObj: { ...fullEvidence, mergeReceipt: unavailable } });
+    const approvedSummary = summarizeEvidence([approved]);
+    expect(approvedSummary.verificationUnavailable).toEqual([]);
+    expect(approvedSummary.deliverable).toBe(true);
+
+    const withoutL3 = wu({ metadataObj: {
+      mergeReceipt: unavailable,
+      attestations: { l1: att('verify'), l2: att('agent-review') },
+    } });
+    const s = summarizeEvidence([withoutL3]);
+    expect(s.mergeMissing).toEqual([]);
+    expect(s.verificationUnavailable).toEqual([withoutL3.id]);
+    expect(s.deliverable).toBe(false);
+  });
+
+  it('unavailable+L3 没有既有 L1 也可交付，不伪装自动验证通过', () => {
+    const unavailable = { ...mergeReceipt, verification: { status: 'unavailable', ran: [] } };
+    const accepted = wu({ metadataObj: {
+      mergeReceipt: unavailable,
+      attestations: { l2: att('agent-review'), l3: att('human-confirm') },
+    } });
+    const s = summarizeEvidence([accepted]);
+    expect(s.l1Missing).toEqual([]);
+    expect(s.deliverable).toBe(true);
   });
 
   it('代码类 WU 缺证据 → 三层缺口各自分桶', () => {
@@ -149,7 +236,7 @@ describe('summarizeEvidence', () => {
   });
 
   it('l2 自评计数（不阻断交付）', () => {
-    const self = wu({ metadataObj: { attestations: { l1: att('verify'), l2: att('agent-review', { selfReview: true }), l3: att('human-confirm') } } });
+    const self = wu({ metadataObj: { mergeReceipt, attestations: { l1: att('verify'), l2: att('agent-review', { selfReview: true }), l3: att('human-confirm') } } });
     const s = summarizeEvidence([self]);
     expect(s.selfReviewCount).toBe(1);
     expect(s.deliverable).toBe(true);

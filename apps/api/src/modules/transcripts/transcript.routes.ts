@@ -14,7 +14,7 @@ import { Router } from 'express';
 import { readTranscript } from './transcript-archive.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { defineRoute } from '../../core/http.js';
-import { transcriptParamsSchema, transcriptQuerySchema } from '@dommaker/studio-contract';
+import { transcriptParamsSchema, transcriptQuerySchema, transcriptResponseSchema } from '@dommaker/studio-contract';
 
 const router = Router();
 
@@ -24,7 +24,7 @@ const router = Router();
  * 响应：{ data: { workUnitId, total, offset, limit, entries } }
  */
 router.get('/:workUnitId', defineRoute(
-  { params: transcriptParamsSchema, query: transcriptQuerySchema },
+  { params: transcriptParamsSchema, query: transcriptQuerySchema, response: transcriptResponseSchema },
   async (req, _res, { params }) => {
     const { workUnitId } = params;
 

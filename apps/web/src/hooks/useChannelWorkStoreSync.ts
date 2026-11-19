@@ -4,26 +4,26 @@
 // 挂载即打底三 slice（wus/reqs TTL 门禁 + suggestions 即时），重连全 slice 强刷（useDataPlaneSync 承担）。
 // 更新逻辑唯一一份在 store action；本 hook 只做事件路由与活跃频道登记。
 import { useEffect } from 'react';
-import { type WebSocketMessage } from '../api/websocketHooks';
+import { type SseMessage } from '../api/sseHooks';
+import { isSseEvent } from '../api/sseParser';
 import { parseRequirementPayload } from '../stores/channelWorkStore';
 import {
   useChannelWorkStore,
   CHANNEL_WORK_POLL_INTERVAL_MS,
 } from '../stores/channelWorkStore';
 import { useDataPlaneSync } from './useDataPlaneSync';
-import type { WorkUnit } from '../api/workunit';
 
 // 活跃频道登记（模块级）：页面级单消费方（ref-count=1），handleEvent/ensureFresh 引用稳定靠它取当前频道
 let activeChannelId: string | null = null;
 
-function handleChannelWorkEvent(msg: WebSocketMessage) {
+function handleChannelWorkEvent(msg: SseMessage) {
   const id = activeChannelId;
   if (!id) return;
   const store = useChannelWorkStore.getState();
 
-  if (msg.event_type === 'workunit.status_changed') {
+  if (isSseEvent(msg, 'workunit.status_changed')) {
     // 负载 = { workunit } 信封 17 字段全量快照（snapshotToData）；非本频道跳过（对齐旧过滤语义）
-    const wu = (msg.data as { workunit?: WorkUnit | null } | null)?.workunit;
+    const wu = msg.data?.workunit;
     if (!wu || wu.channelId !== id) return;
     store.applyWorkunitSnapshot(id, wu);
     // #443/#489：状态变化（含 NEED_INPUT 挂起/恢复）后端点派生建议防抖重拉
@@ -31,10 +31,10 @@ function handleChannelWorkEvent(msg: WebSocketMessage) {
     return;
   }
 
-  if (msg.event_type === 'workunit:removed') {
+  if (isSseEvent(msg, 'workunit:removed')) {
     // #538：负载 = { id, channelId }（GC/TTL 删除出声）；缺 id 属畸形 fail-closed 跳过
-    const data = msg.data as { id?: string; channelId?: string | null } | null | undefined;
-    if (!data || typeof data.id !== 'string' || !data.id) return;
+    const data = msg.data;
+    if (!data?.id) return;
     // channelId 缺省（防御）放行按活跃频道处理；带值且不匹配跳过（对齐 status_changed 过滤语义）
     if (data.channelId && data.channelId !== id) return;
     store.applyWorkunitRemoved(id, data.id);
@@ -52,10 +52,9 @@ function handleChannelWorkEvent(msg: WebSocketMessage) {
     return;
   }
 
-  if (msg.event_type === 'channel.message_sent') {
+  if (isSseEvent(msg, 'channel.message_sent')) {
     // 负载缺 channelId 属畸形，fail-closed 跳过（与 useChannelEvents 同口径）
-    const data = msg.data as { channelId?: string } | undefined;
-    if (data?.channelId === id) store.markSuggestionsDirty(id);
+    if (msg.data?.channelId === id) store.markSuggestionsDirty(id);
   }
 }
 
@@ -72,9 +71,13 @@ export function useChannelWorkStoreSync(channelId: string | undefined): void {
     activeChannelId = channelId ?? null;
     if (!channelId) return;
     const store = useChannelWorkStore.getState();
+    const release = store.subscribeChannel(channelId);
     void store.ensureChannelWork(channelId);
     void store.refreshSuggestions(channelId);
-    return () => { if (activeChannelId === channelId) activeChannelId = null; };
+    return () => {
+      release();
+      if (activeChannelId === channelId) activeChannelId = null;
+    };
   }, [channelId]);
 
   useDataPlaneSync({

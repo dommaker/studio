@@ -30,6 +30,11 @@ function removeSkillFile(skillName: string) {
 
 // Mock studio-shared — skill-loader 仅需 logger 与 FileStore（事件写入）
 // FileStore 保持最小 fake：appendJsonl 不触碰真实 ~/.studio
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {

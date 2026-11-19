@@ -19,7 +19,7 @@ import { scanAllProviders } from '../daemon/cli-scanner.js';
 import { buildFirstRunPanel } from './first-run-panel.js';
 import { parsePortFlag, resolvePort, explicitPortFromEnv } from './port-probe.js';
 import { ensureFrontendDist } from '../utils/frontend-dist.js';
-import { resolveListenHost } from '../utils/listen-host.js';
+import { resolveListenHost } from './listen-host.js';
 
 const CLI_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -86,7 +86,7 @@ export async function studioRunWeb(rawArgs: string[]): Promise<void> {
 
   // 6. 首启默认数据（默认频道 + admin，幂等）
   try {
-    const { createOpsService } = await import('../modules/agent-ops/index.js');
+    const { createOpsService } = await import('../modules/ops/index.js');
     const defaults = await createOpsService(resolved.port).ensureDefaults();
     console.log(`Defaults: ${defaults.channels} channels, admin ${defaults.admin ? 'exists' : 'created'}`);
   } catch (e: any) {

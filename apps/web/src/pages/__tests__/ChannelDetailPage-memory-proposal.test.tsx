@@ -42,9 +42,9 @@ vi.mock('../../api/requirements', () => ({
   requirementApi: { list: mockListReqs },
 }));
 
-// #242：页面新增 live 状态条走 WebSocketContext——测试环境无 Provider，置空订阅
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
+// #242：页面新增 live 状态条走 SseContext——测试环境无 Provider，置空订阅
+vi.mock('../../api/sseHooks', () => ({
+  useSseContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => null }));
@@ -64,7 +64,7 @@ const MESSAGES = [
   {
     id: 'msg-mp-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'KK',
     content: '角色记忆提案 — 待确认', workUnitId: null, replyToId: null,
-    meta: JSON.stringify({
+    meta: {
       cardType: 'memory_proposal',
       status: 'ready',
       cardData: {
@@ -75,7 +75,7 @@ const MESSAGES = [
           { draftId: 'd-2', title: '命名约定', topicSlug: 'naming', topicPath: 'topics/naming.md', kind: 'preference' },
         ],
       },
-    }),
+    },
     createdAt: new Date().toISOString(),
   },
 ];

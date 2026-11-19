@@ -638,7 +638,7 @@ body,
   color: var(--accent-primary);
 }
 
-/* === 主导航项（SidebarNew；批次 D-1.2 内联收敛 + active 态重设计） === */
+/* === 主导航项（Sidebar；批次 D-1.2 内联收敛 + active 态重设计） === */
 /* active = accent-dim 底 + accent 左边线（inset 防布局抖动）+ accent 文字，取代原描边盒 */
 .nav-item {
   display: flex;

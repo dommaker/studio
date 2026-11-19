@@ -24,9 +24,10 @@ const { mockCreateCardMessage, checkConstraintsCalls, mockRunCmd } = vi.hoisted(
   mockRunCmd: vi.fn(),
 }));
 
-// propose-upgrade 端点建卡走 review-proposal 正本发卡（ADR-0033 子项 8）
+// propose-upgrade 端点建卡走 review-proposal 正本发卡（ADR-0033 子项 8）；
+// Phase 5 SCC 第一刀 #3：正本发卡改装配注入的 ChannelCardPoster，测试内注册（channels mock 仅留 createAgentMessage）
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage, createAgentMessage: vi.fn() },
+  getChannelMessageService: () => ({ createAgentMessage: vi.fn() }),
 }));
 
 // #646：rollback spawn 真实 CLI；runCmd 包一层 vi.fn 供「CLI 不可用 → 500」用例注入失败
@@ -39,8 +40,8 @@ vi.mock('../../evolution/applier.js', async (importOriginal) => {
 vi.mock('@dommaker/harness', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/harness')>();
   const store = [
-    { id: 'c-safe', kind: 'check', severity: 'error', rule: 'R1', message: 'm1', trigger: 'code_implementation', enforcement: 'test' },
-    { id: 'c-quality', kind: 'check', severity: 'warning', rule: 'R2', message: 'm2', trigger: 'code_implementation', enforcement: 'custom' },
+    { id: 'c-safe', severity: 'error', rule: 'R1', message: 'm1', trigger: 'code_implementation', enforcement: 'test' },
+    { id: 'c-quality', severity: 'warning', rule: 'R2', message: 'm2', trigger: 'code_implementation', enforcement: 'custom' },
   ];
   return {
     ...actual,
@@ -59,7 +60,7 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
         });
       }
       if (opts.operation === 'simulate-error') throw new Error('harness down');
-      return { passed: true, operation: opts.operation, violations: [] };
+      return { passed: true, operation: opts.operation, errors: [], warnings: [], warningCount: 0 };
     },
   };
 });
@@ -107,6 +108,11 @@ beforeAll(async () => {
   });
   registerConstraintReviewAdapter({ fileStore, dataDir: tmpHome });
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+  // Phase 5 SCC 第一刀 #3：发卡经装配注入的 ChannelCardPoster（原 channels mock 的 createCardMessage 已死）
+  const { registerChannelCardPoster } = await import('../../review-proposal/card.js');
+  registerChannelCardPoster((post) =>
+    mockCreateCardMessage(post.channelId, post.author, post.content, post.cardType, post.cardData),
+  );
 
   const app = express();
   app.use(express.json());
@@ -126,21 +132,21 @@ afterAll(async () => {
 });
 
 describe('constraints.routes', () => {
-  it('GET /constraints lists effective set with kind', async () => {
+  it('GET /constraints lists effective set (harness 3.0.0: kind 出清，投影不再带该字段)', async () => {
     const res = await api('GET', '/constraints');
     expect(res.status).toBe(200);
     // 列表壳内层 data 键改名词键 constraints（批次 6/7）
     expect(res.json.data.total).toBe(2);
     expect(res.json.data.constraints.map((c: any) => c.id).sort()).toEqual(['c-quality', 'c-safe']);
-    expect(res.json.data.constraints[0]).toHaveProperty('kind');
+    expect(res.json.data.constraints[0]).not.toHaveProperty('kind');
+    expect(res.json.data.constraints[0]).toHaveProperty('severity');
   });
 
-  it('GET /constraints/stats aggregates by kind/severity (not shadowed by /:id)', async () => {
+  it('GET /constraints/stats aggregates by severity (not shadowed by /:id)', async () => {
     const res = await api('GET', '/constraints/stats');
     expect(res.status).toBe(200);
     expect(res.json.data).toEqual({
       total: 2,
-      byKind: { check: 2 },
       bySeverity: { error: 1, warning: 1 },
     });
   });
@@ -267,7 +273,7 @@ describe('constraints.routes', () => {
 
     const ok = await api('POST', '/check-constraints', { operation: 'create-requirement' });
     expect(ok.status).toBe(200);
-    expect(ok.json.data).toEqual({ passed: true, operation: 'create-requirement', violations: [] });
+    expect(ok.json.data).toEqual({ passed: true, operation: 'create-requirement', errors: [], warnings: [], warningCount: 0 });
   });
 
   it('POST /check-constraints 剥离请求体自报的 hasRequirement（#641），响应标注降级', async () => {

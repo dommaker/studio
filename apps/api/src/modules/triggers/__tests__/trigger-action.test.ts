@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { executeCreateAction, setTriggerActionFileStore } from '../trigger-action';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../../workunit/workunit.service';
+import { WorkUnitService } from '../../workunit/workunit-review.js';
 import type { TriggerAction } from '../trigger.types';
 
 describe('TriggerAction — CREATE WorkUnit', () => {
