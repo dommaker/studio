@@ -15,7 +15,7 @@ jobs:
       # （缺失即 fail-closed，PR #651 首次撞出）；push 事件不需要，故 master 推送一直绿。
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # 全历史机密扫描（下述 gitleaks 步骤）需要完整 clone
           fetch-depth: 0
