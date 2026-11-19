@@ -17,7 +17,7 @@
     "@dommaker/studio-contract": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "@tanstack/react-virtual": "^3.14.10",
-    "axios": "^1.20.0",
+    "axios": "^1.21.1",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
