@@ -35,7 +35,7 @@ jobs:
       - name: Security (secret scan, full history)
         # 供应链惯例 pin：锁到 v2.3.9 tag 对象解出的确切 commit（@v2 当时即解析到此；
         # tag 可被重打，SHA 不可变。升级 = 换 SHA 并人工比对上游 diff，无自动 bot）
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
       # 模块级循环依赖门（#666）：纯 Node 脚本无构建前置、毫秒级断言，置于 build 之前；
       # 新增环 / 豁免清单漂移即红，豁免正本 scripts/module-cycle-exemptions.mjs（逐条带原因）。
       - name: Cycle gate (module deps)
