@@ -19,7 +19,7 @@ jobs:
         with:
           # 全历史机密扫描（下述 gitleaks 步骤）需要完整 clone
           fetch-depth: 0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - name: Enable the packageManager-pinned pnpm
