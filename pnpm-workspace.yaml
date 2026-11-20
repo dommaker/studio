@@ -9,7 +9,7 @@ allowBuilds:
 minimumReleaseAge: 0
 
 catalog:
-  '@fastify/cors': ^8.4.0
+  '@fastify/cors': ^11.4.3
   '@types/node': ^20.0.0
   fastify: ^4.24.0
   typescript: ^5.3.0
